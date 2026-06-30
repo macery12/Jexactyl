@@ -1,5 +1,6 @@
-import { createElement, type ReactElement } from 'react';
+import { createElement, useSyncExternalStore, type ReactElement } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 'react-router-dom';
+import { subscribeLocale, getCurrentLocale } from '@/i18n';
 import { useSession } from '@/state/session';
 import type { RouteDef } from '@/routes/registry';
 import { authRoutes } from '@/routes/auth.routes';
@@ -46,5 +47,8 @@ const router = createBrowserRouter([
 ]);
 
 export function App() {
-    return <RouterProvider router={router} />;
+    // Re-key the router on a live locale switch so the whole tree re-renders and
+    // every compiled message re-evaluates in the new language (no page reload).
+    const locale = useSyncExternalStore(subscribeLocale, getCurrentLocale, getCurrentLocale);
+    return <RouterProvider key={locale} router={router} />;
 }

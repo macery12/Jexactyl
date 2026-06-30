@@ -61,31 +61,24 @@ export function formatTags(message: string, components: Record<string, ReactElem
     return nodes;
 }
 
-const STORAGE_KEY = 'm12labs.locale';
-
 function isSupported(value: string | null | undefined): value is Locale {
     return !!value && (locales as readonly string[]).includes(value);
 }
 
-function safeStorageGet(): string | null {
-    try {
-        return window.localStorage.getItem(STORAGE_KEY);
-    } catch {
-        return null;
-    }
-}
-
-// Resolve the active locale. Precedence:
-//   1. an explicit user choice persisted in localStorage,
-//   2. the backend's per-user language (window.PterodactylUser.language),
-//   3. the panel default (window.SiteConfiguration.locale),
-//   4. the base locale ('en').
+// Resolve the active locale. The panel is driven entirely by the GLOBAL default
+// admins set on /v2/admin/settings (window.SiteConfiguration.locale, backed by
+// the app:locale setting). Precedence:
+//   1. the global panel default,
+//   2. the per-account field (window.PterodactylUser.language) — legacy fallback,
+//   3. the base locale ('en').
+// We intentionally do NOT read localStorage: there is no per-user picker yet, so
+// a stale per-browser value must never be able to mask the global default. When
+// a per-user picker ships it gets its own tier ABOVE the global default here.
 // Anything not in `locales` is ignored so we never boot into a missing catalog.
 function resolveLocale(): Locale {
     const candidates = [
-        safeStorageGet(),
-        window.PterodactylUser?.language,
         window.SiteConfiguration?.locale,
+        window.PterodactylUser?.language,
     ];
     for (const c of candidates) {
         if (isSupported(c)) return c;
@@ -95,23 +88,32 @@ function resolveLocale(): Locale {
 
 let currentLocale: Locale = resolveLocale();
 
+// React subscribers, so calling setLocale() at runtime re-renders the app in the
+// new language WITHOUT a full page reload (App.tsx keys the router off this).
+// Used after an admin saves a new global default on the settings page.
+const localeListeners = new Set<() => void>();
+export function subscribeLocale(listener: () => void): () => void {
+    localeListeners.add(listener);
+    return () => localeListeners.delete(listener);
+}
+export function getCurrentLocale(): Locale {
+    return currentLocale;
+}
+
 // Drive Paraglide off our own resolution rather than its cookie/URL strategies,
 // keeping the exact Blade→JS precedence the rest of bootstrap uses.
 overwriteGetLocale(() => currentLocale);
 overwriteSetLocale((locale) => {
     currentLocale = locale;
-    try {
-        window.localStorage.setItem(STORAGE_KEY, locale);
-    } catch {
-        /* private mode / storage disabled — non-fatal */
-    }
     // Keep <html lang> in sync for a11y + correct CSS :lang() / hyphenation.
     document.documentElement.lang = locale;
+    localeListeners.forEach((l) => l());
 });
 
 document.documentElement.lang = currentLocale;
 
-// Switch locale at runtime and remember the choice. Exposed for a future
-// language picker; persists so the next visit boots straight into it. Routes
-// through the (overwritten) Paraglide setter above.
+// Runtime locale switch (routes through the overwritten setter above, which
+// notifies subscribers so the UI re-renders live). Changing the language is a
+// global, admin-driven action today; this is also the seam a future per-user
+// picker would use.
 export { setLocale } from '@/paraglide/runtime';
