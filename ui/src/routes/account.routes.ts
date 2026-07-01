@@ -5,6 +5,8 @@ import { route, type RouteDef } from './registry';
 const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage'));
 const AccountPage = lazy(() => import('@/pages/account/settings/AccountPage'));
 const ActivityPage = lazy(() => import('@/pages/account/activity/ActivityPage'));
+const TicketsPage = lazy(() => import('@/pages/account/tickets/TicketsPage'));
+const TicketDetailPage = lazy(() => import('@/pages/account/tickets/TicketDetailPage'));
 const StorePage = lazy(() => import('@/pages/account/billing/store/StorePage'));
 const ConfigureCheckout = lazy(() => import('@/pages/account/billing/order/ConfigureCheckout'));
 const PaymentPage = lazy(() => import('@/pages/account/billing/payment/PaymentPage'));
@@ -16,8 +18,8 @@ const CancelPage = lazy(() => import('@/pages/account/billing/payment/CancelPage
 // Root ('') is the server-list dashboard — the authenticated landing target.
 export const accountRoutes: RouteDef[] = [
     route('', { name: 'Dashboard', icon: LayoutDashboard, element: DashboardPage, end: true }),
-    route('tickets', { name: 'Tickets', icon: LifeBuoy, condition: f => f.tickets.enabled }),
-    route('tickets/:id', { condition: f => f.tickets.enabled }),
+    route('tickets', { name: 'Tickets', icon: LifeBuoy, element: TicketsPage, condition: f => f.tickets.enabled }),
+    route('tickets/:id', { element: TicketDetailPage, condition: f => f.tickets.enabled }),
     route('billing/order', { name: 'Store', icon: ShoppingCart, element: StorePage, condition: f => f.billing.enabled }),
     route('billing/orders', { name: 'Orders', icon: ReceiptText, condition: f => f.billing.enabled }),
     route('activity', { name: 'Activity', icon: Activity, element: ActivityPage }),

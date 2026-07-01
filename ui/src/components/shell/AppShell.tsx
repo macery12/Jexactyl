@@ -6,8 +6,14 @@ import { TopNav } from './TopNav';
 import { Sidebar } from './Sidebar';
 import { FullPageSpinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
-import { ShellLayoutContext } from './shellLayout';
+import { ShellLayoutContext, type ContentWidth } from './shellLayout';
 import type { NavGroup } from '@/routes/nav';
+
+const WIDTH_CLASS: Record<ContentWidth, string> = {
+    default: 'max-w-6xl',
+    wide: 'max-w-[104rem]',
+    full: 'max-w-none',
+};
 
 // Shared chrome for all authenticated areas: top nav + a registry-driven
 // sidebar (desktop static, mobile drawer) + the routed content. An optional
@@ -15,8 +21,8 @@ import type { NavGroup } from '@/routes/nav';
 // area uses it for the server-identity bar).
 export function AppShell({ groups, header }: { groups: NavGroup[]; header?: ReactNode }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [wide, setWide] = useState(false);
-    const layout = useMemo(() => ({ setWide }), []);
+    const [width, setWidth] = useState<ContentWidth>('default');
+    const layout = useMemo(() => ({ setWidth }), []);
 
     return (
         <ShellLayoutContext.Provider value={layout}>
@@ -52,7 +58,7 @@ export function AppShell({ groups, header }: { groups: NavGroup[]; header?: Reac
                         </div>
                     )}
                     <div className="px-5 py-6 sm:px-8">
-                        <div className={cn('mx-auto w-full', wide ? 'max-w-[104rem]' : 'max-w-6xl')}>
+                        <div className={cn('mx-auto w-full', WIDTH_CLASS[width])}>
                             <Suspense fallback={<FullPageSpinner />}>
                                 <Outlet />
                             </Suspense>
