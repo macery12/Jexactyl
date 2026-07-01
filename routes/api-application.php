@@ -34,6 +34,19 @@ Route::middleware([AdminSubject::class])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
+    | Landing Page Controller Routes
+    |--------------------------------------------------------------------------
+    |
+    | Endpoint: /api/application/landing
+    |
+    */
+    Route::group(['prefix' => '/landing'], function () {
+        Route::get('/', [Application\Landing\LandingController::class, 'index']);
+        Route::patch('/', [Application\Landing\LandingController::class, 'update']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
     | Auth Settings Controller Routes
     |--------------------------------------------------------------------------
     |

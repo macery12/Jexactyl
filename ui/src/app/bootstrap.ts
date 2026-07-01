@@ -8,6 +8,7 @@ import { applyThemeVars, normalizeTheme } from '@/lib/theme';
 export function bootstrap(): void {
     useSession.getState().setUser(window.PterodactylUser ?? null);
     useFlags.getState().set(window.EverestConfiguration ?? null, window.SiteConfiguration ?? null);
+    useFlags.getState().setLanding(window.LandingConfiguration ?? null);
 
     if (Array.isArray(window.FlashMessages)) {
         for (const flash of window.FlashMessages) useFlashes.getState().push(flash);

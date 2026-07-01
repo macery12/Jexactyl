@@ -23,11 +23,13 @@ Input.displayName = 'Input';
 
 export function Field({
     label,
+    hint,
     error,
     children,
     htmlFor,
 }: {
     label: string;
+    hint?: string;
     error?: string;
     htmlFor?: string;
     children: React.ReactNode;
@@ -37,6 +39,7 @@ export function Field({
             <label htmlFor={htmlFor} className="text-sm font-medium text-[var(--color-ink-muted)]">
                 {label}
             </label>
+            {hint && <p className="-mt-0.5 text-xs text-[var(--color-ink-faint)]">{hint}</p>}
             {children}
             {error && <span className="text-xs text-[var(--color-danger)]">{error}</span>}
         </div>

@@ -1,10 +1,12 @@
-import { useState, Suspense, type ReactNode } from 'react';
+import { useMemo, useState, Suspense, type ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { TopNav } from './TopNav';
 import { Sidebar } from './Sidebar';
 import { FullPageSpinner } from '@/components/ui/Spinner';
+import { cn } from '@/lib/cn';
+import { ShellLayoutContext } from './shellLayout';
 import type { NavGroup } from '@/routes/nav';
 
 // Shared chrome for all authenticated areas: top nav + a registry-driven
@@ -13,8 +15,11 @@ import type { NavGroup } from '@/routes/nav';
 // area uses it for the server-identity bar).
 export function AppShell({ groups, header }: { groups: NavGroup[]; header?: ReactNode }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const [wide, setWide] = useState(false);
+    const layout = useMemo(() => ({ setWide }), []);
 
     return (
+        <ShellLayoutContext.Provider value={layout}>
         <div className="flex min-h-screen flex-col">
             <TopNav onToggleSidebar={() => setDrawerOpen(true)} />
 
@@ -47,7 +52,7 @@ export function AppShell({ groups, header }: { groups: NavGroup[]; header?: Reac
                         </div>
                     )}
                     <div className="px-5 py-6 sm:px-8">
-                        <div className="mx-auto w-full max-w-6xl">
+                        <div className={cn('mx-auto w-full', wide ? 'max-w-[104rem]' : 'max-w-6xl')}>
                             <Suspense fallback={<FullPageSpinner />}>
                                 <Outlet />
                             </Suspense>
@@ -56,5 +61,6 @@ export function AppShell({ groups, header }: { groups: NavGroup[]; header?: Reac
                 </main>
             </div>
         </div>
+        </ShellLayoutContext.Provider>
     );
 }

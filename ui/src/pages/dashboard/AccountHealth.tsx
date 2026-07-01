@@ -48,7 +48,7 @@ export function AccountHealth() {
                     badIcon={ShieldAlert}
                     okLabel={m['dashboard.twoFactorEnabled']()}
                     badLabel={m['dashboard.enableTwoFactor']()}
-                    to="/v2/account/security"
+                    to="/v2/account/settings"
                 />
                 <Row
                     ok={user.email_verified !== false}

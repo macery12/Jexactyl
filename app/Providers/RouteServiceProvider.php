@@ -76,6 +76,11 @@ class RouteServiceProvider extends ServiceProvider
             // Payment webhooks - no authentication required
             Route::prefix('/api')
                 ->group(base_path('routes/webhooks.php'));
+
+            // Public read-only API (storefront catalog for the landing page) -
+            // no authentication, IP rate-limited.
+            Route::prefix('/api')
+                ->group(base_path('routes/api-public.php'));
         });
     }
 
@@ -226,6 +231,23 @@ class RouteServiceProvider extends ServiceProvider
             $key = optional($request->user())->uuid ?: $request->ip();
 
             return Limit::perMinute(5)->by($key);
+        });
+
+        // Public storefront catalog — unauthenticated, so it must be keyed purely
+        // by IP. Kept generous enough for normal browsing but tight enough to blunt
+        // scraping/abuse of the public endpoint.
+        RateLimiter::for('storefront.read', function (Request $request) {
+            return Limit::perMinute(60)->by($request->ip())->response(function () {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => 'Too many requests. Please wait a moment and try again.',
+                        ],
+                    ],
+                ], 429);
+            });
         });
     }
 

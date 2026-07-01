@@ -103,6 +103,12 @@ class SettingsServiceProvider extends ServiceProvider
         // Extensions module settings
         'modules:extensions:enabled',
 
+        // Landing page module settings
+        // NB: the rich section structure is stored as a JSON blob under
+        // `modules:landing:config` and read directly via Setting::get — only the
+        // scalar master toggle is hydrated into config() here.
+        'modules:landing:enabled',
+
         // Custom domains module settings
         'modules:custom_domains:enabled',
         'modules:custom_domains:cloudflare:token',

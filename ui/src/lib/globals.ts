@@ -95,6 +95,61 @@ export interface EverestConfiguration {
     [k: string]: unknown;
 }
 
+// Public landing page configuration — injected by LandingComposer for every
+// view (including logged-out visitors) so the landing page renders instantly
+// with no extra request. The rich section structure is admin-editable.
+export type LandingSectionId = 'hero' | 'features' | 'pricing' | 'faq' | 'testimonials' | 'custom';
+
+export interface LandingCta {
+    label: string;
+    href: string;
+}
+
+export interface LandingFeatureItem {
+    icon: string;
+    title: string;
+    body: string;
+}
+
+export interface LandingFaqItem {
+    q: string;
+    a: string;
+}
+
+export interface LandingTestimonialItem {
+    quote: string;
+    author: string;
+    role: string;
+}
+
+// Per-section data is loosely typed (shape varies by section id); the section
+// components and admin editor read the fields they own. Blank string fields are
+// treated as "use the translated Paraglide default".
+export interface LandingSectionData {
+    badge?: string;
+    title?: string;
+    subtitle?: string;
+    heading?: string;
+    backgroundImage?: string;
+    primaryCta?: LandingCta;
+    secondaryCta?: LandingCta;
+    items?: Array<LandingFeatureItem | LandingFaqItem | LandingTestimonialItem>;
+    categoryIds?: number[];
+    body?: string;
+}
+
+export interface LandingSection {
+    id: LandingSectionId;
+    enabled: boolean;
+    order: number;
+    data: LandingSectionData;
+}
+
+export interface LandingConfiguration {
+    enabled: boolean;
+    sections: LandingSection[];
+}
+
 export interface FlashMessage {
     type: 'success' | 'error' | 'info' | 'warning';
     message: string;
@@ -106,6 +161,7 @@ declare global {
         SiteConfiguration?: SiteConfiguration;
         ThemeConfiguration?: ThemeConfiguration;
         EverestConfiguration?: EverestConfiguration;
+        LandingConfiguration?: LandingConfiguration;
         FlashMessages?: FlashMessage[];
     }
 }

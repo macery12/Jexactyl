@@ -14,6 +14,7 @@ import {
     Webhook,
     Puzzle,
     Palette,
+    LayoutTemplate,
     Bell,
     Database,
     Server,
@@ -30,6 +31,7 @@ const InfrastructureSection = lazy(() => import('@/pages/admin/infrastructure/In
 const ThemeSection = lazy(() => import('@/pages/admin/theme/ThemeSection'));
 const ExtensionsSection = lazy(() => import('@/pages/admin/extensions/ExtensionsSection'));
 const BillingSection = lazy(() => import('@/pages/admin/billing/BillingSection'));
+const LandingSection = lazy(() => import('@/pages/admin/landing/LandingSection'));
 const EmailSection = lazy(() => import('@/pages/admin/email/EmailSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
@@ -37,6 +39,7 @@ const EmailSection = lazy(() => import('@/pages/admin/email/EmailSection'));
 export const adminRoutes: RouteDef[] = [
     route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true }),
     route('settings/*', { name: 'Settings', icon: Settings, category: 'general', permission: 'settings.read', element: SettingsSection }),
+    route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read' }),
     route('api/*', { name: 'API Keys', icon: KeyRound, category: 'general', permission: 'api.read' }),
 

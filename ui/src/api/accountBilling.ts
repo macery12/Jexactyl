@@ -240,6 +240,29 @@ export function hasCompleteBillingProfile(profile: BillingProfile | null): boole
     ].every(v => typeof v === 'string' && v.trim().length > 0);
 }
 
+// Fields the store/update endpoints accept (country is a 2-letter ISO code).
+export interface BillingProfileInput {
+    first_name: string;
+    last_name: string;
+    address_line1: string;
+    address_line2?: string | null;
+    city: string;
+    state: string;
+    postal_code: string;
+    country: string;
+    phone?: string | null;
+}
+
+// The profile has no dedicated PATCH: POST creates, PUT updates. `exists`
+// tells us which the backend expects (POST 409s when one already exists, PUT
+// 404s when none does). Callers derive it from a prior getBillingProfile().
+export async function saveBillingProfile(input: BillingProfileInput, exists: boolean): Promise<BillingProfile> {
+    const { data } = exists
+        ? await http.put('/api/client/billing/profile', input)
+        : await http.post('/api/client/billing/profile', input);
+    return data;
+}
+
 // ---- free order -------------------------------------------------------------
 
 export interface FreeOrderPayload {

@@ -2,6 +2,7 @@ import { createElement, useSyncExternalStore, type ReactElement } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 'react-router-dom';
 import { subscribeLocale, getCurrentLocale } from '@/i18n';
 import { useSession } from '@/state/session';
+import { useFlags } from '@/state/flags';
 import type { RouteDef } from '@/routes/registry';
 import { authRoutes } from '@/routes/auth.routes';
 import { accountRoutes } from '@/routes/account.routes';
@@ -32,9 +33,14 @@ function childRoutes(defs: RouteDef[]): RouteObject[] {
 }
 
 // Guests see the landing page at /v2; authenticated users go to their dashboard.
+// When the operator has disabled the landing page entirely, guests are sent
+// straight to sign-in — the landing page is never shown or routed to.
 function RootEntry() {
     const authenticated = useSession(s => s.isAuthenticated);
-    return authenticated ? <Navigate to="/v2/account" replace /> : <LandingPage />;
+    const landing = useFlags(s => s.landing);
+    if (authenticated) return <Navigate to="/v2/account" replace />;
+    if (landing && !landing.enabled) return <Navigate to="/v2/auth/login" replace />;
+    return <LandingPage />;
 }
 
 const router = createBrowserRouter([

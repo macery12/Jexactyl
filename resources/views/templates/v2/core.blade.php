@@ -20,6 +20,9 @@
         @if(!empty($everestConfiguration))
             <script>window.EverestConfiguration = {!! json_encode($everestConfiguration) !!};</script>
         @endif
+        @if(!empty($landingConfiguration))
+            <script>window.LandingConfiguration = {!! json_encode($landingConfiguration) !!};</script>
+        @endif
         @if(!empty($themeConfiguration))
             <script>window.ThemeConfiguration = {!! json_encode($themeConfiguration) !!};</script>
         @endif
