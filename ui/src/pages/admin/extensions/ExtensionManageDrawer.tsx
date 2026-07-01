@@ -56,7 +56,7 @@ export function ExtensionManageDrawer({
     }, [ext]);
 
     const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'extensions'] });
-    const fail = () => push({ type: 'error', message: m['extensions.toast.error']() });
+    const fail = () => push({ type: 'error', message: m['common.states.genericError']() });
 
     const save = useMutation({
         mutationFn: () => updateExtension(ext!.id, { enabled, allowedNests, allowedEggs, settings }),
@@ -172,7 +172,7 @@ export function ExtensionManageDrawer({
                     <button
                         type="button"
                         onClick={onClose}
-                        aria-label={m['extensions.drawer.close']()}
+                        aria-label={m['common.actions.close']()}
                         className="rounded-lg p-1.5 text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                     >
                         <X className="h-4 w-4" />
@@ -367,7 +367,7 @@ export function ExtensionManageDrawer({
                                 className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
                             >
                                 {save.isPending && <Spinner className="h-4 w-4" />}
-                                {save.isPending ? m['extensions.drawer.saving']() : m['extensions.drawer.save']()}
+                                {save.isPending ? m['common.states.saving']() : m['common.actions.saveChanges']()}
                             </button>
                         </>
                     )}

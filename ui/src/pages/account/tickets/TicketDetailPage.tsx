@@ -52,7 +52,7 @@ export default function TicketDetailPage() {
             qc.invalidateQueries({ queryKey: ['account', 'tickets', ticketId] });
             qc.invalidateQueries({ queryKey: ['account', 'tickets'] });
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['tickets.common.error']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const deleteMutation = useMutation({
@@ -62,7 +62,7 @@ export default function TicketDetailPage() {
             push({ type: 'success', message: m['tickets.deleted']() });
             navigate('/v2/account/tickets');
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['tickets.common.error']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     if (isLoading) {
@@ -150,7 +150,7 @@ export default function TicketDetailPage() {
                 title={m['tickets.deleteConfirm.title']()}
                 body={m['tickets.deleteConfirm.body']()}
                 confirmLabel={m['tickets.delete']()}
-                cancelLabel={m['tickets.common.cancel']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={deleteMutation.isPending}
                 onConfirm={() => deleteMutation.mutate()}
             />

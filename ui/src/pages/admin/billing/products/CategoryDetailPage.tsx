@@ -164,7 +164,7 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
             if (!editing) navigate(`/v2/admin/billing/products/categories/${id}`);
             else setSeed(form);
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['admin.billing.common.genericError']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const onSubmit = (e: React.FormEvent) => {
@@ -384,7 +384,7 @@ function ProductsSection({
             push({ type: 'success', message: m['admin.billing.products.deleted']() });
             setDel(null);
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['admin.billing.common.genericError']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     return (
@@ -476,8 +476,8 @@ function ProductsSection({
                 onClose={() => setDel(null)}
                 title={m['admin.billing.products.deleteTitle']()}
                 body={m['admin.billing.products.deleteBody']({ name: del?.name ?? '' })}
-                confirmLabel={m['admin.billing.common.delete']()}
-                cancelLabel={m['admin.billing.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={delMutation.isPending}
                 onConfirm={() => del && delMutation.mutate(del.id)}
             />

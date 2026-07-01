@@ -235,7 +235,7 @@ export default function SettingsSection() {
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs text-[var(--color-ink-faint)]">{m['admin.settings.refreshNote']()}</p>
                 <Button disabled={!dirty || nameInvalid || saving} onClick={handleSave}>
-                    {saving ? <Spinner className="h-4 w-4" /> : m['admin.settings.save']()}
+                    {saving ? <Spinner className="h-4 w-4" /> : m['common.actions.saveChanges']()}
                 </Button>
             </div>
 

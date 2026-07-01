@@ -45,7 +45,7 @@ export function ServerHeader() {
             await qc.invalidateQueries({ queryKey: ['admin', 'server-view', String(server.id)] });
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
         } catch {
-            push({ type: 'error', message: m['admin.infrastructure.common.genericError']() });
+            push({ type: 'error', message: m['common.states.genericError']() });
         } finally {
             setBusy(false);
         }
@@ -58,7 +58,7 @@ export function ServerHeader() {
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
             navigate('/v2/admin/infrastructure');
         },
-        onError: () => push({ type: 'error', message: m['admin.infrastructure.common.genericError']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     return (
@@ -118,8 +118,8 @@ export function ServerHeader() {
                 onClose={() => setDeleting(false)}
                 title={m['admin.infrastructure.server.deleteTitle']()}
                 body={m['admin.infrastructure.server.deleteBody']({ name: server.name })}
-                confirmLabel={m['admin.infrastructure.common.delete']()}
-                cancelLabel={m['admin.infrastructure.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={del.isPending}
                 force={{ label: m['admin.infrastructure.server.forceDelete']() }}
                 onConfirm={force => del.mutate(force)}

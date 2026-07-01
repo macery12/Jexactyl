@@ -32,7 +32,7 @@ export function NewTicketModal({ open, onClose }: { open: boolean; onClose: () =
             onClose();
             navigate(`/v2/account/tickets/${ticket.id}`);
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['tickets.common.error']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const valid = title.trim().length >= 3 && message.trim().length >= 3;
@@ -52,7 +52,7 @@ export function NewTicketModal({ open, onClose }: { open: boolean; onClose: () =
             footer={
                 <>
                     <Button variant="ghost" onClick={close} disabled={mutation.isPending}>
-                        {m['tickets.common.cancel']()}
+                        {m['common.actions.cancel']()}
                     </Button>
                     <Button onClick={() => mutation.mutate()} disabled={!valid || mutation.isPending}>
                         {mutation.isPending && <Spinner className="h-4 w-4" />}

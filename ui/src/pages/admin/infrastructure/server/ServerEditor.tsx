@@ -200,7 +200,7 @@ export function ServerEditor() {
             await qc.invalidateQueries({ queryKey: ['admin', 'server-view', String(s.id)] });
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
         } catch (err) {
-            push({ type: 'error', message: firstError(err, m['admin.infrastructure.common.genericError']()) });
+            push({ type: 'error', message: firstError(err, m['common.states.genericError']()) });
         } finally {
             setSaving(false);
         }
@@ -465,11 +465,11 @@ function SaveBar({ dirty, saving, onDiscard }: { dirty: boolean; saving: boolean
             </span>
             <div className="flex items-center gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty || saving}>
-                    <RotateCcw className="h-4 w-4" /> {m['admin.infrastructure.serverDetail.saveBar.discard']()}
+                    <RotateCcw className="h-4 w-4" /> {m['common.actions.discard']()}
                 </Button>
                 <Button type="submit" size="sm" disabled={!dirty || saving}>
                     {saving ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                    {m['admin.infrastructure.serverDetail.saveBar.save']()}
+                    {m['common.actions.saveChanges']()}
                 </Button>
             </div>
         </div>

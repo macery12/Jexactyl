@@ -103,7 +103,7 @@ export default function AdminTicketDetailPage() {
             qc.invalidateQueries({ queryKey: ['admin', 'tickets'] });
             push({ type: 'success', message: m['admin.tickets.saved']() });
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['tickets.common.error']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const replyMutation = useMutation({
@@ -114,7 +114,7 @@ export default function AdminTicketDetailPage() {
             qc.invalidateQueries({ queryKey: ['admin', 'tickets', ticketId] });
             qc.invalidateQueries({ queryKey: ['admin', 'tickets'] });
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['tickets.common.error']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const deleteMutation = useMutation({
@@ -124,7 +124,7 @@ export default function AdminTicketDetailPage() {
             push({ type: 'success', message: m['tickets.deleted']() });
             navigate('/v2/admin/tickets');
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['tickets.common.error']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     if (isLoading) {
@@ -230,7 +230,7 @@ export default function AdminTicketDetailPage() {
                         {canUpdate && (
                             <Button onClick={() => updateMutation.mutate()} disabled={!dirty || updateMutation.isPending}>
                                 {updateMutation.isPending ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                                {m['admin.tickets.saveChanges']()}
+                                {m['common.actions.saveChanges']()}
                             </Button>
                         )}
                     </div>
@@ -260,7 +260,7 @@ export default function AdminTicketDetailPage() {
                 title={m['tickets.deleteConfirm.title']()}
                 body={m['admin.tickets.deleteConfirmBody']()}
                 confirmLabel={m['admin.tickets.deleteTicket']()}
-                cancelLabel={m['tickets.common.cancel']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={deleteMutation.isPending}
                 onConfirm={() => deleteMutation.mutate()}
             />

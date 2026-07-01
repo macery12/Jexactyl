@@ -93,7 +93,7 @@ export function CreateNodeModal({
             reset();
             onClose();
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['admin.infrastructure.common.genericError']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const req = { required: m['admin.infrastructure.common.required']() };
@@ -110,11 +110,11 @@ export function CreateNodeModal({
             footer={
                 <>
                     <Button variant="ghost" size="sm" onClick={onClose} disabled={mutation.isPending}>
-                        {m['admin.infrastructure.common.cancel']()}
+                        {m['common.actions.cancel']()}
                     </Button>
                     <Button size="sm" onClick={handleSubmit(v => mutation.mutate(v))} disabled={mutation.isPending}>
                         {mutation.isPending && <Spinner className="h-4 w-4" />}
-                        {editing ? m['admin.infrastructure.common.save']() : m['admin.infrastructure.common.create']()}
+                        {editing ? m['common.actions.saveChanges']() : m['common.actions.create']()}
                     </Button>
                 </>
             }

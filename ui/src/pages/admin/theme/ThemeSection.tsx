@@ -200,7 +200,7 @@ export default function ThemeSection() {
                         disabled={busy || !dirty}
                         className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
                     >
-                        {busy ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />} {m['admin.theme.save']()}
+                        {busy ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />} {m['common.actions.saveChanges']()}
                     </button>
                 </div>
             </div>

@@ -148,7 +148,7 @@ export default function LandingSection() {
                         {m['landingAdmin.preview']()}
                     </a>
                     <Button disabled={!dirty || saving} onClick={handleSave}>
-                        {saving ? <Spinner className="h-4 w-4" /> : m['landingAdmin.save']()}
+                        {saving ? <Spinner className="h-4 w-4" /> : m['common.actions.saveChanges']()}
                     </Button>
                 </div>
             </header>

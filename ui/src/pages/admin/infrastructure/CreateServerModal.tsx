@@ -81,7 +81,7 @@ function PresetMode({ onClose }: { onClose: () => void }) {
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
             onClose();
         },
-        onError: err => push({ type: 'error', message: firstError(err, m['admin.infrastructure.common.genericError']()) }),
+        onError: err => push({ type: 'error', message: firstError(err, m['common.states.genericError']()) }),
     });
 
     return (
@@ -117,11 +117,11 @@ function PresetMode({ onClose }: { onClose: () => void }) {
 
             <div className="flex items-center justify-end gap-2 pt-2">
                 <Button variant="ghost" size="sm" onClick={onClose} disabled={create.isPending}>
-                    {m['admin.infrastructure.common.cancel']()}
+                    {m['common.actions.cancel']()}
                 </Button>
                 <Button size="sm" disabled={!presetId || !nodeId || create.isPending} onClick={() => create.mutate()}>
                     {create.isPending && <Spinner className="h-4 w-4" />}
-                    {m['admin.infrastructure.common.create']()}
+                    {m['common.actions.create']()}
                 </Button>
             </div>
         </div>
@@ -238,7 +238,7 @@ function ManualMode({ onClose }: { onClose: () => void }) {
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
             onClose();
         },
-        onError: err => push({ type: 'error', message: firstError(err, m['admin.infrastructure.common.genericError']()) }),
+        onError: err => push({ type: 'error', message: firstError(err, m['common.states.genericError']()) }),
     });
 
     const canSubmit = !!ownerId && !!nodeId && !!allocationId && !!eggId && !!image;
@@ -371,11 +371,11 @@ function ManualMode({ onClose }: { onClose: () => void }) {
 
             <div className="flex items-center justify-end gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={create.isPending}>
-                    {m['admin.infrastructure.common.cancel']()}
+                    {m['common.actions.cancel']()}
                 </Button>
                 <Button type="submit" size="sm" disabled={!canSubmit || create.isPending}>
                     {create.isPending && <Spinner className="h-4 w-4" />}
-                    {m['admin.infrastructure.common.create']()}
+                    {m['common.actions.create']()}
                 </Button>
             </div>
         </form>

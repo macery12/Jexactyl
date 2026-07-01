@@ -38,7 +38,7 @@ export function RepositoriesPanel({ repositories }: { repositories: Repository[]
     const toggle = useMutation({
         mutationFn: (repo: Repository) => updateRepository(repo.id, { name: repo.name, enabled: !repo.enabled }),
         onSuccess: invalidate,
-        onError: () => push({ type: 'error', message: m['extensions.toast.error']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     const remove = useMutation({
@@ -47,7 +47,7 @@ export function RepositoriesPanel({ repositories }: { repositories: Repository[]
             push({ type: 'success', message: m['extensions.toast.repoDeleted']() });
             invalidate();
         },
-        onError: () => push({ type: 'error', message: m['extensions.toast.error']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     return (
@@ -133,7 +133,7 @@ export function RepositoriesPanel({ repositories }: { repositories: Repository[]
                                                         if (window.confirm(m['extensions.repos.deleteConfirm']({ name: repo.name })))
                                                             remove.mutate(repo.id);
                                                     }}
-                                                    aria-label={m['extensions.repos.delete']()}
+                                                    aria-label={m['common.actions.delete']()}
                                                     className="rounded-md p-1.5 text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-danger)]/10 hover:text-[var(--color-danger)] disabled:opacity-50"
                                                 >
                                                     <Trash2 className="h-3.5 w-3.5" />
@@ -199,7 +199,7 @@ function RepoFormModal({
                     ?.error ??
                 (err as { response?: { data?: { errors?: Array<{ detail?: string }> } } })?.response?.data?.errors?.[0]
                     ?.detail ??
-                m['extensions.toast.error']();
+                m['common.states.genericError']();
             push({ type: 'error', message: msg });
         },
     });
@@ -273,7 +273,7 @@ function RepoFormModal({
                             onClick={onClose}
                             className="inline-flex h-10 items-center rounded-xl px-4 text-sm font-medium text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                         >
-                            {m['extensions.repos.form.cancel']()}
+                            {m['common.actions.cancel']()}
                         </button>
                         <button
                             type="submit"
@@ -284,7 +284,7 @@ function RepoFormModal({
                             )}
                         >
                             {save.isPending && <Spinner className="h-4 w-4" />}
-                            {save.isPending ? m['extensions.repos.form.submitting']() : m['extensions.repos.form.submit']()}
+                            {save.isPending ? m['common.states.saving']() : m['extensions.repos.form.submit']()}
                         </button>
                     </div>
                 </form>

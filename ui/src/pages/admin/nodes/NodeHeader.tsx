@@ -43,7 +43,7 @@ export function NodeHeader() {
         onError: err =>
             push({
                 type: 'error',
-                message: (isAxiosError(err) && err.response?.data?.message) || m['admin.infrastructure.common.genericError'](),
+                message: (isAxiosError(err) && err.response?.data?.message) || m['common.states.genericError'](),
             }),
     });
 
@@ -104,8 +104,8 @@ export function NodeHeader() {
                 onClose={() => setDeleting(false)}
                 title={m['admin.infrastructure.node.deleteTitle']()}
                 body={m['admin.infrastructure.node.deleteBody']({ name: node.name })}
-                confirmLabel={m['admin.infrastructure.common.delete']()}
-                cancelLabel={m['admin.infrastructure.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={del.isPending}
                 onConfirm={() => del.mutate()}
             />

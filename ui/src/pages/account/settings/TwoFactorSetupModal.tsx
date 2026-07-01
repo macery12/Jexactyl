@@ -106,7 +106,7 @@ export function TwoFactorSetupModal({
             footer={
                 <>
                     <Button variant="ghost" size="sm" onClick={onClose} disabled={enable.isPending}>
-                        {m['account.twoFactor.cancel']()}
+                        {m['common.actions.cancel']()}
                     </Button>
                     <Button size="sm" onClick={() => valid && enable.mutate()} disabled={!valid || enable.isPending || !setup}>
                         {enable.isPending && <Spinner className="h-4 w-4" />}

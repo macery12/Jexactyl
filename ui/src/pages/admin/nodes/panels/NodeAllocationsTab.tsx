@@ -62,7 +62,7 @@ export function NodeAllocationsTab() {
             reset({ ip: '0.0.0.0', alias: '', start_port: 25565, end_port: '' });
         },
         onError: err =>
-            push({ type: 'error', message: (isAxiosError(err) && err.response?.data?.message) || m['admin.infrastructure.common.genericError']() }),
+            push({ type: 'error', message: (isAxiosError(err) && err.response?.data?.message) || m['common.states.genericError']() }),
     });
 
     const del = useMutation({
@@ -72,7 +72,7 @@ export function NodeAllocationsTab() {
             await invalidate();
             setToDelete(null);
         },
-        onError: () => push({ type: 'error', message: m['admin.infrastructure.common.genericError']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     const req = { required: m['admin.infrastructure.common.required']() };
@@ -148,8 +148,8 @@ export function NodeAllocationsTab() {
                 onClose={() => setToDelete(null)}
                 title={m['admin.infrastructure.alloc.deleteTitle']()}
                 body={m['admin.infrastructure.alloc.deleteBody']({ ip: toDelete?.ip ?? '', port: toDelete?.port ?? '' })}
-                confirmLabel={m['admin.infrastructure.common.delete']()}
-                cancelLabel={m['admin.infrastructure.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={del.isPending}
                 onConfirm={() => toDelete && del.mutate(toDelete.id)}
             />

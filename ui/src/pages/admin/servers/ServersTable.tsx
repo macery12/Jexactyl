@@ -43,7 +43,7 @@ function RowActions({ server, onEdit, onDelete }: { server: AdminServer; onEdit:
                 push({ type: 'success', message: msg });
                 return qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
             })
-            .catch(() => push({ type: 'error', message: m['admin.infrastructure.common.genericError']() }));
+            .catch(() => push({ type: 'error', message: m['common.states.genericError']() }));
 
     const suspended = server.state === 'suspended';
 
@@ -73,7 +73,7 @@ function RowActions({ server, onEdit, onDelete }: { server: AdminServer; onEdit:
                         </>
                     )}
                     {canDelete && (
-                        <Item icon={Trash2} label={m['admin.infrastructure.common.delete']()} danger onSelect={onDelete} />
+                        <Item icon={Trash2} label={m['common.actions.delete']()} danger onSelect={onDelete} />
                     )}
                 </Dropdown.Content>
             </Dropdown.Portal>
@@ -107,7 +107,7 @@ export function ServersTable({ servers }: { servers: AdminServer[] }) {
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
             setToDelete(null);
         },
-        onError: () => push({ type: 'error', message: m['admin.infrastructure.common.genericError']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     return (
@@ -177,8 +177,8 @@ export function ServersTable({ servers }: { servers: AdminServer[] }) {
                 onClose={() => setToDelete(null)}
                 title={m['admin.infrastructure.server.deleteTitle']()}
                 body={m['admin.infrastructure.server.deleteBody']({ name: toDelete?.name ?? '' })}
-                confirmLabel={m['admin.infrastructure.common.delete']()}
-                cancelLabel={m['admin.infrastructure.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={del.isPending}
                 force={{ label: m['admin.infrastructure.server.forceDelete']() }}
                 onConfirm={force => toDelete && del.mutate({ id: toDelete.id, force })}

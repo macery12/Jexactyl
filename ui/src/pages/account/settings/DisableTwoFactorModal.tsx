@@ -44,7 +44,7 @@ export function DisableTwoFactorModal({
             footer={
                 <>
                     <Button variant="ghost" size="sm" onClick={onClose} disabled={disable.isPending}>
-                        {m['account.twoFactor.cancel']()}
+                        {m['common.actions.cancel']()}
                     </Button>
                     <Button
                         variant="danger"

@@ -40,7 +40,7 @@ export function EmailLogDetailModal({ logId, onClose }: { logId: number; onClose
             footer={
                 <>
                     <Button variant="ghost" size="sm" onClick={onClose}>
-                        {m['admin.email.detail.close']()}
+                        {m['common.actions.close']()}
                     </Button>
                     <Button variant="secondary" size="sm" onClick={copyBundle} disabled={!data}>
                         <Copy className="h-4 w-4" />

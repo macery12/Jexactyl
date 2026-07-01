@@ -51,7 +51,7 @@ export function PresetManager() {
             await invalidate();
             setToDelete(null);
         },
-        onError: () => push({ type: 'error', message: m['admin.infrastructure.common.genericError']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     return (
@@ -115,8 +115,8 @@ export function PresetManager() {
                 onClose={() => setToDelete(null)}
                 title={m['admin.infrastructure.presets.deleteTitle']()}
                 body={m['admin.infrastructure.presets.deleteBody']({ name: toDelete?.name ?? '' })}
-                confirmLabel={m['admin.infrastructure.common.delete']()}
-                cancelLabel={m['admin.infrastructure.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={del.isPending}
                 onConfirm={() => toDelete && del.mutate(toDelete.id)}
             />
@@ -178,7 +178,7 @@ function PresetForm({
             push({ type: 'success', message: preset ? m['admin.infrastructure.presets.updated']() : m['admin.infrastructure.presets.created']() });
             onDone();
         },
-        onError: () => push({ type: 'error', message: m['admin.infrastructure.common.genericError']() }),
+        onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
 
     const req = { required: m['admin.infrastructure.common.required']() };
@@ -226,11 +226,11 @@ function PresetForm({
             </div>
             <div className="flex items-center justify-end gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={save.isPending}>
-                    <X className="h-4 w-4" /> {m['admin.infrastructure.common.cancel']()}
+                    <X className="h-4 w-4" /> {m['common.actions.cancel']()}
                 </Button>
                 <Button type="submit" size="sm" disabled={save.isPending}>
                     {save.isPending && <Spinner className="h-4 w-4" />}
-                    {preset ? m['admin.infrastructure.common.save']() : m['admin.infrastructure.common.create']()}
+                    {preset ? m['common.actions.saveChanges']() : m['common.actions.create']()}
                 </Button>
             </div>
         </form>

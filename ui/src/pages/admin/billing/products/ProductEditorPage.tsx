@@ -178,7 +178,7 @@ export default function ProductEditorPage() {
                 navigate(`/v2/admin/billing/products/${created.id}?category=${categoryId}`);
             }
         } catch (err) {
-            push({ type: 'error', message: firstError(err) ?? m['admin.billing.common.genericError']() });
+            push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
         } finally {
             setSaving(false);
         }

@@ -46,7 +46,7 @@ export function DevicesTab() {
             qc.invalidateQueries({ queryKey: HISTORY_KEY });
             push({ type: 'success', message: m['account.devices.revokeSuccess']() });
         },
-        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['account.devices.error']() }),
+        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
         onSettled: () => setConfirmRevoke(null),
     });
 
@@ -57,7 +57,7 @@ export function DevicesTab() {
             qc.invalidateQueries({ queryKey: HISTORY_KEY });
             push({ type: 'success', message: m['account.devices.revokeAllSuccess']() });
         },
-        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['account.devices.error']() }),
+        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
         onSettled: () => setConfirmRevokeAll(false),
     });
 
@@ -65,7 +65,7 @@ export function DevicesTab() {
         mutationFn: ({ id, label }: { id: string; label: string | null }) => updateSessionLabel(id, label),
         onMutate: ({ id }) => setRenamingId(id),
         onSuccess: () => qc.invalidateQueries({ queryKey: SESSIONS_KEY }),
-        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['account.devices.error']() }),
+        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
         onSettled: () => setRenamingId(null),
     });
 
@@ -141,7 +141,7 @@ export function DevicesTab() {
                 title={m['account.devices.revokeConfirmTitle']()}
                 body={m['account.devices.revokeConfirmBody']()}
                 confirmLabel={m['account.devices.revoke']()}
-                cancelLabel={m['account.devices.cancelLabel']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={revoke.isPending}
                 onConfirm={() => confirmRevoke && revoke.mutate(confirmRevoke)}
             />
@@ -152,7 +152,7 @@ export function DevicesTab() {
                 title={m['account.devices.revokeAllConfirmTitle']()}
                 body={m['account.devices.revokeAllConfirmBody']()}
                 confirmLabel={m['account.devices.revokeAll']()}
-                cancelLabel={m['account.devices.cancelLabel']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={revokeAll.isPending}
                 onConfirm={() => revokeAll.mutate()}
             />

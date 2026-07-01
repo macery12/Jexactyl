@@ -24,7 +24,7 @@ export function DiscordCard() {
         onSuccess: url => {
             window.location.href = url;
         },
-        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['account.discord.error']() }),
+        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const unlink = useMutation({
@@ -34,7 +34,7 @@ export function DiscordCard() {
             setConfirming(false);
             push({ type: 'success', message: m['account.discord.unlinkSuccess']() });
         },
-        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['account.discord.error']() }),
+        onError: (err: unknown) => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const badge = linked ? (
@@ -72,7 +72,7 @@ export function DiscordCard() {
                 title={m['account.discord.unlinkConfirmTitle']()}
                 body={m['account.discord.unlinkConfirmBody']()}
                 confirmLabel={m['account.discord.unlinkConfirm']()}
-                cancelLabel={m['account.discord.cancel']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={unlink.isPending}
                 onConfirm={() => unlink.mutate()}
             />

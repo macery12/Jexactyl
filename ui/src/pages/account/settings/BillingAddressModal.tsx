@@ -93,7 +93,7 @@ export function BillingAddressModal({
             footer={
                 <>
                     <Button variant="ghost" size="sm" onClick={onClose} disabled={mutation.isPending}>
-                        {m['account.billing.cancel']()}
+                        {m['common.actions.cancel']()}
                     </Button>
                     <Button size="sm" onClick={() => valid && mutation.mutate()} disabled={!valid || mutation.isPending}>
                         {mutation.isPending && <Spinner className="h-4 w-4" />}

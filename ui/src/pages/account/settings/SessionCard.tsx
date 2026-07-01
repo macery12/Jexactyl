@@ -75,7 +75,7 @@ export function SessionCard({
                             onClick={() => setEditing(false)}
                             disabled={renaming}
                             className="shrink-0 rounded-lg p-1.5 text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)]"
-                            aria-label={m['account.devices.cancelLabel']()}
+                            aria-label={m['common.actions.cancel']()}
                         >
                             <X className="h-4 w-4" />
                         </button>

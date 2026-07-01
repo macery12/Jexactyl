@@ -48,7 +48,7 @@ export default function ProductsPage() {
             push({ type: 'success', message: m['admin.billing.categories.deleted']() });
             setDelCat(null);
         },
-        onError: err => push({ type: 'error', message: firstError(err) ?? m['admin.billing.common.genericError']() }),
+        onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
     const canCreateCat = can(held, 'billing.category-create');
@@ -165,8 +165,8 @@ export default function ProductsPage() {
                 onClose={() => setDelCat(null)}
                 title={m['admin.billing.categories.deleteTitle']()}
                 body={m['admin.billing.categories.deleteBody']({ name: delCat?.name ?? '' })}
-                confirmLabel={m['admin.billing.common.delete']()}
-                cancelLabel={m['admin.billing.common.cancel']()}
+                confirmLabel={m['common.actions.delete']()}
+                cancelLabel={m['common.actions.cancel']()}
                 busy={deleteCatMutation.isPending}
                 onConfirm={() => delCat && deleteCatMutation.mutate(delCat.id)}
             />

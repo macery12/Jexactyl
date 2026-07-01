@@ -84,7 +84,7 @@ export default function ExtensionsOverviewPage() {
 
     const reportError = (err: unknown) => {
         const status = (err as { response?: { status?: number } })?.response?.status;
-        push({ type: 'error', message: status === 409 ? m['extensions.toast.running']() : m['extensions.toast.error']() });
+        push({ type: 'error', message: status === 409 ? m['extensions.toast.running']() : m['common.states.genericError']() });
     };
 
     const toggle = useMutation({

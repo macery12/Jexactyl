@@ -103,10 +103,10 @@ export function SaveBar({
             </span>
             <div className="flex items-center gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty || saving}>
-                    {m['admin.email.saveBar.discard']()}
+                    {m['common.actions.discard']()}
                 </Button>
                 <Button type="button" size="sm" onClick={onSave} disabled={!dirty || saving}>
-                    {m['admin.email.saveBar.save']()}
+                    {m['common.actions.save']()}
                 </Button>
             </div>
         </div>

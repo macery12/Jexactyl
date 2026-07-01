@@ -110,11 +110,11 @@ export function SaveBar({ dirty, saving, onDiscard }: { dirty: boolean; saving: 
             </span>
             <div className="flex items-center gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty || saving}>
-                    <RotateCcw className="h-4 w-4" /> {m['admin.billing.common.discard']()}
+                    <RotateCcw className="h-4 w-4" /> {m['common.actions.discard']()}
                 </Button>
                 <Button type="submit" size="sm" disabled={!dirty || saving}>
                     {saving ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                    {m['admin.billing.common.save']()}
+                    {m['common.actions.save']()}
                 </Button>
             </div>
         </div>

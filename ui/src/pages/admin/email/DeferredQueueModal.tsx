@@ -63,7 +63,7 @@ export function DeferredQueueModal({ open, onClose }: { open: boolean; onClose: 
             size="lg"
             footer={
                 <Button variant="ghost" size="sm" onClick={onClose}>
-                    {m['admin.email.deferred.close']()}
+                    {m['common.actions.close']()}
                 </Button>
             }
         >
@@ -165,7 +165,7 @@ export function DeferredQueueModal({ open, onClose }: { open: boolean; onClose: 
                                             ) : (
                                                 <X className="h-4 w-4" />
                                             )}
-                                            {m['admin.email.deferred.cancel']()}
+                                            {m['common.actions.cancel']()}
                                         </Button>
                                     </div>
                                 </li>
