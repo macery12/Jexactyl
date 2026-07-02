@@ -275,3 +275,67 @@ export const sendDeferredNow = (id: number): Promise<{ success: boolean; message
 
 export const cancelDeferred = (id: number): Promise<{ success: boolean; message: string }> =>
     http.delete<{ success: boolean; message: string }>(`/api/application/email/deferred/${id}`).then(r => r.data);
+
+// --- Templates -------------------------------------------------------------
+
+// A single documented variable that a template can interpolate. Rendered in the
+// editor's reference panel and click-to-insert list.
+export interface EmailTemplateVariable {
+    name: string;
+    description: string;
+    example: string | number | boolean;
+    required: boolean;
+}
+
+// Summary entry returned by the template index — enough to render a card and
+// open the editor. Full Blade source is fetched lazily per template.
+export interface EmailTemplateSummary {
+    key: string;
+    label: string;
+    category: string;
+    variables: EmailTemplateVariable[];
+    is_customized: boolean;
+}
+
+export interface EmailTemplateSource {
+    key: string;
+    content: string;
+    is_customized: boolean;
+}
+
+export const getEmailTemplates = (): Promise<{ templates: EmailTemplateSummary[] }> =>
+    http.get<{ templates: EmailTemplateSummary[] }>('/api/application/email/templates').then(r => r.data);
+
+export const getEmailTemplateSource = (key: string): Promise<EmailTemplateSource> =>
+    http.get<EmailTemplateSource>(`/api/application/email/templates/${key}/source`).then(r => r.data);
+
+export const saveEmailTemplateSource = (
+    key: string,
+    content: string,
+): Promise<{ success: boolean; key: string; is_customized: boolean }> =>
+    http
+        .put<{ success: boolean; key: string; is_customized: boolean }>(
+            `/api/application/email/templates/${key}/source`,
+            { content },
+        )
+        .then(r => r.data);
+
+export const revertEmailTemplate = (
+    key: string,
+): Promise<{ success: boolean; key: string; is_customized: boolean }> =>
+    http
+        .delete<{ success: boolean; key: string; is_customized: boolean }>(
+            `/api/application/email/templates/${key}/source`,
+        )
+        .then(r => r.data);
+
+// Render the currently-saved template (custom override if one exists, else the
+// default) to HTML with sample data. The preview reflects saved state — the
+// editor refreshes it after a save, mirroring the V1 flow.
+export const getEmailTemplatePreview = (key: string): Promise<string> =>
+    http
+        .get<string>(`/api/application/email/templates/${key}/preview`, {
+            responseType: 'text',
+            transformResponse: r => r,
+        })
+        .then(r => r.data);

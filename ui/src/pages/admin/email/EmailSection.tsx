@@ -4,7 +4,6 @@ import { Routes, Route } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Clock } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { ComingSoon } from '@/pages/admin/billing/ComingSoon';
 import { getDeferredQueue } from '@/api/email';
 import { EmailNav } from './EmailNav';
 import { DeferredQueueModal } from './DeferredQueueModal';
@@ -14,6 +13,7 @@ import ResendPage from './pages/ResendPage';
 import TestingPage from './pages/TestingPage';
 import NotificationsPage from './pages/NotificationsPage';
 import ActivityPage from './pages/ActivityPage';
+import TemplatesPage from './pages/TemplatesPage';
 
 export const DEFERRED_QUEUE_KEY = ['admin', 'email', 'deferred'] as const;
 
@@ -62,7 +62,7 @@ export default function EmailSection() {
                         <Route path="testing" element={<TestingPage />} />
                         <Route path="notifications" element={<NotificationsPage />} />
                         <Route path="activity" element={<ActivityPage />} />
-                        <Route path="templates" element={<ComingSoon titleKey="email.nav.templates" />} />
+                        <Route path="templates" element={<TemplatesPage />} />
                     </Routes>
                 </div>
             </div>
