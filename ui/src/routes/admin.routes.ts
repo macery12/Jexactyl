@@ -34,6 +34,8 @@ const BillingSection = lazy(() => import('@/pages/admin/billing/BillingSection')
 const LandingSection = lazy(() => import('@/pages/admin/landing/LandingSection'));
 const EmailSection = lazy(() => import('@/pages/admin/email/EmailSection'));
 const TicketsSection = lazy(() => import('@/pages/admin/tickets/TicketsSection'));
+const UsersSection = lazy(() => import('@/pages/admin/users/UsersSection'));
+const RolesSection = lazy(() => import('@/pages/admin/roles/RolesSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -63,8 +65,8 @@ export const adminRoutes: RouteDef[] = [
     // Legacy paths redirect into the merged Infrastructure section (hidden from nav).
     route('nodes/*', { element: NodesRedirect }),
     route('servers/*', { element: ServersRedirect }),
-    route('users/*', { name: 'Users', icon: Users, category: 'management', permission: 'users.read' }),
-    route('roles/*', { name: 'Roles', icon: UserCog, category: 'management', permission: 'roles.read' }),
+    route('users/*', { name: 'Users', icon: Users, category: 'management', permission: 'users.read', element: UsersSection }),
+    route('roles/*', { name: 'Roles', icon: UserCog, category: 'management', permission: 'roles.read', element: RolesSection }),
 
     route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read' }),
 ];
