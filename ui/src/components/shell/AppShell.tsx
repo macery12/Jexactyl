@@ -6,6 +6,7 @@ import { TopNav } from './TopNav';
 import { Sidebar } from './Sidebar';
 import { FullPageSpinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
+import { td } from '@/i18n';
 import { ShellLayoutContext, type ContentWidth } from './shellLayout';
 import type { NavGroup } from '@/routes/nav';
 
@@ -41,7 +42,7 @@ export function AppShell({ groups, header }: { groups: NavGroup[]; header?: Reac
                         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" />
                         <Dialog.Content className="fixed inset-y-0 left-0 z-50 w-72 overflow-y-auto border-r border-[var(--color-border-strong)] bg-[var(--color-surface)] lg:hidden">
                             <div className="flex h-16 items-center justify-between px-4">
-                                <Dialog.Title className="text-sm font-semibold">Navigation</Dialog.Title>
+                                <Dialog.Title className="text-sm font-semibold">{td('nav.drawer.title')}</Dialog.Title>
                                 <Dialog.Close className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)]">
                                     <X className="h-5 w-5" />
                                 </Dialog.Close>

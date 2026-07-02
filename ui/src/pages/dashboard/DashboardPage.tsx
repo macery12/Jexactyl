@@ -1,9 +1,11 @@
 import { m } from '@/i18n';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { Server, Plus } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { getServers } from '@/api/servers';
 import { getServerResources } from '@/api/serverResources';
 import { useSession } from '@/state/session';
+import { useFlags } from '@/state/flags';
 import { Spinner } from '@/components/ui/Spinner';
 import { StatTiles } from './StatTiles';
 import { LiveServerCard } from './LiveServerCard';
@@ -13,6 +15,7 @@ import { AccountHealth } from './AccountHealth';
 
 export default function DashboardPage() {
     const user = useSession(s => s.user);
+    const billingEnabled = useFlags(s => s.everest)?.billing.enabled ?? false;
 
     const { data: servers, isLoading, isError, error } = useQuery({
         queryKey: ['servers'],
@@ -33,6 +36,12 @@ export default function DashboardPage() {
     const running = servers
         ? resourceQueries.filter(q => q.data?.state === 'running').length
         : null;
+    const suspended = servers
+        ? resourceQueries.filter(q => q.data?.isSuspended).length
+        : null;
+    const memUsedBytes = servers
+        ? resourceQueries.reduce((sum, q) => sum + (q.data?.memoryBytes ?? 0), 0)
+        : null;
     const anyResourcesPending = resourceQueries.some(q => q.isPending);
 
     return (
@@ -44,9 +53,14 @@ export default function DashboardPage() {
                     </h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['dashboard.subtitle']()}</p>
                 </div>
-                <button className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]">
-                    <Plus className="h-4 w-4" /> {m['dashboard.newServer']()}
-                </button>
+                {billingEnabled && (
+                    <Link
+                        to="/v2/account/billing/order"
+                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                    >
+                        <Plus className="h-4 w-4" /> {m['dashboard.newServer']()}
+                    </Link>
+                )}
             </div>
 
             {isLoading && (
@@ -63,7 +77,12 @@ export default function DashboardPage() {
 
             {!isLoading && !isError && servers && (
                 <>
-                    <StatTiles servers={servers} running={servers.length ? running : 0} />
+                    <StatTiles
+                        servers={servers}
+                        running={servers.length ? running : 0}
+                        suspended={servers.length ? suspended : 0}
+                        memUsedBytes={servers.length ? memUsedBytes : 0}
+                    />
 
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                         <div className="flex flex-col gap-4 xl:col-span-2">
@@ -77,6 +96,14 @@ export default function DashboardPage() {
                                     <p className="mt-1 max-w-sm text-sm text-[var(--color-ink-muted)]">
                                         {m['dashboard.empty.body']()}
                                     </p>
+                                    {billingEnabled && (
+                                        <Link
+                                            to="/v2/account/billing/order"
+                                            className="mt-5 inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                                        >
+                                            <Plus className="h-4 w-4" /> {m['dashboard.newServer']()}
+                                        </Link>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="grid gap-4 sm:grid-cols-2">

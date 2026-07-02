@@ -2,6 +2,7 @@ import { m } from '@/i18n';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, ShieldAlert, MailCheck, MailWarning, ArrowUpRight } from 'lucide-react';
 import { useSession } from '@/state/session';
+import { useFlags } from '@/state/flags';
 import { cn } from '@/lib/cn';
 
 function Row({
@@ -34,6 +35,7 @@ function Row({
 
 export function AccountHealth() {
     const user = useSession(s => s.user);
+    const emailEnabled = useFlags(s => s.everest)?.email.enabled ?? false;
     if (!user) return null;
 
     return (
@@ -50,14 +52,16 @@ export function AccountHealth() {
                     badLabel={m['dashboard.enableTwoFactor']()}
                     to="/v2/account/settings"
                 />
-                <Row
-                    ok={user.email_verified !== false}
-                    okIcon={MailCheck}
-                    badIcon={MailWarning}
-                    okLabel={m['dashboard.emailVerified']()}
-                    badLabel={m['dashboard.verifyEmail']()}
-                    to="/v2/account"
-                />
+                {emailEnabled && (
+                    <Row
+                        ok={user.email_verified !== false}
+                        okIcon={MailCheck}
+                        badIcon={MailWarning}
+                        okLabel={m['dashboard.emailVerified']()}
+                        badLabel={m['dashboard.verifyEmail']()}
+                        to="/v2/account/settings"
+                    />
+                )}
             </div>
         </section>
     );

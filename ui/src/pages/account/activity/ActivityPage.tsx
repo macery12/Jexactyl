@@ -1,7 +1,7 @@
 import { m } from '@/i18n';
 import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Code2, Search } from 'lucide-react';
 import { getActivityPage, getOwnedServers, type ActivityEntry } from '@/api/activity';
 import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { ActivityDetailsModal, hasActivityDetails } from './ActivityDetailsModal';
 
 type Scope = 'all' | 'account' | 'server';
 
@@ -24,9 +25,10 @@ const severityDot: Record<string, string> = {
     info: 'bg-[var(--brand)]',
 };
 
-function ActivityRow({ entry }: { entry: ActivityEntry }) {
-    return (
-        <div className="flex items-start gap-3 px-4 py-3">
+function ActivityRow({ entry, onInspect }: { entry: ActivityEntry; onInspect: (entry: ActivityEntry) => void }) {
+    const inspectable = hasActivityDetails(entry);
+    const body = (
+        <>
             <span
                 className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', severityDot[entry.severity ?? 'info'] ?? severityDot.info)}
             />
@@ -51,7 +53,25 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
                     {entry.ip ? ` · ${entry.ip}` : ''}
                 </p>
             </div>
-        </div>
+            {inspectable && (
+                <Code2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-ink-faint)] opacity-0 transition-opacity group-hover:opacity-100" />
+            )}
+        </>
+    );
+
+    if (!inspectable) {
+        return <div className="flex items-start gap-3 px-4 py-3">{body}</div>;
+    }
+
+    return (
+        <button
+            type="button"
+            onClick={() => onInspect(entry)}
+            title={m['activity.details.inspect']()}
+            className="group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--color-surface-2)]"
+        >
+            {body}
+        </button>
     );
 }
 
@@ -61,6 +81,7 @@ export default function ActivityPage() {
     const [search, setSearch] = useState('');
     const [query, setQuery] = useState('');
     const [page, setPage] = useState(1);
+    const [inspecting, setInspecting] = useState<ActivityEntry | null>(null);
 
     const { data: servers } = useQuery({ queryKey: ['account', 'owned-servers'], queryFn: getOwnedServers });
 
@@ -147,7 +168,7 @@ export default function ActivityPage() {
                 ) : items.length > 0 ? (
                     <div className="divide-y divide-[var(--color-border)]">
                         {items.map(entry => (
-                            <ActivityRow key={entry.id} entry={entry} />
+                            <ActivityRow key={entry.id} entry={entry} onInspect={setInspecting} />
                         ))}
                     </div>
                 ) : (
@@ -185,6 +206,8 @@ export default function ActivityPage() {
                     </div>
                 </div>
             )}
+
+            <ActivityDetailsModal entry={inspecting} onClose={() => setInspecting(null)} />
         </div>
     );
 }

@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { td } from '@/i18n';
 
 type Size = 'sm' | 'md' | 'lg';
 
@@ -51,7 +52,7 @@ export function Modal({
                         </div>
                         <Dialog.Close
                             className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
-                            aria-label="Close"
+                            aria-label={td('common.actions.close')}
                         >
                             <X className="h-4 w-4" />
                         </Dialog.Close>

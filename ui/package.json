@@ -7,6 +7,7 @@
         "dev": "vite",
         "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide --emit-ts-declarations --strategy localStorage baseLocale && tsc -b && vite build",
         "build:fast": "vite build",
+        "locales:set": "node scripts/locales.mjs",
         "preview": "vite preview"
     },
     "dependencies": {

@@ -12,17 +12,23 @@ export interface ActivityEntry {
     severity?: string;
     isApi?: boolean;
     isAdmin?: boolean;
+    // Raw event metadata, surfaced by the click-to-inspect JSON viewer. Present
+    // on both the compact feed and the full list.
+    properties?: Record<string, unknown>;
+    hasMetadata?: boolean;
 }
 
 // GET /api/client/account/activity — recent account activity (Fractal list).
 export async function getAccountActivity(): Promise<ActivityEntry[]> {
     const { data } = await http.get('/api/client/account/activity', { params: { per_page: 8 } });
-    return (data.data ?? []).map((row: { attributes: Omit<ActivityEntry, 'id'> & { id?: string } }, i: number) => ({
+    return (data.data ?? []).map((row: RichActivityRow, i: number) => ({
         id: String(row.attributes.id ?? i),
         event: row.attributes.event,
         description: row.attributes.description ?? null,
         ip: row.attributes.ip ?? null,
         timestamp: row.attributes.timestamp,
+        properties: row.attributes.properties ?? undefined,
+        hasMetadata: row.attributes.has_additional_metadata ?? false,
     }));
 }
 
@@ -60,6 +66,8 @@ interface RichActivityRow {
         severity?: string;
         is_api?: boolean;
         is_admin?: boolean;
+        properties?: Record<string, unknown>;
+        has_additional_metadata?: boolean;
     };
 }
 
@@ -88,6 +96,8 @@ export async function getActivityPage(query: ActivityQuery = {}): Promise<Activi
             severity: row.attributes.severity,
             isApi: row.attributes.is_api,
             isAdmin: row.attributes.is_admin,
+            properties: row.attributes.properties ?? undefined,
+            hasMetadata: row.attributes.has_additional_metadata ?? false,
         })),
         pagination: {
             current_page: p.current_page ?? 1,

@@ -6,6 +6,7 @@ import { useServerSocket } from '@/state/serverSocket';
 import { SocketRequest } from '@/lib/Websocket';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
+import { td } from '@/i18n';
 
 const stateMeta: Record<string, { label: string; dot: string }> = {
     running: { label: 'Running', dot: 'bg-[var(--color-accent)]' },
@@ -41,16 +42,16 @@ export function ServerHeader() {
     const send = (action: 'start' | 'restart' | 'stop') => instance?.send(SocketRequest.SET_STATE, action);
     const isOffline = state === 'offline';
 
-    let statusLabel = meta.label;
+    let statusLabel = td(`common.states.${state}`, meta.label);
     let statusDot = meta.dot;
     if (suspended) {
-        statusLabel = 'Suspended';
+        statusLabel = td('common.states.suspended');
         statusDot = 'bg-[var(--color-danger)]';
     } else if (installing) {
-        statusLabel = 'Installing';
+        statusLabel = td('common.states.installing');
         statusDot = 'bg-[var(--color-warning)] animate-pulse';
     } else if (!connected) {
-        statusLabel = 'Connecting…';
+        statusLabel = td('server.header.connecting');
     }
 
     return (
@@ -59,7 +60,7 @@ export function ServerHeader() {
                 <Link
                     to="/v2/account"
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border-strong)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)]"
-                    title="Back to dashboard"
+                    title={td('server.header.back')}
                 >
                     <ChevronLeft className="h-4 w-4" />
                 </Link>
