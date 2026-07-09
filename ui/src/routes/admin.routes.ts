@@ -36,6 +36,7 @@ const EmailSection = lazy(() => import('@/pages/admin/email/EmailSection'));
 const TicketsSection = lazy(() => import('@/pages/admin/tickets/TicketsSection'));
 const UsersSection = lazy(() => import('@/pages/admin/users/UsersSection'));
 const RolesSection = lazy(() => import('@/pages/admin/roles/RolesSection'));
+const MarketplaceSection = lazy(() => import('@/pages/admin/marketplace/MarketplaceSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -53,7 +54,7 @@ export const adminRoutes: RouteDef[] = [
     route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'modules', permission: 'custom-domains.read' }),
     route('tickets/*', { name: 'Tickets', icon: LifeBuoy, category: 'modules', permission: 'tickets.read', element: TicketsSection }),
     route('ai/*', { name: 'AI', icon: Bot, category: 'modules', permission: 'ai.read' }),
-    route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read' }),
+    route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read', element: MarketplaceSection }),
     route('email/*', { name: 'Email', icon: Mail, category: 'modules', element: EmailSection }),
     route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules' }),
     route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', element: ExtensionsSection }),

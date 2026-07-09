@@ -19,6 +19,7 @@ import {
 import { route, type RouteDef } from './registry';
 
 const ServerOverviewPage = lazy(() => import('@/pages/server/ServerOverviewPage'));
+const MarketplaceSection = lazy(() => import('@/pages/server/marketplace/MarketplaceSection'));
 
 // Server area (/v2/server/:id/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.3. The index is the modular widget dashboard
@@ -29,7 +30,7 @@ export const serverRoutes: RouteDef[] = [
 
     route('files/*', { name: 'Files', icon: FolderOpen, permission: 'file.*', category: 'data' }),
     route('databases/*', { name: 'Databases', icon: Database, permission: 'database.*', category: 'data' }),
-    route('marketplace/*', { name: 'Mods & Plugins', icon: Boxes, permission: 'file.create', category: 'data', condition: f => f.mods.enabled }),
+    route('marketplace/*', { name: 'Mods & Plugins', icon: Boxes, permission: 'file.create', category: 'data', condition: f => f.mods.enabled, element: MarketplaceSection }),
     route('backups/*', { name: 'Backups', icon: Archive, permission: 'backup.*', category: 'data' }),
 
     route('schedules/*', { name: 'Schedules', icon: CalendarClock, permission: 'schedule.*', category: 'configuration' }),

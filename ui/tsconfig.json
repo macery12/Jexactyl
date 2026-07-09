@@ -9,6 +9,13 @@
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
+
+        // Paraglide compiles messages to plain .js with no per-message .d.ts (see
+        // vite.config.ts). allowJs lets TS read their JSDoc so m['x']() stays
+        // typo-checked; checkJs stays off so tsc doesn't deep-check generated code.
+        "allowJs": true,
+        "checkJs": false,
+
         "isolatedModules": true,
         "moduleDetection": "force",
         "noEmit": true,

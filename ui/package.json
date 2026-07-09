@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide --emit-ts-declarations --strategy localStorage baseLocale && tsc -b && vite build",
+        "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide --strategy localStorage baseLocale && tsc -b && vite build",
         "build:fast": "vite build",
         "locales:set": "node scripts/locales.mjs",
         "preview": "vite preview"
@@ -20,6 +20,7 @@
         "@stripe/react-stripe-js": "^6.6.0",
         "@stripe/stripe-js": "^9.8.0",
         "@tanstack/react-query": "^5.101.1",
+        "@tanstack/react-virtual": "^3.13.12",
         "@xterm/addon-fit": "^0.10.0",
         "@xterm/addon-search": "^0.15.0",
         "@xterm/addon-web-links": "^0.11.0",
