@@ -44,6 +44,12 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             Route::get('/two-factor', [Client\TwoFactorController::class, 'index'])->middleware('verified.view:credentials');
             Route::post('/two-factor', [Client\TwoFactorController::class, 'store'])->middleware('verified.interact:credentials');
             Route::post('/two-factor/disable', [Client\TwoFactorController::class, 'delete'])->middleware('verified.interact:credentials');
+
+            Route::get('/recovery-code', [Client\RecoveryCodeController::class, 'index'])->middleware('verified.view:credentials');
+            Route::post('/recovery-code', [Client\RecoveryCodeController::class, 'store'])
+                ->middleware(['verified.interact:credentials', 'throttle:6,1']);
+            Route::post('/recovery-code/acknowledge', [Client\RecoveryCodeController::class, 'acknowledge'])
+                ->middleware('verified.interact:credentials');
         });
 
         Route::put('/email', [Client\AccountController::class, 'updateEmail'])

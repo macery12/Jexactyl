@@ -14,6 +14,7 @@ type FormValues = { user: string; password: string };
 export default function LoginPage() {
     const navigate = useNavigate();
     const captcha = useFlags(s => s.site?.captcha);
+    const registrationEnabled = useFlags(s => s.everest?.auth?.registration?.enabled);
     const [token, setToken] = useState<string | undefined>(undefined);
     const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -95,6 +96,15 @@ export default function LoginPage() {
             <a href="/v2/auth/password" className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['auth.login.forgot']()}
             </a>
+
+            {registrationEnabled && (
+                <a
+                    href="/v2/auth/register"
+                    className="text-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+                >
+                    {m['auth.login.createAccount']()}
+                </a>
+            )}
         </form>
     );
 }

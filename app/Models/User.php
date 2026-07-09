@@ -137,8 +137,18 @@ class User extends Model implements
         'state',
         'root_admin',
         'recovery_code',
+        'recovery_code_seen',
         'email_verified_at',
     ];
+
+    /**
+     * Transient (non-persisted) holder for a freshly generated recovery code.
+     * The stored `recovery_code` column is hashed and can never be read back, so
+     * the plaintext is surfaced exactly once — at generation — via this property.
+     * Declared as a real property so Eloquent's magic setter never routes it into
+     * the persisted attribute bag.
+     */
+    public ?string $recoveryCodePlain = null;
 
     /**
      * Cast values to correct type.
@@ -147,6 +157,7 @@ class User extends Model implements
         'root_admin' => 'boolean',
         'use_totp' => 'boolean',
         'gravatar' => 'boolean',
+        'recovery_code_seen' => 'boolean',
         'stripe_id' => 'string',
         'totp_authenticated_at' => 'datetime',
         'email_verified_at' => 'datetime',
@@ -185,6 +196,7 @@ class User extends Model implements
         'admin_role_id' => 'nullable|exists:admin_roles,id',
         'totp_secret' => 'nullable|string',
         'recovery_code' => 'nullable|string',
+        'recovery_code_seen' => 'sometimes|boolean',
     ];
 
     /**

@@ -6,6 +6,7 @@ import { SettingsCard } from './SettingsCard';
 import { EmailForm } from './EmailForm';
 import { PasswordForm } from './PasswordForm';
 import { TwoFactorCard } from './TwoFactorCard';
+import { RecoveryCodeCard } from './RecoveryCodeCard';
 import { DiscordCard } from './DiscordCard';
 import { BillingAddressCard } from './BillingAddressCard';
 
@@ -68,6 +69,7 @@ export function AccountTab() {
             <EmailForm />
             <PasswordForm />
             <TwoFactorCard />
+            <RecoveryCodeCard />
             {discordEnabled && <DiscordCard />}
             {billingEnabled && <BillingAddressCard />}
         </div>

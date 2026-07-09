@@ -4,7 +4,6 @@ namespace Everest\Services\Users;
 
 use Ramsey\Uuid\Uuid;
 use Everest\Models\User;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Contracts\Auth\PasswordBroker;
@@ -42,12 +41,19 @@ class UserCreationService
             $data['password'] = $this->hasher->make(str_random(30));
         }
 
-        $data['recovery_code'] = Crypt::encryptString(str_random(32));
+        // Generate the offline recovery code and store it hashed (never reversible).
+        // The plaintext is surfaced exactly once, immediately after creation, via
+        // the transient $user->recoveryCodePlain property below.
+        $recoveryPlain = str_random(32);
+        $data['recovery_code'] = $this->hasher->make($recoveryPlain);
+        $data['recovery_code_seen'] = false;
 
         /** @var \Everest\Models\User $user */
         $user = $this->repository->create(array_merge($data, [
             'uuid' => Uuid::uuid4()->toString(),
         ]), true, true);
+
+        $user->recoveryCodePlain = $recoveryPlain;
 
         if (isset($generateResetToken)) {
             $token = $this->passwordBroker->createToken($user);
