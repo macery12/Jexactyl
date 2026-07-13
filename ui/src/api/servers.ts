@@ -63,6 +63,8 @@ export interface ServerDetail extends ServerListItem {
     isInstalling: boolean;
     isTransferring: boolean;
     isSuspended: boolean;
+    isNodeSupercharged: boolean;
+    isDeletionScheduled: boolean;
     isOwner: boolean;
     permissions: string[];
     sftp: { ip: string; port: number };
@@ -107,6 +109,8 @@ export async function getServer(id: string): Promise<ServerDetail> {
         isInstalling: a.is_installing ?? false,
         isTransferring: a.is_transferring ?? false,
         isSuspended: a.is_suspended ?? false,
+        isNodeSupercharged: a.is_node_supercharged ?? false,
+        isDeletionScheduled: a.is_deletion_scheduled ?? false,
         isOwner,
         permissions,
         sftp: { ip: a.sftp_details?.ip ?? '', port: a.sftp_details?.port ?? 0 },

@@ -39,12 +39,14 @@ export type BaseColorKey = 'canvas' | 'surface' | 'surface_2' | 'border' | 'ink'
 
 export const DEFAULT_COLORS: ThemeColors = {
     primary: '#0047fc',
-    canvas: '#0a0a0f',
-    surface: '#121219',
-    surface_2: '#1a1a24',
-    border: '#2e2e3d',
-    ink: '#f4f4f7',
-    ink_muted: '#9a9aae',
+    // Graphite base: each neutral layer steps ~5-7 ΔL* from the last so panels
+    // read as separate surfaces instead of dissolving into the canvas.
+    canvas: '#0c0e13',
+    surface: '#161a21',
+    surface_2: '#222833',
+    border: '#3a4453',
+    ink: '#f2f4f8',
+    ink_muted: '#9aa4b4',
     accent: '#18d39a',
     warning: '#f5a623',
     danger: '#f1545b',
@@ -115,6 +117,12 @@ export interface BasePalette {
 }
 
 export const BASE_PALETTES: BasePalette[] = [
+    // Deep-contrast ramps (default first). Each layer steps ~5-7 ΔL* so cards,
+    // rows and inputs stay legible as distinct surfaces on dark grounds.
+    { id: 'graphite', name: 'Graphite', colors: { canvas: '#0c0e13', surface: '#161a21', surface_2: '#222833', border: '#3a4453', ink: '#f2f4f8', ink_muted: '#9aa4b4' } },
+    { id: 'deep-slate', name: 'Deep Slate', colors: { canvas: '#0a0f1a', surface: '#141c2c', surface_2: '#202c44', border: '#35466a', ink: '#eef3fc', ink_muted: '#93a2c0' } },
+    { id: 'warm-carbon', name: 'Warm Carbon', colors: { canvas: '#100e0b', surface: '#1c1812', surface_2: '#2a2419', border: '#48402d', ink: '#f7f2ea', ink_muted: '#b3a68f' } },
+    // Legacy low-contrast ramps — kept for continuity; these blend on dark grounds.
     { id: 'void', name: 'Void', colors: { canvas: '#0a0a0f', surface: '#121219', surface_2: '#1a1a24', border: '#2e2e3d', ink: '#f4f4f7', ink_muted: '#9a9aae' } },
     { id: 'pure-black', name: 'Pure Black', colors: { canvas: '#000000', surface: '#0a0a0a', surface_2: '#141414', border: '#262626', ink: '#fafafa', ink_muted: '#8a8a8a' } },
     { id: 'slate', name: 'Slate', colors: { canvas: '#0f1115', surface: '#181b21', surface_2: '#21252e', border: '#333a45', ink: '#f1f5f9', ink_muted: '#98a2b3' } },
@@ -189,9 +197,10 @@ export function applyThemeVars(theme: Theme, target: HTMLElement = document.docu
     set('--sidebar', c.surface);
     set('--color-surface-2', c.surface_2);
 
-    // Borders: strong = source, subtle = source at lower alpha.
+    // Borders: strong = source, subtle = source at lower alpha. Kept high enough
+    // (58%) that hairline dividers stay visible on near-black canvases.
     set('--color-border-strong', c.border);
-    set('--color-border', `color-mix(in oklab, ${c.border} 35%, transparent)`);
+    set('--color-border', `color-mix(in oklab, ${c.border} 58%, transparent)`);
 
     // Ink ramp: faint blends toward the canvas.
     set('--color-ink', c.ink);

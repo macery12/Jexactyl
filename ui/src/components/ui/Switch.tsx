@@ -27,7 +27,7 @@ export function Switch({
                 'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-150',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/60 disabled:opacity-50',
                 checked
-                    ? 'border-transparent bg-[var(--color-accent)]'
+                    ? 'border-transparent bg-[var(--brand)]'
                     : 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)]',
                 className,
             )}
