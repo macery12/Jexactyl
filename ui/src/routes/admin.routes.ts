@@ -40,6 +40,7 @@ const MarketplaceSection = lazy(() => import('@/pages/admin/marketplace/Marketpl
 const AdminActivityPage = lazy(() => import('@/pages/admin/activity/AdminActivityPage'));
 const ApiKeysSection = lazy(() => import('@/pages/admin/api/ApiKeysSection'));
 const NestsSection = lazy(() => import('@/pages/admin/nests/NestsSection'));
+const ApiDocsPage = lazy(() => import('@/pages/admin/apidocs/ApiDocsPage'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -50,7 +51,7 @@ export const adminRoutes: RouteDef[] = [
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
     route('api/*', { name: 'API Keys', icon: KeyRound, category: 'general', permission: 'api.read', element: ApiKeysSection }),
 
-    route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers' }),
+    route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', element: ApiDocsPage }),
 
     route('auth/*', { name: 'Auth', icon: ShieldCheck, category: 'modules', permission: 'auth.read' }),
     route('billing/*', { name: 'Billing', icon: CreditCard, category: 'modules', permission: 'billing.read', element: BillingSection }),
