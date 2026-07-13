@@ -39,6 +39,7 @@ const RolesSection = lazy(() => import('@/pages/admin/roles/RolesSection'));
 const MarketplaceSection = lazy(() => import('@/pages/admin/marketplace/MarketplaceSection'));
 const AdminActivityPage = lazy(() => import('@/pages/admin/activity/AdminActivityPage'));
 const ApiKeysSection = lazy(() => import('@/pages/admin/api/ApiKeysSection'));
+const NestsSection = lazy(() => import('@/pages/admin/nests/NestsSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -71,5 +72,5 @@ export const adminRoutes: RouteDef[] = [
     route('users/*', { name: 'Users', icon: Users, category: 'management', permission: 'users.read', element: UsersSection }),
     route('roles/*', { name: 'Roles', icon: UserCog, category: 'management', permission: 'roles.read', element: RolesSection }),
 
-    route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read' }),
+    route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read', element: NestsSection }),
 ];
