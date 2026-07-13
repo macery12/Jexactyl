@@ -76,11 +76,18 @@ export interface BillingConfig {
 export interface EverestConfiguration {
     auth: {
         registration: { enabled: boolean };
-        security: { force2fa: boolean };
+        security: { force2fa: boolean; attempts?: number };
         captcha: { provider: string; site_key: string };
         modules: {
-            discord: { enabled: boolean };
-            google: { enabled: boolean };
+            discord: { enabled: boolean; clientId?: boolean; clientSecret?: boolean };
+            google: { enabled: boolean; clientId?: boolean; clientSecret?: boolean };
+            onboarding: { enabled: boolean; content?: string };
+            jguard: {
+                enabled: boolean;
+                approval_mode?: 'manual' | 'delayed' | 'immediate';
+                delay?: number;
+                pending_message?: string;
+            };
             [k: string]: unknown;
         };
     };
