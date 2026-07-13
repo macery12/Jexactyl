@@ -37,6 +37,8 @@ const TicketsSection = lazy(() => import('@/pages/admin/tickets/TicketsSection')
 const UsersSection = lazy(() => import('@/pages/admin/users/UsersSection'));
 const RolesSection = lazy(() => import('@/pages/admin/roles/RolesSection'));
 const MarketplaceSection = lazy(() => import('@/pages/admin/marketplace/MarketplaceSection'));
+const AdminActivityPage = lazy(() => import('@/pages/admin/activity/AdminActivityPage'));
+const ApiKeysSection = lazy(() => import('@/pages/admin/api/ApiKeysSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -44,8 +46,8 @@ export const adminRoutes: RouteDef[] = [
     route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true }),
     route('settings/*', { name: 'Settings', icon: Settings, category: 'general', permission: 'settings.read', element: SettingsSection }),
     route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
-    route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read' }),
-    route('api/*', { name: 'API Keys', icon: KeyRound, category: 'general', permission: 'api.read' }),
+    route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
+    route('api/*', { name: 'API Keys', icon: KeyRound, category: 'general', permission: 'api.read', element: ApiKeysSection }),
 
     route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers' }),
 
