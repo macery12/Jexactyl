@@ -42,6 +42,7 @@ const ApiKeysSection = lazy(() => import('@/pages/admin/api/ApiKeysSection'));
 const NestsSection = lazy(() => import('@/pages/admin/nests/NestsSection'));
 const ApiDocsPage = lazy(() => import('@/pages/admin/apidocs/ApiDocsPage'));
 const AuthSection = lazy(() => import('@/pages/admin/auth/AuthSection'));
+const WebhooksSection = lazy(() => import('@/pages/admin/webhooks/WebhooksSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -61,7 +62,7 @@ export const adminRoutes: RouteDef[] = [
     route('ai/*', { name: 'AI', icon: Bot, category: 'modules', permission: 'ai.read' }),
     route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read', element: MarketplaceSection }),
     route('email/*', { name: 'Email', icon: Mail, category: 'modules', element: EmailSection }),
-    route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules' }),
+    route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules', permission: 'webhooks.read', element: WebhooksSection }),
     route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', element: ExtensionsSection }),
     route('theme', { name: 'Theme', icon: Palette, category: 'modules', element: ThemeSection }),
     route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules' }),
