@@ -45,6 +45,7 @@ const AuthSection = lazy(() => import('@/pages/admin/auth/AuthSection'));
 const WebhooksSection = lazy(() => import('@/pages/admin/webhooks/WebhooksSection'));
 const AlertsSection = lazy(() => import('@/pages/admin/alerts/AlertsSection'));
 const OverviewPage = lazy(() => import('@/pages/admin/overview/OverviewPage'));
+const CustomDomainsSection = lazy(() => import('@/pages/admin/customdomains/CustomDomainsSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -59,7 +60,7 @@ export const adminRoutes: RouteDef[] = [
 
     route('auth/*', { name: 'Auth', icon: ShieldCheck, category: 'modules', permission: 'auth.read', element: AuthSection }),
     route('billing/*', { name: 'Billing', icon: CreditCard, category: 'modules', permission: 'billing.read', element: BillingSection }),
-    route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'modules', permission: 'custom-domains.read' }),
+    route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'modules', permission: 'custom-domains.read', element: CustomDomainsSection }),
     route('tickets/*', { name: 'Tickets', icon: LifeBuoy, category: 'modules', permission: 'tickets.read', element: TicketsSection }),
     route('ai/*', { name: 'AI', icon: Bot, category: 'modules', permission: 'ai.read' }),
     route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read', element: MarketplaceSection }),

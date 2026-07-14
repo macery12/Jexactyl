@@ -26,6 +26,7 @@ const NetworkPage = lazy(() => import('@/pages/server/network/NetworkPage'));
 const SchedulesSection = lazy(() => import('@/pages/server/schedules/SchedulesSection'));
 const UsersSection = lazy(() => import('@/pages/server/users/UsersSection'));
 const SettingsPage = lazy(() => import('@/pages/server/settings/SettingsPage'));
+const CustomDomainsPage = lazy(() => import('@/pages/server/customdomains/CustomDomainsPage'));
 
 // Server area (/v2/server/:id/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.3. The index is the modular widget dashboard
@@ -43,7 +44,7 @@ export const serverRoutes: RouteDef[] = [
     // automation → team → admin), keeping each a distinct permission-gated tab.
     route('startup/*', { name: 'Startup', icon: SlidersHorizontal, permission: 'startup.*', category: 'configuration', element: StartupPage }),
     route('network/*', { name: 'Network', icon: Network, permission: 'allocation.*', category: 'configuration', element: NetworkPage }),
-    route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'configuration', condition: f => f.custom_domains.enabled }),
+    route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'configuration', condition: f => f.custom_domains.enabled, element: CustomDomainsPage }),
     route('schedules/*', { name: 'Schedules', icon: CalendarClock, permission: 'schedule.*', category: 'configuration', element: SchedulesSection }),
     route('users/*', { name: 'Users', icon: Users, permission: 'user.*', category: 'configuration', element: UsersSection }),
     route('settings/*', { name: 'Settings', icon: Settings, permission: 'settings.*', category: 'configuration', element: SettingsPage }),
