@@ -4,7 +4,7 @@ return [
     /*
      * Enable or disable the billing module.
      */
-    'enabled' => env('BILLING_ENABLED', false),
+    'enabled' => env('BILLING_ENABLED', true),
 
     /*
      * Configure the publishable & secret API key for Stripe.

@@ -35,6 +35,8 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::group(['prefix' => '/settings'], function () {
         Route::patch('/', [Application\Settings\GeneralController::class, 'update']);
         Route::patch('/mode', [Application\Settings\ModeController::class, 'update']);
+        Route::get('/features', [Application\Settings\FeaturesController::class, 'index']);
+        Route::put('/features', [Application\Settings\FeaturesController::class, 'update']);
     });
 
     /*

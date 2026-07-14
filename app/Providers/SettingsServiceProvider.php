@@ -103,6 +103,11 @@ class SettingsServiceProvider extends ServiceProvider
         // Extensions module settings
         'modules:extensions:enabled',
 
+        // Email module master toggle. Distinct from mail-delivery capability
+        // (EmailManager::isDeliveryEnabled) — this only governs whether the
+        // Email admin module is surfaced in the panel.
+        'modules:email:enabled',
+
         // Landing page module settings
         // NB: the rich section structure is stored as a JSON blob under
         // `modules:landing:config` and read directly via Setting::get — only the

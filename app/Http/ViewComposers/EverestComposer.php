@@ -87,6 +87,9 @@ class EverestComposer
             ],
             'email' => [
                 'enabled' => $this->emailEnabled(),
+                // Master toggle for surfacing the Email admin module in the panel
+                // (independent of whether mail delivery is actually configured).
+                'module_enabled' => boolval(config('modules.email.enabled', false)),
                 'resend' => [
                     'enabled' => $this->emailEnabled(),
                 ],
@@ -102,7 +105,11 @@ class EverestComposer
                 'url' => !empty(config('modules.webhooks.url')),
             ],
             'mods' => [
-                'enabled' => boolval(Setting::get('settings::modules:mods:enabled', config('modules.mods.enabled', false))),
+                // Read the bridged config value (SettingsServiceProvider maps the
+                // stored string onto a real bool). Reading the raw setting here
+                // would hit PHP's boolval('false') === true trap and leave the
+                // module looking enabled after it was toggled off.
+                'enabled' => boolval(config('modules.mods.enabled', false)),
                 'default_source' => Setting::get('settings::modules:mods:default_source', config('modules.mods.default_source', 'modrinth')),
                 'allow_external_downloads' => (bool) Setting::get('settings::modules:mods:allow_external_downloads', config('modules.mods.allow_external_downloads', false)),
                 'curseforge_cdn_fallback'  => (bool) Setting::get('settings::modules:mods:curseforge_cdn_fallback', config('modules.mods.curseforge_cdn_fallback', true)),

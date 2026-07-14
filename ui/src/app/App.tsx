@@ -15,12 +15,26 @@ import ServerLayout from '@/layouts/ServerLayout';
 import AdminLayout from '@/layouts/AdminLayout';
 import LandingPage from '@/pages/landing/LandingPage';
 import Placeholder from '@/pages/_shared/Placeholder';
+import FeatureDisabled from '@/pages/_shared/FeatureDisabled';
 import NotFound from '@/pages/NotFound';
+
+// Enforce a route's feature-flag `condition` on direct access. The sidebar
+// already hides gated-off tabs (buildNav), but the router still maps every
+// path, so a typed URL would otherwise render a disabled module's page. When
+// flags haven't loaded yet we fail open (mirrors buildNav's null-flags check).
+function FeatureGate({ def, children }: { def: RouteDef; children: ReactElement }) {
+    const flags = useFlags(s => s.everest);
+    if (def.condition && flags && !def.condition(flags)) {
+        return <FeatureDisabled name={def.name} />;
+    }
+    return children;
+}
 
 // Resolve a registry entry to an element: built page, or the shared placeholder.
 function resolveElement(r: RouteDef): ReactElement {
-    if (r.element) return createElement(r.element);
-    return <Placeholder title={r.name ?? r.path} />;
+    const el = r.element ? createElement(r.element) : <Placeholder title={r.name ?? r.path} />;
+    if (r.condition) return <FeatureGate def={r}>{el}</FeatureGate>;
+    return el;
 }
 
 // Map registry entries to react-router child routes ('' -> index route).

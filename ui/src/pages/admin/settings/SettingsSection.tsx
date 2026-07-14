@@ -8,22 +8,16 @@ import {
     LayoutPanelTop,
     Zap,
     Languages,
-    SlidersHorizontal,
     Check,
-    Monitor,
-    Moon,
-    Terminal,
-    Info,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
-import { Modal } from '@/components/ui/Modal';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { cn } from '@/lib/cn';
-import { updateGeneralSettings, updateModeSettings, type PanelMode } from '@/api/adminSettings';
+import { updateGeneralSettings } from '@/api/adminSettings';
 
 // Render a locale code as its own autonym (e.g. "de" -> "Deutsch"), with the
 // English name as a secondary label for admins who don't read the script.
@@ -238,8 +232,6 @@ export default function SettingsSection() {
                     {saving ? <Spinner className="h-4 w-4" /> : m['common.actions.saveChanges']()}
                 </Button>
             </div>
-
-            <ModeSection initialMode={(site?.mode as PanelMode) ?? 'standard'} debug={site?.debug ?? false} />
         </div>
     );
 }
@@ -260,126 +252,5 @@ function ToggleRow({ icon: Icon, label, help, checked, onChange }: {
             </span>
             <Switch checked={checked} onChange={onChange} className="mt-0.5" />
         </label>
-    );
-}
-
-function ModeSection({ initialMode, debug }: { initialMode: PanelMode; debug: boolean }) {
-    const push = useFlashes(s => s.push);
-    const [mode, setMode] = useState<PanelMode>(initialMode);
-    const [busy, setBusy] = useState<PanelMode | null>(null);
-    const [debugOpen, setDebugOpen] = useState(false);
-
-    const apply = async (next: PanelMode) => {
-        if (next === mode || busy) return;
-        setBusy(next);
-        try {
-            await updateModeSettings(next);
-            setMode(next);
-            push({ type: 'success', message: m['admin.settings.mode.saved']() });
-        } catch (err) {
-            push({ type: 'error', message: firstError(err) ?? m['admin.settings.saveError']() });
-        } finally {
-            setBusy(null);
-        }
-    };
-
-    return (
-        <>
-            <SectionCard
-                icon={SlidersHorizontal}
-                title={m['admin.settings.mode.title']()}
-                subtitle={m['admin.settings.mode.subtitle']()}
-            >
-                <div className="grid gap-3 lg:grid-cols-3">
-                    <ModeCard
-                        icon={Monitor}
-                        title={m['admin.settings.mode.standard']()}
-                        desc={m['admin.settings.mode.standardDesc']()}
-                        active={mode === 'standard'}
-                        busy={busy === 'standard'}
-                        onSelect={() => apply('standard')}
-                    />
-                    <ModeCard
-                        icon={Moon}
-                        title={m['admin.settings.mode.personal']()}
-                        desc={m['admin.settings.mode.personalDesc']()}
-                        active={mode === 'personal'}
-                        busy={busy === 'personal'}
-                        onSelect={() => apply('personal')}
-                    />
-                    <ModeCard
-                        icon={Terminal}
-                        title={m['admin.settings.mode.debug']()}
-                        desc={m['admin.settings.mode.debugDesc']()}
-                        active={debug}
-                        activeLabel={m['admin.settings.mode.envManaged']()}
-                        onSelect={() => setDebugOpen(true)}
-                    />
-                </div>
-            </SectionCard>
-
-            <Modal open={debugOpen} onClose={() => setDebugOpen(false)} title={m['admin.settings.mode.debugDialogTitle']()} size="sm">
-                <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.settings.mode.debugDialogIntro']()}</p>
-                <ol className="mt-3 space-y-2 text-sm text-[var(--color-ink)]">
-                    {[
-                        m['admin.settings.mode.debugStep1'](),
-                        m['admin.settings.mode.debugStep2'](),
-                        m['admin.settings.mode.debugStep3'](),
-                        m['admin.settings.mode.debugStep4'](),
-                    ].map((step, i) => (
-                        <li key={i} className="flex gap-2.5">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-surface-2)] text-[11px] font-semibold text-[var(--color-ink-muted)]">
-                                {i + 1}
-                            </span>
-                            <span>{step}</span>
-                        </li>
-                    ))}
-                </ol>
-            </Modal>
-        </>
-    );
-}
-
-function ModeCard({ icon: Icon, title, desc, active, busy, activeLabel, onSelect }: {
-    icon: LucideIcon;
-    title: string;
-    desc: string;
-    active: boolean;
-    busy?: boolean;
-    activeLabel?: string;
-    onSelect: () => void;
-}) {
-    return (
-        <div
-            className={cn(
-                'flex flex-col rounded-xl border p-4 transition-colors',
-                active ? 'border-[var(--brand)] bg-[var(--brand)]/8' : 'border-[var(--color-border-strong)]',
-            )}
-        >
-            <div className="flex items-center gap-2.5">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]">
-                    <Icon className="h-4 w-4" />
-                </div>
-                <h3 className="text-sm font-semibold text-[var(--color-ink)]">{title}</h3>
-            </div>
-            <p className="mt-2.5 flex-1 text-xs leading-relaxed text-[var(--color-ink-muted)]">{desc}</p>
-            <div className="mt-4">
-                {active ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--brand)]">
-                        <Check className="h-3.5 w-3.5" />
-                        {activeLabel ?? m['admin.settings.mode.active']()}
-                    </span>
-                ) : activeLabel !== undefined ? (
-                    <Button variant="outline" size="sm" onClick={onSelect}>
-                        <Info className="h-3.5 w-3.5" />
-                        {m['admin.settings.mode.enable']()}
-                    </Button>
-                ) : (
-                    <Button variant="outline" size="sm" disabled={busy} onClick={onSelect}>
-                        {busy ? <Spinner className="h-4 w-4" /> : m['admin.settings.mode.enable']()}
-                    </Button>
-                )}
-            </div>
-        </div>
     );
 }

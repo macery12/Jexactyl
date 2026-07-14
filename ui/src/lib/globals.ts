@@ -96,7 +96,9 @@ export interface EverestConfiguration {
     ai: { enabled: boolean; feature_server_assistant: boolean; [k: string]: unknown };
     mods: { enabled: boolean; [k: string]: unknown };
     webhooks: { enabled: boolean; [k: string]: unknown };
-    email: { enabled: boolean; [k: string]: unknown };
+    // `enabled` = mail delivery is configured; `module_enabled` = admin has
+    // surfaced the Email admin module (the feature toggle drives the latter).
+    email: { enabled: boolean; module_enabled?: boolean; [k: string]: unknown };
     extensions: { enabled: boolean };
     custom_domains: { enabled: boolean };
     [k: string]: unknown;

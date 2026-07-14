@@ -21,6 +21,7 @@ import {
     Users,
     UserCog,
     Egg,
+    ToggleRight,
 } from 'lucide-react';
 import { lazy } from 'react';
 import { route, type RouteDef } from './registry';
@@ -46,12 +47,14 @@ const WebhooksSection = lazy(() => import('@/pages/admin/webhooks/WebhooksSectio
 const AlertsSection = lazy(() => import('@/pages/admin/alerts/AlertsSection'));
 const OverviewPage = lazy(() => import('@/pages/admin/overview/OverviewPage'));
 const CustomDomainsSection = lazy(() => import('@/pages/admin/customdomains/CustomDomainsSection'));
+const FeaturesSection = lazy(() => import('@/pages/admin/features/FeaturesSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
 export const adminRoutes: RouteDef[] = [
     route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true, element: OverviewPage }),
     route('settings/*', { name: 'Settings', icon: Settings, category: 'general', permission: 'settings.read', element: SettingsSection }),
+    route('features', { name: 'Features', icon: ToggleRight, category: 'general', permission: 'settings.read', element: FeaturesSection }),
     route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
     route('api/*', { name: 'API Keys', icon: KeyRound, category: 'general', permission: 'api.read', element: ApiKeysSection }),
@@ -59,14 +62,14 @@ export const adminRoutes: RouteDef[] = [
     route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', element: ApiDocsPage }),
 
     route('auth/*', { name: 'Auth', icon: ShieldCheck, category: 'modules', permission: 'auth.read', element: AuthSection }),
-    route('billing/*', { name: 'Billing', icon: CreditCard, category: 'modules', permission: 'billing.read', element: BillingSection }),
-    route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'modules', permission: 'custom-domains.read', element: CustomDomainsSection }),
-    route('tickets/*', { name: 'Tickets', icon: LifeBuoy, category: 'modules', permission: 'tickets.read', element: TicketsSection }),
-    route('ai/*', { name: 'AI', icon: Bot, category: 'modules', permission: 'ai.read' }),
-    route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read', element: MarketplaceSection }),
-    route('email/*', { name: 'Email', icon: Mail, category: 'modules', element: EmailSection }),
-    route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules', permission: 'webhooks.read', element: WebhooksSection }),
-    route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', element: ExtensionsSection }),
+    route('billing/*', { name: 'Billing', icon: CreditCard, category: 'modules', permission: 'billing.read', condition: f => f.billing.enabled, element: BillingSection }),
+    route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'modules', permission: 'custom-domains.read', condition: f => f.custom_domains.enabled, element: CustomDomainsSection }),
+    route('tickets/*', { name: 'Tickets', icon: LifeBuoy, category: 'modules', permission: 'tickets.read', condition: f => f.tickets.enabled, element: TicketsSection }),
+    route('ai/*', { name: 'AI', icon: Bot, category: 'modules', permission: 'ai.read', condition: f => f.ai.enabled }),
+    route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read', condition: f => f.mods.enabled, element: MarketplaceSection }),
+    route('email/*', { name: 'Email', icon: Mail, category: 'modules', condition: f => !!f.email.module_enabled, element: EmailSection }),
+    route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules', permission: 'webhooks.read', condition: f => f.webhooks.enabled, element: WebhooksSection }),
+    route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', condition: f => f.extensions.enabled, element: ExtensionsSection }),
     route('theme', { name: 'Theme', icon: Palette, category: 'modules', element: ThemeSection }),
     route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', element: AlertsSection }),
 
