@@ -47,6 +47,7 @@ const WebhooksSection = lazy(() => import('@/pages/admin/webhooks/WebhooksSectio
 const AlertsSection = lazy(() => import('@/pages/admin/alerts/AlertsSection'));
 const OverviewPage = lazy(() => import('@/pages/admin/overview/OverviewPage'));
 const CustomDomainsSection = lazy(() => import('@/pages/admin/customdomains/CustomDomainsSection'));
+const DatabasesSection = lazy(() => import('@/pages/admin/databases/DatabasesSection'));
 const FeaturesSection = lazy(() => import('@/pages/admin/features/FeaturesSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
@@ -73,7 +74,7 @@ export const adminRoutes: RouteDef[] = [
     route('theme', { name: 'Theme', icon: Palette, category: 'modules', element: ThemeSection }),
     route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', element: AlertsSection }),
 
-    route('databases', { name: 'Databases', icon: Database, category: 'management', permission: 'databases.read' }),
+    route('databases/*', { name: 'Databases', icon: Database, category: 'management', permission: 'databases.read', element: DatabasesSection }),
     route('infrastructure/*', { name: 'Infrastructure', icon: Server, category: 'management', permission: ['nodes.read', 'servers.read'], element: InfrastructureSection }),
     // Legacy paths redirect into the merged Infrastructure section (hidden from nav).
     route('nodes/*', { element: NodesRedirect }),
