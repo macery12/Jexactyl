@@ -52,16 +52,16 @@ Route definitions live in `routers/routes/{account,admin,server}.ts` as data (`r
 
 ## 3. Page map
 
-Legend: `🚩` = gated behind a feature flag/condition · `🔒` = gated behind a permission.
+Legend: `` = gated behind a feature flag/condition · `🔒` = gated behind a permission.
 
 ### 3.1 Auth (`/auth/*`)
 | Route | Page | Does | Key endpoints (`api/routes/auth/*`) |
 |---|---|---|---|
 | `login` | Login | Email/password, Turnstile | `login.ts` |
 | `login/checkpoint` | 2FA checkpoint | TOTP / recovery code | `login.ts` |
-| `register` 🚩 | Register | Self-signup if enabled | `register.ts` |
-| `discord/link-choice` 🚩 | Discord link | Link/create on Discord OAuth | `discord.ts` |
-| `discord/register` 🚩 | Discord register | Finish Discord signup | `discord.ts` |
+| `register`  | Register | Self-signup if enabled | `register.ts` |
+| `discord/link-choice`  | Discord link | Link/create on Discord OAuth | `discord.ts` |
+| `discord/register`  | Discord register | Finish Discord signup | `discord.ts` |
 | `password` | Forgot password | Request reset email | `password-reset.ts` |
 | `password/reset/:token` | Reset password | Set new password | `password-reset.ts` |
 | `*` | NotFound | Redirects to login | — |
@@ -72,13 +72,13 @@ Legend: `🚩` = gated behind a feature flag/condition · `🔒` = gated behind 
 | `` | Account Overview | Profile, email, password | `account/index.ts` |
 | `credentials` | Credentials | API keys + SSH keys | `api-keys.ts`, `ssh-keys.ts` |
 | `security` | Security | 2FA, active sessions | `two-factor.ts`, `sessions.ts` |
-| `tickets` 🚩 | Tickets | List support tickets | `tickets.ts` |
-| `tickets/:id` 🚩 | View Ticket | Thread + reply | `tickets.ts` |
-| `billing/order` 🚩 | Products | Browse purchasable products | `billing/products.ts`, `categories.ts` |
+| `tickets`  | Tickets | List support tickets | `tickets.ts` |
+| `tickets/:id`  | View Ticket | Thread + reply | `tickets.ts` |
+| `billing/order`  | Products | Browse purchasable products | `billing/products.ts`, `categories.ts` |
 | `checkout/configure/:id` | Configure order | Pick options/cycle | `billing/orders/*` |
 | `checkout/payment` | Checkout payment | Pay (Stripe/PayPal) | `stripe.ts`, `paypal.ts`, `process.ts` |
 | `billing/order/:id` | Order | Order detail/config | `billing/orders/index.ts` |
-| `billing/orders` 🚩 | Orders | Order + invoice history | `invoices.ts`, `orders/index.ts` |
+| `billing/orders`  | Orders | Order + invoice history | `invoices.ts`, `orders/index.ts` |
 | `billing/processing` `/success` `/cancel` | Summary states | Post-payment status | `process.ts` |
 
 Also referenced: `activity.ts` (account activity log), `billingProfile.ts`, `coupons.ts`, `customDomains.ts`, `addressAutocomplete.ts`, `email-verification.ts`, `modpacks.ts`.
@@ -87,7 +87,7 @@ Also referenced: `activity.ts` (account activity log), `billingProfile.ts`, `cou
 | Route | Page | Category | Does | Endpoints (`api/routes/server/*`) |
 |---|---|---|---|---|
 | `` 🔒`control.console` | Console | — | Live console + power + stats (websocket) | `websocket.ts`, `index.ts` |
-| `ai/*` 🚩 | AI Assistant | — | Per-server AI chat | `ai.ts`, `aiConversations.ts` |
+| `ai/*`  | AI Assistant | — | Per-server AI chat | `ai.ts`, `aiConversations.ts` |
 | `files/*` 🔒`file.*` | Files | data | File manager | `files.ts`, `directories.ts` |
 | `files/:action/*` 🔒 | File Edit | — | Edit/view a file | `files.ts` |
 | `databases/*` 🔒`database.*` | Databases | data | DB list/create | `databases.ts` |
@@ -97,12 +97,12 @@ Also referenced: `activity.ts` (account activity log), `billingProfile.ts`, `cou
 | `users/*` 🔒`user.*` | Users (subusers) | configuration | Subusers + permissions | `subusers.ts`, `permissions.ts` |
 | `backups/*` 🔒`backup.*` | Backups | data | Create/restore/download | `backups.ts` |
 | `network/*` 🔒`allocation.*` | Network | configuration | Port allocations | `allocations.ts` |
-| `custom-domains/*` 🚩🔒 | Custom Domains | configuration | Domain mapping | `customDomains.ts` |
+| `custom-domains/*` 🔒 | Custom Domains | configuration | Domain mapping | `customDomains.ts` |
 | `startup/*` 🔒`startup.*` | Startup | configuration | Startup vars / egg | `startup.ts` |
 | `settings/*` 🔒`settings.*` | Settings | configuration | Rename, reinstall, SFTP | `index.ts`, `deletion.ts` |
-| `activity/*` 🚩🔒 | Activity | — | Server activity log | `activity.ts` |
-| `billing/*` 🚩🔒 | Billing | — | Renewal/cost for this server | `billing.ts` |
-| `extensions/*` 🚩🔒`extension.*` | Extensions | — | Per-server extension pages | `api/server/extensions/*` |
+| `activity/*` 🔒 | Activity | — | Server activity log | `activity.ts` |
+| `billing/*` 🔒 | Billing | — | Renewal/cost for this server | `billing.ts` |
+| `extensions/*` 🔒`extension.*` | Extensions | — | Per-server extension pages | `api/server/extensions/*` |
 
 Server data shapes (`api/definitions/server/models.d.ts`): `Server`, `ServerStats`, `Backup`, `ServerGroup`, `EggVariable`, `Database`, `Subuser`, `Allocation`, `FileObject`, `Schedule`, `Task`.
 
@@ -111,7 +111,7 @@ Server data shapes (`api/definitions/server/models.d.ts`): `Server`, `ServerStat
 |---|---|---|---|
 | `` | Overview | general | `overview.read` |
 | `settings/*` | Settings | general | `settings.read` |
-| `activity` 🚩 | Activity | general | `activity.read` |
+| `activity`  | Activity | general | `activity.read` |
 | `api/*` | API keys | general | `api.read` |
 | `developers/api-docs` | API Docs | developers | — |
 | `auth/*` | Auth module (JGuard) | modules | `auth.read` |

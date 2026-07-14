@@ -1,6 +1,7 @@
 import { m } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Server, Plus, ChevronDown, Zap, HardDrive, Layers, Share2 } from 'lucide-react';
 import { getAdminServers } from '@/api/adminServers';
 import { getNodes, getNodeServerCount, type NodeListItem } from '@/api/nodes';
@@ -154,6 +155,21 @@ export default function InfrastructureOverviewPage() {
     const [mode, setMode] = usePersistedState<ViewMode>('v2:admin:infra:view', 'map');
     const [newServer, setNewServer] = useState(false);
     const [newNode, setNewNode] = useState(false);
+
+    // Honor a `?view=` deep link once (e.g. the admin overview's server/node tiles),
+    // then strip the param so the persisted choice owns the view from there on.
+    const [searchParams, setSearchParams] = useSearchParams();
+    useEffect(() => {
+        const requested = searchParams.get('view');
+        if (requested === 'map' || requested === 'servers' || requested === 'nodes') {
+            setMode(requested);
+            searchParams.delete('view');
+            setSearchParams(searchParams, { replace: true });
+        }
+        // Deliberately mount-only: a deep link should set the initial view, not fight
+        // the user's subsequent toggles.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const serversQ = useQuery({ queryKey: ['admin', 'servers'], queryFn: getAdminServers });
     const nodesQ = useQuery({ queryKey: ['admin', 'nodes'], queryFn: getNodes });

@@ -7,6 +7,11 @@ use Everest\Http\Middleware\Activity\AdminSubject;
 Route::middleware([AdminSubject::class])->group(function () {
     Route::get('/permissions', Application\PermissionsController::class);
 
+    Route::get('/overview', [Application\OverviewController::class, 'index']);
+    // Superseded by the aggregate `/overview` payload for the V2 UI, but STILL LIVE:
+    // the V1 admin frontend (resources/scripts) consumes both — OverviewContainer.tsx
+    // (metrics + version) and ExtensionsContainer.tsx (version). Do not remove until
+    // V1 is decommissioned (see docs/V2.md cutover task).
     Route::get('/overview/version', [Application\OverviewController::class, 'version']);
     Route::get('/overview/metrics', [Application\OverviewController::class, 'metrics']);
 

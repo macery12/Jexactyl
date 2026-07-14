@@ -43,11 +43,13 @@ const NestsSection = lazy(() => import('@/pages/admin/nests/NestsSection'));
 const ApiDocsPage = lazy(() => import('@/pages/admin/apidocs/ApiDocsPage'));
 const AuthSection = lazy(() => import('@/pages/admin/auth/AuthSection'));
 const WebhooksSection = lazy(() => import('@/pages/admin/webhooks/WebhooksSection'));
+const AlertsSection = lazy(() => import('@/pages/admin/alerts/AlertsSection'));
+const OverviewPage = lazy(() => import('@/pages/admin/overview/OverviewPage'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
 export const adminRoutes: RouteDef[] = [
-    route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true }),
+    route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true, element: OverviewPage }),
     route('settings/*', { name: 'Settings', icon: Settings, category: 'general', permission: 'settings.read', element: SettingsSection }),
     route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
@@ -65,7 +67,7 @@ export const adminRoutes: RouteDef[] = [
     route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules', permission: 'webhooks.read', element: WebhooksSection }),
     route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', element: ExtensionsSection }),
     route('theme', { name: 'Theme', icon: Palette, category: 'modules', element: ThemeSection }),
-    route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules' }),
+    route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', element: AlertsSection }),
 
     route('databases', { name: 'Databases', icon: Database, category: 'management', permission: 'databases.read' }),
     route('infrastructure/*', { name: 'Infrastructure', icon: Server, category: 'management', permission: ['nodes.read', 'servers.read'], element: InfrastructureSection }),
