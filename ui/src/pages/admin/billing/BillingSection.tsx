@@ -3,8 +3,13 @@ import BillingOverviewPage from './BillingOverviewPage';
 import ProductsPage from './products/ProductsPage';
 import ProductEditorPage from './products/ProductEditorPage';
 import CategoryDetailPage from './products/CategoryDetailPage';
+import OrdersPage from './orders/OrdersPage';
+import InvoicesPage from './invoices/InvoicesPage';
+import CouponsPage from './coupons/CouponsPage';
+import ExceptionsPage from './exceptions/ExceptionsPage';
+import SettingsPage from './settings/SettingsPage';
+import InvoiceSettingsPage from './invoicesettings/InvoiceSettingsPage';
 import { BillingNav } from './BillingNav';
-import { ComingSoon } from './ComingSoon';
 
 // Mounted at the admin `billing/*` splat route. Owns the billing overview, the
 // category-grouped product catalog, and the product editor. The secondary
@@ -26,12 +31,12 @@ export default function BillingSection() {
                             <Routes>
                                 <Route index element={<BillingOverviewPage />} />
                                 <Route path="products" element={<ProductsPage />} />
-                                <Route path="orders" element={<ComingSoon titleKey="billing.nav.orders" />} />
-                                <Route path="invoices" element={<ComingSoon titleKey="billing.nav.invoices" />} />
-                                <Route path="coupons" element={<ComingSoon titleKey="billing.nav.coupons" />} />
-                                <Route path="exceptions" element={<ComingSoon titleKey="billing.nav.exceptions" />} />
-                                <Route path="settings" element={<ComingSoon titleKey="billing.nav.settings" />} />
-                                <Route path="invoice-settings" element={<ComingSoon titleKey="billing.nav.invoiceSettings" />} />
+                                <Route path="orders" element={<OrdersPage />} />
+                                <Route path="invoices" element={<InvoicesPage />} />
+                                <Route path="coupons" element={<CouponsPage />} />
+                                <Route path="exceptions" element={<ExceptionsPage />} />
+                                <Route path="settings" element={<SettingsPage />} />
+                                <Route path="invoice-settings" element={<InvoiceSettingsPage />} />
                             </Routes>
                         </div>
                     </div>
