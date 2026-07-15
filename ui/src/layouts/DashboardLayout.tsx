@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { AppShell } from '@/components/shell/AppShell';
+import { CustomLinks } from '@/components/shell/CustomLinks';
 import { RequireAuth } from './RequireAuth';
 import { accountRoutes } from '@/routes/account.routes';
 import { buildNav } from '@/routes/nav';
@@ -14,7 +15,9 @@ export default function DashboardLayout() {
 
     return (
         <RequireAuth>
-            <AppShell groups={groups} />
+            {/* Custom links live in the account sidebar only — V1 rendered them
+                from DashboardRouter, not the admin or server chrome. */}
+            <AppShell groups={groups} sidebarFooter={<CustomLinks />} />
         </RequireAuth>
     );
 }

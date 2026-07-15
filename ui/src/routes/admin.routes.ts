@@ -22,6 +22,7 @@ import {
     UserCog,
     Egg,
     ToggleRight,
+    Link2,
 } from 'lucide-react';
 import { lazy } from 'react';
 import { route, type RouteDef } from './registry';
@@ -50,6 +51,7 @@ const CustomDomainsSection = lazy(() => import('@/pages/admin/customdomains/Cust
 const DatabasesSection = lazy(() => import('@/pages/admin/databases/DatabasesSection'));
 const FeaturesSection = lazy(() => import('@/pages/admin/features/FeaturesSection'));
 const AiSection = lazy(() => import('@/pages/admin/ai/AiSection'));
+const LinksSection = lazy(() => import('@/pages/admin/links/LinksSection'));
 
 // Admin area (/v2/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -74,6 +76,10 @@ export const adminRoutes: RouteDef[] = [
     route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', condition: f => f.extensions.enabled, element: ExtensionsSection }),
     route('theme', { name: 'Theme', icon: Palette, category: 'modules', element: ThemeSection }),
     route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', element: AlertsSection }),
+    // V1 filed Links under its 'appearance' category alongside Theme and Alerts;
+    // V2 has no such category, so it joins those two here. No feature flag — the
+    // per-link `visible` column is the operator's off switch (V1 parity).
+    route('links', { name: 'Links', icon: Link2, category: 'modules', permission: 'links.read', element: LinksSection }),
 
     route('databases/*', { name: 'Databases', icon: Database, category: 'management', permission: 'databases.read', element: DatabasesSection }),
     route('infrastructure/*', { name: 'Infrastructure', icon: Server, category: 'management', permission: ['nodes.read', 'servers.read'], element: InfrastructureSection }),

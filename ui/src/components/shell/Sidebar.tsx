@@ -1,9 +1,20 @@
+import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { td } from '@/i18n';
 import type { NavGroup } from '@/routes/nav';
 import { cn } from '@/lib/cn';
 
-export function Sidebar({ groups, onNavigate }: { groups: NavGroup[]; onNavigate?: () => void }) {
+// `footer` renders below the registry-driven groups, for nav entries that
+// aren't routes (the account area passes operator-defined external links).
+export function Sidebar({
+    groups,
+    onNavigate,
+    footer,
+}: {
+    groups: NavGroup[];
+    onNavigate?: () => void;
+    footer?: ReactNode;
+}) {
     // Nav labels come from the route registry (dynamic English strings); look
     // each up under nav.items.* with the English name as the fallback so an
     // unregistered route still renders. Categories are a fixed set.
@@ -40,6 +51,7 @@ export function Sidebar({ groups, onNavigate }: { groups: NavGroup[]; onNavigate
                     ))}
                 </div>
             ))}
+            {footer}
         </nav>
     );
 }
