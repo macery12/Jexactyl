@@ -27,13 +27,14 @@ const SchedulesSection = lazy(() => import('@/pages/server/schedules/SchedulesSe
 const UsersSection = lazy(() => import('@/pages/server/users/UsersSection'));
 const SettingsPage = lazy(() => import('@/pages/server/settings/SettingsPage'));
 const CustomDomainsPage = lazy(() => import('@/pages/server/customdomains/CustomDomainsPage'));
+const AiPage = lazy(() => import('@/pages/server/ai/AiPage'));
 
 // Server area (/v2/server/:id/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.3. The index is the modular widget dashboard
 // (console-focal); the rest remain placeholders.
 export const serverRoutes: RouteDef[] = [
     route('', { name: 'Console', icon: Terminal, element: ServerOverviewPage, end: true }),
-    route('ai/*', { name: 'AI Assistant', icon: Bot, condition: f => f.ai.enabled && f.ai.feature_server_assistant }),
+    route('ai/*', { name: 'AI Assistant', icon: Bot, condition: f => f.ai.enabled && f.ai.feature_server_assistant, element: AiPage }),
 
     route('files/*', { name: 'Files', icon: FolderOpen, permission: 'file.*', category: 'data', element: FilesSection }),
     route('databases/*', { name: 'Databases', icon: Database, permission: 'database.*', category: 'data' }),

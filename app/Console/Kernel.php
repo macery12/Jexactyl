@@ -20,6 +20,7 @@ use Everest\Console\Commands\Billing\RefreshNodeAvailabilityCommand;
 use Everest\Console\Commands\Maintenance\CleanServiceBackupFilesCommand;
 use Everest\Console\Commands\Billing\DeleteScheduledServersCommand;
 use Everest\Console\Commands\AI\PruneAiConversationsCommand;
+use Everest\Console\Commands\AI\WarmAiModelCommand;
 
 class Kernel extends ConsoleKernel
 {
@@ -43,6 +44,9 @@ class Kernel extends ConsoleKernel
         $schedule->command(ProcessRunnableCommand::class)->everyMinute()->withoutOverlapping();
         $schedule->command(CleanServiceBackupFilesCommand::class)->daily();
         $schedule->command(PruneAiConversationsCommand::class)->daily();
+        // Re-assert Ollama keep_alive before it lapses; the command exits
+        // immediately unless AI is enabled with warm-up on and mode=ollama.
+        $schedule->command(WarmAiModelCommand::class)->everyFiveMinutes()->withoutOverlapping();
 
         if (config('backups.prune_age')) {
             // Every 30 minutes, run the backup pruning command so that any abandoned backups can be deleted.

@@ -10,6 +10,7 @@ use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Services\AI\OpenAIService;
 use Everest\Services\Email\EmailRedactor;
@@ -38,6 +39,8 @@ class IntelligenceController extends ApplicationApiController
             'mode' => config('modules.ai.mode', 'openai'),
             'max_tokens' => (int) config('modules.ai.max_tokens', 200),
             'temperature' => (float) config('modules.ai.temperature', 0.3),
+            'keep_alive' => (string) config('modules.ai.keep_alive', '10m'),
+            'warm' => boolval(config('modules.ai.warm', false)),
             'system_prompt' => config('modules.ai.system_prompt', 'You are a helpful assistant for a game server hosting panel. Provide clear, concise, and technical responses.'),
             'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
             'feature_crash_analysis' => boolval(config('modules.ai.feature_crash_analysis', true)),
@@ -74,25 +77,66 @@ class IntelligenceController extends ApplicationApiController
 
     /**
      * Test the connection to the configured AI endpoint.
+     *
+     * The check itself is cheap (a models listing, not a generation) and the
+     * result is cached for 5 minutes so the admin overview doesn't hammer the
+     * endpoint on every visit. Pass ?fresh=1 to force a live re-test.
      */
-    public function testConnection(): JsonResponse
+    public function testConnection(Request $request): JsonResponse
     {
+        $cacheKey = 'ai:health:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
+
+        if (!$request->boolean('fresh')) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                return response()->json($cached + ['from_cache' => true], $cached['status'] === 'ok' ? 200 : 502);
+            }
+        }
+
         $start = microtime(true);
 
         try {
             $ok = $this->aiService->testConnection();
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
 
-            if ($ok) {
-                return response()->json(['status' => 'ok', 'latency_ms' => $latencyMs]);
-            }
-
-            return response()->json(['status' => 'error', 'message' => 'AI service returned an unexpected response.'], 502);
+            $result = $ok
+                ? ['status' => 'ok', 'latency_ms' => $latencyMs]
+                : ['status' => 'error', 'message' => 'AI service returned an unexpected response.', 'latency_ms' => $latencyMs];
         } catch (\Exception $e) {
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
-
-            return response()->json(['status' => 'error', 'message' => $e->getMessage(), 'latency_ms' => $latencyMs], 502);
+            $result = ['status' => 'error', 'message' => $e->getMessage(), 'latency_ms' => $latencyMs];
         }
+
+        Cache::put($cacheKey, $result, 300);
+
+        return response()->json($result, $result['status'] === 'ok' ? 200 : 502);
+    }
+
+    /**
+     * List the models available on the configured endpoint (Ollama installed
+     * models with sizes, or the provider's /models listing). Cached 5 minutes;
+     * pass ?fresh=1 to re-fetch.
+     */
+    public function models(Request $request): JsonResponse
+    {
+        $cacheKey = 'ai:models:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
+
+        if (!$request->boolean('fresh')) {
+            $cached = Cache::get($cacheKey);
+            if (is_array($cached)) {
+                return response()->json(['data' => $cached, 'from_cache' => true]);
+            }
+        }
+
+        try {
+            $models = $this->aiService->listModels();
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 502);
+        }
+
+        Cache::put($cacheKey, $models, 300);
+
+        return response()->json(['data' => $models]);
     }
 
     /**
@@ -157,6 +201,7 @@ class IntelligenceController extends ApplicationApiController
                         'source' => 'admin',
                         'latency_ms' => $latencyMs,
                         'status' => $status,
+                        'cached' => $this->aiService->wasCached(),
                         'error_message' => $errorMsg,
                     ]);
                 } catch (\Exception $logEx) {
@@ -187,6 +232,7 @@ class IntelligenceController extends ApplicationApiController
                     'total_tokens' => $usage['total_tokens'] ?? null,
                     'latency_ms' => $latencyMs,
                     'status' => 'success',
+                    'cached' => $this->aiService->wasCached(),
                 ]);
             } catch (\Exception $logEx) {
                 Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
@@ -223,6 +269,7 @@ class IntelligenceController extends ApplicationApiController
             COUNT(*) as total_requests,
             SUM(CASE WHEN status = "success" THEN 1 ELSE 0 END) as successful,
             SUM(CASE WHEN status = "error" THEN 1 ELSE 0 END) as errors,
+            SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END) as cache_hits,
             SUM(COALESCE(total_tokens, 0)) as total_tokens,
             ROUND(AVG(latency_ms)) as avg_latency_ms
         ')->first();
@@ -234,7 +281,7 @@ class IntelligenceController extends ApplicationApiController
 
         // Last 7 days
         $last7d = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
-            ->selectRaw('COUNT(*) as requests, SUM(COALESCE(total_tokens, 0)) as tokens')
+            ->selectRaw('COUNT(*) as requests, SUM(COALESCE(total_tokens, 0)) as tokens, SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END) as cache_hits')
             ->first();
 
         // Requests per day for the last 7 days (for sparkline)
@@ -322,6 +369,7 @@ class IntelligenceController extends ApplicationApiController
             'model'         => $log->model,
             'source'        => $log->source,
             'status'        => $log->status,
+            'cached'        => (bool) $log->cached,
             'total_tokens'  => $log->total_tokens,
             'latency_ms'    => $log->latency_ms,
             'error_message' => $log->error_message,

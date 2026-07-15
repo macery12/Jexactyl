@@ -12,6 +12,13 @@ use Everest\Models\Setting;
 
 class OpenAIService
 {
+    /**
+     * How long completed responses are cached for. Identical prompts within this
+     * window are served from cache instead of re-generating (a large win for
+     * repeated crash analysis of the same log on self-hosted Ollama).
+     */
+    public const RESPONSE_CACHE_TTL = 3600;
+
     private Client $client;
     private string $apiKey;
     private string $endpoint;
@@ -19,6 +26,7 @@ class OpenAIService
     private string $mode;
     private string $systemPrompt;
     private float $temperature;
+    private string $keepAlive;
 
     /**
      * Token/latency data from the last non-streamed query().
@@ -26,9 +34,19 @@ class OpenAIService
      */
     private array $lastUsage = [];
 
+    /**
+     * Whether the last query()/queryStream() was served from the response cache.
+     */
+    private bool $lastResponseCached = false;
+
     public function getLastUsage(): array
     {
         return $this->lastUsage;
+    }
+
+    public function wasCached(): bool
+    {
+        return $this->lastResponseCached;
     }
 
     /**
@@ -46,11 +64,30 @@ class OpenAIService
         $this->systemPrompt = Setting::get('settings::modules:ai:system_prompt', config('modules.ai.system_prompt'))
             ?: 'You are an expert game server technician specializing in crash analysis and debugging. When given server logs, identify the root cause concisely and list specific actionable steps to resolve it. Format responses as: Cause: [what went wrong]. Fix: [numbered steps]. For general questions, give direct technical answers. Be concise.';
         $this->temperature = (float) (Setting::get('settings::modules:ai:temperature', config('modules.ai.temperature', 0.3)) ?? 0.3);
+        // keep_alive controls how long Ollama keeps the model loaded after a request.
+        // '-1' means "never unload" — eliminates cold starts entirely at the cost of VRAM.
+        $this->keepAlive = (string) (Setting::get('settings::modules:ai:keep_alive', config('modules.ai.keep_alive', '10m')) ?: '10m');
 
         $this->client = new Client([
             'base_uri' => rtrim($this->endpoint, '/') . '/',
             'timeout' => 120,
         ]);
+    }
+
+    /**
+     * Build a cache key for a response. Includes every knob that changes the output,
+     * so saving new settings naturally invalidates old entries.
+     */
+    private function responseCacheKey(array $messages, string $systemPrompt, int $maxTokens, ?string $model = null): string
+    {
+        return 'ai:response:' . sha1(json_encode([
+            $this->mode,
+            $model ?? $this->model,
+            $systemPrompt,
+            $this->temperature,
+            $maxTokens,
+            $messages,
+        ]));
     }
 
     /**
@@ -63,6 +100,26 @@ class OpenAIService
         // Only require API key for OpenAI mode, not for Ollama
         if ($this->mode !== 'ollama' && empty($this->apiKey)) {
             throw new AIServiceException('AI API key is not configured.');
+        }
+
+        $this->lastResponseCached = false;
+        $systemPromptForKey = $options['system_prompt'] ?? $this->systemPrompt;
+        $maxTokensForKey = (int) ($options['max_tokens'] ?? Setting::get('settings::modules:ai:max_tokens', config('modules.ai.max_tokens', 500)));
+        $cacheKey = $this->responseCacheKey(
+            [['role' => 'user', 'content' => $prompt]],
+            $systemPromptForKey,
+            $maxTokensForKey,
+            $options['model'] ?? null
+        );
+
+        if (empty($options['no_cache'])) {
+            $cached = Cache::get($cacheKey);
+            if (is_string($cached) && $cached !== '') {
+                $this->lastResponseCached = true;
+                $this->lastUsage = ['model' => $options['model'] ?? $this->model, 'prompt_tokens' => null, 'completion_tokens' => null, 'total_tokens' => null];
+
+                return $cached;
+            }
         }
 
         try {
@@ -117,8 +174,8 @@ class OpenAIService
                     'stream' => $options['stream'] ?? false,
                     'options' => [
                         'num_ctx' => 4096,
-                        'keep_alive' => '10m',
                     ],
+                    'keep_alive' => $this->keepAlive,
                 ];
             }
 
@@ -146,7 +203,11 @@ class OpenAIService
                         'completion_tokens' => $data['usage']['output_tokens'] ?? null,
                         'total_tokens' => $data['usage']['total_tokens'] ?? null,
                     ];
-                    return trim($data['output_text']);
+                    $result = trim($data['output_text']);
+                    if (empty($options['no_cache']) && $result !== '') {
+                        Cache::put($cacheKey, $result, self::RESPONSE_CACHE_TTL);
+                    }
+                    return $result;
                 }
             } else {
                 // Ollama / chat-completions response format
@@ -157,7 +218,11 @@ class OpenAIService
                         'completion_tokens' => $data['usage']['completion_tokens'] ?? null,
                         'total_tokens' => $data['usage']['total_tokens'] ?? null,
                     ];
-                    return trim($data['choices'][0]['message']['content']);
+                    $result = trim($data['choices'][0]['message']['content']);
+                    if (empty($options['no_cache']) && $result !== '') {
+                        Cache::put($cacheKey, $result, self::RESPONSE_CACHE_TTL);
+                    }
+                    return $result;
                 }
             }
 
@@ -178,16 +243,108 @@ class OpenAIService
     }
 
     /**
+     * The endpoint root without the OpenAI-compatible /v1 suffix — Ollama's
+     * native API (tags, generate) lives there.
+     */
+    private function endpointRoot(): string
+    {
+        return preg_replace('~/v1/?$~', '', rtrim($this->endpoint, '/'));
+    }
+
+    /**
      * Test the connection to the AI endpoint.
+     *
+     * Uses the models listing endpoint instead of a real generation: it responds
+     * instantly, costs nothing, and does not trigger a cold model load on Ollama.
      */
     public function testConnection(): bool
     {
         try {
-            $this->query('Hello, this is a test message. Please respond with OK.');
+            $headers = ['Content-Type' => 'application/json'];
+            if (!empty($this->apiKey)) {
+                $headers['Authorization'] = 'Bearer ' . $this->apiKey;
+            }
+
+            $response = $this->client->get('models', ['headers' => $headers, 'timeout' => 10]);
+            $data = json_decode($response->getBody()->getContents(), true);
+
+            return is_array($data) && (isset($data['data']) || isset($data['models']));
+        } catch (GuzzleException $e) {
+            Log::warning('AI Service connection test failed: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * List the models available on the configured endpoint.
+     *
+     * For Ollama we prefer the native /api/tags endpoint (it includes sizes);
+     * both providers fall back to the OpenAI-compatible /v1/models listing.
+     *
+     * @return array<int, array{id: string, size: int|null}>
+     *
+     * @throws AIServiceException
+     */
+    public function listModels(): array
+    {
+        try {
+            if ($this->mode === 'ollama') {
+                try {
+                    $response = $this->client->get($this->endpointRoot() . '/api/tags', ['timeout' => 10]);
+                    $data = json_decode($response->getBody()->getContents(), true);
+                    if (isset($data['models']) && is_array($data['models'])) {
+                        return array_values(array_map(fn ($m) => [
+                            'id' => $m['name'] ?? $m['model'] ?? 'unknown',
+                            'size' => $m['size'] ?? null,
+                        ], $data['models']));
+                    }
+                } catch (GuzzleException $e) {
+                    // Fall through to the OpenAI-compatible listing below.
+                }
+            }
+
+            $headers = ['Content-Type' => 'application/json'];
+            if (!empty($this->apiKey)) {
+                $headers['Authorization'] = 'Bearer ' . $this->apiKey;
+            }
+
+            $response = $this->client->get('models', ['headers' => $headers, 'timeout' => 10]);
+            $data = json_decode($response->getBody()->getContents(), true);
+
+            return array_values(array_map(
+                fn ($m) => ['id' => $m['id'] ?? 'unknown', 'size' => null],
+                $data['data'] ?? []
+            ));
+        } catch (GuzzleException $e) {
+            Log::warning('AI Service model listing failed: ' . $e->getMessage());
+            throw new AIServiceException('Failed to list models: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Warm the configured Ollama model by asking the native API to load it
+     * without generating anything (an empty /api/generate call loads the model
+     * into memory and re-asserts keep_alive). No-op for non-Ollama providers.
+     */
+    public function warm(): bool
+    {
+        if ($this->mode !== 'ollama') {
+            return false;
+        }
+
+        try {
+            $this->client->post($this->endpointRoot() . '/api/generate', [
+                'json' => [
+                    'model' => $this->model,
+                    'keep_alive' => $this->keepAlive,
+                ],
+                'timeout' => 120,
+            ]);
 
             return true;
-        } catch (AIServiceException $e) {
-            Log::warning('AI Service connection test failed: ' . $e->getMessage());
+        } catch (GuzzleException $e) {
+            Log::warning('AI model warm-up failed: ' . $e->getMessage());
 
             return false;
         }
@@ -214,6 +371,23 @@ class OpenAIService
         $conversationMessages = $options['messages'] ?? null;
         if (!is_array($conversationMessages) || count($conversationMessages) === 0) {
             $conversationMessages = [['role' => 'user', 'content' => $prompt]];
+        }
+
+        $this->lastResponseCached = false;
+        $maxTokensForKey = (int) ($options['max_tokens'] ?? Setting::get('settings::modules:ai:max_tokens', config('modules.ai.max_tokens', 500)));
+        $cacheKey = $this->responseCacheKey($conversationMessages, $systemPrompt, $maxTokensForKey, $options['model'] ?? null);
+
+        if (empty($options['no_cache'])) {
+            $cached = Cache::get($cacheKey);
+            if (is_string($cached) && $cached !== '') {
+                $this->lastResponseCached = true;
+                // Replay in word-sized chunks so the frontend still renders a stream.
+                foreach (str_split($cached, 48) as $piece) {
+                    yield $piece;
+                }
+
+                return;
+            }
         }
 
         try {
@@ -267,8 +441,8 @@ class OpenAIService
                         // Without this Ollama may use -1 (unlimited) or a model default,
                         // leading to runaway generation and inflated latency.
                         'num_predict' => $maxTokens,
-                        'keep_alive' => '10m',
                     ],
+                    'keep_alive' => $this->keepAlive,
                 ];
             }
 
@@ -304,6 +478,7 @@ class OpenAIService
             $body = $response->getBody();
             $buffer = '';
             $currentEvent = null;
+            $fullResponse = '';
 
             while (!$body->eof()) {
                 $chunk = $body->read(1024);
@@ -333,11 +508,13 @@ class OpenAIService
                             if ($this->mode === 'openai') {
                                 // OpenAI new API: streaming sends event-based chunks with 'text' field
                                 if ($currentEvent === 'response.output_text.delta' && isset($data['text'])) {
+                                    $fullResponse .= $data['text'];
                                     yield $data['text'];
                                 }
                             } else {
                                 // Ollama: use existing format
                                 if (isset($data['choices'][0]['delta']['content'])) {
+                                    $fullResponse .= $data['choices'][0]['delta']['content'];
                                     yield $data['choices'][0]['delta']['content'];
                                 }
                             }
@@ -346,6 +523,10 @@ class OpenAIService
                         $currentEvent = null; // Reset event after processing data
                     }
                 }
+            }
+
+            if (empty($options['no_cache']) && trim($fullResponse) !== '') {
+                Cache::put($cacheKey, trim($fullResponse), self::RESPONSE_CACHE_TTL);
             }
         } catch (GuzzleException $e) {
             Log::error('OpenAI Service Streaming Error: ' . $e->getMessage());
