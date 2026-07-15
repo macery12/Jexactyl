@@ -28,6 +28,9 @@ const UsersSection = lazy(() => import('@/pages/server/users/UsersSection'));
 const SettingsPage = lazy(() => import('@/pages/server/settings/SettingsPage'));
 const CustomDomainsPage = lazy(() => import('@/pages/server/customdomains/CustomDomainsPage'));
 const AiPage = lazy(() => import('@/pages/server/ai/AiPage'));
+const DatabasesPage = lazy(() => import('@/pages/server/databases/DatabasesPage'));
+const BackupsPage = lazy(() => import('@/pages/server/backups/BackupsPage'));
+const ServerActivityPage = lazy(() => import('@/pages/server/activity/ServerActivityPage'));
 
 // Server area (/v2/server/:id/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.3. The index is the modular widget dashboard
@@ -37,9 +40,9 @@ export const serverRoutes: RouteDef[] = [
     route('ai/*', { name: 'AI Assistant', icon: Bot, condition: f => f.ai.enabled && f.ai.feature_server_assistant, element: AiPage }),
 
     route('files/*', { name: 'Files', icon: FolderOpen, permission: 'file.*', category: 'data', element: FilesSection }),
-    route('databases/*', { name: 'Databases', icon: Database, permission: 'database.*', category: 'data' }),
+    route('databases/*', { name: 'Databases', icon: Database, permission: 'database.*', category: 'data', element: DatabasesPage }),
     route('marketplace/*', { name: 'Mods & Plugins', icon: Boxes, permission: 'file.create', category: 'data', condition: f => f.mods.enabled, element: MarketplaceSection }),
-    route('backups/*', { name: 'Backups', icon: Archive, permission: 'backup.*', category: 'data' }),
+    route('backups/*', { name: 'Backups', icon: Archive, permission: 'backup.*', category: 'data', element: BackupsPage }),
 
     // Ordered by how often operators reach for each (startup → network →
     // automation → team → admin), keeping each a distinct permission-gated tab.
@@ -50,7 +53,7 @@ export const serverRoutes: RouteDef[] = [
     route('users/*', { name: 'Users', icon: Users, permission: 'user.*', category: 'configuration', element: UsersSection }),
     route('settings/*', { name: 'Settings', icon: Settings, permission: 'settings.*', category: 'configuration', element: SettingsPage }),
 
-    route('activity/*', { name: 'Activity', icon: Activity }),
+    route('activity/*', { name: 'Activity', icon: Activity, permission: 'activity.*', element: ServerActivityPage }),
     route('billing/*', { name: 'Billing', icon: CreditCard, condition: f => f.billing.enabled }),
     route('extensions/*', { name: 'Extensions', icon: Puzzle, permission: 'extension.*', condition: f => f.extensions.enabled }),
 ];

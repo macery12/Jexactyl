@@ -1,40 +1,13 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Copy, Check, Network, X } from 'lucide-react';
+import { Network, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { useServer } from '@/components/server/ServerContext';
 import { useSession } from '@/state/session';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { CopyField } from '@/components/ui/CopyField';
 import { getSshInfo } from '@/api/files';
-
-function CopyField({ label, value }: { label: string; value: string }) {
-    const [copied, setCopied] = useState(false);
-    const copy = () =>
-        navigator.clipboard?.writeText(value).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-        });
-    return (
-        <div>
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
-                {label}
-            </span>
-            <button
-                onClick={copy}
-                className="group mt-1.5 flex w-full items-center gap-2 rounded-md border border-[var(--color-border)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-surface-2)]"
-            >
-                <span className="min-w-0 flex-1 truncate font-mono text-sm text-[var(--color-ink)]">{value}</span>
-                {copied ? (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
-                ) : (
-                    <Copy className="h-3.5 w-3.5 shrink-0 text-[var(--color-ink-faint)] opacity-0 transition-opacity group-hover:opacity-100" />
-                )}
-            </button>
-        </div>
-    );
-}
 
 function SshAccess({ uuid }: { uuid: string }) {
     const { data, isLoading, isError } = useQuery({
