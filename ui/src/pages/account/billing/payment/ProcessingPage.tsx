@@ -14,6 +14,10 @@ import {
 // Terminal payment handler. Stripe returns here with ?payment_intent=…; PayPal
 // with ?token=…&processor=paypal. We finalise the order, then route to the
 // success or cancel page. Ported from V1's summary/Processing.
+//
+// A server renewal comes back with ?renewal=true&server=<identifier> and lands
+// on that server's billing page instead of the new-server success page — there
+// is no server being provisioned to celebrate.
 export default function ProcessingPage() {
     const [params] = useSearchParams();
     const navigate = useNavigate();
@@ -29,10 +33,23 @@ export default function ProcessingPage() {
         const stripeIntent = params.get('payment_intent');
         const token = params.get('token');
         const processor = params.get('processor');
+        const renewal = params.get('renewal') === 'true';
+        const renewedServer = params.get('server');
+
+        // Full reload, not navigate: the server record the cockpit holds is now
+        // stale (new renewal date, and the server may have just come out of
+        // suspension).
+        const finish = () => {
+            if (renewal && renewedServer) {
+                window.location.href = `/v2/server/${renewedServer}/billing`;
+            } else {
+                navigate('/v2/account/billing/success');
+            }
+        };
 
         if (stripeIntent) {
-            processPaidOrder(stripeIntent)
-                .then(() => navigate('/v2/account/billing/success'))
+            processPaidOrder(stripeIntent, renewal)
+                .then(finish)
                 .catch(() => navigate('/v2/account/billing/cancel'));
             return;
         }
@@ -50,7 +67,7 @@ export default function ProcessingPage() {
                                 return;
                             }
                             const status = await checkPayPalOrderStatus(order_id);
-                            if (status.processed) navigate('/v2/account/billing/success');
+                            if (status.processed) finish();
                             else if (status.failed) navigate('/v2/account/billing/cancel');
                             else setTimeout(poll, 2000);
                         };

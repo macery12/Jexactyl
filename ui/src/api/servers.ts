@@ -70,6 +70,13 @@ export interface ServerDetail extends ServerListItem {
     sftp: { ip: string; port: number };
     featureLimits: { databases: number; allocations: number; backups: number; subusers: number };
     allocations: ServerAllocation[];
+    /** Numeric primary key. The billing endpoints key off this, not the identifier. */
+    internalId: number;
+    eggId: number | null;
+    // Billing linkage — null on servers created outside the storefront.
+    billingProductId: number | null;
+    billingDays: number | null;
+    renewalDate: string | null;
 }
 
 interface FractalRelItem<T> {
@@ -121,5 +128,10 @@ export async function getServer(id: string): Promise<ServerDetail> {
             subusers: a.feature_limits?.subusers ?? 0,
         },
         allocations,
+        internalId: a.internal_id,
+        eggId: a.egg_id ?? null,
+        billingProductId: a.billing_product_id ?? null,
+        billingDays: a.billing_days ?? null,
+        renewalDate: a.renewal_date ?? null,
     };
 }

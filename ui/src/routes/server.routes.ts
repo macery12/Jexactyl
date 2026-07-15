@@ -31,6 +31,8 @@ const AiPage = lazy(() => import('@/pages/server/ai/AiPage'));
 const DatabasesPage = lazy(() => import('@/pages/server/databases/DatabasesPage'));
 const BackupsPage = lazy(() => import('@/pages/server/backups/BackupsPage'));
 const ServerActivityPage = lazy(() => import('@/pages/server/activity/ServerActivityPage'));
+const BillingPage = lazy(() => import('@/pages/server/billing/BillingPage'));
+const ExtensionsSection = lazy(() => import('@/pages/server/extensions/ExtensionsSection'));
 
 // Server area (/v2/server/:id/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.3. The index is the modular widget dashboard
@@ -54,6 +56,6 @@ export const serverRoutes: RouteDef[] = [
     route('settings/*', { name: 'Settings', icon: Settings, permission: 'settings.*', category: 'configuration', element: SettingsPage }),
 
     route('activity/*', { name: 'Activity', icon: Activity, permission: 'activity.*', element: ServerActivityPage }),
-    route('billing/*', { name: 'Billing', icon: CreditCard, condition: f => f.billing.enabled }),
-    route('extensions/*', { name: 'Extensions', icon: Puzzle, permission: 'extension.*', condition: f => f.extensions.enabled }),
+    route('billing/*', { name: 'Billing', icon: CreditCard, condition: f => f.billing.enabled, element: BillingPage }),
+    route('extensions/*', { name: 'Extensions', icon: Puzzle, permission: 'extension.*', condition: f => f.extensions.enabled, element: ExtensionsSection }),
 ];
