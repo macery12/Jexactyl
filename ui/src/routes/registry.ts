@@ -21,13 +21,11 @@ export interface RouteDef {
     condition?: (flags: Flags) => boolean;
     /** Exact-match route (React Router `index`/`end`). */
     end?: boolean;
-    /** Built page. When omitted, the resolver renders <Placeholder/>. */
-    element?: LazyExoticComponent<ComponentType> | ComponentType;
-    /** Explicit "not built yet" marker (documentation only; absence of element is enough). */
-    placeholder?: boolean;
+    /** The page component. Every registry entry has one. */
+    element: LazyExoticComponent<ComponentType> | ComponentType;
 }
 
 /** Small helper mirroring V1's route() so entries read declaratively. */
-export function route(path: string, opts: Omit<RouteDef, 'path'> = {}): RouteDef {
-    return { path, placeholder: !opts.element, ...opts };
+export function route(path: string, opts: Omit<RouteDef, 'path'>): RouteDef {
+    return { path, ...opts };
 }

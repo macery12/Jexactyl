@@ -9,6 +9,7 @@ import {
     type AdminActivityEntry,
 } from '@/api/adminActivity';
 import { timeAgo } from '@/lib/format';
+import { useFlags } from '@/state/flags';
 import { cn } from '@/lib/cn';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -104,6 +105,10 @@ function RailField({ label, children }: { label: string; children: React.ReactNo
 }
 
 export default function AdminActivityPage() {
+    // V1 gated this route on the activity module flag; V2 handles the disabled
+    // state in-page, same as ServerActivityPage (the flag lives in site config,
+    // which registry `condition`s can't see).
+    const enabled = useFlags(s => s.site?.activity.enabled.admin ?? true);
     const [searchInput, setSearchInput] = useState('');
     const [search, setSearch] = useState('');
     const [actor, setActor] = useState('');
@@ -121,8 +126,8 @@ export default function AdminActivityPage() {
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    const { data: actors } = useQuery({ queryKey: ['admin', 'activity', 'actors'], queryFn: getAdminActivityActors });
-    const { data: events } = useQuery({ queryKey: ['admin', 'activity', 'events'], queryFn: getAdminActivityEvents });
+    const { data: actors } = useQuery({ queryKey: ['admin', 'activity', 'actors'], queryFn: getAdminActivityActors, enabled });
+    const { data: events } = useQuery({ queryKey: ['admin', 'activity', 'events'], queryFn: getAdminActivityEvents, enabled });
 
     const { data, isLoading, isError, isFetching } = useQuery({
         queryKey: ['admin', 'activity', { search, actor, event, sort, page }],
@@ -135,6 +140,7 @@ export default function AdminActivityPage() {
                 event: event || undefined,
             }),
         placeholderData: keepPreviousData,
+        enabled,
     });
 
     const actorOptions = useMemo(
@@ -170,6 +176,21 @@ export default function AdminActivityPage() {
 
     const items = data?.items ?? [];
     const pagination = data?.pagination;
+
+    if (!enabled) {
+        return (
+            <div className="flex flex-col gap-6">
+                <div>
+                    <h1 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.activity.title']()}</h1>
+                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.activity.subtitle']()}</p>
+                </div>
+                <div className="flex flex-col items-center gap-3 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 py-14 text-center">
+                    <Activity className="h-8 w-8 text-[var(--color-ink-faint)]" />
+                    <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.activity.loggingDisabled']()}</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col gap-6">

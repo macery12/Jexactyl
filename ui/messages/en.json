@@ -173,6 +173,7 @@
   "admin.activity.filter.sort": "Order",
   "admin.activity.filter.user": "Administrator",
   "admin.activity.loadError": "Could not load the activity log. Please try again.",
+  "admin.activity.loggingDisabled": "Activity logging is turned off for administrative actions.",
   "admin.activity.searchPlaceholder": "Event, IP or user…",
   "admin.activity.sort.newest": "Newest first",
   "admin.activity.sort.oldest": "Oldest first",

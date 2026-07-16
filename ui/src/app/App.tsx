@@ -14,7 +14,6 @@ import DashboardLayout from '@/layouts/DashboardLayout';
 import ServerLayout from '@/layouts/ServerLayout';
 import AdminLayout from '@/layouts/AdminLayout';
 import LandingPage from '@/pages/landing/LandingPage';
-import Placeholder from '@/pages/_shared/Placeholder';
 import FeatureDisabled from '@/pages/_shared/FeatureDisabled';
 import AccessDenied from '@/pages/_shared/AccessDenied';
 import NotFound from '@/pages/NotFound';
@@ -51,13 +50,13 @@ function ServerPermissionGate({ def, children }: { def: RouteDef; children: Reac
     return children;
 }
 
-// Resolve a registry entry to an element: built page, or the shared placeholder.
+// Resolve a registry entry to an element, wrapping it in its gates.
 // Gate order matters and mirrors V1, which filtered by `condition` before
 // wrapping in a permission guard: a module that is switched off reads as
 // "disabled" to everyone, rather than telling an under-privileged user they lack
 // a permission that would not help them anyway.
 function resolveElement(r: RouteDef, area: Area): ReactElement {
-    let el = r.element ? createElement(r.element) : <Placeholder title={r.name ?? r.path} />;
+    let el = createElement(r.element);
     if (r.permission && area !== 'open') {
         el =
             area === 'admin' ? (
