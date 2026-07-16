@@ -50,7 +50,7 @@ export function AccountHealth() {
                     badIcon={ShieldAlert}
                     okLabel={m['dashboard.twoFactorEnabled']()}
                     badLabel={m['dashboard.enableTwoFactor']()}
-                    to="/account/settings"
+                    to="/settings"
                 />
                 {emailEnabled && (
                     <Row
@@ -59,7 +59,7 @@ export function AccountHealth() {
                         badIcon={MailWarning}
                         okLabel={m['dashboard.emailVerified']()}
                         badLabel={m['dashboard.verifyEmail']()}
-                        to="/account/settings"
+                        to="/settings"
                     />
                 )}
             </div>

@@ -220,7 +220,7 @@ function ProductCard({ product, blocked }: { product: StoreProduct; blocked: boo
                     {m['billing.store.configure']()}
                 </Button>
             ) : (
-                <Link to={`/account/checkout/configure/${product.id}`}>
+                <Link to={`/checkout/configure/${product.id}`}>
                     <Button className="w-full">
                         {m['billing.store.configure']()} <ArrowRight className="h-4 w-4" />
                     </Button>

@@ -1,5 +1,5 @@
 import { createElement, useSyncExternalStore, type ReactElement } from 'react';
-import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider, useLocation, type RouteObject } from 'react-router-dom';
 import { subscribeLocale, getCurrentLocale } from '@/i18n';
 import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
@@ -78,24 +78,28 @@ function childRoutes(defs: RouteDef[], area: Area): RouteObject[] {
     );
 }
 
-// Guests see the landing page at the SPA root; authenticated users go to their
-// dashboard. When the operator has disabled the landing page entirely, guests
-// are sent straight to sign-in — the landing page is never shown or routed to.
-function RootEntry() {
+// The account area mounts at the site root and the dashboard is its index.
+// The root URL is shared with the guest-facing landing page, so the element
+// is picked per location: a guest on exactly '/' gets the landing page (or
+// sign-in when the operator has disabled it); every other case renders the
+// dashboard shell, whose RequireAuth bounces guests to login.
+function RootArea() {
     const authenticated = useSession(s => s.isAuthenticated);
     const landing = useFlags(s => s.landing);
-    if (authenticated) return <Navigate to="/account" replace />;
-    if (landing && !landing.enabled) return <Navigate to="/auth/login" replace />;
-    return <LandingPage />;
+    const location = useLocation();
+    if (!authenticated && location.pathname === '/') {
+        if (landing && !landing.enabled) return <Navigate to="/auth/login" replace />;
+        return <LandingPage />;
+    }
+    return <DashboardLayout />;
 }
 
 const router = createBrowserRouter(
     [
-        { path: '/', element: <RootEntry /> },
         { path: '/auth', element: <AuthLayout />, children: childRoutes(authRoutes, 'open') },
-        { path: '/account', element: <DashboardLayout />, children: childRoutes(accountRoutes, 'open') },
         { path: '/server/:id', element: <ServerLayout />, children: childRoutes(serverRoutes, 'server') },
         { path: '/admin', element: <AdminLayout />, children: childRoutes(adminRoutes, 'admin') },
+        { path: '/', element: <RootArea />, children: childRoutes(accountRoutes, 'open') },
         { path: '*', element: <NotFound /> },
     ],
     { basename: BASE },

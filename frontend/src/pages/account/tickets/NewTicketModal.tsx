@@ -30,7 +30,7 @@ export function NewTicketModal({ open, onClose }: { open: boolean; onClose: () =
             push({ type: 'success', message: m['tickets.new.created']() });
             reset();
             onClose();
-            navigate(`/account/tickets/${ticket.id}`);
+            navigate(`/tickets/${ticket.id}`);
         },
         onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });

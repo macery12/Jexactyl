@@ -17,7 +17,7 @@ export interface NavGroup {
 
 function toPath(basePath: string, routePath: string): string {
     const clean = routePath.replace(/\/?\*$/, ''); // drop trailing /* or *
-    if (clean === '') return basePath;
+    if (clean === '') return basePath || '/'; // account mounts at the root
     return `${basePath}/${clean}`;
 }
 

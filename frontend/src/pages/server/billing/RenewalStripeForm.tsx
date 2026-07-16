@@ -42,7 +42,7 @@ export default function RenewalStripeForm({
             const { error } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {
-                    return_url: window.location.origin + abs(`/account/billing/processing?renewal=true&server=${server.id}`),
+                    return_url: window.location.origin + abs(`/billing/processing?renewal=true&server=${server.id}`),
                 },
             });
 

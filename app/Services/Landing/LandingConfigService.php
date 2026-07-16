@@ -90,7 +90,7 @@ class LandingConfigService
         return [
             ['id' => 'hero', 'enabled' => true, 'order' => 0, 'data' => [
                 'badge' => '', 'title' => '', 'subtitle' => '', 'backgroundImage' => '',
-                'primaryCta' => ['label' => '', 'href' => '/v2/auth/login'],
+                'primaryCta' => ['label' => '', 'href' => '/auth/login'],
                 'secondaryCta' => ['label' => '', 'href' => ''],
             ]],
             ['id' => 'features', 'enabled' => true, 'order' => 1, 'data' => [

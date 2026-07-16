@@ -122,7 +122,7 @@ export default function ConfigureCheckout() {
                     billing_days: checkout.cycleDays,
                 });
                 push({ type: 'success', message: m['billing.configure.creating']() });
-                navigate('/account/billing/success');
+                navigate('/billing/success');
                 return;
             }
 
@@ -137,7 +137,7 @@ export default function ConfigureCheckout() {
                 couponData: checkout.couponData,
                 serverName: checkout.serverName.trim(),
             });
-            navigate(`/account/checkout/payment?product=${checkout.product!.id}`);
+            navigate(`/checkout/payment?product=${checkout.product!.id}`);
         } catch {
             push({ type: 'error', message: m['billing.configure.startError']() });
         } finally {
@@ -282,7 +282,7 @@ export default function ConfigureCheckout() {
 function BackLink() {
     return (
         <Link
-            to="/account/billing/order"
+            to="/billing/order"
             className="inline-flex items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
         >
             <ArrowLeft className="h-4 w-4" /> {m['billing.configure.back']()}

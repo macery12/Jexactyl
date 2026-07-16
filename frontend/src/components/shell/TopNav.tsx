@@ -49,7 +49,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
             <div className="flex items-center gap-2">
                 {isAdmin && (
                     <Link
-                        to={inAdmin ? '/account' : '/admin'}
+                        to={inAdmin ? '/' : '/admin'}
                         className={cn(
                             'hidden items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium sm:inline-flex',
                             'text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]',
@@ -78,7 +78,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                         >
                             <DropdownMenu.Item asChild>
                                 <Link
-                                    to="/account"
+                                    to="/"
                                     className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-ink-muted)] outline-none hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                                 >
                                     <UserIcon className="h-4 w-4" /> {m['nav.topnav.account']()}

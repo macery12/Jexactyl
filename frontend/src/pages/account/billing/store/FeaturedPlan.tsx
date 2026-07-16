@@ -31,7 +31,7 @@ export function FeaturedPlan({ product }: { product: StoreProduct }) {
                     {product.price > 0 && (
                         <p className="text-xs text-[var(--color-ink-faint)]">{m['billing.store.perMonth']()}</p>
                     )}
-                    <Link to={`/account/checkout/configure/${product.id}`} className="mt-4 inline-block">
+                    <Link to={`/checkout/configure/${product.id}`} className="mt-4 inline-block">
                         <span className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]">
                             {m['billing.store.featured.cta']()} <ArrowRight className="h-4 w-4" />
                         </span>

@@ -62,7 +62,7 @@ export function ComparisonTable({ products }: { products: StoreProduct[] }) {
                         <td className={`${stickyCol}`} />
                         {products.map(p => (
                             <td key={p.id} className={planCol}>
-                                <Link to={`/account/checkout/configure/${p.id}`}>
+                                <Link to={`/checkout/configure/${p.id}`}>
                                     <Button size="sm" className="w-full">
                                         {m['billing.store.compare.configure']()}
                                     </Button>

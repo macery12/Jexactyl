@@ -144,7 +144,7 @@ export function SecurityCard({ auth }: { auth: Auth }) {
                 danger={false}
                 onConfirm={() => {
                     setBlocked(false);
-                    navigate('/account/settings');
+                    navigate('/settings');
                 }}
             />
             <label className="flex cursor-pointer items-start gap-3">

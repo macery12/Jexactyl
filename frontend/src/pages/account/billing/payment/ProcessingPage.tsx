@@ -44,14 +44,14 @@ export default function ProcessingPage() {
             if (renewal && renewedServer) {
                 window.location.href = abs(`/server/${renewedServer}/billing`);
             } else {
-                navigate('/account/billing/success');
+                navigate('/billing/success');
             }
         };
 
         if (stripeIntent) {
             processPaidOrder(stripeIntent, renewal)
                 .then(finish)
-                .catch(() => navigate('/account/billing/cancel'));
+                .catch(() => navigate('/billing/cancel'));
             return;
         }
 
@@ -69,7 +69,7 @@ export default function ProcessingPage() {
                             }
                             const status = await checkPayPalOrderStatus(order_id);
                             if (status.processed) finish();
-                            else if (status.failed) navigate('/account/billing/cancel');
+                            else if (status.failed) navigate('/billing/cancel');
                             else setTimeout(poll, 2000);
                         };
                         return poll();
@@ -77,7 +77,7 @@ export default function ProcessingPage() {
                 )
                 .catch(() => {
                     push({ type: 'error', message: m['billing.processing.paypalVerifyError']() });
-                    navigate('/account/billing/cancel');
+                    navigate('/billing/cancel');
                 });
             return;
         }

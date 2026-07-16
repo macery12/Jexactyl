@@ -154,7 +154,7 @@ function StatusStrip({
 
             <div className="border-t border-[var(--color-border)] px-4 py-2">
                 <Link
-                    to="/account/billing/orders"
+                    to="/billing/orders"
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--brand)] hover:text-[var(--brand-hover)]"
                 >
                     {m['server.billing.viewOrders']()}

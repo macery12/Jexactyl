@@ -37,19 +37,18 @@ class RouteServiceProvider extends ServiceProvider
 
         $this->routes(function () {
             Route::middleware('web')->group(function () {
-                // Standalone v2 UI shell. Web-only (no auth) so guests can reach
-                // the landing/login; the SPA guards authenticated areas itself.
-                // Registered first so base.php's /{react} catch-all can't grab /v2.
-                Route::prefix('/v2')->group(base_path('routes/v2.php'));
-
-                Route::middleware(['auth.session', RequireTwoFactorAuthentication::class])
-                    ->group(base_path('routes/base.php'));
-
+                // Admin keeps V1's server-side gates: a guest or non-admin never
+                // receives the admin shell.
                 Route::middleware(['auth.session', RequireTwoFactorAuthentication::class, AdminAuthenticate::class])
                     ->prefix('/admin')
                     ->group(base_path('routes/admin.php'));
 
                 Route::middleware('guest')->prefix('/auth')->group(base_path('routes/auth.php'));
+
+                // Site root: V2 shell, web-only (no auth) — the landing page must
+                // render for guests and the SPA guards authenticated areas itself;
+                // the API (below) enforces auth + 2FA server-side.
+                Route::group([], base_path('routes/base.php'));
             });
 
             Route::middleware(['api', RequireTwoFactorAuthentication::class])->group(function () {

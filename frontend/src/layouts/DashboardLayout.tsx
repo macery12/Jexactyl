@@ -9,7 +9,7 @@ import { useFlags } from '@/state/flags';
 export default function DashboardLayout() {
     const flags = useFlags(s => s.everest);
     const groups = useMemo(
-        () => buildNav(accountRoutes, { flags, held: [], basePath: '/account' }),
+        () => buildNav(accountRoutes, { flags, held: [], basePath: '' }),
         [flags],
     );
 

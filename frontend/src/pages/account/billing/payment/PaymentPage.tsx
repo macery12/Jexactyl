@@ -149,7 +149,7 @@ export default function PaymentPage() {
                 billing_days: draft.cycleDays,
             });
             clearDraft(productId);
-            navigate('/account/billing/success');
+            navigate('/billing/success');
         } catch {
             push({ type: 'error', message: m['billing.configure.createServerError']() });
             setCreatingFree(false);
@@ -322,7 +322,7 @@ function LazyPayPalButton(props: React.ComponentProps<typeof PayPalButton>) {
 function BackLink() {
     return (
         <Link
-            to="/account/billing/order"
+            to="/billing/order"
             className="inline-flex items-center gap-1.5 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
         >
             <ArrowLeft className="h-4 w-4" /> {m['billing.payment.back']()}
