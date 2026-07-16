@@ -217,7 +217,12 @@ export function NetworkMap({
         if (!q) return null;
         const serverIds = new Set<number>();
         const nodeIds = new Set<number>();
-        for (const s of servers) if (s.name.toLowerCase().includes(q)) serverIds.add(s.id), nodeIds.add(s.nodeId);
+        for (const s of servers) {
+            if (s.name.toLowerCase().includes(q)) {
+                serverIds.add(s.id);
+                nodeIds.add(s.nodeId);
+            }
+        }
         for (const n of nodes) if (n.name.toLowerCase().includes(q)) nodeIds.add(n.id);
         return { serverIds, nodeIds };
     }, [q, servers, nodes]);

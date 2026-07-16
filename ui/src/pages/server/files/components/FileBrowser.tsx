@@ -62,7 +62,7 @@ const DISPLAY_CAP = 250;
 function sortFiles(files: FileObject[], field: SortField, dir: SortDirection): FileObject[] {
     const sorted = [...files].sort((a, b) => {
         if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
-        let cmp = 0;
+        let cmp: number;
         if (field === 'name') cmp = a.name.localeCompare(b.name);
         else if (field === 'modified') cmp = a.modifiedAt.getTime() - b.modifiedAt.getTime();
         else cmp = a.size - b.size;

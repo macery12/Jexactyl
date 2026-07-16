@@ -41,7 +41,8 @@ export default function SubuserFormModal({
     const toggle = (fullKey: string) => {
         setSelected(prev => {
             const next = new Set(prev);
-            next.has(fullKey) ? next.delete(fullKey) : next.add(fullKey);
+            if (next.has(fullKey)) next.delete(fullKey);
+            else next.add(fullKey);
             return next;
         });
     };

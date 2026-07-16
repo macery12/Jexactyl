@@ -114,7 +114,8 @@ export default function ApiDocsPage() {
     const toggleMethod = (method: HttpMethod) =>
         setMethodFilter(prev => {
             const next = new Set(prev);
-            next.has(method) ? next.delete(method) : next.add(method);
+            if (next.has(method)) next.delete(method);
+            else next.add(method);
             return next;
         });
 
@@ -285,7 +286,8 @@ function groupEndpoints(endpoints: Endpoint[]): NavGroupModel[] {
         let tags = byGroup.get(e.group);
         if (!tags) byGroup.set(e.group, (tags = new Map()));
         const list = tags.get(e.tag);
-        list ? list.push(e) : tags.set(e.tag, [e]);
+        if (list) list.push(e);
+        else tags.set(e.tag, [e]);
     }
     const methodRank = (m: HttpMethod) => METHOD_ORDER.indexOf(m);
     return GROUP_ORDER.filter(g => byGroup.has(g)).map(group => {
