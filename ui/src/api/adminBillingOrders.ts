@@ -46,6 +46,10 @@ export interface AdminOrder {
 
 // Prefix-aware smart-search filter (matches V1 #id/@user/txn:/cap:/pid:/pay:).
 export interface AdminOrderFilters {
+    // Partial match on the order name. Renewal orders carry the server's short
+    // uuid in their name (ServerRenewalService), so this is how the admin server
+    // editor scopes the ledger to one server — same as V1's OrdersTable.
+    name?: string | null;
     paymentProcessor?: PaymentProcessor | null;
     status?: OrderStatus | null;
     type?: string | null;
@@ -137,6 +141,7 @@ export async function getAdminOrders(
         per_page: perPage,
         sort: `${sortDesc ? '-' : ''}${sort}`,
     };
+    if (filters.name) params['filter[name]'] = filters.name;
     if (filters.paymentProcessor) params['filter[payment_processor]'] = filters.paymentProcessor;
     if (filters.status) params['filter[status]'] = filters.status;
     if (filters.type) params['filter[type]'] = filters.type;

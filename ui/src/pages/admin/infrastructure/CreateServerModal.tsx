@@ -16,6 +16,8 @@ import { getServerPresets } from '@/api/serverPresets';
 import { getDeployableNodes, getNodeAllocations } from '@/api/nodes';
 import { getNests, getNestEggs, getEgg, firstDockerImage } from '@/api/nests';
 import { getUsers } from '@/api/adminUsers';
+import { can } from '@/lib/can';
+import { useAdminHeld } from '@/layouts/heldPermissions';
 import { PresetManager } from './PresetManager';
 
 type Mode = 'preset' | 'manual';
@@ -71,6 +73,14 @@ function PresetMode({ onClose }: { onClose: () => void }) {
     const [nodeId, setNodeId] = useState<string>();
     const [showManager, setShowManager] = useState(false);
 
+    // V1 gated preset CRUD behind `server-presets.read` on its own
+    // `servers/presets` routes; V2 folded that editor into this modal and lost
+    // the gate. Selecting a preset below stays open (it's part of creating a
+    // server) — only editing the preset library is gated.
+    // See docs/v1-cutover/01-audit-findings.md #3 (gaps 8-9).
+    const held = useAdminHeld();
+    const canManagePresets = can(held, 'server-presets.read');
+
     const presetsQ = useQuery({ queryKey: ['admin', 'server-presets'], queryFn: getServerPresets });
     const nodesQ = useQuery({ queryKey: ['admin', 'deployable-nodes'], queryFn: getDeployableNodes });
 
@@ -106,14 +116,18 @@ function PresetMode({ onClose }: { onClose: () => void }) {
                 )}
             </Field>
 
-            <button
-                type="button"
-                onClick={() => setShowManager(v => !v)}
-                className="self-start text-xs font-medium text-[var(--color-accent)] hover:underline"
-            >
-                {m['admin.infrastructure.presets.manage']()}
-            </button>
-            {showManager && <PresetManager />}
+            {canManagePresets && (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setShowManager(v => !v)}
+                        className="self-start text-xs font-medium text-[var(--color-accent)] hover:underline"
+                    >
+                        {m['admin.infrastructure.presets.manage']()}
+                    </button>
+                    {showManager && <PresetManager />}
+                </>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
                 <Button variant="ghost" size="sm" onClick={onClose} disabled={create.isPending}>

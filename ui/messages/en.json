@@ -1492,6 +1492,85 @@
   "admin.infrastructure.server.unsuspend": "Unsuspend",
   "admin.infrastructure.server.unsuspended": "Server unsuspended.",
   "admin.infrastructure.server.updated": "Server updated.",
+  "admin.infrastructure.serverDetail.billing.category": "Billing category",
+  "admin.infrastructure.serverDetail.billing.categoryDesc": "The catalog category holding the plan you want.",
+  "admin.infrastructure.serverDetail.billing.categoryPlaceholder": "Select a category…",
+  "admin.infrastructure.serverDetail.billing.cycle": "Billing cycle",
+  "admin.infrastructure.serverDetail.billing.cycleDays": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} day",
+        "countPlural=other": "{count} days"
+      }
+    }
+  ],
+  "admin.infrastructure.serverDetail.billing.cycleDefault": "Default",
+  "admin.infrastructure.serverDetail.billing.cycleDesc": "How often this server is charged.",
+  "admin.infrastructure.serverDetail.billing.cycleDiscount": "{percent}% discount",
+  "admin.infrastructure.serverDetail.billing.cyclePremium": "{percent}% premium",
+  "admin.infrastructure.serverDetail.billing.disableConfirm": "Billing is disabled. Save to clear this server’s plan, cycle, and renewal date.",
+  "admin.infrastructure.serverDetail.billing.disabledHelp": "Never billed automatically",
+  "admin.infrastructure.serverDetail.billing.disabledWarning": "With billing disabled this server will not renew on its own — you will need to manage its lifecycle by hand.",
+  "admin.infrastructure.serverDetail.billing.enabledHelp": "Billed automatically each cycle",
+  "admin.infrastructure.serverDetail.billing.moduleDisabled": "The billing module is turned off. Changes here are saved, but won't take effect until it's re-enabled.",
+  "admin.infrastructure.serverDetail.billing.next": "Next",
+  "admin.infrastructure.serverDetail.billing.noCategories": "No billing categories exist yet. Create one in the billing catalog first.",
+  "admin.infrastructure.serverDetail.billing.noCycles": "This plan has no billing cycles configured. Add one in the billing catalog first.",
+  "admin.infrastructure.serverDetail.billing.noProducts": "This category has no plans. Add one in the billing catalog first.",
+  "admin.infrastructure.serverDetail.billing.none": "None",
+  "admin.infrastructure.serverDetail.billing.orders.date": "Placed",
+  "admin.infrastructure.serverDetail.billing.orders.empty": "No orders recorded for this server yet.",
+  "admin.infrastructure.serverDetail.billing.orders.id": "Order",
+  "admin.infrastructure.serverDetail.billing.orders.loadError": "Couldn't load orders for this server.",
+  "admin.infrastructure.serverDetail.billing.orders.name": "Description",
+  "admin.infrastructure.serverDetail.billing.orders.status": "Status",
+  "admin.infrastructure.serverDetail.billing.orders.title": "Orders for this server",
+  "admin.infrastructure.serverDetail.billing.orders.total": "Total",
+  "admin.infrastructure.serverDetail.billing.plan": "Billing plan",
+  "admin.infrastructure.serverDetail.billing.planDescField": "The plan this server is billed under.",
+  "admin.infrastructure.serverDetail.billing.planMissing": "Plan no longer exists",
+  "admin.infrastructure.serverDetail.billing.planOption": "{name} — {cpu}% CPU, {memory} GiB RAM, {disk} GiB disk",
+  "admin.infrastructure.serverDetail.billing.planPlaceholder": "Select a plan…",
+  "admin.infrastructure.serverDetail.billing.previous": "Previous",
+  "admin.infrastructure.serverDetail.billing.renewalDate": "Next renewal",
+  "admin.infrastructure.serverDetail.billing.renewalDateDesc": "The date and time this server is next charged.",
+  "admin.infrastructure.serverDetail.billing.renewalHint": "The renewal date starts the next billing cycle. Double-check it to avoid an unexpected charge.",
+  "admin.infrastructure.serverDetail.billing.saved": "Billing settings saved",
+  "admin.infrastructure.serverDetail.billing.statusHelp": "When billing is enabled the server is charged automatically each cycle. When disabled, it is never charged and its renewal date is ignored.",
+  "admin.infrastructure.serverDetail.billing.step.plan": "Plan and cycle",
+  "admin.infrastructure.serverDetail.billing.step.planDesc": "Pick the plan this server is billed under, and how often.",
+  "admin.infrastructure.serverDetail.billing.step.renewal": "Renewal date",
+  "admin.infrastructure.serverDetail.billing.step.renewalDesc": "Set when this server next renews.",
+  "admin.infrastructure.serverDetail.billing.step.status": "Billing status",
+  "admin.infrastructure.serverDetail.billing.step.statusDesc": "Choose whether this server is billed automatically.",
+  "admin.infrastructure.serverDetail.billing.summary.limits": "Plan limits",
+  "admin.infrastructure.serverDetail.billing.summary.limitsValue": "{cpu}% CPU · {memory} GiB RAM · {disk} GiB disk",
+  "admin.infrastructure.serverDetail.billing.summary.overdue": "overdue by {days}d {hours}h",
+  "admin.infrastructure.serverDetail.billing.summary.plan": "Plan",
+  "admin.infrastructure.serverDetail.billing.summary.priceEvery": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{price} every {count} day",
+        "countPlural=other": "{price} every {count} days"
+      }
+    }
+  ],
+  "admin.infrastructure.serverDetail.billing.summary.remaining": "in {days}d {hours}h",
+  "admin.infrastructure.serverDetail.billing.summary.renewal": "Next renewal",
   "admin.infrastructure.serverDetail.field.allocations": "Allocation limit",
   "admin.infrastructure.serverDetail.field.backups": "Backup limit",
   "admin.infrastructure.serverDetail.field.cpu": "CPU limit (%)",
@@ -1525,6 +1604,7 @@
   "admin.infrastructure.serverDetail.field.threads": "CPU pinning",
   "admin.infrastructure.serverDetail.field.threadsDesc": "Advanced: pin to specific cores, e.g. 0, 0-1,3. Leave blank for all cores.",
   "admin.infrastructure.serverDetail.loadError": "Couldn’t load this server. It may have been deleted, or your account lacks the servers.read permission.",
+  "admin.infrastructure.serverDetail.nav.billing": "Billing",
   "admin.infrastructure.serverDetail.nav.information": "Information",
   "admin.infrastructure.serverDetail.nav.limits": "Feature limits",
   "admin.infrastructure.serverDetail.nav.networking": "Networking",
@@ -1542,6 +1622,7 @@
   "admin.infrastructure.serverDetail.saveBar.clean": "No unsaved changes",
   "admin.infrastructure.serverDetail.saveBar.dirty": "You have unsaved changes",
   "admin.infrastructure.serverDetail.saved": "Server saved.",
+  "admin.infrastructure.serverDetail.section.billingDesc": "Plan, billing cycle, and renewal date for this server.",
   "admin.infrastructure.serverDetail.section.informationDesc": "Identity and ownership.",
   "admin.infrastructure.serverDetail.section.limitsDesc": "How much of each feature the owner may create.",
   "admin.infrastructure.serverDetail.section.networkingDesc": "Port allocations assigned to this server.",
@@ -2559,6 +2640,9 @@
   "billing.summary.subtotal": "Subtotal",
   "billing.summary.totalDue": "Total due",
   "billing.summary.yourBuild": "Your build",
+  "common.accessDenied.body": "You don't have permission to view this page. Contact a root administrator if you need access.",
+  "common.accessDenied.required": "Required permission:",
+  "common.accessDenied.title": "Access denied",
   "common.actions.apply": "Apply",
   "common.actions.back": "Go back",
   "common.actions.cancel": "Cancel",

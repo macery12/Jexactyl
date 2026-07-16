@@ -1,20 +1,64 @@
-import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useSession } from '@/state/session';
+import { getAdminPermissions } from '@/api/adminPermissions';
 
-// Phase 1 permission sourcing. Real per-server subuser permissions and the
-// admin permission set (/api/application/permissions) arrive in later phases;
-// for now root/admin users get '*', everyone else gets the empty set so the
-// permission-filtering machinery in the sidebar is exercised honestly.
+// Admin permission sourcing. Until 2026-07-15 this was a Phase 1 stub that
+// handed `['*']` to anyone with an `admin_role_id`, which silently disabled
+// every admin permission check in the app — the nav filter, the route gate and
+// the ~15 pages that hide write controls behind `can()`. See
+// docs/v1-cutover/01-audit-findings.md #11.
 //
-// IMPORTANT: select a primitive from the store and derive the array via useMemo.
-// Returning a fresh array straight from the selector gives useSyncExternalStore
-// an unstable snapshot every render → infinite re-render loop (React #185).
-export function useAdminHeld(): string[] {
-    const isAdmin = useSession(s => Boolean(s.user?.root_admin || s.user?.admin_role_id));
-    return useMemo(() => (isAdmin ? ['*'] : []), [isAdmin]);
+// Stable module-level constants: these arrays are returned as-is so consumers'
+// `useMemo(..., [held])` stays referentially stable. Never build a fresh array
+// per render here — an unstable snapshot is React #185 (infinite re-render).
+const ROOT_HELD: string[] = ['*'];
+const NO_HELD: string[] = [];
+
+export interface AdminPermissions {
+    /** Permission strings the current admin holds; `['*']` for root admins. */
+    held: string[];
+    /** True while the set is in flight — callers must not deny access yet. */
+    isLoading: boolean;
 }
 
-export function useServerHeld(): string[] {
-    const isAdmin = useSession(s => Boolean(s.user?.root_admin));
-    return useMemo(() => (isAdmin ? ['*'] : []), [isAdmin]);
+/**
+ * The current admin's held-permission set.
+ *
+ * Root admins bypass the request entirely (V1 parity: `useAdminPermissions`
+ * passes a null SWR key for them). Non-admins never reach an admin surface, so
+ * they resolve to the empty set without a request either.
+ *
+ * Fails **closed**: `held` is empty until the real set arrives, so a caller that
+ * ignores `isLoading` hides controls rather than leaking them. Route gating must
+ * honour `isLoading` and render a spinner, otherwise it flashes "Access Denied"
+ * on first paint. Note this is the opposite default from `FeatureGate`, which
+ * fails open on unloaded flags — an unknown flag means "probably on", an unknown
+ * permission means "not yet proven".
+ */
+export function useAdminPermissions(): AdminPermissions {
+    const rootAdmin = useSession(s => Boolean(s.user?.root_admin));
+    const roleAdmin = useSession(s => Boolean(s.user?.admin_role_id));
+
+    const { data, isLoading } = useQuery({
+        queryKey: ['admin', 'permissions'],
+        queryFn: getAdminPermissions,
+        // Root admins already know the answer; non-admins have no set to fetch.
+        enabled: roleAdmin && !rootAdmin,
+        // The set only changes when an operator edits the role, which forces a
+        // reload anyway — no need to re-fetch it per page.
+        staleTime: Infinity,
+    });
+
+    if (rootAdmin) return { held: ROOT_HELD, isLoading: false };
+    if (!roleAdmin) return { held: NO_HELD, isLoading: false };
+    return { held: data ?? NO_HELD, isLoading };
+}
+
+/**
+ * Held permissions only — for callers gating rendering *within* an already
+ * permitted page (hiding create/update/delete controls). Failing closed while
+ * the set loads is the right default for a button.
+ */
+export function useAdminHeld(): string[] {
+    return useAdminPermissions().held;
 }

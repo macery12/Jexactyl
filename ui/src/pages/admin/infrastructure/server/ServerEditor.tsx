@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
-import { Info, TerminalSquare, Gauge, Network, ListChecks, Save, RotateCcw } from 'lucide-react';
+import { Info, TerminalSquare, Gauge, Network, ListChecks, Wallet, Save, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -16,6 +16,7 @@ import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 import { useServerView } from './ServerContext';
 import { NetworkingSection, type AllocationDraft } from './NetworkingSection';
+import { BillingSection } from './BillingSection';
 import { updateServer, updateServerStartup, type ServerView } from '@/api/adminServers';
 import { getUsers } from '@/api/adminUsers';
 import { getNests, getNestEggs, getEgg, firstDockerImage, dockerImageOptions, type DockerImageOption } from '@/api/nests';
@@ -57,6 +58,7 @@ const SECTIONS: { id: string; labelKey: string; icon: LucideIcon }[] = [
     { id: 'resources', labelKey: 'infrastructure.serverDetail.nav.resources', icon: Gauge },
     { id: 'networking', labelKey: 'infrastructure.serverDetail.nav.networking', icon: Network },
     { id: 'limits', labelKey: 'infrastructure.serverDetail.nav.limits', icon: ListChecks },
+    { id: 'billing', labelKey: 'infrastructure.serverDetail.nav.billing', icon: Wallet },
 ];
 
 function formFrom(s: ServerView): FormShape {
@@ -377,6 +379,12 @@ export function ServerEditor() {
                             <Input type="number" {...register('subdomains', num)} />
                         </FieldRow>
                     </div>
+                </SectionCard>
+
+                {/* Billing — edited through its own wizard, so it saves independently
+                    of the save bar and is deliberately absent from the dirty state. */}
+                <SectionCard id="billing" icon={Wallet} title={m['admin.infrastructure.serverDetail.nav.billing']()} desc={m['admin.infrastructure.serverDetail.section.billingDesc']()}>
+                    <BillingSection readOnly={readOnly} />
                 </SectionCard>
 
                 {!readOnly && <SaveBar dirty={dirty} saving={saving} onDiscard={discard} />}

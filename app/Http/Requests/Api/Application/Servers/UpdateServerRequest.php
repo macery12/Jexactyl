@@ -75,10 +75,6 @@ class UpdateServerRequest extends ApplicationApiRequest
             'database_limit' => array_get($data, 'feature_limits.databases'),
             'subuser_limit' => array_get($data, 'feature_limits.subusers'),
 
-            'renewal_date' => array_get($data, 'renewal_date'),
-            'billing_product_id' => array_get($data, 'billing_product_id'),
-            'billing_days' => array_get($data, 'billing_days'),
-
             'allocation_id' => array_get($data, 'allocation_id'),
             'add_allocations' => array_get($data, 'add_allocations'),
             'remove_allocations' => array_get($data, 'remove_allocations'),
@@ -86,6 +82,15 @@ class UpdateServerRequest extends ApplicationApiRequest
 
         if (Arr::has($data, 'feature_limits.subdomains')) {
             $response['subdomain_limit'] = array_get($data, 'feature_limits.subdomains');
+        }
+
+        // Only surface the billing keys the request actually sent. DetailsModificationService
+        // keys off array_key_exists to leave a server's plan alone on a non-billing update,
+        // so emitting these unconditionally (as null) would wipe billing on every save.
+        foreach (['renewal_date', 'billing_product_id', 'billing_days'] as $billingKey) {
+            if (Arr::has($data, $billingKey)) {
+                $response[$billingKey] = array_get($data, $billingKey);
+            }
         }
 
         return is_null($key) ? $response : Arr::get($response, $key, $default);

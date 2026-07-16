@@ -1,5 +1,6 @@
 import http from '@/lib/http';
 import { dockerImageOptions, type DockerImageOption } from '@/api/nests';
+import { toProduct, type BillingProduct } from '@/api/billingProducts';
 
 // Admin server view-models. Sourced from the session-authed application API
 // (/api/application/servers) — the same client the node cockpit uses. Field
@@ -143,11 +144,22 @@ export interface ServerView {
     dockerImages: DockerImageOption[];
     variables: ServerVariableView[];
     allocations: ServerAllocationView[];
+    billing: ServerBillingView;
+}
+
+// Billing config for the server. `product` is the resolved plan (via the
+// `product` include) — null when the server isn't on a plan, or when the plan
+// was deleted out from under it while billingProductId still points at it.
+export interface ServerBillingView {
+    productId: number | null;
+    days: number | null;
+    renewalDate: string | null;
+    product: BillingProduct | null;
 }
 
 export async function getServerView(id: number | string): Promise<ServerView> {
     const { data } = await http.get(`/api/application/servers/${id}`, {
-        params: { include: 'egg,node,user,variables,allocations' },
+        params: { include: 'egg,node,user,variables,allocations,product' },
     });
     const a = data.attributes ?? data;
     const rel = a.relationships ?? {};
@@ -212,6 +224,12 @@ export async function getServerView(id: number | string): Promise<ServerView> {
         dockerImages: dockerImageOptions(egg?.docker_images ?? []),
         variables,
         allocations,
+        billing: {
+            productId: a.billing_product_id ?? null,
+            days: a.billing_days ?? null,
+            renewalDate: a.renewal_date ?? null,
+            product: rel.product?.attributes ? toProduct(rel.product) : null,
+        },
     };
 }
 
@@ -252,6 +270,9 @@ export interface UpdateServerValues {
     owner_id?: number;
     limits?: { memory: number; swap: number; disk: number; io: number; cpu: number; threads: string | null; oom_killer: boolean };
     feature_limits?: { allocations: number; backups: number; databases: number; subusers: number; subdomains: number };
+    renewal_date?: string | null;
+    billing_product_id?: number | null;
+    billing_days?: number | null;
     allocation_id?: number;
     add_allocations?: number[];
     remove_allocations?: number[];

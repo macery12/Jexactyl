@@ -71,11 +71,11 @@ export const adminRoutes: RouteDef[] = [
     route('tickets/*', { name: 'Tickets', icon: LifeBuoy, category: 'modules', permission: 'tickets.read', condition: f => f.tickets.enabled, element: TicketsSection }),
     route('ai/*', { name: 'AI', icon: Bot, category: 'modules', permission: 'ai.read', condition: f => f.ai.enabled, element: AiSection }),
     route('marketplace/*', { name: 'Marketplace', icon: Boxes, category: 'modules', permission: 'mods.read', condition: f => f.mods.enabled, element: MarketplaceSection }),
-    route('email/*', { name: 'Email', icon: Mail, category: 'modules', condition: f => !!f.email.module_enabled, element: EmailSection }),
+    route('email/*', { name: 'Email', icon: Mail, category: 'modules', permission: 'email.read', condition: f => !!f.email.module_enabled, element: EmailSection }),
     route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules', permission: 'webhooks.read', condition: f => f.webhooks.enabled, element: WebhooksSection }),
-    route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', condition: f => f.extensions.enabled, element: ExtensionsSection }),
-    route('theme', { name: 'Theme', icon: Palette, category: 'modules', element: ThemeSection }),
-    route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', element: AlertsSection }),
+    route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', permission: 'extensions.read', condition: f => f.extensions.enabled, element: ExtensionsSection }),
+    route('theme', { name: 'Theme', icon: Palette, category: 'modules', permission: 'theme.read', element: ThemeSection }),
+    route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', permission: 'alerts.read', element: AlertsSection }),
     // V1 filed Links under its 'appearance' category alongside Theme and Alerts;
     // V2 has no such category, so it joins those two here. No feature flag — the
     // per-link `visible` column is the operator's off switch (V1 parity).
