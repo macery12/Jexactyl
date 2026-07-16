@@ -1,25 +1,25 @@
 ---
 name: v2page
 description: >-
-  Build or complete a page in the V2 React UI (ui/) to full V1 parity. Use whenever
-  the task is to create, finish, or overhaul a page/section under ui/src/pages —
+  Build or complete a page in the V2 React UI (frontend/) to full V1 parity. Use whenever
+  the task is to create, finish, or overhaul a page/section under frontend/src/pages —
   e.g. "/v2page files", "build the server backups page", "finish admin activity".
   Drives the whole lifecycle: locate the V1 equivalent, agree the parity feature
   set, ask the style questions, build it (route + page + data + i18n + theme), run
   pnpm build, and update the docs/V2.md scoreboard. Enforces the two non-negotiables:
-  every string externalized through ui/messages/en.json (Paraglide) and every color
+  every string externalized through frontend/messages/en.json (Paraglide) and every color
   from a theme CSS variable — never hardcoded.
 ---
 
 # Building a V2 UI page
 
-The V2 UI is a self-contained React app in [`ui/`](../../../ui/) that Laravel serves at `/v2`.
+The V2 UI is a self-contained React app in [`frontend/`](../../../frontend/) that Laravel serves at `/v2`.
 The goal of this overhaul is to reach **full V1 parity** — every V1 page gets a real V2 page
 with the new full UI, not a stub. This skill turns "build page X" into a repeatable pipeline
 so nothing drifts on i18n, theming, routing, or completeness.
 
 **Two rules are MANDATORY on every page and are enforced by `pnpm build`:**
-1. **i18n** — every user-facing string comes from `ui/messages/en.json` via Paraglide `m['ns.key']()`.
+1. **i18n** — every user-facing string comes from `frontend/messages/en.json` via Paraglide `m['ns.key']()`.
 2. **Theme** — every color comes from a theme CSS variable; no hex, no Tailwind palette colors.
 
 Details of both are in [§ Non-negotiables](#non-negotiables) below. Read them before writing JSX.
@@ -60,12 +60,12 @@ Wire up all of the following (see [§ How the app is built](#how-the-app-is-buil
 
 - **Route registry** — give the entry an `element` in the right `*.routes.ts` file so it stops
   rendering the shared `Placeholder`. Match the existing `route(path, { name, icon, category, permission, condition, element })` shape.
-- **Page component(s)** under `ui/src/pages/...` following the chosen layout's exemplar.
-- **Data layer** — an `ui/src/api/*.ts` module hitting the **existing Laravel API** via the shared
+- **Page component(s)** under `frontend/src/pages/...` following the chosen layout's exemplar.
+- **Data layer** — an `frontend/src/api/*.ts` module hitting the **existing Laravel API** via the shared
   `http` client, consumed with TanStack Query. Prefer no backend changes; the V2 overhaul reuses V1's API.
 - **Mutations** — use the shared primitives `Modal`, `Select`, `ConfirmDialog`, the `editorChrome`
   section-card + sticky save-bar pattern for editors, `useFlashes` toasts, and TanStack query invalidation.
-- **i18n keys** — add dotted, namespace-prefixed ids to `ui/messages/en.json` (see rules below).
+- **i18n keys** — add dotted, namespace-prefixed ids to `frontend/messages/en.json` (see rules below).
 - **Theme** — every surface reads theme tokens.
 
 ### 4. Verify
@@ -83,8 +83,8 @@ This keeps the cutover audit honest.
 
 ## Non-negotiables
 
-### i18n — externalize every string via `ui/messages/en.json` (Paraglide JS)
-- Source strings live in **one flat file**, [`ui/messages/en.json`](../../../ui/messages/en.json), keyed by
+### i18n — externalize every string via `frontend/messages/en.json` (Paraglide JS)
+- Source strings live in **one flat file**, [`frontend/messages/en.json`](../../../frontend/messages/en.json), keyed by
   **namespace-prefixed dotted ids** (`"common.actions.save"`, `"server.backups.title"`). English is the
   source of truth. Namespaces: `common`, `nav`, `auth`, `landing`, `dashboard`, `server`, `admin`,
   `extensions`, `billing`. `common.*` holds shared `actions.*` / `states.*` / `power.*` / `metrics.*`.
@@ -102,17 +102,17 @@ This keeps the cutover audit honest.
 - **Adding strings:** just add the id to `en.json` — no registration step; the compiler picks it up.
   Don't add other-locale files unless asked (Crowdin owns those). Exception: 3rd-party **manifest** copy
   (extension name/description/schema labels) is rendered verbatim and intentionally NOT catalogued.
-- ⚠️ **Never `git checkout ui/messages/en.json`** without checking for uncommitted keys first — it has
+- ⚠️ **Never `git checkout frontend/messages/en.json`** without checking for uncommitted keys first — it has
   silently discarded dozens of working-tree keys before.
-- Copy the pattern from [`DashboardPage.tsx`](../../../ui/src/pages/dashboard/DashboardPage.tsx) (static +
-  interpolation) and [`Sidebar.tsx`](../../../ui/src/components/shell/Sidebar.tsx) (dynamic `td`).
+- Copy the pattern from [`DashboardPage.tsx`](../../../frontend/src/pages/dashboard/DashboardPage.tsx) (static +
+  interpolation) and [`Sidebar.tsx`](../../../frontend/src/components/shell/Sidebar.tsx) (dynamic `td`).
 
 Audit before finishing: `grep -nE "'[A-Z][a-z].*'|\"[A-Z][a-z].*\"" <files>` for stray literal strings in JSX.
 
 ### Theme — use theme CSS variables, never hardcoded colors
 - NEVER use raw hex (`#xxxxxx`) or Tailwind palette colors (`bg-zinc-900`, `text-white`, `border-slate-700`).
   Reference tokens via `bg-[var(--token)]` / `text-[var(--token)]` / `border-[var(--token)]`.
-- Token vocabulary (set by `applyThemeVars` in [`ui/src/lib/theme.ts`](../../../ui/src/lib/theme.ts)):
+- Token vocabulary (set by `applyThemeVars` in [`frontend/src/lib/theme.ts`](../../../frontend/src/lib/theme.ts)):
   - Surfaces: `--color-canvas` (app bg), `--color-surface` (panels/sidebar), `--color-surface-2` (elevated/inputs/hover rows).
   - Borders: `--color-border` (hairline), `--color-border-strong` (defined edge).
   - Text: `--color-ink` (primary), `--color-ink-muted` (secondary), `--color-ink-faint` (captions).
@@ -129,21 +129,21 @@ Audit before finishing: `grep -nE "#[0-9a-fA-F]{3,6}|text-white|-(zinc|slate|gra
 
 Concrete shapes so the built page matches the codebase.
 
-- **Stack:** React 19 + Vite (SWC), Tailwind v4, Radix UI + CVA (`ui/src/components/ui`),
+- **Stack:** React 19 + Vite (SWC), Tailwind v4, Radix UI + CVA (`frontend/src/components/ui`),
   react-router-dom v7, TanStack Query v5, Zustand, react-hook-form + zod.
 - **Route registry** = single source of truth for routing **and** the sidebars. Add an `element` to
   the entry (lazy-imported) to render a real page; no `element` → shared `Placeholder`. Files:
-  [`account.routes.ts`](../../../ui/src/routes/account.routes.ts),
-  [`admin.routes.ts`](../../../ui/src/routes/admin.routes.ts),
-  [`server.routes.ts`](../../../ui/src/routes/server.routes.ts),
-  [`auth.routes.ts`](../../../ui/src/routes/auth.routes.ts). Entry:
+  [`account.routes.ts`](../../../frontend/src/routes/account.routes.ts),
+  [`admin.routes.ts`](../../../frontend/src/routes/admin.routes.ts),
+  [`server.routes.ts`](../../../frontend/src/routes/server.routes.ts),
+  [`auth.routes.ts`](../../../frontend/src/routes/auth.routes.ts). Entry:
   `route('files/*', { name: 'Files', icon: FolderOpen, permission: 'file.*', category: 'data', element: FilesSection })`.
   `condition: f => f.<flag>.enabled` gates on feature flags. Nested sections use a `Section` component
   with its own internal `<Routes>` (see how billing/extensions/infrastructure do it).
-- **Data:** the existing Laravel API via [`ui/src/lib/http.ts`](../../../ui/src/lib/http.ts) (axios + CSRF).
+- **Data:** the existing Laravel API via [`frontend/src/lib/http.ts`](../../../frontend/src/lib/http.ts) (axios + CSRF).
   Client endpoints under `/api/client/*`, admin under `/api/application/*`. Wrap calls in an
-  `ui/src/api/<feature>.ts` module and consume with `useQuery`/`useMutation`. Server-cockpit live data
-  is a websocket ([`ui/src/lib/Websocket.ts`](../../../ui/src/lib/Websocket.ts) → `serverSocket` store).
+  `frontend/src/api/<feature>.ts` module and consume with `useQuery`/`useMutation`. Server-cockpit live data
+  is a websocket ([`frontend/src/lib/Websocket.ts`](../../../frontend/src/lib/Websocket.ts) → `serverSocket` store).
 - **Shared primitives:** `Modal`, `Select`, `ConfirmDialog` (Radix), `Panel` (ops chrome),
   `editorChrome` (section cards + sticky save-bar for editors), `useFlashes` (toasts). Reuse these
   rather than rolling new ones.
@@ -156,13 +156,13 @@ Pick a skeleton, then copy the exemplar's structure. All exemplars already follo
 
 | Pattern | Use for | Exemplar to copy |
 |---|---|---|
-| **Ops cockpit** (metric strip + hero + panel rows) | live/monitoring pages | [`ServerOverviewPage.tsx`](../../../ui/src/pages/server/ServerOverviewPage.tsx) + `server/panels/Panel.tsx` |
-| **Tabbed cockpit** | one entity, many facets | [`NodeDetailPage.tsx`](../../../ui/src/pages/admin/nodes/NodeDetailPage.tsx) |
-| **Single sectioned editor** (scrollspy nav + sticky save bar) | edit forms with many sections | `ServerEditor` / [`CategoryDetailPage.tsx`](../../../ui/src/pages/admin/billing/products/CategoryDetailPage.tsx) + `editorChrome.tsx` |
-| **Master–detail + live preview** | list ↔ edit with a canvas | [`LandingSection.tsx`](../../../ui/src/pages/admin/landing/LandingSection.tsx) |
-| **Dense table** | large flat record sets | [`ServersTable.tsx`](../../../ui/src/pages/admin/servers/ServersTable.tsx) |
-| **Card grid + filter/search** | browsable catalogs | [`ExtensionsOverviewPage.tsx`](../../../ui/src/pages/admin/extensions/ExtensionsOverviewPage.tsx) |
-| **Dashboard tiles** | overviews/analytics | [`DashboardPage.tsx`](../../../ui/src/pages/dashboard/DashboardPage.tsx) / `BillingOverviewPage.tsx` |
+| **Ops cockpit** (metric strip + hero + panel rows) | live/monitoring pages | [`ServerOverviewPage.tsx`](../../../frontend/src/pages/server/ServerOverviewPage.tsx) + `server/panels/Panel.tsx` |
+| **Tabbed cockpit** | one entity, many facets | [`NodeDetailPage.tsx`](../../../frontend/src/pages/admin/nodes/NodeDetailPage.tsx) |
+| **Single sectioned editor** (scrollspy nav + sticky save bar) | edit forms with many sections | `ServerEditor` / [`CategoryDetailPage.tsx`](../../../frontend/src/pages/admin/billing/products/CategoryDetailPage.tsx) + `editorChrome.tsx` |
+| **Master–detail + live preview** | list ↔ edit with a canvas | [`LandingSection.tsx`](../../../frontend/src/pages/admin/landing/LandingSection.tsx) |
+| **Dense table** | large flat record sets | [`ServersTable.tsx`](../../../frontend/src/pages/admin/servers/ServersTable.tsx) |
+| **Card grid + filter/search** | browsable catalogs | [`ExtensionsOverviewPage.tsx`](../../../frontend/src/pages/admin/extensions/ExtensionsOverviewPage.tsx) |
+| **Dashboard tiles** | overviews/analytics | [`DashboardPage.tsx`](../../../frontend/src/pages/dashboard/DashboardPage.tsx) / `BillingOverviewPage.tsx` |
 | **Nested section w/ in-page nav** | a multi-page module under one entry | `BillingSection.tsx` + `BillingNav.tsx` |
 
 ---
@@ -173,7 +173,7 @@ Pick a skeleton, then copy the exemplar's structure. All exemplars already follo
 - [ ] Style questions asked; chosen layout matches an exemplar.
 - [ ] Route entry has an `element`; page no longer renders `Placeholder`.
 - [ ] Data comes from the existing API via `http` + TanStack Query; no needless backend changes.
-- [ ] All strings in `ui/messages/en.json`; shared `common.*` atoms reused; no literal JSX strings.
+- [ ] All strings in `frontend/messages/en.json`; shared `common.*` atoms reused; no literal JSX strings.
 - [ ] All colors are theme tokens; color/string grep audits are clean.
 - [ ] `cd ui && pnpm build` passes.
 - [ ] Behavior verified against the running app where there's a surface to drive.

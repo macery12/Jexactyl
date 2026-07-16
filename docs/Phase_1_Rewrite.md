@@ -25,10 +25,10 @@
 
 ---
 
-## 2. Project structure (new `resources2/` or fresh `ui/`)
+## 2. Project structure (new `resources2/` or fresh `frontend/`)
 
 ```
-ui/
+frontend/
   index.html                 # mounts #app, reads window.* globals
   vite.config.ts             # SWC + tailwind v4 plugin, path aliases
   tsconfig.json              # strict, aliases @/ @account/ @server/ @admin/

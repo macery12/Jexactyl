@@ -281,7 +281,7 @@ class ExtensionPackageArtifactService
 
         $allowedPrefixes = [
             sprintf('app/Extensions/Packages/%s/', $extensionId),
-            sprintf('resources/scripts/extensions/packages/%s/', $extensionId),
+            sprintf('frontend/src/extensions/packages/%s/', $extensionId),
         ];
 
         foreach ($allowedPrefixes as $prefix) {

@@ -1,9 +1,9 @@
-# Crowdin configuration for the V2 UI (ui/messages, Paraglide JS / inlang).
+# Crowdin configuration for the V2 UI (frontend/messages, Paraglide JS / inlang).
 #
-# English is the source of truth (ui/messages/en.json — a flat map of dotted,
+# English is the source of truth (frontend/messages/en.json — a flat map of dotted,
 # namespace-prefixed message ids). Crowdin creates one sibling file per target
 # locale (e.g. de.json, fr.json, pt-BR.json) in the same folder. Register a
-# downloaded locale in `locales` in ui/project.inlang/settings.json before it
+# downloaded locale in `locales` in frontend/project.inlang/settings.json before it
 # ships so Paraglide compiles it.
 #
 # Auth via env vars (do NOT commit tokens):
@@ -19,7 +19,7 @@ base_path: '.'
 preserve_hierarchy: true
 
 files:
-  - source: /ui/messages/en.json
-    translation: /ui/messages/%locale%.json
+  - source: /frontend/messages/en.json
+    translation: /frontend/messages/%locale%.json
     # %locale% → de, fr, pt-BR, zh-CN … must match the codes listed in
-    # ui/project.inlang/settings.json (`locales`).
+    # frontend/project.inlang/settings.json (`locales`).

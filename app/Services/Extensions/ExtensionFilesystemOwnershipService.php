@@ -31,10 +31,10 @@ class ExtensionFilesystemOwnershipService
 
         if ($extensionId !== null && $extensionId !== '') {
             $paths[] = base_path(sprintf('app/Extensions/Packages/%s', $extensionId));
-            $paths[] = base_path(sprintf('resources/scripts/extensions/packages/%s', $extensionId));
+            $paths[] = base_path(sprintf('frontend/src/extensions/packages/%s', $extensionId));
         } else {
             $paths[] = base_path('app/Extensions/Packages');
-            $paths[] = base_path('resources/scripts/extensions');
+            $paths[] = base_path('frontend/src/extensions');
         }
 
         $repaired = [];
@@ -184,7 +184,7 @@ class ExtensionFilesystemOwnershipService
         foreach ([
             storage_path(),
             storage_path('logs'),
-            base_path('resources/scripts'),
+            base_path('frontend'),
             base_path('bootstrap/cache'),
             base_path('public'),
         ] as $candidate) {
