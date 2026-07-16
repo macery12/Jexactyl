@@ -26,7 +26,6 @@ storage/app/tmp/
 storage/app/tmp-uninstall/
 storage/app/tmp-update/
 app/Extensions/Packages/
-resources/scripts/extensions/packages/
 frontend/src/extensions/packages/
 resources/views/emails/**/*.blade.php.custom
 resources/views/emails/**/*.blade.php.bak.*
@@ -48,8 +47,6 @@ resources/lang/locales.js
 
 /public/build
 /public/hot
-/public/build-v2
-/public/hot-v2
 /frontend/dist
 result
 docker-compose.yaml

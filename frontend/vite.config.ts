@@ -5,8 +5,8 @@ import laravel from 'laravel-vite-plugin';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import { fileURLToPath, URL } from 'node:url';
 
-// Self-contained v2 UI. Builds into the Laravel public dir at `public/build-v2`
-// and writes its dev hot-file to `public/hot-v2`, so it can be served by the
+// Self-contained v2 UI. Builds into the Laravel public dir at `public/build`
+// and writes its dev hot-file to `public/hot`, so it can be served by the
 // existing Laravel app at `/v2` without touching the V1 build pipeline.
 export default defineConfig(({ command }) => ({
     plugins: [
@@ -38,8 +38,8 @@ export default defineConfig(({ command }) => ({
         laravel({
             input: ['src/main.tsx'],
             publicDirectory: '../public',
-            buildDirectory: 'build-v2',
-            hotFile: '../public/hot-v2',
+            buildDirectory: 'build',
+            hotFile: '../public/hot',
             refresh: false,
         }),
     ],

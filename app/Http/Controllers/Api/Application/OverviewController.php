@@ -25,39 +25,8 @@ class OverviewController extends ApplicationApiController
     }
 
     /**
-     * Returns version information.
-     *
-     * Superseded by the aggregate {@see self::index()} (`health.version`) for the V2 UI,
-     * but still consumed by the V1 admin frontend (OverviewContainer + ExtensionsContainer).
-     * Do not remove until V1 is decommissioned.
-     */
-    public function version(OverviewRequest $request): JsonResponse
-    {
-        return new JsonResponse($this->softwareVersionService->getVersionData());
-    }
-
-    /**
-     * Returns metrics relating to server count, user count & more.
-     *
-     * Superseded by the aggregate {@see self::index()} for the V2 UI, but still consumed
-     * by the V1 admin overview (OverviewContainer). Do not remove until V1 is decommissioned.
-     */
-    public function metrics(OverviewRequest $request): JsonResponse
-    {
-        $nodes = Node::query()->count();
-        $servers = Server::query()->count();
-        $tickets = Ticket::query()->where('status', Ticket::STATUS_PENDING)->count();
-
-        return new JsonResponse([
-            'nodes' => $nodes,
-            'servers' => $servers,
-            'tickets' => $tickets,
-        ]);
-    }
-
-    /**
      * Aggregate admin overview payload — one cheap, DB-only snapshot driving the
-     * `/v2/admin` overview dashboard. Everything here is a count or a summed column
+     * `/admin` overview dashboard. Everything here is a count or a summed column
      * so the endpoint is safe to poll on an interval. Live per-node/per-server power
      * state is intentionally excluded (it requires hitting Wings and does not belong
      * in a polled aggregate).

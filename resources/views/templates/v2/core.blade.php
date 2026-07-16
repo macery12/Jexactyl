@@ -43,7 +43,7 @@
         @endif
 
         @php
-            $v2 = \Illuminate\Support\Facades\Vite::useHotFile(public_path('hot-v2'))->useBuildDirectory('build-v2');
+            $v2 = \Illuminate\Support\Facades\Vite::useHotFile(public_path('hot'))->useBuildDirectory('build');
         @endphp
         {!! $v2->reactRefresh() !!}
         {!! $v2(['src/main.tsx']) !!}

@@ -9,7 +9,6 @@ use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Contracts\View\View;
 use Everest\Exceptions\DisplayException;
 use Everest\Services\Users\UserCreationService;
 use Everest\Http\Requests\Auth\RegisterRequest;
@@ -26,16 +25,6 @@ class LoginController extends AbstractLoginController
         private SettingsRepositoryInterface $settings,
     ) {
         parent::__construct();
-    }
-
-    /**
-     * Handle all incoming requests for the authentication routes and render the
-     * base authentication view component. React will take over at this point and
-     * turn the login area into an SPA.
-     */
-    public function index(): View
-    {
-        return view('templates/auth.core');
     }
 
     /**
