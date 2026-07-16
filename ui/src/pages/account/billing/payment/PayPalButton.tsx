@@ -27,7 +27,8 @@ export default function PayPalButton(props: PayPalButtonProps) {
         setLoading(true);
         try {
             const returnUrl = window.location.origin + '/v2/account/billing/processing?processor=paypal';
-            const order = await createPayPalOrder(props.productId, props.couponId, props.billingDays, returnUrl);
+            const cancelUrl = window.location.origin + '/v2/account/billing/cancel';
+            const order = await createPayPalOrder(props.productId, props.couponId, props.billingDays, returnUrl, cancelUrl);
             await updatePayPalOrder({
                 productId: props.productId,
                 orderId: order.id,

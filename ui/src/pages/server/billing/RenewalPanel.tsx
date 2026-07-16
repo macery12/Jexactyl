@@ -341,6 +341,7 @@ function PayPalRenewalButton({ productId, couponId }: { productId: number; coupo
                 serverId: server.internalId,
                 couponId,
                 returnUrl: `${window.location.origin}/v2/account/billing/processing?renewal=true&server=${server.id}&processor=paypal`,
+                cancelUrl: `${window.location.origin}/v2/account/billing/cancel`,
             });
             window.location.href = `/api/client/billing/paypal/orders/${order.id}/redirect`;
         } catch {

@@ -191,10 +191,12 @@ export async function createRenewalPayPalOrder(input: {
     serverId: number;
     couponId?: number;
     returnUrl: string;
+    cancelUrl?: string;
 }): Promise<{ id: string; token: string; approval_url: string }> {
     const { data } = await http.post(`/api/client/billing/products/${input.productId}/paypal/order`, {
         coupon_id: input.couponId,
         return_url: input.returnUrl,
+        cancel_url: input.cancelUrl,
         server_id: input.serverId,
         renewal: true,
     });

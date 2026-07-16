@@ -359,11 +359,13 @@ export async function createPayPalOrder(
     couponId?: number,
     billingDays?: number,
     returnUrl?: string,
+    cancelUrl?: string,
 ): Promise<PayPalOrder> {
     const { data } = await http.post(`/api/client/billing/products/${productId}/paypal/order`, {
         coupon_id: couponId,
         billing_days: billingDays,
         return_url: returnUrl,
+        cancel_url: cancelUrl,
     });
     return data;
 }

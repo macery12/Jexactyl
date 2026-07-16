@@ -80,7 +80,7 @@ class PayPalCheckoutController extends ClientApiController
             ? $baseReturnUrl . '&token=' . $token . '&processor=paypal'
             : $baseReturnUrl . '?token=' . $token . '&processor=paypal';
 
-        $cancelUrl = url('/account/billing/cancel');
+        $cancelUrl = $request->input('cancel_url', url('/account/billing/cancel'));
 
         // Create PayPal order
         $paypalOrder = $this->paypalService->createOrder(
