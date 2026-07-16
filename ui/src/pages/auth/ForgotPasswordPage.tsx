@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -69,11 +70,11 @@ export default function ForgotPasswordPage() {
         try {
             const res = await resetPasswordWithRecoveryCode({ email, code, password, captchaToken: token });
             if (res.complete) {
-                window.location.href = res.intended || '/v2';
+                window.location.href = res.intended || abs();
                 return;
             }
             // 2FA account — must sign in again.
-            navigate('/v2/auth/login');
+            navigate('/auth/login');
         } catch (err) {
             setError(firstError(err) ?? m['common.states.genericError']());
         } finally {
@@ -91,7 +92,7 @@ export default function ForgotPasswordPage() {
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.forgot.sentBody']()}</p>
                 </div>
                 <a
-                    href="/v2/auth/login"
+                    href={abs('/auth/login')}
                     className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
                 >
                     {m['auth.backToLogin']()}
@@ -162,7 +163,7 @@ export default function ForgotPasswordPage() {
                       : m['auth.forgot.submitRecovery']()}
             </Button>
 
-            <a href="/v2/auth/login" className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['auth.backToLogin']()}
             </a>
         </form>

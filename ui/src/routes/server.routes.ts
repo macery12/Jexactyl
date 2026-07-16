@@ -34,7 +34,7 @@ const ServerActivityPage = lazy(() => import('@/pages/server/activity/ServerActi
 const BillingPage = lazy(() => import('@/pages/server/billing/BillingPage'));
 const ExtensionsSection = lazy(() => import('@/pages/server/extensions/ExtensionsSection'));
 
-// Server area (/v2/server/:id/*) — sidebar grouped by `category`.
+// Server area (/server/:id/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.3. The index is the modular widget dashboard
 // (console-focal); the rest remain placeholders.
 export const serverRoutes: RouteDef[] = [

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { abs } from '@/lib/base';
 import { ChevronUp, ChevronDown, Plus, Trash2, ExternalLink, EyeOff } from 'lucide-react';
 import { m, td } from '@/i18n';
 import { Button } from '@/components/ui/Button';
@@ -139,7 +140,7 @@ export default function LandingSection() {
                 </div>
                 <div className="flex items-center gap-2">
                     <a
-                        href="/v2"
+                        href={abs()}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"
@@ -354,14 +355,14 @@ function SectionFields({ section, onData }: { section: LandingSection; onData: (
                             hint={m['landingAdmin.field.primaryCtaHelp']()}
                             cta={d.primaryCta ?? { label: '', href: '' }}
                             labelPlaceholder={m['landing.getStarted']()}
-                            hrefPlaceholder="/v2/auth/login"
+                            hrefPlaceholder={abs('/auth/login')}
                             onChange={cta => onData({ primaryCta: cta })}
                         />
                         <CtaEditor
                             label={m['landingAdmin.field.secondaryCta']()}
                             hint={m['landingAdmin.field.secondaryCtaHelp']()}
                             cta={d.secondaryCta ?? { label: '', href: '' }}
-                            hrefPlaceholder="/v2/auth/login"
+                            hrefPlaceholder={abs('/auth/login')}
                             onChange={cta => onData({ secondaryCta: cta })}
                         />
                     </div>

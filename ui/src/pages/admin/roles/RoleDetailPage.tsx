@@ -254,7 +254,7 @@ export default function RoleDetailPage() {
     if (roleQuery.isError || !role) {
         return (
             <div className="flex flex-col gap-4">
-                <BackLink onClick={() => navigate('/v2/admin/roles')} />
+                <BackLink onClick={() => navigate('/admin/roles')} />
                 <p className="py-10 text-center text-sm text-[var(--color-danger)]">{m['admin.roles.loadError']()}</p>
             </div>
         );
@@ -262,7 +262,7 @@ export default function RoleDetailPage() {
 
     return (
         <div className="flex flex-col gap-6 pb-24">
-            <BackLink onClick={() => navigate('/v2/admin/roles')} />
+            <BackLink onClick={() => navigate('/admin/roles')} />
 
             <header className="flex items-center gap-3">
                 <span

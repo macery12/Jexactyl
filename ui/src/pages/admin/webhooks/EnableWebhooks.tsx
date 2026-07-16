@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { abs } from '@/lib/base';
 import { m } from '@/i18n';
 import { Webhook } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -9,7 +10,7 @@ import { updateWebhookSetting } from '@/api/webhooks';
 // After enabling the module the Everest bootstrap must be re-read, so we
 // hard-navigate back to the section (same approach the Auth module uses).
 function reloadSection() {
-    window.location.assign('/v2/admin/webhooks');
+    window.location.assign(abs('/admin/webhooks'));
 }
 
 // Feature-intro gate shown while the webhook module is disabled. Enabling flips

@@ -53,7 +53,7 @@ const FeaturesSection = lazy(() => import('@/pages/admin/features/FeaturesSectio
 const AiSection = lazy(() => import('@/pages/admin/ai/AiSection'));
 const LinksSection = lazy(() => import('@/pages/admin/links/LinksSection'));
 
-// Admin area (/v2/admin/*) — sidebar grouped by `category`.
+// Admin area (/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
 export const adminRoutes: RouteDef[] = [
     route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true, element: OverviewPage }),

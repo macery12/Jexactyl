@@ -23,9 +23,9 @@ export default function AuthSection() {
                             <Route path="jguard/pending" element={<JGuardPendingPage />} />
                         </>
                     ) : (
-                        <Route path="jguard/*" element={<Navigate to="/v2/admin/auth" replace />} />
+                        <Route path="jguard/*" element={<Navigate to="/admin/auth" replace />} />
                     )}
-                    <Route path="*" element={<Navigate to="/v2/admin/auth" replace />} />
+                    <Route path="*" element={<Navigate to="/admin/auth" replace />} />
                 </Routes>
             </div>
         </div>

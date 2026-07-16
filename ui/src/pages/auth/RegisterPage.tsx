@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -24,7 +25,7 @@ export default function RegisterPage() {
     // After a successful signup we hold the one-time recovery code and gate the
     // redirect behind an explicit acknowledgement so the user cannot miss it.
     const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
-    const [intendedUrl, setIntendedUrl] = useState('/v2');
+    const [intendedUrl, setIntendedUrl] = useState(abs());
 
     const schema = useMemo(
         () =>
@@ -89,7 +90,7 @@ export default function RegisterPage() {
                 captchaToken: token,
             });
             if (res.complete) {
-                const target = res.intended || '/v2';
+                const target = res.intended || abs();
                 // Auto-login already succeeded; interpose the one-time recovery-code
                 // reveal before navigating. Missing code (unexpected) → just redirect.
                 if (res.recoveryCode) {
@@ -138,7 +139,7 @@ export default function RegisterPage() {
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.register.pendingBody']()}</p>
                 </div>
                 <a
-                    href="/v2/auth/login"
+                    href={abs('/auth/login')}
                     className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
                 >
                     {m['auth.backToLogin']()}
@@ -223,7 +224,7 @@ export default function RegisterPage() {
                 {isSubmitting ? m['auth.register.submitting']() : m['auth.register.submit']()}
             </Button>
 
-            <a href="/v2/auth/login" className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['auth.register.haveAccount']()}
             </a>
         </form>

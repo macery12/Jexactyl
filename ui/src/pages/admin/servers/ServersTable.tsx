@@ -133,7 +133,7 @@ export function ServersTable({ servers }: { servers: AdminServer[] }) {
                                 <StateDot server={s} />
                             </td>
                             <td className="px-4 py-3">
-                                <Link to={`/v2/admin/infrastructure/servers/${s.id}`} className="flex flex-col">
+                                <Link to={`/admin/infrastructure/servers/${s.id}`} className="flex flex-col">
                                     <span className="font-medium text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">{s.name}</span>
                                     <span className="font-mono text-[11px] text-[var(--color-ink-faint)]">{s.identifier}</span>
                                 </Link>
@@ -163,7 +163,7 @@ export function ServersTable({ servers }: { servers: AdminServer[] }) {
                             <td className="px-4 py-3 text-right">
                                 <RowActions
                                     server={s}
-                                    onEdit={() => navigate(`/v2/admin/infrastructure/servers/${s.id}`)}
+                                    onEdit={() => navigate(`/admin/infrastructure/servers/${s.id}`)}
                                     onDelete={() => setToDelete(s)}
                                 />
                             </td>

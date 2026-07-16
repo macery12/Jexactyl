@@ -25,7 +25,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
     const user = useSession(s => s.user);
     const site = useFlags(s => s.site);
     const location = useLocation();
-    const inAdmin = location.pathname.startsWith('/v2/admin');
+    const inAdmin = location.pathname.startsWith('/admin');
     const isAdmin = !!user?.root_admin || !!user?.admin_role_id;
 
     return (
@@ -40,7 +40,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                         <Menu className="h-5 w-5" />
                     </button>
                 )}
-                <Link to="/v2" className="flex items-center gap-2">
+                <Link to="/" className="flex items-center gap-2">
                     <div className="h-7 w-7 rounded-lg bg-[var(--brand)]" />
                     <span className="text-base font-semibold tracking-tight">{site?.name ?? 'M12Labs'}</span>
                 </Link>
@@ -49,7 +49,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
             <div className="flex items-center gap-2">
                 {isAdmin && (
                     <Link
-                        to={inAdmin ? '/v2/account' : '/v2/admin'}
+                        to={inAdmin ? '/account' : '/admin'}
                         className={cn(
                             'hidden items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium sm:inline-flex',
                             'text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]',
@@ -78,7 +78,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                         >
                             <DropdownMenu.Item asChild>
                                 <Link
-                                    to="/v2/account"
+                                    to="/account"
                                     className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-ink-muted)] outline-none hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                                 >
                                     <UserIcon className="h-4 w-4" /> {m['nav.topnav.account']()}

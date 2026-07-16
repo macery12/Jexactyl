@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useState, type FormEvent } from 'react';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { Button } from '@/components/ui/Button';
@@ -44,7 +45,7 @@ export default function StripeForm(props: StripeFormProps) {
             const { error } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {
-                    return_url: window.location.origin + '/v2/account/billing/processing',
+                    return_url: window.location.origin + abs('/account/billing/processing'),
                 },
             });
             if (error) {

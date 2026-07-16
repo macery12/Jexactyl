@@ -102,7 +102,7 @@ export function StatTiles({
                     icon={LifeBuoy}
                     label={m['dashboard.stats.openTickets']()}
                     value={openTickets === null ? '—' : String(openTickets)}
-                    to="/v2/account/tickets"
+                    to="/account/tickets"
                 />
             ) : (
                 <Tile

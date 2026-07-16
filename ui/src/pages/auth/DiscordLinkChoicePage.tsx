@@ -21,7 +21,7 @@ export default function DiscordLinkChoicePage() {
             .catch(() => {
                 if (!active) return;
                 setError(true);
-                setTimeout(() => navigate('/v2/auth/login'), 2000);
+                setTimeout(() => navigate('/auth/login'), 2000);
             });
         return () => {
             active = false;
@@ -71,7 +71,7 @@ export default function DiscordLinkChoicePage() {
             <div className="flex flex-col gap-3">
                 <button
                     type="button"
-                    onClick={() => navigate('/v2/auth/discord/register')}
+                    onClick={() => navigate('/auth/discord/register')}
                     className="group flex items-start gap-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4 text-left transition-colors hover:border-[var(--brand)] hover:bg-[var(--brand)]/8"
                 >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent)]/15 text-[var(--color-accent)]">
@@ -111,7 +111,7 @@ export default function DiscordLinkChoicePage() {
                         variant="outline"
                         size="sm"
                         className="mt-3 w-full"
-                        onClick={() => navigate('/v2/auth/login')}
+                        onClick={() => navigate('/auth/login')}
                     >
                         {m['auth.discord.goToLogin']()}
                     </Button>
@@ -120,7 +120,7 @@ export default function DiscordLinkChoicePage() {
 
             <button
                 type="button"
-                onClick={() => navigate('/v2/auth/login')}
+                onClick={() => navigate('/auth/login')}
                 className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
             >
                 {m['common.actions.cancel']()}

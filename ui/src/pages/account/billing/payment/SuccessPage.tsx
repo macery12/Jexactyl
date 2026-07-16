@@ -13,10 +13,10 @@ export default function SuccessPage() {
                 <h2 className="mt-5 text-xl font-semibold text-[var(--color-ink)]">{m['billing.success.title']()}</h2>
                 <p className="mt-2 text-sm text-[var(--color-ink-muted)]">{m['billing.success.body']()}</p>
                 <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
-                    <Link to="/v2/account">
+                    <Link to="/account">
                         <Button className="w-full sm:w-auto">{m['billing.success.dashboard']()}</Button>
                     </Link>
-                    <Link to="/v2/account/billing/orders">
+                    <Link to="/account/billing/orders">
                         <Button variant="outline" className="w-full sm:w-auto">{m['billing.success.orders']()}</Button>
                     </Link>
                 </div>

@@ -56,7 +56,7 @@ export function FileSearchModal({
     const goTo = (r: SearchResult) => {
         const dir = r.is_file ? r.path.substring(0, r.path.lastIndexOf('/')) || '/' : r.path;
         onClose();
-        navigate(`/v2/server/${serverId}/files#${encodePathSegments(dir)}`);
+        navigate(`/server/${serverId}/files#${encodePathSegments(dir)}`);
     };
 
     return (

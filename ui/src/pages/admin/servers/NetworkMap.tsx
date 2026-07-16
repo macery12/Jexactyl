@@ -318,7 +318,7 @@ export function NetworkMap({
                                 onMouseEnter={() => setHover(n)}
                                 onMouseLeave={() => setHover(h => (h === n ? null : h))}
                                 onClick={() => !drag.current.moved && focusOn(n.x, n.y)}
-                                onDoubleClick={() => navigate(`/v2/admin/infrastructure/nodes/${n.node.id}`)}
+                                onDoubleClick={() => navigate(`/admin/infrastructure/nodes/${n.node.id}`)}
                             >
                                 {isHover && <circle r={NODE_R + 8} fill={ring} opacity={0.12} />}
                                 <circle r={NODE_R} fill="var(--color-surface-2)" stroke={ring} strokeWidth={2.25} />
@@ -355,7 +355,7 @@ export function NetworkMap({
                                 className="cursor-pointer"
                                 onMouseEnter={() => setHover(s)}
                                 onMouseLeave={() => setHover(h => (h === s ? null : h))}
-                                onClick={() => !drag.current.moved && navigate(`/v2/admin/infrastructure/servers/${s.server.id}`)}
+                                onClick={() => !drag.current.moved && navigate(`/admin/infrastructure/servers/${s.server.id}`)}
                             >
                                 {isHover && <circle r={SERVER_R + 7} fill={color} opacity={0.18} />}
                                 <circle r={SERVER_R} fill={color} stroke="var(--color-surface)" strokeWidth={2.5} />

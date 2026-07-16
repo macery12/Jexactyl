@@ -136,7 +136,7 @@ export default function FileBrowser() {
         if (!file.isFile) {
             navigate({ hash: encodePathSegments(join(directory, file.name)) });
         } else if (isEditable(file)) {
-            navigate(`/v2/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`);
+            navigate(`/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`);
         } else {
             void download(file.name);
         }
@@ -211,7 +211,7 @@ export default function FileBrowser() {
                             <UploadButton uuid={uuid} directory={directory} />
                             <Button
                                 size="sm"
-                                onClick={() => navigate(`/v2/server/${id}/files/new${window.location.hash}`)}
+                                onClick={() => navigate(`/server/${id}/files/new${window.location.hash}`)}
                             >
                                 <FilePlus className="h-4 w-4" />
                                 {m['server.files.newFile']()}
@@ -335,7 +335,7 @@ export default function FileBrowser() {
                                             canDelete={canDelete}
                                             onEdit={() =>
                                                 navigate(
-                                                    `/v2/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`,
+                                                    `/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`,
                                                 )
                                             }
                                             onRename={() => setRename({ files: [file.name], mode: 'rename' })}
@@ -436,7 +436,7 @@ function Breadcrumbs({ serverId, crumbs }: { serverId: string; crumbs: { label: 
     return (
         <nav className="flex min-w-0 items-center gap-1 text-sm">
             <Link
-                to={`/v2/server/${serverId}/files`}
+                to={`/server/${serverId}/files`}
                 className="rounded px-1.5 py-0.5 font-medium text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
             >
                 {m['server.files.root']()}

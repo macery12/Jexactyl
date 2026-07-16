@@ -58,7 +58,7 @@ export function ServerHeader() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
                 <Link
-                    to="/v2/account"
+                    to="/account"
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border-strong)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)]"
                     title={td('server.header.back')}
                 >

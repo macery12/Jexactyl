@@ -43,7 +43,7 @@ export default function LandingCanvas({ sections, name, highlightId }: Props) {
                     <span className="text-lg font-semibold tracking-tight">{name}</span>
                 </div>
                 <Link
-                    to="/v2/auth/login"
+                    to="/auth/login"
                     className="inline-flex h-10 items-center rounded-xl border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"
                 >
                     {m['landing.signIn']()}

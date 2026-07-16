@@ -66,7 +66,7 @@ export function ActivityFeed() {
                     <History className="h-4 w-4" /> {m['dashboard.recentActivity']()}
                 </h2>
                 <Link
-                    to="/v2/account/activity"
+                    to="/account/activity"
                     className="flex items-center gap-1 text-xs font-medium text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink)]"
                 >
                     {m['dashboard.activityViewAll']()} <ArrowRight className="h-3 w-3" />

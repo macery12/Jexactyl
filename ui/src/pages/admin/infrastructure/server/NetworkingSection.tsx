@@ -80,7 +80,7 @@ export function NetworkingSection({ draft, onChange, readOnly }: { draft: Alloca
                 <span className="font-semibold uppercase tracking-[0.14em]">{m['admin.infrastructure.serverDetail.net.current']()}</span>
                 <span>
                     {m['admin.infrastructure.serverDetail.net.node']()}:{' '}
-                    <Link to={`/v2/admin/infrastructure/nodes/${s.nodeId}`} className="text-[var(--color-accent)] hover:underline">
+                    <Link to={`/admin/infrastructure/nodes/${s.nodeId}`} className="text-[var(--color-accent)] hover:underline">
                         {s.nodeName ?? `#${s.nodeId}`}
                     </Link>
                 </span>

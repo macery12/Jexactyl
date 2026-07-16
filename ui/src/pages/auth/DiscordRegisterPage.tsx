@@ -61,7 +61,7 @@ export default function DiscordRegisterPage() {
             .catch(() => {
                 if (!active) return;
                 setLoadError(true);
-                setTimeout(() => navigate('/v2/auth/login'), 2000);
+                setTimeout(() => navigate('/auth/login'), 2000);
             });
         return () => {
             active = false;
@@ -215,7 +215,7 @@ export default function DiscordRegisterPage() {
 
             <button
                 type="button"
-                onClick={() => navigate('/v2/auth/login')}
+                onClick={() => navigate('/auth/login')}
                 className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
             >
                 {m['auth.discord.cancelToLogin']()}

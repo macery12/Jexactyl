@@ -133,7 +133,7 @@ export default function FileEditor({ action }: { action: 'edit' | 'new' }) {
             originalRef.current = content;
             setOriginalContent(content);
             push({ type: 'success', message: m['server.files.editor.saved']() });
-            if (isNew) navigate(`/v2/server/${id}/files/edit/${encodePathSegments(targetName)}`);
+            if (isNew) navigate(`/server/${id}/files/edit/${encodePathSegments(targetName)}`);
         } catch (e) {
             push({ type: 'error', message: firstError(e) ?? m['common.states.genericError']() });
         } finally {
@@ -156,7 +156,7 @@ export default function FileEditor({ action }: { action: 'edit' | 'new' }) {
     };
 
     const dirty = content !== originalContent;
-    const backHref = `/v2/server/${id}/files#${encodePathSegments(directory)}`;
+    const backHref = `/server/${id}/files#${encodePathSegments(directory)}`;
 
     if (error) {
         return (

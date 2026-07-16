@@ -19,6 +19,7 @@ import FeatureDisabled from '@/pages/_shared/FeatureDisabled';
 import AccessDenied from '@/pages/_shared/AccessDenied';
 import NotFound from '@/pages/NotFound';
 import { can } from '@/lib/can';
+import { BASE } from '@/lib/base';
 import { RequireAdminPermission } from '@/components/permissions/RequireAdminPermission';
 import { useServer } from '@/components/server/ServerContext';
 
@@ -78,25 +79,28 @@ function childRoutes(defs: RouteDef[], area: Area): RouteObject[] {
     );
 }
 
-// Guests see the landing page at /v2; authenticated users go to their dashboard.
-// When the operator has disabled the landing page entirely, guests are sent
-// straight to sign-in — the landing page is never shown or routed to.
+// Guests see the landing page at the SPA root; authenticated users go to their
+// dashboard. When the operator has disabled the landing page entirely, guests
+// are sent straight to sign-in — the landing page is never shown or routed to.
 function RootEntry() {
     const authenticated = useSession(s => s.isAuthenticated);
     const landing = useFlags(s => s.landing);
-    if (authenticated) return <Navigate to="/v2/account" replace />;
-    if (landing && !landing.enabled) return <Navigate to="/v2/auth/login" replace />;
+    if (authenticated) return <Navigate to="/account" replace />;
+    if (landing && !landing.enabled) return <Navigate to="/auth/login" replace />;
     return <LandingPage />;
 }
 
-const router = createBrowserRouter([
-    { path: '/v2', element: <RootEntry /> },
-    { path: '/v2/auth', element: <AuthLayout />, children: childRoutes(authRoutes, 'open') },
-    { path: '/v2/account', element: <DashboardLayout />, children: childRoutes(accountRoutes, 'open') },
-    { path: '/v2/server/:id', element: <ServerLayout />, children: childRoutes(serverRoutes, 'server') },
-    { path: '/v2/admin', element: <AdminLayout />, children: childRoutes(adminRoutes, 'admin') },
-    { path: '*', element: <NotFound /> },
-]);
+const router = createBrowserRouter(
+    [
+        { path: '/', element: <RootEntry /> },
+        { path: '/auth', element: <AuthLayout />, children: childRoutes(authRoutes, 'open') },
+        { path: '/account', element: <DashboardLayout />, children: childRoutes(accountRoutes, 'open') },
+        { path: '/server/:id', element: <ServerLayout />, children: childRoutes(serverRoutes, 'server') },
+        { path: '/admin', element: <AdminLayout />, children: childRoutes(adminRoutes, 'admin') },
+        { path: '*', element: <NotFound /> },
+    ],
+    { basename: BASE },
+);
 
 export function App() {
     // Re-key the router on a live locale switch so the whole tree re-renders and

@@ -24,7 +24,7 @@ interface Group {
 }
 
 // Absolute paths — relative `to` would compound against the active route.
-const BASE = '/v2/admin/email';
+const BASE = '/admin/email';
 
 const GROUPS: Group[] = [
     {

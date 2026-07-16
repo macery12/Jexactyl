@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useSearchParams } from 'react-router-dom';
@@ -26,7 +27,7 @@ export default function CheckpointPage() {
                 code: values.code,
                 recoveryToken: values.recovery,
             });
-            window.location.href = res.intended || '/v2';
+            window.location.href = res.intended || abs();
         } catch {
             setError(m['auth.checkpoint.codeError']());
         }

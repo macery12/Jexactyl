@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { abs } from '@/lib/base';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
 import { m } from '@/i18n';
 import { Button } from '@/components/ui/Button';
@@ -41,7 +42,7 @@ export default function RenewalStripeForm({
             const { error } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {
-                    return_url: `${window.location.origin}/v2/account/billing/processing?renewal=true&server=${server.id}`,
+                    return_url: window.location.origin + abs(`/account/billing/processing?renewal=true&server=${server.id}`),
                 },
             });
 

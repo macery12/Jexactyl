@@ -159,19 +159,19 @@ interface AttentionItem {
 function buildAttention(data: AdminOverview, billingEnabled: boolean, ticketsEnabled: boolean): AttentionItem[] {
     const items: AttentionItem[] = [];
     if (!data.health.version.isLatest) {
-        items.push({ key: 'update', label: m['admin.overview.attention.update']({ version: data.health.version.latest }), to: '/v2/admin/settings' });
+        items.push({ key: 'update', label: m['admin.overview.attention.update']({ version: data.health.version.latest }), to: '/admin/settings' });
     }
     if (data.fleet.nodes.maintenance > 0) {
-        items.push({ key: 'maint', label: m['admin.overview.attention.maintenance']({ count: data.fleet.nodes.maintenance }), to: '/v2/admin/infrastructure' });
+        items.push({ key: 'maint', label: m['admin.overview.attention.maintenance']({ count: data.fleet.nodes.maintenance }), to: '/admin/infrastructure' });
     }
     if (data.fleet.servers.installFailed > 0) {
-        items.push({ key: 'install', label: m['admin.overview.attention.installFailed']({ count: data.fleet.servers.installFailed }), to: '/v2/admin/infrastructure' });
+        items.push({ key: 'install', label: m['admin.overview.attention.installFailed']({ count: data.fleet.servers.installFailed }), to: '/admin/infrastructure' });
     }
     if (ticketsEnabled && data.queues.tickets.pending > 0) {
-        items.push({ key: 'tickets', label: m['admin.overview.attention.tickets']({ count: data.queues.tickets.pending }), to: '/v2/admin/tickets' });
+        items.push({ key: 'tickets', label: m['admin.overview.attention.tickets']({ count: data.queues.tickets.pending }), to: '/admin/tickets' });
     }
     if (billingEnabled && data.queues.billingExceptions > 0) {
-        items.push({ key: 'billing', label: m['admin.overview.attention.billing']({ count: data.queues.billingExceptions }), to: '/v2/admin/billing' });
+        items.push({ key: 'billing', label: m['admin.overview.attention.billing']({ count: data.queues.billingExceptions }), to: '/admin/billing' });
     }
     return items;
 }
@@ -253,7 +253,7 @@ export default function OverviewPage() {
                             label={m['admin.overview.kpi.servers']()}
                             value={String(data.fleet.servers.total)}
                             sub={m['admin.overview.kpi.serversActive']({ count: data.fleet.servers.active })}
-                            to="/v2/admin/infrastructure?view=servers"
+                            to="/admin/infrastructure?view=servers"
                         />
                         <KpiTile
                             icon={Boxes}
@@ -263,7 +263,7 @@ export default function OverviewPage() {
                                 percent: Math.max(data.fleet.capacity.memoryPercent, data.fleet.capacity.diskPercent),
                             })}
                             tone={data.fleet.nodes.maintenance > 0 ? 'warning' : 'brand'}
-                            to="/v2/admin/infrastructure?view=nodes"
+                            to="/admin/infrastructure?view=nodes"
                         />
                         <KpiTile
                             icon={Users}
@@ -277,7 +277,7 @@ export default function OverviewPage() {
                                     </span>
                                 ) : undefined
                             }
-                            to="/v2/admin/users"
+                            to="/admin/users"
                         />
                         {billingEnabled ? (
                             <KpiTile
@@ -285,7 +285,7 @@ export default function OverviewPage() {
                                 label={m['admin.overview.kpi.mrr']()}
                                 value={formatCurrency(data.kpis.revenue.monthlyRecurring)}
                                 tone="accent"
-                                to="/v2/admin/billing"
+                                to="/admin/billing"
                             />
                         ) : (
                             <KpiTile
@@ -293,7 +293,7 @@ export default function OverviewPage() {
                                 label={m['admin.overview.kpi.openTickets']()}
                                 value={String(data.queues.tickets.pending + data.queues.tickets.inProgress)}
                                 tone={data.queues.tickets.pending > 0 ? 'warning' : 'brand'}
-                                to={ticketsEnabled ? '/v2/admin/tickets' : undefined}
+                                to={ticketsEnabled ? '/admin/tickets' : undefined}
                             />
                         )}
                     </div>
@@ -304,7 +304,7 @@ export default function OverviewPage() {
                         <div className={panelClass()}>
                             <PanelHeader
                                 title={m['admin.overview.section.fleetHealth']()}
-                                to="/v2/admin/infrastructure"
+                                to="/admin/infrastructure"
                                 action={m['admin.overview.link.infrastructure']()}
                             />
                             <div className="mb-4 flex h-2 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
@@ -351,7 +351,7 @@ export default function OverviewPage() {
                                         title={m['admin.overview.queue.tickets']()}
                                         detail={m['admin.overview.queue.ticketsSub']({ count: data.queues.tickets.inProgress })}
                                         tone="warning"
-                                        to="/v2/admin/tickets"
+                                        to="/admin/tickets"
                                     />
                                 )}
                                 {billingEnabled && data.queues.billingExceptions > 0 && (
@@ -361,7 +361,7 @@ export default function OverviewPage() {
                                         title={m['admin.overview.queue.exceptions']()}
                                         detail={m['admin.overview.queue.exceptionsSub']()}
                                         tone="danger"
-                                        to="/v2/admin/billing"
+                                        to="/admin/billing"
                                     />
                                 )}
                                 {data.queues.deferredEmails > 0 && (
@@ -371,7 +371,7 @@ export default function OverviewPage() {
                                         title={m['admin.overview.queue.emails']()}
                                         detail={m['admin.overview.queue.emailsSub']()}
                                         tone="brand"
-                                        to="/v2/admin/email"
+                                        to="/admin/email"
                                     />
                                 )}
                                 {(!ticketsEnabled || data.queues.tickets.pending === 0) &&
@@ -389,7 +389,7 @@ export default function OverviewPage() {
                         <div className={panelClass()}>
                             <PanelHeader
                                 title={m['admin.overview.section.recentActivity']()}
-                                to="/v2/admin/activity"
+                                to="/admin/activity"
                                 action={m['admin.overview.link.viewAll']()}
                             />
                             {data.activity.length === 0 ? (

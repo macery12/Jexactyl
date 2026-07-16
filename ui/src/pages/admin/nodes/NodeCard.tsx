@@ -41,7 +41,7 @@ function CapacityBar({ label, used, total, overallocate }: { label: string; used
 export function NodeCard({ node, serverCount }: { node: NodeListItem; serverCount: number | null }) {
     return (
         <Link
-            to={`/v2/admin/infrastructure/nodes/${node.id}`}
+            to={`/admin/infrastructure/nodes/${node.id}`}
             className="group flex flex-col gap-3 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-4 transition-colors hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-2)]/40"
         >
             <div className="flex items-start justify-between gap-2">

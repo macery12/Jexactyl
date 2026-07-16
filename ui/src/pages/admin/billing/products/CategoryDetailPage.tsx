@@ -101,7 +101,7 @@ export default function CategoryDetailPage() {
         return (
             <div className="flex flex-col gap-4">
                 <p className="text-sm text-[var(--color-danger)]">{m['admin.billing.common.loadError']()}</p>
-                <Link to="/v2/admin/billing/products" className="text-sm text-[var(--brand)]">
+                <Link to="/admin/billing/products" className="text-sm text-[var(--brand)]">
                     {m['admin.billing.products.backToCatalog']()}
                 </Link>
             </div>
@@ -161,7 +161,7 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
             qc.invalidateQueries({ queryKey: ['admin', 'billing', 'categories'] });
             qc.invalidateQueries({ queryKey: ['admin', 'billing', 'category', String(id)] });
             push({ type: 'success', message: editing ? m['admin.billing.categories.updated']() : m['admin.billing.categories.created']() });
-            if (!editing) navigate(`/v2/admin/billing/products/categories/${id}`);
+            if (!editing) navigate(`/admin/billing/products/categories/${id}`);
             else setSeed(form);
         },
         onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
@@ -198,7 +198,7 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
         <form onSubmit={onSubmit} className="flex flex-col gap-5">
             <div className="min-w-0">
                 <Link
-                    to="/v2/admin/billing/products"
+                    to="/admin/billing/products"
                     className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
                 >
                     <ArrowLeft className="h-3.5 w-3.5" /> {m['admin.billing.products.backToCatalog']()}
@@ -397,7 +397,7 @@ function ProductsSection({
                     <Button
                         type="button"
                         size="sm"
-                        onClick={() => navigate(`/v2/admin/billing/products/new?category=${categoryId}`)}
+                        onClick={() => navigate(`/admin/billing/products/new?category=${categoryId}`)}
                     >
                         <Plus className="h-4 w-4" /> {m['admin.billing.products.new']()}
                     </Button>
@@ -420,7 +420,7 @@ function ProductsSection({
                             <button
                                 type="button"
                                 disabled={!canEdit}
-                                onClick={() => navigate(`/v2/admin/billing/products/${p.id}?category=${categoryId}`)}
+                                onClick={() => navigate(`/admin/billing/products/${p.id}?category=${categoryId}`)}
                                 className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
                             >
                                 <span className="min-w-0 flex-1">
@@ -449,7 +449,7 @@ function ProductsSection({
                                         variant="ghost"
                                         size="icon"
                                         aria-label={m['admin.billing.products.edit']()}
-                                        onClick={() => navigate(`/v2/admin/billing/products/${p.id}?category=${categoryId}`)}
+                                        onClick={() => navigate(`/admin/billing/products/${p.id}?category=${categoryId}`)}
                                     >
                                         <Pencil className="h-4 w-4" />
                                     </Button>

@@ -10,7 +10,7 @@ interface Item {
     label: string;
 }
 
-const BASE = '/v2/admin/custom-domains';
+const BASE = '/admin/custom-domains';
 
 const ITEMS: Item[] = [
     { to: BASE, end: true, icon: Globe, label: m['admin.customDomains.nav.domains']() },

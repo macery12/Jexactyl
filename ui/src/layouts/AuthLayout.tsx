@@ -3,7 +3,7 @@ import { Outlet } from 'react-router-dom';
 import { useFlags } from '@/state/flags';
 import { FullPageSpinner } from '@/components/ui/Spinner';
 
-// Centered card, no app chrome — used for the whole /v2/auth/* tree.
+// Centered card, no app chrome — used for the whole /auth/* tree.
 export default function AuthLayout() {
     const site = useFlags(s => s.site);
 

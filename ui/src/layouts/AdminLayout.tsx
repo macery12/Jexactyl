@@ -10,7 +10,7 @@ export default function AdminLayout() {
     const flags = useFlags(s => s.everest);
     const held = useAdminHeld();
     const groups = useMemo(
-        () => buildNav(adminRoutes, { flags, held, basePath: '/v2/admin' }),
+        () => buildNav(adminRoutes, { flags, held, basePath: '/admin' }),
         [flags, held],
     );
 

@@ -1,6 +1,6 @@
 import http from '@/lib/http';
 
-// Admin overview aggregate — one cheap, DB-only snapshot driving the /v2/admin
+// Admin overview aggregate — one cheap, DB-only snapshot driving the /admin
 // dashboard (GET /api/application/overview). Unlike most admin modules this hits a
 // bespoke aggregate route rather than a Fractal collection, so the payload is a
 // plain object and maps straight through. Supersedes the legacy /overview/metrics

@@ -56,7 +56,7 @@ export function ServerHeader() {
         onSuccess: async () => {
             push({ type: 'success', message: m['admin.infrastructure.server.deleted']() });
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
-            navigate('/v2/admin/infrastructure');
+            navigate('/admin/infrastructure');
         },
         onError: () => push({ type: 'error', message: m['common.states.genericError']() }),
     });
@@ -65,7 +65,7 @@ export function ServerHeader() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
                 <Link
-                    to="/v2/admin/infrastructure"
+                    to="/admin/infrastructure"
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border-strong)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)]"
                     title={m['admin.infrastructure.title']()}
                 >

@@ -29,7 +29,7 @@ export default function Placeholder({ title }: { title?: string }) {
                 <ArrowLeft className="h-4 w-4" /> {m['common.actions.back']()}
             </Button>
 
-            <Link to="/v2" className="mt-3 text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <Link to="/" className="mt-3 text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['common.nav.returnToDashboard']()}
             </Link>
         </div>

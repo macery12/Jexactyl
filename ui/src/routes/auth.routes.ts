@@ -9,7 +9,7 @@ const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage'));
 const DiscordLinkChoicePage = lazy(() => import('@/pages/auth/DiscordLinkChoicePage'));
 const DiscordRegisterPage = lazy(() => import('@/pages/auth/DiscordRegisterPage'));
 
-// Auth area (/v2/auth/*). Seeded from V1_UI_Map §3.1.
+// Auth area (/auth/*). Seeded from V1_UI_Map §3.1.
 export const authRoutes: RouteDef[] = [
     route('login', { name: 'Login', element: LoginPage, end: true }),
     route('login/checkpoint', { name: '2FA Checkpoint', element: CheckpointPage }),

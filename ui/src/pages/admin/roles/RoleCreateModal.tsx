@@ -38,7 +38,7 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
             push({ type: 'success', message: m['admin.roles.created']() });
             await qc.invalidateQueries({ queryKey: ['admin', 'roles'] });
             onClose();
-            navigate(`/v2/admin/roles/${role.id}`);
+            navigate(`/admin/roles/${role.id}`);
         },
         onError: err => setError(firstError(err) ?? m['common.states.genericError']()),
     });

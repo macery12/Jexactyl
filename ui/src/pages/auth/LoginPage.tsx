@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useCallback, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -46,10 +47,10 @@ export default function LoginPage() {
         try {
             const res = await login({ user: values.user, password: values.password, captchaToken: token });
             if (!res.complete && res.confirmationToken) {
-                navigate(`/v2/auth/login/checkpoint?token=${encodeURIComponent(res.confirmationToken)}`);
+                navigate(`/auth/login/checkpoint?token=${encodeURIComponent(res.confirmationToken)}`);
                 return;
             }
-            window.location.href = res.intended || '/v2';
+            window.location.href = res.intended || abs();
         } catch (err: unknown) {
             const message =
                 (typeof err === 'object' && err && 'response' in err
@@ -93,13 +94,13 @@ export default function LoginPage() {
                 {isSubmitting ? m['auth.login.submitting']() : m['auth.login.submit']()}
             </Button>
 
-            <a href="/v2/auth/password" className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/password')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['auth.login.forgot']()}
             </a>
 
             {registrationEnabled && (
                 <a
-                    href="/v2/auth/register"
+                    href={abs('/auth/register')}
                     className="text-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
                 >
                     {m['auth.login.createAccount']()}

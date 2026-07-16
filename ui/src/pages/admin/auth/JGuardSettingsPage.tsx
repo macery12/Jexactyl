@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { abs } from '@/lib/base';
 import { ShieldHalf, Info } from 'lucide-react';
 import { m } from '@/i18n';
 import { Input, Field } from '@/components/ui/Input';
@@ -46,7 +47,7 @@ export default function JGuardSettingsPage() {
                     setDisabling(true);
                     try {
                         await toggleAuthModule('disable', 'jguard');
-                        window.location.assign('/v2/admin/auth');
+                        window.location.assign(abs('/admin/auth'));
                     } catch {
                         setDisabling(false);
                         setConfirmDisable(false);

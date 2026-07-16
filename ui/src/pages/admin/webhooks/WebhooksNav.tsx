@@ -11,7 +11,7 @@ interface Item {
 }
 
 // Absolute paths — relative `to` would compound against the active route.
-const BASE = '/v2/admin/webhooks';
+const BASE = '/admin/webhooks';
 
 const ITEMS: Item[] = [
     { to: BASE, end: true, icon: Cog, label: m['admin.webhooks.nav.configuration']() },

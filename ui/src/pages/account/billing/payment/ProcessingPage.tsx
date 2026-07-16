@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Spinner } from '@/components/ui/Spinner';
@@ -41,16 +42,16 @@ export default function ProcessingPage() {
         // suspension).
         const finish = () => {
             if (renewal && renewedServer) {
-                window.location.href = `/v2/server/${renewedServer}/billing`;
+                window.location.href = abs(`/server/${renewedServer}/billing`);
             } else {
-                navigate('/v2/account/billing/success');
+                navigate('/account/billing/success');
             }
         };
 
         if (stripeIntent) {
             processPaidOrder(stripeIntent, renewal)
                 .then(finish)
-                .catch(() => navigate('/v2/account/billing/cancel'));
+                .catch(() => navigate('/account/billing/cancel'));
             return;
         }
 
@@ -68,7 +69,7 @@ export default function ProcessingPage() {
                             }
                             const status = await checkPayPalOrderStatus(order_id);
                             if (status.processed) finish();
-                            else if (status.failed) navigate('/v2/account/billing/cancel');
+                            else if (status.failed) navigate('/account/billing/cancel');
                             else setTimeout(poll, 2000);
                         };
                         return poll();
@@ -76,7 +77,7 @@ export default function ProcessingPage() {
                 )
                 .catch(() => {
                     push({ type: 'error', message: m['billing.processing.paypalVerifyError']() });
-                    navigate('/v2/account/billing/cancel');
+                    navigate('/account/billing/cancel');
                 });
             return;
         }

@@ -16,7 +16,7 @@ const ProcessingPage = lazy(() => import('@/pages/account/billing/payment/Proces
 const SuccessPage = lazy(() => import('@/pages/account/billing/payment/SuccessPage'));
 const CancelPage = lazy(() => import('@/pages/account/billing/payment/CancelPage'));
 
-// Account / Dashboard area (/v2/*). Seeded from V1_UI_Map §3.2.
+// Account / Dashboard area (area root). Seeded from V1_UI_Map §3.2.
 // Root ('') is the server-list dashboard — the authenticated landing target.
 export const accountRoutes: RouteDef[] = [
     route('', { name: 'Dashboard', icon: LayoutDashboard, element: DashboardPage, end: true }),

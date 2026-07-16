@@ -49,7 +49,7 @@ function ExtensionCard({ extension, serverId }: { extension: ServerExtension; se
 
     return (
         <Link
-            to={`/v2/server/${serverId}/extensions/${extension.route}`}
+            to={`/server/${serverId}/extensions/${extension.route}`}
             className="group flex flex-col rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-4 transition-colors hover:border-[var(--brand)]/50 hover:bg-[var(--color-surface-2)]"
         >
             <div className="flex items-center gap-3">

@@ -75,7 +75,7 @@ export default function NestsWorkspace() {
                         filtered.map(nest => (
                             <button
                                 key={nest.id}
-                                onClick={() => navigate(`/v2/admin/nests/${nest.id}`)}
+                                onClick={() => navigate(`/admin/nests/${nest.id}`)}
                                 className={cn(
                                     'flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors',
                                     nest.id === selectedId
@@ -109,7 +109,7 @@ export default function NestsWorkspace() {
             </div>
 
             {showNew && (
-                <NewNestModal onClose={() => setShowNew(false)} onCreated={nest => navigate(`/v2/admin/nests/${nest.id}`)} />
+                <NewNestModal onClose={() => setShowNew(false)} onCreated={nest => navigate(`/admin/nests/${nest.id}`)} />
             )}
         </div>
     );
@@ -163,7 +163,7 @@ function NestDetailPane({ nest }: { nest: AdminNest }) {
             await deleteNest(nest.id);
             queryClient.invalidateQueries({ queryKey: ['admin', 'nests'] });
             push({ type: 'success', message: m['admin.nests.nest.deleted']() });
-            navigate('/v2/admin/nests');
+            navigate('/admin/nests');
         } catch (err) {
             push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
             setDeleting(false);
@@ -231,7 +231,7 @@ function NestDetailPane({ nest }: { nest: AdminNest }) {
                     <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
                         <Upload className="h-4 w-4" /> {m['admin.nests.eggs.import']()}
                     </Button>
-                    <Button size="sm" onClick={() => navigate(`/v2/admin/nests/${nest.id}/eggs/new`)}>
+                    <Button size="sm" onClick={() => navigate(`/admin/nests/${nest.id}/eggs/new`)}>
                         <Plus className="h-4 w-4" /> {m['admin.nests.eggs.new']()}
                     </Button>
                 </header>
@@ -258,7 +258,7 @@ function NestDetailPane({ nest }: { nest: AdminNest }) {
                                 {filteredEggs.map((egg: AdminEggListItem) => (
                                     <tr
                                         key={egg.id}
-                                        onClick={() => navigate(`/v2/admin/nests/${nest.id}/eggs/${egg.id}`)}
+                                        onClick={() => navigate(`/admin/nests/${nest.id}/eggs/${egg.id}`)}
                                         className="cursor-pointer border-b border-[var(--color-border)] transition-colors last:border-b-0 hover:bg-[var(--color-surface-2)]/40"
                                     >
                                         <td className="px-5 py-3">

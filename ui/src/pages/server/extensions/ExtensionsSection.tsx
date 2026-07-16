@@ -32,7 +32,7 @@ export default function ExtensionsSection() {
                 />
             ))}
             {/* An extension that was uninstalled or disabled leaves stale links behind. */}
-            <Route path="*" element={<Navigate to={`/v2/server/${server.id}/extensions`} replace />} />
+            <Route path="*" element={<Navigate to={`/server/${server.id}/extensions`} replace />} />
         </Routes>
     );
 }

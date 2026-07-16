@@ -74,11 +74,11 @@ export default function RolesListPage() {
                             key={role.id}
                             role="button"
                             tabIndex={0}
-                            onClick={() => navigate(`/v2/admin/roles/${role.id}`)}
+                            onClick={() => navigate(`/admin/roles/${role.id}`)}
                             onKeyDown={e => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
-                                    navigate(`/v2/admin/roles/${role.id}`);
+                                    navigate(`/admin/roles/${role.id}`);
                                 }
                             }}
                             className="group flex cursor-pointer flex-col gap-3 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-4 transition-colors hover:border-[var(--brand)]/50 hover:bg-[var(--color-surface-2)]/40 focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/50"

@@ -101,7 +101,7 @@ export default function TicketsPage() {
                         {visible.map(t => (
                             <li key={t.id}>
                                 <Link
-                                    to={`/v2/account/tickets/${t.id}`}
+                                    to={`/account/tickets/${t.id}`}
                                     className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--color-surface-2)]/50"
                                 >
                                     <div className="min-w-0 flex-1">

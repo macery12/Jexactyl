@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { abs } from '@/lib/base';
 import type { LucideIcon } from 'lucide-react';
 import { DoorOpen, ShieldHalf, MessageCircle, Globe, Sparkles, Plus } from 'lucide-react';
 import { m, td } from '@/i18n';
@@ -73,7 +74,7 @@ export function AddModuleModal({
         try {
             await toggleAuthModule('enable', name);
             // Re-read the everest bootstrap so the newly enabled card renders.
-            window.location.assign('/v2/admin/auth');
+            window.location.assign(abs('/admin/auth'));
         } catch (err) {
             setBusy(null);
             push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });

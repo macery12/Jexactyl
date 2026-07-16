@@ -122,7 +122,7 @@ export default function AdminTicketDetailPage() {
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['admin', 'tickets'] });
             push({ type: 'success', message: m['tickets.deleted']() });
-            navigate('/v2/admin/tickets');
+            navigate('/admin/tickets');
         },
         onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
@@ -280,7 +280,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 function BackLink() {
     return (
         <Link
-            to="/v2/admin/tickets"
+            to="/admin/tickets"
             className="inline-flex w-fit items-center gap-1.5 text-sm text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]"
         >
             <ArrowLeft className="h-4 w-4" />

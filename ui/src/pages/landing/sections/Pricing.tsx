@@ -98,7 +98,7 @@ export default function Pricing({ data, tone }: Props) {
                                             </li>
                                         </ul>
                                         <Link
-                                            to="/v2/auth/login"
+                                            to="/auth/login"
                                             className="mt-6 inline-flex h-10 items-center justify-center rounded-xl bg-[var(--brand)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
                                         >
                                             {m['landing.pricing.cta']()}

@@ -66,7 +66,7 @@ function isSupported(value: string | null | undefined): value is Locale {
 }
 
 // Resolve the active locale. The panel is driven entirely by the GLOBAL default
-// admins set on /v2/admin/settings (window.SiteConfiguration.locale, backed by
+// admins set on /admin/settings (window.SiteConfiguration.locale, backed by
 // the app:locale setting). Precedence:
 //   1. the global panel default,
 //   2. the per-account field (window.PterodactylUser.language) — legacy fallback,

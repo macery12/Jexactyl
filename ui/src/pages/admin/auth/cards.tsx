@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { abs } from '@/lib/base';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Lock, ShieldCheck, DoorOpen, ShieldHalf, MessageCircle, Globe, Info } from 'lucide-react';
 import { m } from '@/i18n';
@@ -16,7 +17,7 @@ type Auth = EverestConfiguration['auth'];
 // After enabling/disabling a module the everest bootstrap must be re-read, so we
 // hard-navigate back to the section (same approach V1 used).
 function reloadSection() {
-    window.location.assign('/v2/admin/auth');
+    window.location.assign(abs('/admin/auth'));
 }
 
 // Shared destructive-remove control for the optional (SSO / onboarding) modules.
@@ -143,7 +144,7 @@ export function SecurityCard({ auth }: { auth: Auth }) {
                 danger={false}
                 onConfirm={() => {
                     setBlocked(false);
-                    navigate('/v2/account/settings');
+                    navigate('/account/settings');
                 }}
             />
             <label className="flex cursor-pointer items-start gap-3">
@@ -261,7 +262,7 @@ export function JGuardCard() {
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
                 <p className="text-xs text-[var(--color-ink-muted)]">{m['admin.auth.jguardCard.body']()}</p>
             </div>
-            <Link to="/v2/admin/auth/jguard" className="mt-auto">
+            <Link to="/admin/auth/jguard" className="mt-auto">
                 <Button variant="outline" size="sm" className="w-full">
                     {m['admin.auth.jguardCard.configure']()}
                 </Button>

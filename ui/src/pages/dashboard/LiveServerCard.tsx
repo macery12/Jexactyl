@@ -81,7 +81,7 @@ export function LiveServerCard({
 
     return (
         <Link
-            to={`/v2/server/${server.id}`}
+            to={`/server/${server.id}`}
             className="group flex flex-col gap-4 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-5 transition-colors hover:border-[var(--brand)]/50"
         >
             <div className="flex items-start justify-between gap-3">

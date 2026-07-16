@@ -74,7 +74,7 @@ export default function ProductsPage() {
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.billing.products.subtitle']()}</p>
                 </div>
                 {canCreateCat && (
-                    <Button size="sm" onClick={() => navigate('/v2/admin/billing/products/categories/new')}>
+                    <Button size="sm" onClick={() => navigate('/admin/billing/products/categories/new')}>
                         <Plus className="h-4 w-4" /> {m['admin.billing.categories.new']()}
                     </Button>
                 )}
@@ -93,7 +93,7 @@ export default function ProductsPage() {
                         >
                             <button
                                 type="button"
-                                onClick={() => navigate(`/v2/admin/billing/products/categories/${cat.id}`)}
+                                onClick={() => navigate(`/admin/billing/products/categories/${cat.id}`)}
                                 className="flex min-w-0 flex-1 items-center gap-4 px-4 py-3 text-left"
                             >
                                 <span className="min-w-0 flex-1">
@@ -139,7 +139,7 @@ export default function ProductsPage() {
                                         variant="ghost"
                                         size="icon"
                                         aria-label={m['admin.billing.categories.edit']()}
-                                        onClick={() => navigate(`/v2/admin/billing/products/categories/${cat.id}`)}
+                                        onClick={() => navigate(`/admin/billing/products/categories/${cat.id}`)}
                                     >
                                         <Pencil className="h-4 w-4" />
                                     </Button>

@@ -10,7 +10,7 @@ interface Item {
     labelKey: string;
 }
 
-const BASE = '/v2/admin/marketplace';
+const BASE = '/admin/marketplace';
 
 const ITEMS: Item[] = [
     { to: BASE, end: true, icon: LayoutDashboard, labelKey: 'admin.marketplace.nav.overview' },

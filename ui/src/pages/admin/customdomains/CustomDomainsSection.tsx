@@ -6,7 +6,7 @@ import DomainsPage from './pages/DomainsPage';
 import ApiKeysPage from './pages/ApiKeysPage';
 import SettingsPage from './pages/SettingsPage';
 
-// Admin custom-domains module, mounted at `/v2/admin/custom-domains/*`. Unlike
+// Admin custom-domains module, mounted at `/admin/custom-domains/*`. Unlike
 // the webhooks module we do NOT hard-gate on the enabled flag — the operator
 // needs to configure the Cloudflare token, API keys and domains here *before*
 // flipping the module on, so the enable toggle lives in the Settings sub-page.

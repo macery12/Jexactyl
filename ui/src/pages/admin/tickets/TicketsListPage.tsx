@@ -165,7 +165,7 @@ export default function TicketsListPage() {
                             {items.map(t => (
                                 <tr
                                     key={t.id}
-                                    onClick={() => navigate(`/v2/admin/tickets/${t.id}`)}
+                                    onClick={() => navigate(`/admin/tickets/${t.id}`)}
                                     className="cursor-pointer border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-surface-2)]/50"
                                 >
                                     <td className="px-4 py-3">

@@ -238,7 +238,7 @@ export default function EggEditorPage() {
             queryClient.invalidateQueries({ queryKey: ['admin', 'nests'] });
             queryClient.invalidateQueries({ queryKey: ['admin', 'nest-eggs', Number(nestId)] });
             push({ type: 'success', message: m['admin.nests.egg.created']() });
-            navigate(`/v2/admin/nests/${nestId}/eggs/${created.id}`);
+            navigate(`/admin/nests/${nestId}/eggs/${created.id}`);
         } catch (err) {
             push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
         } finally {
@@ -254,7 +254,7 @@ export default function EggEditorPage() {
             queryClient.invalidateQueries({ queryKey: ['admin', 'nests'] });
             queryClient.invalidateQueries({ queryKey: ['admin', 'nest-eggs', Number(nestId)] });
             push({ type: 'success', message: m['admin.nests.egg.deleted']() });
-            navigate(`/v2/admin/nests/${nestId}`);
+            navigate(`/admin/nests/${nestId}`);
         } catch (err) {
             push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
             setDeleting(false);
@@ -288,7 +288,7 @@ export default function EggEditorPage() {
             {/* Header */}
             <div>
                 <button
-                    onClick={() => navigate(`/v2/admin/nests/${nestId}`)}
+                    onClick={() => navigate(`/admin/nests/${nestId}`)}
                     className="mb-3 inline-flex items-center gap-1.5 text-sm text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]"
                 >
                     <ArrowLeft className="h-4 w-4" /> {m['admin.nests.egg.back']()}

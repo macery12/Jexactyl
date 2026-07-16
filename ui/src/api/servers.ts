@@ -3,7 +3,7 @@ import http from '@/lib/http';
 // Lean view-model for the dashboard list. Mirrors a subset of V1's Server
 // transformer (api/definitions/server/transformers.ts) — only what we render.
 export interface ServerListItem {
-    id: string; // identifier — used in the /v2/server/:id route
+    id: string; // identifier — used in the /server/:id route
     uuid: string;
     name: string;
     description: string | null;

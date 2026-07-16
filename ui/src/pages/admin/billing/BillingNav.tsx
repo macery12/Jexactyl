@@ -29,7 +29,7 @@ interface Group {
 
 // Absolute paths — relative `to` would compound against the active route
 // (e.g. clicking "Products" while on /billing/products → /billing/products/products).
-const BASE = '/v2/admin/billing';
+const BASE = '/admin/billing';
 
 const GROUPS: Group[] = [
     {

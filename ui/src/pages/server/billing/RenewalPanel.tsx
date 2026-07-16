@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { abs } from '@/lib/base';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { Elements } from '@stripe/react-stripe-js';
@@ -84,7 +85,7 @@ export function RenewalPanel({
             <Panel title={m['server.billing.renewal']()} icon={CreditCard}>
                 <div className="space-y-3">
                     <Notice tone="warning">{m['server.billing.deletionBlocksRenewal']()}</Notice>
-                    <Link to={`/v2/server/${server.id}/settings`}>
+                    <Link to={`/server/${server.id}/settings`}>
                         <Button variant="outline" size="sm">
                             {m['server.billing.manageDeletion']()}
                         </Button>
@@ -340,8 +341,8 @@ function PayPalRenewalButton({ productId, couponId }: { productId: number; coupo
                 productId,
                 serverId: server.internalId,
                 couponId,
-                returnUrl: `${window.location.origin}/v2/account/billing/processing?renewal=true&server=${server.id}&processor=paypal`,
-                cancelUrl: `${window.location.origin}/v2/account/billing/cancel`,
+                returnUrl: window.location.origin + abs(`/account/billing/processing?renewal=true&server=${server.id}&processor=paypal`),
+                cancelUrl: window.location.origin + abs('/account/billing/cancel'),
             });
             window.location.href = `/api/client/billing/paypal/orders/${order.id}/redirect`;
         } catch {

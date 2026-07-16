@@ -13,7 +13,7 @@ export default function CancelPage() {
                 <h2 className="mt-5 text-xl font-semibold text-[var(--color-ink)]">{m['billing.cancel.title']()}</h2>
                 <p className="mt-2 text-sm text-[var(--color-ink-muted)]">{m['billing.cancel.body']()}</p>
                 <div className="mt-6">
-                    <Link to="/v2/account/billing/order">
+                    <Link to="/account/billing/order">
                         <Button>{m['billing.cancel.back']()}</Button>
                     </Link>
                 </div>

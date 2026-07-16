@@ -3,7 +3,7 @@ import { Puzzle, ShieldHalf, UserCheck, type LucideIcon } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 
-const BASE = '/v2/admin/auth';
+const BASE = '/admin/auth';
 
 interface Item {
     to: string;

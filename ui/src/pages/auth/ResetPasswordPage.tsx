@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useCallback, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { resetPasswordWithToken } from '@/api/auth';
@@ -55,7 +56,7 @@ export default function ResetPasswordPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">{m['auth.reset.doneTitle']()}</h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.reset.doneBody']()}</p>
                 </div>
-                <Button size="lg" onClick={() => (window.location.href = '/v2/auth/login')}>
+                <Button size="lg" onClick={() => (window.location.href = abs('/auth/login'))}>
                     {m['auth.reset.toLogin']()}
                 </Button>
             </div>
@@ -105,7 +106,7 @@ export default function ResetPasswordPage() {
                 {submitting ? m['common.states.saving']() : m['auth.reset.submit']()}
             </Button>
 
-            <a href="/v2/auth/login" className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['auth.backToLogin']()}
             </a>
         </form>

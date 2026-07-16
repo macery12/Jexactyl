@@ -10,7 +10,7 @@ export default function NotFound() {
                 {m['common.notFound.body']()}
             </p>
             <Link
-                to="/v2"
+                to="/"
                 className="mt-8 inline-flex h-11 items-center rounded-xl bg-[var(--brand)] px-6 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
             >
                 {m['common.notFound.back']()}

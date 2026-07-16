@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -17,7 +18,7 @@ export interface PayPalButtonProps {
 
 // PayPal redirect flow (no SDK): create + populate the order, then bounce
 // through the backend redirect endpoint to PayPal's approval page. PayPal
-// returns the user to /v2/account/billing/processing?processor=paypal.
+// returns the user to the billing processing page?processor=paypal.
 export default function PayPalButton(props: PayPalButtonProps) {
     const push = useFlashes(s => s.push);
     const [loading, setLoading] = useState(false);
@@ -26,8 +27,8 @@ export default function PayPalButton(props: PayPalButtonProps) {
         if (!props.nodeId) return;
         setLoading(true);
         try {
-            const returnUrl = window.location.origin + '/v2/account/billing/processing?processor=paypal';
-            const cancelUrl = window.location.origin + '/v2/account/billing/cancel';
+            const returnUrl = window.location.origin + abs('/account/billing/processing?processor=paypal');
+            const cancelUrl = window.location.origin + abs('/account/billing/cancel');
             const order = await createPayPalOrder(props.productId, props.couponId, props.billingDays, returnUrl, cancelUrl);
             await updatePayPalOrder({
                 productId: props.productId,

@@ -175,7 +175,7 @@ export default function ProductEditorPage() {
                 }
                 qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
                 push({ type: 'success', message: m['admin.billing.products.created']() });
-                navigate(`/v2/admin/billing/products/${created.id}?category=${categoryId}`);
+                navigate(`/admin/billing/products/${created.id}?category=${categoryId}`);
             }
         } catch (err) {
             push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
@@ -184,13 +184,13 @@ export default function ProductEditorPage() {
         }
     });
 
-    const backTo = categoryId != null ? `/v2/admin/billing/products/categories/${categoryId}` : '/v2/admin/billing/products';
+    const backTo = categoryId != null ? `/admin/billing/products/categories/${categoryId}` : '/admin/billing/products';
 
     if (categoryId == null) {
         return (
             <div className="flex flex-col gap-4">
                 <p className="text-sm text-[var(--color-danger)]">{m['admin.billing.products.noCategory']()}</p>
-                <Link to="/v2/admin/billing/products" className="text-sm text-[var(--brand)]">
+                <Link to="/admin/billing/products" className="text-sm text-[var(--brand)]">
                     {m['admin.billing.products.backToCatalog']()}
                 </Link>
             </div>

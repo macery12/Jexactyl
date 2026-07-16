@@ -7,7 +7,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     const location = useLocation();
 
     if (!isAuthenticated) {
-        return <Navigate to="/v2/auth/login" replace state={{ from: location.pathname }} />;
+        return <Navigate to="/auth/login" replace state={{ from: location.pathname }} />;
     }
     return <>{children}</>;
 }

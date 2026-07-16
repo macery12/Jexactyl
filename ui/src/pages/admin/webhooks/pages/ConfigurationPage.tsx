@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { abs } from '@/lib/base';
 import { useState } from 'react';
 import { Link2, CheckCircle2, AlertTriangle, Send, PowerOff } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
@@ -24,7 +25,7 @@ const SAMPLE_PAYLOAD = JSON.stringify(
 
 // After a module toggle the bootstrap must be re-read, so we hard-navigate.
 function reloadSection() {
-    window.location.assign('/v2/admin/webhooks');
+    window.location.assign(abs('/admin/webhooks'));
 }
 
 export default function ConfigurationPage() {
