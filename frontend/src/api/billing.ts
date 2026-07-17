@@ -43,10 +43,28 @@ export interface StatusSlice {
     count: number;
 }
 
+export interface ProcessorSlice {
+    processor: string;
+    count: number;
+}
+
+export interface TopProduct {
+    id: number;
+    name: string;
+    subscriptions: number;
+    /** This product's monthly recurring revenue contribution (actual billed amounts). */
+    mrr: number;
+}
+
 export interface BillingAnalytics {
     productCount: number;
     categoryCount: number;
     forecast: { next7Days: number; next30Days: number };
+    /** Servers currently attached to a paid plan — the population behind the MRR figure. */
+    activeSubscriptions: number;
+    topProducts: TopProduct[];
+    /** Billing exceptions raised in the last 7 days (mirrors the /admin overview queue). */
+    exceptions7d: number;
     upcomingRenewals: {
         overdue: RenewalWindow;
         in7Days: RenewalWindow;
@@ -61,12 +79,18 @@ export interface BillingAnalytics {
     // Derived chart series.
     monthlyRevenue: MonthPoint[];
     statusBreakdown: StatusSlice[];
+    /** Processed orders by payment processor — which rail the money actually arrived on. */
+    processorBreakdown: ProcessorSlice[];
 }
 
 // Bucket the last-year order list into the trailing 12 calendar months and a
 // status tally, so the overview can render trend + composition charts without
 // any extra endpoint.
-function buildSeries(orders: any[]): { monthlyRevenue: MonthPoint[]; statusBreakdown: StatusSlice[] } {
+function buildSeries(orders: any[]): {
+    monthlyRevenue: MonthPoint[];
+    statusBreakdown: StatusSlice[];
+    processorBreakdown: ProcessorSlice[];
+} {
     const months: MonthPoint[] = [];
     const index = new Map<string, MonthPoint>();
     const now = new Date();
@@ -80,6 +104,7 @@ function buildSeries(orders: any[]): { monthlyRevenue: MonthPoint[]; statusBreak
     }
 
     const status = new Map<string, number>();
+    const processors = new Map<string, number>();
     for (const o of orders) {
         const d = new Date(o.created_at);
         if (Number.isNaN(d.getTime())) continue;
@@ -91,13 +116,21 @@ function buildSeries(orders: any[]): { monthlyRevenue: MonthPoint[]; statusBreak
         }
         const s = o.status ?? 'unknown';
         status.set(s, (status.get(s) ?? 0) + 1);
+        // Processor split counts money that actually arrived, so processed orders only.
+        if (o.status === 'processed') {
+            const p = o.payment_processor ?? 'manual';
+            processors.set(p, (processors.get(p) ?? 0) + 1);
+        }
     }
 
     const statusBreakdown = [...status.entries()]
         .map(([s, count]) => ({ status: s, count }))
         .sort((a, b) => b.count - a.count);
+    const processorBreakdown = [...processors.entries()]
+        .map(([processor, count]) => ({ processor, count }))
+        .sort((a, b) => b.count - a.count);
 
-    return { monthlyRevenue: months, statusBreakdown };
+    return { monthlyRevenue: months, statusBreakdown, processorBreakdown };
 }
 
 function toWindow(w: any): RenewalWindow {
@@ -112,7 +145,7 @@ export async function getBillingAnalytics(): Promise<BillingAnalytics> {
 
     const orders: any[] = data.orders ?? [];
     const ordersTotal = orders.reduce((sum, o) => sum + Number(o.total ?? 0), 0);
-    const { monthlyRevenue, statusBreakdown } = buildSeries(orders);
+    const { monthlyRevenue, statusBreakdown, processorBreakdown } = buildSeries(orders);
 
     return {
         productCount: (data.products ?? []).length,
@@ -121,6 +154,14 @@ export async function getBillingAnalytics(): Promise<BillingAnalytics> {
             next7Days: Number(data.forecast?.next7Days ?? 0),
             next30Days: Number(data.forecast?.next30Days ?? 0),
         },
+        activeSubscriptions: Number(data.activeSubscriptions ?? 0),
+        topProducts: (data.topProducts ?? []).map((p: any) => ({
+            id: Number(p.id),
+            name: String(p.name ?? ''),
+            subscriptions: Number(p.subscriptions ?? 0),
+            mrr: Number(p.mrr ?? 0),
+        })),
+        exceptions7d: Number(data.exceptions7d ?? 0),
         upcomingRenewals: {
             overdue: toWindow(data.upcomingRenewals?.overdue),
             in7Days: toWindow(data.upcomingRenewals?.in7Days),
@@ -149,5 +190,6 @@ export async function getBillingAnalytics(): Promise<BillingAnalytics> {
         orderCount: orders.length,
         monthlyRevenue,
         statusBreakdown,
+        processorBreakdown,
     };
 }

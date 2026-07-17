@@ -91,7 +91,7 @@ export function EventCategorySection({ category, events, onToggleEvent, onToggle
                             aria-label={eventLabel(event.key)}
                             onClick={() => onToggleEvent(event.id, !event.enabled)}
                             className={cn(
-                                'flex items-start justify-between gap-3 rounded-xl border p-3.5 text-left transition-colors',
+                                'flex items-start justify-between gap-3 rounded-lg border p-3.5 text-left transition-colors',
                                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/60',
                                 event.enabled
                                     ? 'border-[var(--brand)]/40 bg-[var(--brand-soft)] hover:border-[var(--brand)]/60'

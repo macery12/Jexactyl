@@ -71,7 +71,7 @@ export function FieldRow({
 // each option labelled + described. Reads far cleaner than scattered switches.
 export function ToggleGroup({ children }: { children: React.ReactNode }) {
     return (
-        <div className="divide-y divide-[var(--color-border)] overflow-hidden rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40">
+        <div className="divide-y divide-[var(--color-border)] overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40">
             {children}
         </div>
     );

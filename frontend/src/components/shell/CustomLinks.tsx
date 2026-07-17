@@ -30,7 +30,7 @@ export function CustomLinks() {
                     href={link.url}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
+                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                 >
                     <ExternalLink className="h-[18px] w-[18px] shrink-0" />
                     <span className="truncate">{link.name}</span>

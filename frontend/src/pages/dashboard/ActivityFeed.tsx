@@ -72,7 +72,7 @@ export function ActivityFeed() {
                     {m['dashboard.activityViewAll']()} <ArrowRight className="h-3 w-3" />
                 </Link>
             </div>
-            <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-2">
+            <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2">
                 {isLoading && <p className="px-3 py-4 text-sm text-[var(--color-ink-faint)]">{m['common.states.loading']()}</p>}
                 {!isLoading && (!entries || entries.length === 0) && (
                     <p className="px-3 py-4 text-sm text-[var(--color-ink-faint)]">{m['dashboard.noActivity']()}</p>

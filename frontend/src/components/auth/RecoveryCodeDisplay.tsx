@@ -31,12 +31,12 @@ export function RecoveryCodeDisplay({ code }: { code: string }) {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-start gap-2 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
                 <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                 <span>{m['account.recoveryCode.warning']()}</span>
             </div>
 
-            <div className="break-all rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 text-center font-mono text-sm tracking-wide text-[var(--color-ink)]">
+            <div className="break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 text-center font-mono text-sm tracking-wide text-[var(--color-ink)]">
                 {code}
             </div>
 

@@ -33,7 +33,7 @@ export const ChatComposer = forwardRef<
     const canSend = value.trim().length > 0 && !loading && !disabled;
 
     return (
-        <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2 shadow-lg shadow-black/5 focus-within:border-[var(--brand)]/50">
+        <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2 shadow-lg shadow-black/5 focus-within:border-[var(--brand)]/50">
             <div className="flex items-end gap-2">
                 <textarea
                     ref={node => {

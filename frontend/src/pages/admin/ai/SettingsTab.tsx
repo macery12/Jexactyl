@@ -99,7 +99,7 @@ function ToggleRow({
     onChange: (next: boolean) => void;
 }) {
     return (
-        <div className="flex items-start justify-between gap-4 rounded-xl border border-[var(--color-border-strong)] p-3.5">
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-[var(--color-border-strong)] p-3.5">
             <div className="min-w-0">
                 <p className="text-sm font-medium text-[var(--color-ink)]">{title}</p>
                 <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">{description}</p>
@@ -259,7 +259,7 @@ export function SettingsTab() {
                         />
                     </Field>
                     {isOllama ? (
-                        <div className="flex items-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 px-3 py-2.5">
+                        <div className="flex items-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 px-3 py-2.5">
                             <p className="text-xs text-[var(--color-ink-faint)]">{m['admin.ai.settings.noKeyNeeded']()}</p>
                         </div>
                     ) : (

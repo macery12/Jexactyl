@@ -197,7 +197,7 @@ export default function ScheduleDetailPage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
     return (
-        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
             <p className="text-xs text-[var(--color-ink-faint)]">{label}</p>
             <p className="mt-0.5 truncate text-sm font-medium text-[var(--color-ink)]">{value}</p>
         </div>

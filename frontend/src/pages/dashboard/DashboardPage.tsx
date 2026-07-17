@@ -56,7 +56,7 @@ export default function DashboardPage() {
                 {billingEnabled && (
                     <Link
                         to="/billing/order"
-                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                        className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
                     >
                         <Plus className="h-4 w-4" /> {m['dashboard.newServer']()}
                     </Link>
@@ -70,7 +70,7 @@ export default function DashboardPage() {
             )}
 
             {isError && (
-                <div className="rounded-2xl border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-5 py-4 text-sm text-[var(--color-danger)]">
+                <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-5 py-4 text-sm text-[var(--color-danger)]">
                     {error instanceof Error ? m['dashboard.loadErrorDetail']({ message: error.message }) : m['dashboard.loadError']()}.
                 </div>
             )}
@@ -88,10 +88,8 @@ export default function DashboardPage() {
                         <div className="flex flex-col gap-4 xl:col-span-2">
                             <h2 className="text-sm font-semibold text-[var(--color-ink-muted)]">{m['dashboard.yourServers']()}</h2>
                             {servers.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
-                                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-surface-2)]">
-                                        <Server className="h-6 w-6 text-[var(--color-ink-muted)]" />
-                                    </div>
+                                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
+                                    <Server className="mb-4 h-7 w-7 text-[var(--color-ink-faint)]" />
                                     <h3 className="text-lg font-medium">{m['dashboard.empty.title']()}</h3>
                                     <p className="mt-1 max-w-sm text-sm text-[var(--color-ink-muted)]">
                                         {m['dashboard.empty.body']()}
@@ -99,7 +97,7 @@ export default function DashboardPage() {
                                     {billingEnabled && (
                                         <Link
                                             to="/billing/order"
-                                            className="mt-5 inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                                            className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
                                         >
                                             <Plus className="h-4 w-4" /> {m['dashboard.newServer']()}
                                         </Link>

@@ -195,7 +195,7 @@ export default function AiPage() {
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {messages.length === 0 ? (
                         <div className="flex h-full flex-col items-center justify-center gap-5 px-6 text-center">
-                            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--brand-soft)]">
+                            <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--brand-soft)]">
                                 <Bot className="h-7 w-7 text-[var(--brand)]" />
                             </div>
                             <div>

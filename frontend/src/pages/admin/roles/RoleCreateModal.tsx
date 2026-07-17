@@ -79,7 +79,7 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
                             type="color"
                             value={color}
                             onChange={e => setColor(e.target.value)}
-                            className="h-11 w-14 shrink-0 cursor-pointer rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-1"
+                            className="h-11 w-14 shrink-0 cursor-pointer rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-1"
                             aria-label={m['admin.roles.form.color']()}
                         />
                         <Input value={color} onChange={e => setColor(e.target.value)} maxLength={9} className="font-mono" />

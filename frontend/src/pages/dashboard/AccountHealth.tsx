@@ -24,7 +24,7 @@ function Row({
     return (
         <Link
             to={to}
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[var(--color-surface-2)]"
+            className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--color-surface-2)]"
         >
             <Icon className={cn('h-4 w-4 shrink-0', ok ? 'text-[var(--color-accent)]' : 'text-[var(--color-warning)]')} />
             <span className="flex-1 text-sm text-[var(--color-ink)]">{ok ? okLabel : badLabel}</span>
@@ -43,7 +43,7 @@ export function AccountHealth() {
             <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-ink-muted)]">
                 <ShieldCheck className="h-4 w-4" /> {m['dashboard.accountHealth']()}
             </h2>
-            <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-2">
+            <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-2">
                 <Row
                     ok={user.use_totp}
                     okIcon={ShieldCheck}

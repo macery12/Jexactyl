@@ -32,7 +32,7 @@ export default function EnableWebhooks() {
 
     return (
         <div className="mx-auto flex max-w-2xl flex-col items-center gap-6 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-8 py-14 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--brand-soft)]">
+            <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-[var(--brand-soft)]">
                 <Webhook className="h-8 w-8 text-[var(--brand)]" />
             </div>
             <div className="flex flex-col gap-2">

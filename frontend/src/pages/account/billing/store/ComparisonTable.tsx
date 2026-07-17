@@ -26,7 +26,7 @@ export function ComparisonTable({ products }: { products: StoreProduct[] }) {
     const planCol = 'min-w-[8.5rem] px-4 py-3 text-left align-middle';
 
     return (
-        <div className="overflow-x-auto rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60">
+        <div className="overflow-x-auto rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60">
             <table className="w-full border-collapse text-sm">
                 <thead>
                     <tr className="border-b border-[var(--color-border)]">

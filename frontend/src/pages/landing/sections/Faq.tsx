@@ -21,7 +21,7 @@ export default function Faq({ data, tone }: Props) {
                 {items.map((item, i) => (
                     <details
                         key={i}
-                        className="group rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-5 py-4 backdrop-blur"
+                        className="group rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-5 py-4"
                     >
                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-medium">
                             {item.q}

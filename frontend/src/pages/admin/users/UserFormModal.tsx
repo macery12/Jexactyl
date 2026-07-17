@@ -140,7 +140,7 @@ export default function UserFormModal({
                         <Field label={m['admin.users.form.role']()} hint={m['admin.users.form.roleHint']()}>
                             <Select value={roleId} onChange={setRoleId} options={roleOptions} disabled={rootAdmin} />
                         </Field>
-                        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/50 p-3">
+                        <label className="flex items-start gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/50 p-3">
                             <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-medium text-[var(--color-ink)]">
                                     {m['admin.users.form.rootAdmin']()}

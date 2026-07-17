@@ -52,7 +52,7 @@ export default function AiSection() {
     return (
         <div className="space-y-4">
             <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand)]/12 text-[var(--brand)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/12 text-[var(--brand)]">
                     <Bot className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -65,7 +65,7 @@ export default function AiSection() {
                 <button
                     type="button"
                     onClick={() => setTab('settings')}
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-left transition-colors hover:bg-[var(--color-warning)]/15"
+                    className="flex w-full items-center gap-3 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-left transition-colors hover:bg-[var(--color-warning)]/15"
                 >
                     <TriangleAlert className="h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                     <span className="text-sm text-[var(--color-ink)]">{m['admin.ai.needsConfiguration']()}</span>

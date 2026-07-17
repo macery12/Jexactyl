@@ -36,7 +36,7 @@ export function AuthNav() {
                     end={item.end}
                     className={({ isActive }) =>
                         cn(
-                            'flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+                            'flex shrink-0 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                             isActive
                                 ? 'bg-[var(--brand-soft)] text-[var(--color-ink)]'
                                 : 'text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]',

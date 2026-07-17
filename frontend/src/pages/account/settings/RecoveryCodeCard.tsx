@@ -122,7 +122,7 @@ function RevealModal({ onClose, onGenerated }: { onClose: () => void; onGenerate
                 </>
             }
         >
-            <div className="flex items-start gap-2 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
+            <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
                 <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                 <span>{m['account.recoveryCode.replaceWarning']()}</span>
             </div>

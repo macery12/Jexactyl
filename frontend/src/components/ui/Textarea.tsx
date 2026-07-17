@@ -12,7 +12,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
             ref={ref}
             className={cn(
-                'w-full rounded-xl border bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]',
+                'w-full rounded-lg border bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]',
                 'transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60 resize-y',
                 invalid ? 'border-[var(--color-danger)]' : 'border-[var(--color-border-strong)]',
                 className,

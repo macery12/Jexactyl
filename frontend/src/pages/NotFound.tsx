@@ -11,7 +11,7 @@ export default function NotFound() {
             </p>
             <Link
                 to="/"
-                className="mt-8 inline-flex h-11 items-center rounded-xl bg-[var(--brand)] px-6 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                className="mt-8 inline-flex h-11 items-center rounded-lg bg-[var(--brand)] px-6 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
             >
                 {m['common.notFound.back']()}
             </Link>

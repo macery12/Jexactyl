@@ -565,7 +565,7 @@ function AdvancedTab({ form, patch }: { form: EggForm; patch: (p: Partial<EggFor
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-4 py-3">
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-4 py-3">
                     <span className="text-sm text-[var(--color-ink)]">{m['admin.nests.egg.advanced.forceOutgoingIp']()}</span>
                     <Switch
                         checked={form.forceOutgoingIp}
@@ -573,7 +573,7 @@ function AdvancedTab({ form, patch }: { form: EggForm; patch: (p: Partial<EggFor
                         label={m['admin.nests.egg.advanced.forceOutgoingIp']()}
                     />
                 </label>
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-4 py-3">
+                <label className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-4 py-3">
                     <span className="text-sm text-[var(--color-ink)]">{m['admin.nests.egg.advanced.privileged']()}</span>
                     <Switch
                         checked={form.scriptIsPrivileged}

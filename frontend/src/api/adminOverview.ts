@@ -9,8 +9,30 @@ import http from '@/lib/http';
 
 export interface OverviewVersion {
     current: string;
-    latest: string;
+    /** Latest published release tag, or null when no release exists / the feed is unreachable. */
+    latest: string | null;
+    /** Quietly true when there is nothing comparable to check against. */
     isLatest: boolean;
+}
+
+export interface OverviewNodeResource {
+    /** Allocated across servers, in MiB. */
+    used: number;
+    /** Physical node capacity, in MiB. */
+    total: number;
+    /** used / total, in percent. Can exceed 100 (and limitPercent) under overallocation. */
+    percent: number;
+    /** Configured overallocation ceiling vs physical capacity (150 = 50% over); null = unlimited. */
+    limitPercent: number | null;
+}
+
+export interface OverviewNode {
+    id: number;
+    name: string;
+    maintenance: boolean;
+    servers: number;
+    memory: OverviewNodeResource;
+    disk: OverviewNodeResource;
 }
 
 export interface OverviewFleet {
@@ -23,6 +45,7 @@ export interface OverviewFleet {
     nodes: {
         total: number;
         maintenance: number;
+        list: OverviewNode[];
     };
     capacity: {
         memoryUsed: number;

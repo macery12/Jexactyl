@@ -103,7 +103,7 @@ function GroupCard({
     const someSelected = fullIds.some(id => selected.has(id));
 
     return (
-        <div className="flex flex-col rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
+        <div className="flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
             <div className="flex items-center justify-between gap-2 border-b border-[var(--color-border)] px-4 py-2.5">
                 <span className="text-sm font-semibold text-[var(--color-ink)]">{humanize(groupKey)}</span>
                 <button
@@ -292,7 +292,7 @@ export default function RoleDetailPage() {
                                 value={color}
                                 onChange={e => setColor(e.target.value)}
                                 disabled={readOnly}
-                                className="h-11 w-14 shrink-0 cursor-pointer rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-1 disabled:opacity-50"
+                                className="h-11 w-14 shrink-0 cursor-pointer rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-1 disabled:opacity-50"
                                 aria-label={m['admin.roles.form.color']()}
                             />
                             <Input value={color} onChange={e => setColor(e.target.value)} maxLength={9} disabled={readOnly} className="font-mono" />

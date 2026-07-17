@@ -10,7 +10,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
             ref={ref}
             className={cn(
-                'h-11 w-full rounded-xl border bg-[var(--color-surface-2)] px-4 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]',
+                'h-11 w-full rounded-lg border bg-[var(--color-surface-2)] px-4 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]',
                 'transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60',
                 invalid ? 'border-[var(--color-danger)]' : 'border-[var(--color-border-strong)]',
                 className,

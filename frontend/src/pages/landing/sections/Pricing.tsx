@@ -47,12 +47,12 @@ export default function Pricing({ data, tone }: Props) {
 
     return (
         <Band tone={tone}>
-            <h2 className="mb-8 text-center text-3xl font-bold tracking-tight">{heading}</h2>
+            <h2 className="mb-8 text-2xl font-semibold tracking-tight">{heading}</h2>
 
             {categories === null ? (
                 <div className="grid gap-4 sm:grid-cols-3">
                     {[0, 1, 2].map(i => (
-                        <div key={i} className="h-64 animate-pulse rounded-2xl bg-[var(--color-surface-2)]" />
+                        <div key={i} className="h-64 animate-pulse rounded-lg bg-[var(--color-surface-2)]" />
                     ))}
                 </div>
             ) : (
@@ -65,19 +65,19 @@ export default function Pricing({ data, tone }: Props) {
                                 {category.products.map(product => (
                                     <div
                                         key={product.id}
-                                        className="flex flex-col rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-6 backdrop-blur"
+                                        className="flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-6"
                                     >
                                         <div className="text-base font-semibold">{product.name}</div>
                                         {product.description && (
                                             <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{product.description}</p>
                                         )}
                                         <div className="mt-4 flex items-baseline gap-2">
-                                            <span className="text-2xl font-bold text-[var(--brand)]">
+                                            <span className="font-mono text-2xl font-semibold tabular-nums text-[var(--brand-bright)]">
                                                 {symbol}
                                                 {product.price}
                                             </span>
                                             {product.base_price != null && product.base_price > product.price && (
-                                                <span className="text-sm text-[var(--color-ink-muted)] line-through">
+                                                <span className="font-mono text-sm tabular-nums text-[var(--color-ink-muted)] line-through">
                                                     {symbol}
                                                     {product.base_price}
                                                 </span>
@@ -85,21 +85,21 @@ export default function Pricing({ data, tone }: Props) {
                                         </div>
                                         <ul className="mt-4 space-y-1.5 text-sm text-[var(--color-ink-muted)]">
                                             <li className="flex items-center gap-2">
-                                                <Cpu className="h-4 w-4 text-[var(--brand)]" /> {product.limits.cpu}%{' '}
+                                                <Cpu className="h-4 w-4 text-[var(--brand-bright)]" /> {product.limits.cpu}%{' '}
                                                 {m['landing.pricing.cpu']()}
                                             </li>
                                             <li className="flex items-center gap-2">
-                                                <MemoryStick className="h-4 w-4 text-[var(--brand)]" />{' '}
+                                                <MemoryStick className="h-4 w-4 text-[var(--brand-bright)]" />{' '}
                                                 {formatSize(product.limits.memory)} {m['landing.pricing.ram']()}
                                             </li>
                                             <li className="flex items-center gap-2">
-                                                <HardDrive className="h-4 w-4 text-[var(--brand)]" />{' '}
+                                                <HardDrive className="h-4 w-4 text-[var(--brand-bright)]" />{' '}
                                                 {formatSize(product.limits.disk)} {m['landing.pricing.disk']()}
                                             </li>
                                         </ul>
                                         <Link
                                             to="/auth/login"
-                                            className="mt-6 inline-flex h-10 items-center justify-center rounded-xl bg-[var(--brand)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                                            className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-[var(--brand)] px-5 text-sm font-semibold text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
                                         >
                                             {m['landing.pricing.cta']()}
                                         </Link>

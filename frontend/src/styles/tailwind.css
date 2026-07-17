@@ -8,7 +8,7 @@
  * brand & base colors only need a single source value each.
  */
 @theme {
-    --font-sans: 'Inter', 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
     --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
     --color-canvas: #0a0a0f;
@@ -29,7 +29,7 @@
     --color-danger: #f1545b;
     --color-warning: #f5a623;
 
-    --radius-card: 1rem;
+    --radius-card: 0.75rem;
 }
 
 :root {
@@ -40,6 +40,9 @@
     --brand: var(--color-brand);
     --brand-hover: color-mix(in oklab, var(--brand) 88%, #000);
     --brand-soft: color-mix(in oklab, var(--brand) 16%, transparent);
+    /* Lifted tint for small brand-colored text/glyphs on dark surfaces, where
+       the raw brand value can sit too dark to read. */
+    --brand-bright: color-mix(in oklab, var(--brand) 68%, #fff);
 
     /* Surface aliases consumed by the shell + body. */
     --canvas: var(--color-canvas);

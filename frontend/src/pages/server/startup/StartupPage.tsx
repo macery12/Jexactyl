@@ -132,7 +132,7 @@ function CommandBlock({ invocation }: { invocation: string }) {
                 {copied ? <Check className="h-3 w-3 text-[var(--brand)]" /> : <Copy className="h-3 w-3" />}
                 {copied ? m['common.states.copied']() : m['server.startup.copyCommand']()}
             </button>
-            <pre className="overflow-x-auto rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-4 pr-24 font-mono text-xs leading-relaxed text-[var(--color-ink)]">
+            <pre className="overflow-x-auto rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-4 pr-24 font-mono text-xs leading-relaxed text-[var(--color-ink)]">
                 {invocation}
             </pre>
         </div>

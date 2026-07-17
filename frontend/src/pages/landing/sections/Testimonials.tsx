@@ -15,12 +15,12 @@ export default function Testimonials({ data, tone }: Props) {
 
     return (
         <Band tone={tone}>
-            <h2 className="mb-8 text-center text-3xl font-bold tracking-tight">{heading}</h2>
+            <h2 className="mb-8 text-2xl font-semibold tracking-tight">{heading}</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {items.map((item, i) => (
                     <figure
                         key={i}
-                        className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-6 backdrop-blur"
+                        className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-6"
                     >
                         <blockquote className="text-sm text-[var(--color-ink)]">“{item.quote}”</blockquote>
                         <figcaption className="mt-4 text-sm">

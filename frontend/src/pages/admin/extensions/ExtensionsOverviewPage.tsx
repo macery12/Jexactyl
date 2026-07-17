@@ -162,7 +162,7 @@ export default function ExtensionsOverviewPage() {
                     type="button"
                     disabled={refresh.isPending}
                     onClick={() => refresh.mutate()}
-                    className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] px-4 text-sm font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-50"
+                    className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg border border-[var(--color-border-strong)] px-4 text-sm font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-50"
                 >
                     <RefreshCw className={cn('h-4 w-4', refresh.isPending && 'animate-spin')} />
                     {refresh.isPending ? m['extensions.refreshing']() : m['extensions.refresh']()}
@@ -214,7 +214,7 @@ export default function ExtensionsOverviewPage() {
 
                     {/* toolbar: segmented filter + search */}
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="inline-flex items-center gap-0.5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-1">
+                        <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-1">
                             {segments.map(seg => (
                                 <button
                                     key={seg.id}
@@ -282,7 +282,7 @@ function EmptyState({ search, hasAny }: { search: string; hasAny: boolean }) {
     const body = q ? m['extensions.empty.searchBody']({ query: q }) : hasAny ? m['extensions.empty.filterBody']() : m['extensions.empty.body']();
     return (
         <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-surface-2)]">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--color-surface-2)]">
                 <Puzzle className="h-6 w-6 text-[var(--color-ink-muted)]" />
             </div>
             <h3 className="text-lg font-medium">{title}</h3>

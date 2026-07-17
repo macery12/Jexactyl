@@ -27,9 +27,9 @@ function Section({ icon: Icon, step, title, subtitle, children }: {
     children: ReactNode;
 }) {
     return (
-        <section className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+        <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
             <div className="mb-4 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand)]/12 text-[var(--brand)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/12 text-[var(--brand)]">
                     <Icon className="h-5 w-5" />
                 </div>
                 <div>
@@ -76,7 +76,7 @@ export default function ConfigureCheckout() {
         return (
             <div className="space-y-4">
                 <BackLink />
-                <div className="flex items-center gap-2 rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
+                <div className="flex items-center gap-2 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
                     <AlertTriangle className="h-4 w-4" /> {m['billing.configure.loadError']()}
                 </div>
             </div>
@@ -244,7 +244,7 @@ export default function ConfigureCheckout() {
                         {serverNameTouched && nameMissing && (
                             <p className="mt-1 text-xs text-[var(--color-danger)]">{m['billing.configure.nameRequired']()}</p>
                         )}
-                        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-border-strong)] p-3">
+                        <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border-strong)] p-3">
                             <Switch checked={checkout.legalAgreed} onChange={checkout.setLegalAgreed} />
                             <span className="text-sm text-[var(--color-ink-muted)]">
                                 {formatTags(m['billing.configure.legal'](), {
@@ -292,7 +292,7 @@ function BackLink() {
 
 function Empty({ children }: { children: ReactNode }) {
     return (
-        <div className="flex items-center gap-2 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]">
             <AlertTriangle className="h-4 w-4 shrink-0" /> {children}
         </div>
     );

@@ -31,7 +31,7 @@ export function FlashHost() {
                     <div
                         key={flash.id}
                         className={cn(
-                            'flex items-start gap-3 rounded-xl border bg-[var(--color-surface)] px-4 py-3 text-sm shadow-xl',
+                            'flex items-start gap-3 rounded-lg border bg-[var(--color-surface)] px-4 py-3 text-sm shadow-xl',
                             tones[flash.type],
                         )}
                     >

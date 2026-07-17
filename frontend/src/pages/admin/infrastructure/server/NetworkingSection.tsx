@@ -87,7 +87,7 @@ export function NetworkingSection({ draft, onChange, readOnly }: { draft: Alloca
             </div>
 
             {rows.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-[var(--color-border-strong)] px-4 py-6 text-center text-sm text-[var(--color-ink-muted)]">
+                <p className="rounded-lg border border-dashed border-[var(--color-border-strong)] px-4 py-6 text-center text-sm text-[var(--color-ink-muted)]">
                     {m['admin.infrastructure.serverDetail.net.none']()}
                 </p>
             ) : (
@@ -98,7 +98,7 @@ export function NetworkingSection({ draft, onChange, readOnly }: { draft: Alloca
                             <li
                                 key={row.id}
                                 className={cn(
-                                    'flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5',
+                                    'flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5',
                                     primary ? 'border-[var(--color-accent)]/50 bg-[var(--color-accent)]/5' : 'border-[var(--color-border)] bg-[var(--color-surface-2)]/40',
                                 )}
                             >

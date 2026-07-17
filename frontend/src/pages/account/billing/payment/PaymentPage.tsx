@@ -174,7 +174,7 @@ export default function PaymentPage() {
 
             <div className="grid gap-6 lg:grid-cols-12">
                 <div className="space-y-6 lg:col-span-8">
-                    <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+                    <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-muted)]">
                             {m['billing.payment.orderSummary']()}
                         </p>
@@ -191,7 +191,7 @@ export default function PaymentPage() {
                         </div>
                     </div>
 
-                    <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+                    <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
                         <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-muted)]">
                             {m['billing.payment.method']()}
                         </p>
@@ -210,7 +210,7 @@ export default function PaymentPage() {
                         ) : (
                             <div className="space-y-4">
                                 {availableMethods.length > 1 && (
-                                    <div className="inline-flex rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-1">
+                                    <div className="inline-flex rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-1">
                                         {availableMethods.map(m => (
                                             <button
                                                 key={m}
@@ -270,7 +270,7 @@ export default function PaymentPage() {
 
                 {/* Totals */}
                 <div className="lg:col-span-4">
-                    <div className="sticky top-24 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/80 p-5">
+                    <div className="sticky top-24 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/80 p-5">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-muted)]">
                             {m['billing.payment.total']()}
                         </p>
@@ -339,7 +339,7 @@ function Notice({ tone, children }: { tone: 'success' | 'warning' | 'danger'; ch
               : 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 text-[var(--color-danger)]';
     const Icon = tone === 'success' ? CheckCircle2 : AlertTriangle;
     return (
-        <div className={cn('flex items-center gap-2 rounded-xl border px-4 py-3 text-sm', toneClass)}>
+        <div className={cn('flex items-center gap-2 rounded-lg border px-4 py-3 text-sm', toneClass)}>
             <Icon className="h-4 w-4 shrink-0" /> {children}
         </div>
     );

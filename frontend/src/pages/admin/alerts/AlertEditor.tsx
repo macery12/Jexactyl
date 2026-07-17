@@ -156,7 +156,7 @@ function UserPicker({
                     className="pl-9"
                 />
                 {(results.length > 0 || searching) && (
-                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30">
+                    <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30">
                         {searching && results.length === 0 ? (
                             <div className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-ink-muted)]">
                                 <Spinner className="h-4 w-4" />

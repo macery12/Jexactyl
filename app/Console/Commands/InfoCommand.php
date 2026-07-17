@@ -28,7 +28,7 @@ class InfoCommand extends Command
         $this->output->title('Version Information');
         $this->table([], [
             ['Panel Version', $this->softwareVersionService->getCurrentVersion()],
-            ['Latest Version', $this->softwareVersionService->getLatestPanel()],
+            ['Latest Version', $this->softwareVersionService->getLatestPanel() ?? 'no published release'],
             ['Up-to-Date', $this->softwareVersionService->isLatestPanel() ? 'Yes' : $this->formatText('No', 'bg=red')],
             ['Unique Identifier', $this->config->get('everest.service.author')],
         ], 'compact');

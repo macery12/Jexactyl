@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/Button';
 export default function CancelPage() {
     return (
         <div className="flex min-h-[60vh] items-center justify-center">
-            <div className="w-full max-w-md rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-10 text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-danger)]/15">
+            <div className="w-full max-w-md rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-10 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--color-danger)]/15">
                     <XCircle className="h-7 w-7 text-[var(--color-danger)]" />
                 </div>
                 <h2 className="mt-5 text-xl font-semibold text-[var(--color-ink)]">{m['billing.cancel.title']()}</h2>

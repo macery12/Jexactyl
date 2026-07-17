@@ -294,7 +294,7 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
                                             }
                                         }}
                                         className={cn(
-                                            'flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/60',
+                                            'flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/60',
                                             allowed
                                                 ? 'border-[var(--brand)]/40 bg-[var(--brand)]/5 hover:bg-[var(--brand)]/10'
                                                 : 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)] hover:bg-[var(--color-surface-2)]/70',
@@ -415,7 +415,7 @@ function ProductsSection({
                     {products.map(p => (
                         <li
                             key={p.id}
-                            className="flex items-center gap-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2.5"
+                            className="flex items-center gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2.5"
                         >
                             <button
                                 type="button"

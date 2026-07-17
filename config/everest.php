@@ -83,16 +83,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | CDN
+    | Releases
     |--------------------------------------------------------------------------
     |
-    | Information for the panel to use when contacting the CDN to confirm
-    | if panel is up to date.
+    | GitHub "latest release" endpoint used for the update check. When the
+    | repository has no published releases (or the feed is unreachable) the
+    | panel quietly reports itself as up to date.
     */
 
-    'cdn' => [
+    'releases' => [
         'cache_time' => 60,
-        'url' => 'https://cdn.pterodactyl.io/releases/latest.json',
+        'url' => env('RELEASES_URL', 'https://api.github.com/repos/macery12/m12labs/releases/latest'),
     ],
 
     /*

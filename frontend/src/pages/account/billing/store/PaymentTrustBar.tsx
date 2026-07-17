@@ -6,7 +6,7 @@ export function PaymentTrustBar() {
     const methods = ['Stripe', 'PayPal'];
 
     return (
-        <section className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+        <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
             <div className="grid gap-5 sm:grid-cols-3">
                 <div className="flex items-start gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-surface-2)] text-[var(--color-accent)]">

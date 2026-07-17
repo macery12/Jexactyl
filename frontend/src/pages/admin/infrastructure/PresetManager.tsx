@@ -55,7 +55,7 @@ export function PresetManager() {
     });
 
     return (
-        <div className="rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4">
+        <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4">
             <div className="mb-3 flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-[var(--color-ink)]">{m['admin.infrastructure.presets.title']()}</h4>
                 {editing === null && (

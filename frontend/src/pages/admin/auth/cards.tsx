@@ -54,7 +54,7 @@ function HelpText({ children }: { children: React.ReactNode }) {
 
 function CallbackHint({ url }: { url: string }) {
     return (
-        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 px-4 py-3">
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 px-4 py-3">
             <p className="text-xs text-[var(--color-ink-muted)]">{m['admin.auth.sso.callback']()}</p>
             <code className="mt-1.5 block break-all rounded-lg bg-[var(--color-canvas)]/60 px-2.5 py-1.5 font-mono text-xs text-[var(--color-ink)]">
                 {url}
@@ -245,7 +245,7 @@ export function OnboardingCard({ auth }: { auth: Auth }) {
                 <HelpText>{m['admin.auth.onboarding.contentHelp']()}</HelpText>
             </Field>
             {auth.security.force2fa && (
-                <div className="flex items-start gap-2.5 rounded-xl border border-[var(--brand)]/25 bg-[var(--brand)]/8 px-4 py-3">
+                <div className="flex items-start gap-2.5 rounded-lg border border-[var(--brand)]/25 bg-[var(--brand)]/8 px-4 py-3">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
                     <p className="text-xs text-[var(--color-ink-muted)]">{m['admin.auth.onboarding.force2faNote']()}</p>
                 </div>
@@ -258,7 +258,7 @@ export function OnboardingCard({ auth }: { auth: Auth }) {
 export function JGuardCard() {
     return (
         <ModuleCard icon={ShieldHalf} title={m['admin.auth.jguardCard.title']()}>
-            <div className="flex items-start gap-2.5 rounded-xl border border-[var(--brand)]/25 bg-[var(--brand)]/8 px-4 py-3">
+            <div className="flex items-start gap-2.5 rounded-lg border border-[var(--brand)]/25 bg-[var(--brand)]/8 px-4 py-3">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
                 <p className="text-xs text-[var(--color-ink-muted)]">{m['admin.auth.jguardCard.body']()}</p>
             </div>

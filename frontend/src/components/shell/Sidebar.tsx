@@ -38,7 +38,7 @@ export function Sidebar({
                             onClick={onNavigate}
                             className={({ isActive }) =>
                                 cn(
-                                    'flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+                                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                                     isActive
                                         ? 'bg-[var(--brand)]/15 text-[var(--color-ink)] ring-1 ring-[var(--brand)]/30'
                                         : 'text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]',

@@ -80,9 +80,9 @@ export function ModuleCard({
     children: ReactNode;
 }) {
     return (
-        <section className="flex flex-col rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+        <section className="flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
             <div className="mb-5 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand)]/12 text-[var(--brand)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/12 text-[var(--brand)]">
                     <Icon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">

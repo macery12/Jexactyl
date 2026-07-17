@@ -597,7 +597,7 @@ function RowMenu({
                 <Dropdown.Content
                     align="end"
                     sideOffset={4}
-                    className="z-[60] min-w-[9rem] rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
+                    className="z-[60] min-w-[9rem] rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
                 >
                     {file.isFile && isEditable(file) && canUpdate && (
                         <MenuItem icon={Pencil} label={m['common.actions.edit']()} onSelect={onEdit} />

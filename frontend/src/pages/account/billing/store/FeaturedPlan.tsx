@@ -10,7 +10,7 @@ import { SpecChips } from '../order/parts';
 export function FeaturedPlan({ product }: { product: StoreProduct }) {
     const { money } = useBilling();
     return (
-        <section className="overflow-hidden rounded-2xl border border-[var(--brand)]/40 bg-[var(--brand)]/[0.07]">
+        <section className="overflow-hidden rounded-lg border border-[var(--brand)]/40 bg-[var(--brand)]/[0.07]">
             <div className="flex flex-col gap-5 p-6 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand)]/15 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-[var(--brand)]">
@@ -32,7 +32,7 @@ export function FeaturedPlan({ product }: { product: StoreProduct }) {
                         <p className="text-xs text-[var(--color-ink-faint)]">{m['billing.store.perMonth']()}</p>
                     )}
                     <Link to={`/checkout/configure/${product.id}`} className="mt-4 inline-block">
-                        <span className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]">
+                        <span className="inline-flex h-11 items-center gap-2 rounded-lg bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]">
                             {m['billing.store.featured.cta']()} <ArrowRight className="h-4 w-4" />
                         </span>
                     </Link>

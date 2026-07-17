@@ -17,7 +17,7 @@ export function TestResultBanner({ result }: { result: EmailResponse }) {
     const when = result.tested_at ?? result.sent_at;
 
     return (
-        <div className={cn('mt-3 rounded-xl border p-3 text-sm', wash[tone])}>
+        <div className={cn('mt-3 rounded-lg border p-3 text-sm', wash[tone])}>
             <div className="flex items-center justify-between gap-2">
                 <span className="font-semibold">
                     {td(`admin.${labelKey}`)}

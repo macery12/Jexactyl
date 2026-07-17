@@ -80,11 +80,11 @@ export function TwoFactorSetupModal({
                     </Button>
                 }
             >
-                <div className="flex items-start gap-2 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
+                <div className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                     <span>{m['account.twoFactor.recoveryWarning']()}</span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 font-mono text-sm text-[var(--color-ink)]">
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-4 font-mono text-sm text-[var(--color-ink)]">
                     {tokens.map(t => (
                         <span key={t} className="text-center">{t}</span>
                     ))}
@@ -115,7 +115,7 @@ export function TwoFactorSetupModal({
                 </>
             }
         >
-            <div className="mx-auto flex h-52 w-52 items-center justify-center rounded-xl bg-white p-3">
+            <div className="mx-auto flex h-52 w-52 items-center justify-center rounded-lg bg-white p-3">
                 {isLoading || !setup ? (
                     <Spinner className="h-6 w-6 text-[var(--color-ink-faint)]" />
                 ) : (

@@ -111,7 +111,7 @@ export default function ConfigurationPage() {
                         </LabeledField>
 
                         {configured && (
-                            <div className="mt-3 flex items-start gap-2 rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2.5">
+                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2.5">
                                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-accent)]" />
                                 <div className="min-w-0">
                                     <p className="text-sm font-medium text-[var(--color-accent)]">
@@ -184,7 +184,7 @@ export default function ConfigurationPage() {
                     <Link2 className="h-3.5 w-3.5" />
                     POST
                 </div>
-                <pre className="mt-3 overflow-x-auto rounded-xl bg-[var(--color-canvas)] p-4 text-xs leading-relaxed text-[var(--color-ink-muted)]">
+                <pre className="mt-3 overflow-x-auto rounded-lg bg-[var(--color-canvas)] p-4 text-xs leading-relaxed text-[var(--color-ink-muted)]">
                     {SAMPLE_PAYLOAD}
                 </pre>
             </SettingsCard>

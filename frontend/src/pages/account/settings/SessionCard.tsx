@@ -44,7 +44,7 @@ export function SessionCard({
     };
 
     return (
-        <div className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-4 py-3">
+        <div className="flex items-start gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-4 py-3">
             <DeviceIcon className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-ink-faint)]" />
 
             <div className="min-w-0 flex-1">

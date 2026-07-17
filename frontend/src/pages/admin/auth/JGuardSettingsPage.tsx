@@ -109,7 +109,7 @@ export default function JGuardSettingsPage() {
                 </div>
             </ModuleCard>
 
-            <div className="flex items-start gap-2.5 rounded-xl border border-[var(--brand)]/25 bg-[var(--brand)]/8 px-4 py-3">
+            <div className="flex items-start gap-2.5 rounded-lg border border-[var(--brand)]/25 bg-[var(--brand)]/8 px-4 py-3">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
                 <p className="text-xs text-[var(--color-ink-muted)]">
                     {mode === 'manual'

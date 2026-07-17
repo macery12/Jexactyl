@@ -78,15 +78,37 @@ class OverviewController extends ApplicationApiController
         $memoryUsed = (int) $servers->memory_used;
         $diskUsed = (int) $servers->disk_used;
 
-        $nodes = Node::query()
-            ->selectRaw('COUNT(*) as total')
-            ->selectRaw('COALESCE(SUM(maintenance_mode = 1), 0) as maintenance')
-            ->selectRaw('COALESCE(SUM(memory), 0) as memory_total')
-            ->selectRaw('COALESCE(SUM(disk), 0) as disk_total')
-            ->first();
+        // Per-node allocation, so the dashboard can show each node's posture
+        // instead of a single cluster-wide number.
+        $usageByNode = Server::query()
+            ->selectRaw('node_id')
+            ->selectRaw('COUNT(*) as servers')
+            ->selectRaw('COALESCE(SUM(memory), 0) as memory_used')
+            ->selectRaw('COALESCE(SUM(disk), 0) as disk_used')
+            ->groupBy('node_id')
+            ->get()
+            ->keyBy('node_id');
 
-        $memoryTotal = (int) $nodes->memory_total;
-        $diskTotal = (int) $nodes->disk_total;
+        $nodeList = Node::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'maintenance_mode', 'memory', 'memory_overallocate', 'disk', 'disk_overallocate'])
+            ->map(function (Node $node) use ($usageByNode) {
+                $usage = $usageByNode->get($node->id);
+
+                return [
+                    'id' => $node->id,
+                    'name' => $node->name,
+                    'maintenance' => (bool) $node->maintenance_mode,
+                    'servers' => (int) ($usage->servers ?? 0),
+                    'memory' => $this->nodeResource((int) ($usage->memory_used ?? 0), $node->memory, $node->memory_overallocate),
+                    'disk' => $this->nodeResource((int) ($usage->disk_used ?? 0), $node->disk, $node->disk_overallocate),
+                ];
+            })
+            ->all();
+
+        $memoryTotal = array_sum(array_column(array_column($nodeList, 'memory'), 'total'));
+        $diskTotal = array_sum(array_column(array_column($nodeList, 'disk'), 'total'));
+        $maintenance = count(array_filter($nodeList, fn (array $node) => $node['maintenance']));
 
         return [
             'servers' => [
@@ -96,8 +118,9 @@ class OverviewController extends ApplicationApiController
                 'installFailed' => $installFailed,
             ],
             'nodes' => [
-                'total' => (int) $nodes->total,
-                'maintenance' => (int) $nodes->maintenance,
+                'total' => count($nodeList),
+                'maintenance' => $maintenance,
+                'list' => $nodeList,
             ],
             'capacity' => [
                 'memoryUsed' => $memoryUsed,
@@ -107,6 +130,21 @@ class OverviewController extends ApplicationApiController
                 'diskTotal' => $diskTotal,
                 'diskPercent' => $diskTotal > 0 ? (int) round($diskUsed / $diskTotal * 100) : 0,
             ],
+        ];
+    }
+
+    /**
+     * Allocation posture for one node resource. `limitPercent` is the configured
+     * overallocation ceiling expressed against physical capacity (150 = 50%
+     * overallocation allowed); null means unlimited overallocation.
+     */
+    private function nodeResource(int $used, int $total, int $overallocate): array
+    {
+        return [
+            'used' => $used,
+            'total' => $total,
+            'percent' => $total > 0 ? (int) round($used / $total * 100) : 0,
+            'limitPercent' => $overallocate < 0 ? null : 100 + $overallocate,
         ];
     }
 

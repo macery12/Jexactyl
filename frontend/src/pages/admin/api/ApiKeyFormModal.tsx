@@ -36,7 +36,7 @@ function PermissionRow({
     onChange: (v: ApiKeyPermissionValue) => void;
 }) {
     return (
-        <div className="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-sm font-medium text-[var(--color-ink)]">
                 {td(`admin.api.resource.${resource}`, resource)}
             </span>

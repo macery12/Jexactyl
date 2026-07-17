@@ -85,13 +85,13 @@ function NewMenu({ onNewServer, onNewNode }: { onNewServer: () => void; onNewNod
         <div ref={ref} className="relative">
             <button
                 onClick={() => setOpen(o => !o)}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
             >
                 <Plus className="h-4 w-4" /> {m['admin.infrastructure.new.label']()}
                 <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
             </button>
             {open && (
-                <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-lg shadow-black/20">
+                <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-lg shadow-black/20">
                     {canServer && (
                         <button
                             onClick={() => {
@@ -142,7 +142,7 @@ function FleetSummary({ nodes, totalServers, activeServers }: { nodes: NodeListI
 function EmptyState({ icon: Icon, title, body }: { icon: typeof Server; title: string; body: string }) {
     return (
         <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-surface-2)]">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--color-surface-2)]">
                 <Icon className="h-6 w-6 text-[var(--color-ink-muted)]" />
             </div>
             <h3 className="text-lg font-medium">{title}</h3>

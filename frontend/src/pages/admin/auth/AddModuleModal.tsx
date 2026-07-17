@@ -99,10 +99,10 @@ export function AddModuleModal({
                         return (
                             <div
                                 key={def.name}
-                                className="flex items-start gap-3.5 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4"
+                                className="flex items-start gap-3.5 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4"
                             >
                                 <span
-                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                                     style={{ backgroundColor: `color-mix(in srgb, ${def.tint} 14%, transparent)`, color: def.tint }}
                                 >
                                     <Icon className="h-5 w-5" />
@@ -121,7 +121,7 @@ export function AddModuleModal({
                                     type="button"
                                     disabled={loading}
                                     onClick={() => enable(def.name)}
-                                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-[var(--brand)] px-3.5 text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
+                                    className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--brand)] px-3.5 text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
                                 >
                                     {loading ? <Spinner className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
                                     {m['admin.auth.add.enable']()}

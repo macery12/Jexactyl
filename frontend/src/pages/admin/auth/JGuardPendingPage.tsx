@@ -102,12 +102,12 @@ export default function JGuardPendingPage() {
                     <Spinner className="h-6 w-6" />
                 </div>
             ) : entries.length === 0 ? (
-                <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--color-border-strong)] py-14 text-center">
+                <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-[var(--color-border-strong)] py-14 text-center">
                     <UserCheck className="h-8 w-8 text-[var(--color-ink-faint)]" />
                     <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.auth.pending.empty']()}</p>
                 </div>
             ) : (
-                <div className="overflow-x-auto rounded-2xl border border-[var(--color-border-strong)]">
+                <div className="overflow-x-auto rounded-lg border border-[var(--color-border-strong)]">
                     <table className="w-full min-w-[52rem] text-sm">
                         <thead>
                             <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wider text-[var(--color-ink-faint)]">

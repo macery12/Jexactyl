@@ -91,7 +91,7 @@ export function NodeAllocationsTab() {
             {canManage && (
                 <form
                     onSubmit={handleSubmit(v => add.mutate(v))}
-                    className="mb-4 grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 sm:grid-cols-5"
+                    className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 sm:grid-cols-5"
                 >
                     <Input className="h-9" placeholder={m['admin.infrastructure.alloc.ip']()} invalid={!!errors.ip} {...register('ip', req)} />
                     <Input className="h-9" placeholder={m['admin.infrastructure.alloc.alias']()} {...register('alias')} />

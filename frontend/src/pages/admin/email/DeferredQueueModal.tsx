@@ -111,7 +111,7 @@ export function DeferredQueueModal({ open, onClose }: { open: boolean; onClose: 
                             return (
                                 <li
                                     key={email.id}
-                                    className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 px-4 py-3"
+                                    className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 px-4 py-3"
                                 >
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2">
@@ -180,7 +180,7 @@ export function DeferredQueueModal({ open, onClose }: { open: boolean; onClose: 
 
 function Stat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
     return (
-        <div className="rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 px-4 py-2">
+        <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 px-4 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-ink-faint)]">{label}</p>
             <p
                 className={cn(

@@ -73,7 +73,7 @@ function RowActions({
                 <Dropdown.Content
                     align="end"
                     sideOffset={4}
-                    className="z-[60] w-48 overflow-hidden rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
+                    className="z-[60] w-48 overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
                 >
                     {canUpdate && (
                         <>

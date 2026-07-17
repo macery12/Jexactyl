@@ -47,7 +47,7 @@ function StatTile({
                 </p>
                 {sub && <p className="text-[11px] text-[var(--color-ink-faint)]">{sub}</p>}
             </div>
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-surface-2)]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--color-surface-2)]">
                 <Icon
                     className={
                         tone === 'accent'

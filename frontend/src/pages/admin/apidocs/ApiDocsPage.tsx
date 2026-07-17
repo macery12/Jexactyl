@@ -168,7 +168,7 @@ export default function ApiDocsPage() {
                         href={OPENAPI_DOCS_URL}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] px-3 text-sm font-medium text-[var(--color-ink)] hover:bg-[var(--color-surface-2)]"
+                        className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--color-border-strong)] px-3 text-sm font-medium text-[var(--color-ink)] hover:bg-[var(--color-surface-2)]"
                     >
                         <ExternalLink className="h-4 w-4" />
                         {m['admin.apiDocs.openRaw']()}
@@ -189,7 +189,7 @@ export default function ApiDocsPage() {
                     <Spinner className="h-6 w-6" />
                 </div>
             ) : isError ? (
-                <div className="rounded-2xl border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-sm text-[var(--color-danger)]">
+                <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-sm text-[var(--color-danger)]">
                     {firstError(error) ?? m['admin.apiDocs.loadError']()}
                 </div>
             ) : (
@@ -236,7 +236,7 @@ export default function ApiDocsPage() {
                             {m['admin.apiDocs.endpointCount']({ count: filtered.length })}
                         </p>
 
-                        <nav className="max-h-[62vh] overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/40 p-2">
+                        <nav className="max-h-[62vh] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]/40 p-2">
                             {groups.length === 0 ? (
                                 <p className="px-2 py-6 text-center text-sm text-[var(--color-ink-faint)]">
                                     {m['admin.apiDocs.empty']()}
@@ -259,7 +259,7 @@ export default function ApiDocsPage() {
                         {selected ? (
                             <EndpointDetail doc={doc!} endpoint={selected} />
                         ) : (
-                            <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-[var(--color-border)] text-sm text-[var(--color-ink-faint)]">
+                            <div className="flex min-h-[40vh] items-center justify-center rounded-lg border border-[var(--color-border)] text-sm text-[var(--color-ink-faint)]">
                                 {m['admin.apiDocs.emptySelection']()}
                             </div>
                         )}
@@ -394,7 +394,7 @@ function EndpointDetail({ doc, endpoint }: { doc: OpenApiDoc; endpoint: Endpoint
     const responseCodes = sortedResponseCodes(operation.responses);
 
     return (
-        <div className="flex flex-col gap-6 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/50 p-6">
+        <div className="flex flex-col gap-6 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/50 p-6">
             <div className="flex flex-col gap-3 border-b border-[var(--color-border)] pb-5">
                 <div className="flex flex-wrap items-center gap-2">
                     <MethodBadge method={endpoint.method} className="px-2 py-1 text-xs" />
@@ -494,7 +494,7 @@ function ParamSection({ title, rows }: { title: string; rows: PropertyRow[] }) {
 
 function PropertyTable({ rows }: { rows: PropertyRow[] }) {
     return (
-        <div className="overflow-x-auto rounded-xl border border-[var(--color-border)]">
+        <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
             <table className="w-full min-w-[520px] border-collapse text-left text-sm">
                 <thead>
                     <tr className="border-b border-[var(--color-border)] text-[11px] uppercase tracking-wide text-[var(--color-ink-faint)]">
@@ -541,7 +541,7 @@ function PropertyTable({ rows }: { rows: PropertyRow[] }) {
 
 function SchemaFallback({ label }: { label: string }) {
     return (
-        <p className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 font-mono text-xs text-[var(--color-ink-muted)]">
+        <p className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 font-mono text-xs text-[var(--color-ink-muted)]">
             {label}
         </p>
     );
@@ -562,7 +562,7 @@ function ResponseBlock({
     const schema = media?.schema ? resolveSchema(doc, media.schema) : undefined;
 
     return (
-        <div className="rounded-xl border border-[var(--color-border)]">
+        <div className="rounded-lg border border-[var(--color-border)]">
             <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
                 <span
                     className={cn(
@@ -630,7 +630,7 @@ function CurlBlock({ doc, endpoint }: { doc: OpenApiDoc; endpoint: Endpoint }) {
                     {copied ? m['admin.apiDocs.copied']() : m['admin.apiDocs.copyCurl']()}
                 </button>
             </div>
-            <pre className="overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 font-mono text-xs text-[var(--color-ink)]">
+            <pre className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 font-mono text-xs text-[var(--color-ink)]">
                 {curl}
             </pre>
         </div>

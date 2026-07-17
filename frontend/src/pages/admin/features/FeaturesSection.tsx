@@ -31,9 +31,9 @@ function SectionCard({ icon: Icon, title, subtitle, action, children }: {
     children: ReactNode;
 }) {
     return (
-        <section className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+        <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
             <div className="mb-5 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand)]/12 text-[var(--brand)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/12 text-[var(--brand)]">
                     <Icon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -54,7 +54,7 @@ function FeatureToggleRow({ def, checked, onChange }: {
 }) {
     const Icon = def.icon;
     return (
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-border-strong)] p-3.5 transition-colors hover:bg-[var(--color-surface-2)]">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border-strong)] p-3.5 transition-colors hover:bg-[var(--color-surface-2)]">
             <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-ink-faint)]" />
             <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-[var(--color-ink)]">{td(def.labelKey)}</span>
@@ -136,7 +136,7 @@ export default function FeaturesSection() {
                     <Spinner className="h-5 w-5" />
                 </div>
             ) : isError || !flags ? (
-                <p className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 px-4 py-10 text-center text-sm text-[var(--color-danger)]">
+                <p className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 px-4 py-10 text-center text-sm text-[var(--color-danger)]">
                     {m['admin.features.loadError']()}
                 </p>
             ) : (
@@ -182,7 +182,7 @@ export default function FeaturesSection() {
                             onChange={v => setFeature('billing', v)}
                         />
                         {!flags.billing && (
-                            <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3.5 py-3">
+                            <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3.5 py-3">
                                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                                 <p className="text-xs leading-relaxed text-[var(--color-ink-muted)]">
                                     {m['admin.features.billing.disabledNote']()}
@@ -264,7 +264,7 @@ function StateCard({ icon: Icon, title, desc, active, activeLabel, onInfo }: {
     return (
         <div
             className={cn(
-                'flex flex-col rounded-xl border p-4 transition-colors',
+                'flex flex-col rounded-lg border p-4 transition-colors',
                 active ? 'border-[var(--brand)] bg-[var(--brand)]/8' : 'border-[var(--color-border-strong)]',
             )}
         >

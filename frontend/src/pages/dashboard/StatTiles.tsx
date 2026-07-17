@@ -27,26 +27,33 @@ function Tile({
 }) {
     const body = (
         <>
-            <div
+            <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-ink-faint)]">
+                    {label}
+                </p>
+                <Icon
+                    className={cn(
+                        'h-4 w-4 shrink-0',
+                        tone === 'warning' ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink-faint)]',
+                    )}
+                />
+            </div>
+            <p
                 className={cn(
-                    'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl',
-                    tone === 'warning' ? 'bg-[var(--color-warning)]/10' : 'bg-[var(--color-surface-2)]',
+                    'mt-1.5 font-mono text-2xl font-semibold tabular-nums',
+                    tone === 'warning' ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink)]',
                 )}
             >
-                <Icon className={cn('h-5 w-5', tone === 'warning' ? 'text-[var(--color-warning)]' : 'text-[var(--brand)]')} />
-            </div>
-            <div className="min-w-0">
-                <p className="text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">{label}</p>
-                <p className="text-xl font-semibold text-[var(--color-ink)]">
-                    {value}
-                    {sub && <span className="ml-1 text-sm font-normal text-[var(--color-ink-muted)]">{sub}</span>}
-                </p>
-            </div>
+                {value}
+                {sub && (
+                    <span className="ml-1 text-sm font-normal text-[var(--color-ink-faint)]">{sub}</span>
+                )}
+            </p>
         </>
     );
 
     const className = cn(
-        'flex items-center gap-4 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-5',
+        'flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 py-3.5',
         to && 'transition-colors hover:bg-[var(--color-surface-2)]',
     );
 

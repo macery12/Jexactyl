@@ -86,7 +86,7 @@ export default function StorePage() {
                                         type="button"
                                         onClick={() => setCategoryId(cat.id)}
                                         className={cn(
-                                            'inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors',
+                                            'inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors',
                                             cat.id === categoryId
                                                 ? 'border-[var(--brand)] bg-[var(--brand)]/12 text-[var(--color-ink)]'
                                                 : 'border-[var(--color-border-strong)] text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]',
@@ -103,7 +103,7 @@ export default function StorePage() {
                             </nav>
 
                             {products.length > 1 && (
-                                <div className="inline-flex rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-1">
+                                <div className="inline-flex rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-1">
                                     <ViewButton icon={LayoutGrid} label={m['billing.store.view.cards']()} active={view === 'cards'} onClick={() => setView('cards')} />
                                     <ViewButton icon={Table2} label={m['billing.store.view.compare']()} active={view === 'compare'} onClick={() => setView('compare')} />
                                 </div>
@@ -111,7 +111,7 @@ export default function StorePage() {
                         </div>
 
                         {noProcessors && (
-                            <div className="flex items-center gap-2 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]">
+                            <div className="flex items-center gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]">
                                 <AlertTriangle className="h-4 w-4" />
                                 {m['billing.store.paymentsNotSetup']()}
                             </div>
@@ -188,7 +188,7 @@ function ProductCard({ product, blocked }: { product: StoreProduct; blocked: boo
     ];
 
     return (
-        <div className="flex flex-col rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+        <div className="flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
             {/* Price-led header */}
             <div className="flex items-baseline gap-1.5">
                 <span className="text-2xl font-bold text-[var(--color-ink)]">
@@ -232,8 +232,8 @@ function ProductCard({ product, blocked }: { product: StoreProduct; blocked: boo
 
 function EmptyState({ message }: { message: string }) {
     return (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-surface-2)]">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--color-surface-2)]">
                 <ShoppingBag className="h-6 w-6 text-[var(--color-ink-muted)]" />
             </div>
             <p className="max-w-sm text-sm text-[var(--color-ink-muted)]">{message}</p>

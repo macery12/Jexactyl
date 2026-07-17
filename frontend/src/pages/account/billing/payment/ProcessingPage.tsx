@@ -88,7 +88,7 @@ export default function ProcessingPage() {
 
     return (
         <div className="flex min-h-[60vh] items-center justify-center">
-            <div className="w-full max-w-md rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-10 text-center">
+            <div className="w-full max-w-md rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-10 text-center">
                 <Spinner className="mx-auto h-9 w-9" />
                 <h2 className="mt-5 text-xl font-semibold text-[var(--color-ink)]">{m['billing.processing.title']()}</h2>
                 <p className="mt-2 text-sm text-[var(--color-ink-muted)]">{m['billing.processing.body']()}</p>

@@ -271,7 +271,7 @@ function RepoFormModal({
                         <button
                             type="button"
                             onClick={onClose}
-                            className="inline-flex h-10 items-center rounded-xl px-4 text-sm font-medium text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
+                            className="inline-flex h-10 items-center rounded-lg px-4 text-sm font-medium text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                         >
                             {m['common.actions.cancel']()}
                         </button>
@@ -279,7 +279,7 @@ function RepoFormModal({
                             type="submit"
                             disabled={!valid || save.isPending}
                             className={cn(
-                                'inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)]',
+                                'inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)]',
                                 'disabled:opacity-50',
                             )}
                         >

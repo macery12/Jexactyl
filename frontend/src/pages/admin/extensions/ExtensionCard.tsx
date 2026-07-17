@@ -57,7 +57,7 @@ export function ExtensionCard({
 
             <div className="flex items-start gap-3 p-4">
                 <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border"
                     style={{ background: tint(accent, 12), borderColor: tint(accent, 30), color: accent }}
                 >
                     <Icon className="h-5 w-5" />

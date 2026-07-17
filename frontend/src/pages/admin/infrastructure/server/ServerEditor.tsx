@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
-import { Info, TerminalSquare, Gauge, Network, ListChecks, Wallet, Save, RotateCcw } from 'lucide-react';
+import { Activity, Settings2, TerminalSquare, Gauge, Network, Wallet, Save, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -14,7 +14,9 @@ import { cn } from '@/lib/cn';
 import { useFlashes } from '@/state/flashes';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
+import { panelClass, PanelHeader } from '../../dashboardParts';
 import { useServerView } from './ServerContext';
+import { OverviewTab } from './OverviewTab';
 import { NetworkingSection, type AllocationDraft } from './NetworkingSection';
 import { BillingSection } from './BillingSection';
 import { updateServer, updateServerStartup, type ServerView } from '@/api/adminServers';
@@ -52,14 +54,18 @@ interface VarDef {
     defaultValue: string;
 }
 
-const SECTIONS: { id: string; labelKey: string; icon: LucideIcon }[] = [
-    { id: 'information', labelKey: 'infrastructure.serverDetail.nav.information', icon: Info },
+type TabId = 'overview' | 'settings' | 'startup' | 'resources' | 'network' | 'billing';
+
+const TABS: { id: TabId; labelKey: string; icon: LucideIcon }[] = [
+    { id: 'overview', labelKey: 'infrastructure.serverDetail.nav.overview', icon: Activity },
+    { id: 'settings', labelKey: 'infrastructure.serverDetail.nav.settings', icon: Settings2 },
     { id: 'startup', labelKey: 'infrastructure.serverDetail.nav.startup', icon: TerminalSquare },
     { id: 'resources', labelKey: 'infrastructure.serverDetail.nav.resources', icon: Gauge },
-    { id: 'networking', labelKey: 'infrastructure.serverDetail.nav.networking', icon: Network },
-    { id: 'limits', labelKey: 'infrastructure.serverDetail.nav.limits', icon: ListChecks },
+    { id: 'network', labelKey: 'infrastructure.serverDetail.nav.networking', icon: Network },
     { id: 'billing', labelKey: 'infrastructure.serverDetail.nav.billing', icon: Wallet },
 ];
+
+const microLabel = 'text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-ink-faint)]';
 
 function formFrom(s: ServerView): FormShape {
     return {
@@ -102,6 +108,8 @@ export function ServerEditor() {
     const push = useFlashes(st => st.push);
     const held = useAdminHeld();
     const readOnly = !can(held, 'servers.update');
+
+    const [tab, setTab] = useState<TabId>('overview');
 
     const usersQ = useQuery({ queryKey: ['admin', 'users'], queryFn: () => getUsers() });
     const nestsQ = useQuery({ queryKey: ['admin', 'nests'], queryFn: getNests });
@@ -241,12 +249,34 @@ export function ServerEditor() {
     }, [imageOptions, currentImage]);
 
     return (
-        <div className="flex gap-6">
-            <SectionNav />
+        <div className="flex flex-col gap-5">
+            <div className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
+                {TABS.map(t => (
+                    <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setTab(t.id)}
+                        className={cn(
+                            'flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-semibold uppercase tracking-wider transition-colors',
+                            tab === t.id
+                                ? 'border-[var(--color-accent)] text-[var(--color-ink)]'
+                                : 'border-transparent text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+                        )}
+                    >
+                        <t.icon className="h-3.5 w-3.5" />
+                        {td(`admin.${t.labelKey}`)}
+                    </button>
+                ))}
+            </div>
 
-            <form className="min-w-0 flex-1 space-y-6 pb-24" onSubmit={save}>
-                {/* Information */}
-                <SectionCard id="information" icon={Info} title={m['admin.infrastructure.serverDetail.nav.information']()} desc={m['admin.infrastructure.serverDetail.section.informationDesc']()}>
+            {tab === 'overview' && <OverviewTab onManageBilling={() => setTab('billing')} />}
+
+            {/* The form tabs stay mounted (hidden via CSS) so react-hook-form keeps
+                every field registered and the dirty state spans all of them. */}
+            <form className={cn('flex-col gap-4 pb-2', tab === 'overview' ? 'hidden' : 'flex')} onSubmit={save}>
+                {/* Settings */}
+                <section className={cn(panelClass(), tab !== 'settings' && 'hidden')}>
+                    <PanelHeader title={m['admin.infrastructure.serverDetail.nav.settings']()} />
                     <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
                         <FieldRow label={m['admin.infrastructure.serverDetail.field.name']()} error={errors.name?.message}>
                             <Input invalid={!!errors.name} disabled={readOnly} {...register('name', { required: m['admin.infrastructure.common.required']() })} />
@@ -267,188 +297,146 @@ export function ServerEditor() {
                             <Input disabled={readOnly} {...register('description')} />
                         </FieldRow>
                     </div>
-                </SectionCard>
+                </section>
 
                 {/* Startup */}
-                <SectionCard id="startup" icon={TerminalSquare} title={m['admin.infrastructure.serverDetail.nav.startup']()} desc={m['admin.infrastructure.serverDetail.section.startupDesc']()}>
-                    <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.nest']()}>
-                            <Select
-                                value={nestId || undefined}
-                                onChange={v => { setValue('nestId', v, { shouldDirty: true }); }}
-                                options={(nestsQ.data ?? []).map(n => ({ value: String(n.id), label: n.name }))}
-                                placeholder={m['admin.infrastructure.server.selectNest']()}
-                                disabled={readOnly}
-                            />
+                <section className={cn(panelClass(), tab !== 'startup' && 'hidden')}>
+                    <PanelHeader title={m['admin.infrastructure.serverDetail.nav.startup']()} />
+                    <div className="flex flex-col gap-5">
+                        <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.nest']()}>
+                                <Select
+                                    value={nestId || undefined}
+                                    onChange={v => { setValue('nestId', v, { shouldDirty: true }); }}
+                                    options={(nestsQ.data ?? []).map(n => ({ value: String(n.id), label: n.name }))}
+                                    placeholder={m['admin.infrastructure.server.selectNest']()}
+                                    disabled={readOnly}
+                                />
+                            </FieldRow>
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.egg']()} desc={m['admin.infrastructure.serverDetail.field.eggDesc']()}>
+                                <Select
+                                    value={eggId || undefined}
+                                    onChange={adoptEgg}
+                                    options={(eggsQ.data ?? []).map(e => ({ value: String(e.id), label: e.name }))}
+                                    placeholder={m['admin.infrastructure.server.selectEgg']()}
+                                    disabled={readOnly || !nestId}
+                                />
+                            </FieldRow>
+                        </div>
+
+                        <FieldRow label={m['admin.infrastructure.serverDetail.field.startup']()} desc={m['admin.infrastructure.serverDetail.field.startupDesc']({ vars: '{{SERVER_MEMORY}}, {{SERVER_IP}}, {{SERVER_PORT}}' })}>
+                            <Input className="font-mono text-xs" disabled={readOnly} placeholder={eggDefault} {...register('startup')} />
                         </FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.egg']()} desc={m['admin.infrastructure.serverDetail.field.eggDesc']()}>
-                            <Select
-                                value={eggId || undefined}
-                                onChange={adoptEgg}
-                                options={(eggsQ.data ?? []).map(e => ({ value: String(e.id), label: e.name }))}
-                                placeholder={m['admin.infrastructure.server.selectEgg']()}
-                                disabled={readOnly || !nestId}
-                            />
-                        </FieldRow>
+
+                        <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.image']()} desc={m['admin.infrastructure.serverDetail.field.imageDesc']()}>
+                                <Select
+                                    value={watch('image')}
+                                    onChange={v => setValue('image', v, { shouldDirty: true })}
+                                    options={imageSelectOptions}
+                                    placeholder={m['admin.infrastructure.server.selectImage']()}
+                                    disabled={readOnly}
+                                />
+                            </FieldRow>
+                            <label className="flex items-end gap-3 pb-2 text-sm text-[var(--color-ink)]">
+                                <Switch checked={watch('skipScripts')} onChange={v => setValue('skipScripts', v, { shouldDirty: true })} disabled={readOnly} />
+                                {m['admin.infrastructure.serverDetail.field.skipScripts']()}
+                            </label>
+                        </div>
+
+                        {varDefs.length > 0 && (
+                            <div className="border-t border-[var(--color-border)] pt-4">
+                                <p className={cn(microLabel, 'mb-3')}>{m['admin.infrastructure.serverDetail.variables']()}</p>
+                                <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
+                                    {varDefs.map(v => (
+                                        <FieldRow key={v.envVariable} label={v.name} desc={v.description ?? undefined} mono={v.envVariable}>
+                                            <Input
+                                                className="font-mono text-xs"
+                                                placeholder={v.defaultValue}
+                                                value={env[v.envVariable] ?? ''}
+                                                disabled={readOnly}
+                                                onChange={e => { setEnv(prev => ({ ...prev, [v.envVariable]: e.target.value })); setEnvDirty(true); }}
+                                            />
+                                        </FieldRow>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
+                </section>
 
-                    <FieldRow label={m['admin.infrastructure.serverDetail.field.startup']()} desc={m['admin.infrastructure.serverDetail.field.startupDesc']({ vars: '{{SERVER_MEMORY}}, {{SERVER_IP}}, {{SERVER_PORT}}' })}>
-                        <Input className="font-mono text-xs" disabled={readOnly} placeholder={eggDefault} {...register('startup')} />
-                    </FieldRow>
-
-                    <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.image']()} desc={m['admin.infrastructure.serverDetail.field.imageDesc']()}>
-                            <Select
-                                value={watch('image')}
-                                onChange={v => setValue('image', v, { shouldDirty: true })}
-                                options={imageSelectOptions}
-                                placeholder={m['admin.infrastructure.server.selectImage']()}
-                                disabled={readOnly}
-                            />
-                        </FieldRow>
-                        <label className="flex items-end gap-3 pb-2 text-sm text-[var(--color-ink)]">
-                            <Switch checked={watch('skipScripts')} onChange={v => setValue('skipScripts', v, { shouldDirty: true })} disabled={readOnly} />
-                            {m['admin.infrastructure.serverDetail.field.skipScripts']()}
+                {/* Resources + feature limits */}
+                <section className={cn(panelClass(), tab !== 'resources' && 'hidden')}>
+                    <PanelHeader title={m['admin.infrastructure.serverDetail.nav.resources']()} />
+                    <div className="flex flex-col gap-5">
+                        <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.cpu']()} desc={m['admin.infrastructure.serverDetail.field.cpuDesc']()}>
+                                <Input type="number" {...register('cpu', num)} />
+                            </FieldRow>
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.threads']()} desc={m['admin.infrastructure.serverDetail.field.threadsDesc']()}>
+                                <Input disabled={readOnly} placeholder="0-1,3" {...register('threads')} />
+                            </FieldRow>
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.memory']()}>
+                                <Input type="number" {...register('memory', num)} />
+                            </FieldRow>
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.swap']()}>
+                                <Input type="number" {...register('swap', num)} />
+                            </FieldRow>
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.disk']()}>
+                                <Input type="number" {...register('disk', num)} />
+                            </FieldRow>
+                            <FieldRow label={m['admin.infrastructure.serverDetail.field.io']()} desc={m['admin.infrastructure.serverDetail.field.ioDesc']()}>
+                                <Input type="number" {...register('io', num)} />
+                            </FieldRow>
+                        </div>
+                        <label className="flex items-start gap-3 rounded-lg border border-[var(--color-border)] p-3 text-sm text-[var(--color-ink)]">
+                            <Switch checked={watch('oom_killer')} onChange={v => setValue('oom_killer', v, { shouldDirty: true })} disabled={readOnly} />
+                            <span>
+                                {m['admin.infrastructure.serverDetail.field.oomKiller']()}
+                                <span className="mt-0.5 block text-xs text-[var(--color-ink-faint)]">{m['admin.infrastructure.serverDetail.field.oomKillerDesc']()}</span>
+                            </span>
                         </label>
-                    </div>
 
-                    {varDefs.length > 0 && (
-                        <div className="mt-2">
-                            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-faint)]">{m['admin.infrastructure.serverDetail.variables']()}</p>
-                            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
-                                {varDefs.map(v => (
-                                    <FieldRow key={v.envVariable} label={v.name} desc={v.description ?? undefined} mono={v.envVariable}>
-                                        <Input
-                                            className="font-mono text-xs"
-                                            placeholder={v.defaultValue}
-                                            value={env[v.envVariable] ?? ''}
-                                            disabled={readOnly}
-                                            onChange={e => { setEnv(prev => ({ ...prev, [v.envVariable]: e.target.value })); setEnvDirty(true); }}
-                                        />
-                                    </FieldRow>
-                                ))}
+                        <div className="border-t border-[var(--color-border)] pt-4">
+                            <p className={cn(microLabel, 'mb-3')}>{m['admin.infrastructure.serverDetail.nav.limits']()}</p>
+                            <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+                                <FieldRow label={m['admin.infrastructure.serverDetail.field.allocations']()}><Input type="number" {...register('allocations', num)} /></FieldRow>
+                                <FieldRow label={m['admin.infrastructure.serverDetail.field.backups']()}><Input type="number" {...register('backups', num)} /></FieldRow>
+                                <FieldRow label={m['admin.infrastructure.serverDetail.field.databases']()}><Input type="number" {...register('databases', num)} /></FieldRow>
+                                <FieldRow label={m['admin.infrastructure.serverDetail.field.subusers']()}><Input type="number" {...register('subusers', num)} /></FieldRow>
+                                <FieldRow label={m['admin.infrastructure.serverDetail.field.subdomains']()} desc={m['admin.infrastructure.serverDetail.field.subdomainsDesc']()}>
+                                    <Input type="number" {...register('subdomains', num)} />
+                                </FieldRow>
                             </div>
                         </div>
-                    )}
-                </SectionCard>
-
-                {/* Resources */}
-                <SectionCard id="resources" icon={Gauge} title={m['admin.infrastructure.serverDetail.nav.resources']()} desc={m['admin.infrastructure.serverDetail.section.resourcesDesc']()}>
-                    <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2">
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.cpu']()} desc={m['admin.infrastructure.serverDetail.field.cpuDesc']()}>
-                            <Input type="number" {...register('cpu', num)} />
-                        </FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.threads']()} desc={m['admin.infrastructure.serverDetail.field.threadsDesc']()}>
-                            <Input disabled={readOnly} placeholder="0-1,3" {...register('threads')} />
-                        </FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.memory']()}>
-                            <Input type="number" {...register('memory', num)} />
-                        </FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.swap']()}>
-                            <Input type="number" {...register('swap', num)} />
-                        </FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.disk']()}>
-                            <Input type="number" {...register('disk', num)} />
-                        </FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.io']()} desc={m['admin.infrastructure.serverDetail.field.ioDesc']()}>
-                            <Input type="number" {...register('io', num)} />
-                        </FieldRow>
                     </div>
-                    <label className="mt-2 flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 text-sm text-[var(--color-ink)]">
-                        <Switch checked={watch('oom_killer')} onChange={v => setValue('oom_killer', v, { shouldDirty: true })} disabled={readOnly} />
-                        <span>
-                            {m['admin.infrastructure.serverDetail.field.oomKiller']()}
-                            <span className="mt-0.5 block text-xs text-[var(--color-ink-faint)]">{m['admin.infrastructure.serverDetail.field.oomKillerDesc']()}</span>
-                        </span>
-                    </label>
-                </SectionCard>
+                </section>
 
-                {/* Networking */}
-                <SectionCard id="networking" icon={Network} title={m['admin.infrastructure.serverDetail.nav.networking']()} desc={m['admin.infrastructure.serverDetail.section.networkingDesc']()}>
+                {/* Network */}
+                <section className={cn(panelClass(), tab !== 'network' && 'hidden')}>
+                    <PanelHeader title={m['admin.infrastructure.serverDetail.nav.networking']()} />
                     <NetworkingSection draft={alloc} onChange={setAlloc} readOnly={readOnly} />
-                </SectionCard>
+                </section>
 
-                {/* Feature limits */}
-                <SectionCard id="limits" icon={ListChecks} title={m['admin.infrastructure.serverDetail.nav.limits']()} desc={m['admin.infrastructure.serverDetail.section.limitsDesc']()}>
-                    <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.allocations']()}><Input type="number" {...register('allocations', num)} /></FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.backups']()}><Input type="number" {...register('backups', num)} /></FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.databases']()}><Input type="number" {...register('databases', num)} /></FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.subusers']()}><Input type="number" {...register('subusers', num)} /></FieldRow>
-                        <FieldRow label={m['admin.infrastructure.serverDetail.field.subdomains']()} desc={m['admin.infrastructure.serverDetail.field.subdomainsDesc']()}>
-                            <Input type="number" {...register('subdomains', num)} />
-                        </FieldRow>
-                    </div>
-                </SectionCard>
-
-                {/* Billing — edited through its own wizard, so it saves independently
+                {/* Billing — edited through its own modal, so it saves independently
                     of the save bar and is deliberately absent from the dirty state. */}
-                <SectionCard id="billing" icon={Wallet} title={m['admin.infrastructure.serverDetail.nav.billing']()} desc={m['admin.infrastructure.serverDetail.section.billingDesc']()}>
+                <section className={cn(panelClass(), tab !== 'billing' && 'hidden')}>
+                    <PanelHeader title={m['admin.infrastructure.serverDetail.nav.billing']()} />
                     <BillingSection readOnly={readOnly} />
-                </SectionCard>
+                </section>
 
                 {!readOnly && <SaveBar dirty={dirty} saving={saving} onDiscard={discard} />}
             </form>
+
+            {/* Unsaved-changes reminder if the user flips back to Overview mid-edit. */}
+            {tab === 'overview' && !readOnly && dirty && (
+                <SaveBar dirty={dirty} saving={saving} onDiscard={discard} onSave={() => void save()} />
+            )}
         </div>
     );
 }
 
 // ---- Layout pieces ------------------------------------------------------------
-
-function SectionNav() {
-    const [active, setActive] = useState('information');
-
-    useEffect(() => {
-        const els = SECTIONS.map(s => document.getElementById(s.id)).filter(Boolean) as HTMLElement[];
-        const obs = new IntersectionObserver(
-            entries => {
-                const visible = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-                if (visible[0]) setActive(visible[0].target.id);
-            },
-            { rootMargin: '-15% 0px -75% 0px', threshold: 0 },
-        );
-        els.forEach(el => obs.observe(el));
-        return () => obs.disconnect();
-    }, []);
-
-    return (
-        <nav className="sticky top-4 hidden h-fit w-44 shrink-0 flex-col gap-1 lg:flex">
-            {SECTIONS.map(sec => (
-                <button
-                    key={sec.id}
-                    type="button"
-                    onClick={() => document.getElementById(sec.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                    className={cn(
-                        'flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-                        active === sec.id
-                            ? 'bg-[var(--color-surface-2)] font-medium text-[var(--color-ink)]'
-                            : 'text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)]/50 hover:text-[var(--color-ink)]',
-                    )}
-                >
-                    <sec.icon className={cn('h-4 w-4', active === sec.id ? 'text-[var(--color-accent)]' : 'text-[var(--color-ink-faint)]')} />
-                    {td(`admin.${sec.labelKey}`)}
-                </button>
-            ))}
-        </nav>
-    );
-}
-
-function SectionCard({ id, icon: Icon, title, desc, children }: { id: string; icon: LucideIcon; title: string; desc: string; children: React.ReactNode }) {
-    return (
-        <section id={id} className="scroll-mt-6 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
-            <header className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-3.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]">
-                    <Icon className="h-4 w-4" />
-                </div>
-                <div>
-                    <h2 className="text-sm font-semibold text-[var(--color-ink)]">{title}</h2>
-                    <p className="text-xs text-[var(--color-ink-faint)]">{desc}</p>
-                </div>
-            </header>
-            <div className="flex flex-col gap-5 p-5">{children}</div>
-        </section>
-    );
-}
 
 function FieldRow({ label, desc, mono, error, children }: { label: string; desc?: string; mono?: string; error?: string; children: React.ReactNode }) {
     return (
@@ -464,18 +452,18 @@ function FieldRow({ label, desc, mono, error, children }: { label: string; desc?
     );
 }
 
-function SaveBar({ dirty, saving, onDiscard }: { dirty: boolean; saving: boolean; onDiscard: () => void }) {
+function SaveBar({ dirty, saving, onDiscard, onSave }: { dirty: boolean; saving: boolean; onDiscard: () => void; onSave?: () => void }) {
     return (
-        <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/95 px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur">
-            <span className={cn('flex items-center gap-2 text-xs', dirty ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink-faint)]')}>
-                <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-ink-faint)]')} />
+        <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-5 py-3 shadow-lg shadow-black/20">
+            <span className={cn('flex items-center gap-2 font-mono text-xs', dirty ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink-faint)]')}>
+                <span className={cn('h-1.5 w-1.5 rounded-sm', dirty ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-ink-faint)]')} />
                 {dirty ? m['admin.infrastructure.serverDetail.saveBar.dirty']() : m['admin.infrastructure.serverDetail.saveBar.clean']()}
             </span>
             <div className="flex items-center gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty || saving}>
                     <RotateCcw className="h-4 w-4" /> {m['common.actions.discard']()}
                 </Button>
-                <Button type="submit" size="sm" disabled={!dirty || saving}>
+                <Button type={onSave ? 'button' : 'submit'} size="sm" disabled={!dirty || saving} onClick={onSave}>
                     {saving ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                     {m['common.actions.saveChanges']()}
                 </Button>

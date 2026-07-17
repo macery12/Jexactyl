@@ -39,9 +39,9 @@ function SectionCard({ icon: Icon, title, subtitle, children }: {
     children: ReactNode;
 }) {
     return (
-        <section className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+        <section className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
             <div className="mb-5 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--brand)]/12 text-[var(--brand)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/12 text-[var(--brand)]">
                     <Icon className="h-5 w-5" />
                 </div>
                 <div>
@@ -144,7 +144,7 @@ export default function SettingsSection() {
                     </Field>
                     <Field label={m['admin.settings.general.logo']()} htmlFor="app-logo">
                         <div className="flex items-center gap-3">
-                            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]">
+                            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]">
                                 {form.logo.trim() ? (
                                     <img src={form.logo} alt="" className="h-full w-full object-contain" onError={e => (e.currentTarget.style.visibility = 'hidden')} />
                                 ) : (
@@ -198,7 +198,7 @@ export default function SettingsSection() {
                                 type="button"
                                 onClick={() => set('locale', code)}
                                 className={cn(
-                                    'flex items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors',
+                                    'flex items-center gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors',
                                     selected
                                         ? 'border-[var(--brand)] bg-[var(--brand)]/8'
                                         : 'border-[var(--color-border-strong)] hover:bg-[var(--color-surface-2)]',
@@ -244,7 +244,7 @@ function ToggleRow({ icon: Icon, label, help, checked, onChange }: {
     onChange: (v: boolean) => void;
 }) {
     return (
-        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--color-border-strong)] p-3.5">
+        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border-strong)] p-3.5">
             <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-ink-faint)]" />
             <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-[var(--color-ink)]">{label}</span>

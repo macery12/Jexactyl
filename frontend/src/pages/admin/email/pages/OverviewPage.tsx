@@ -188,7 +188,7 @@ function TransportTile({
             type="button"
             onClick={onClick}
             className={cn(
-                'flex flex-col items-start gap-2 rounded-xl border px-3 py-3 text-left transition-colors',
+                'flex flex-col items-start gap-2 rounded-lg border px-3 py-3 text-left transition-colors',
                 active
                     ? 'border-[var(--brand)] bg-[var(--brand)]/10'
                     : 'border-[var(--color-border-strong)] hover:bg-[var(--color-surface-2)]',

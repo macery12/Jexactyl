@@ -52,7 +52,7 @@ export default function DiscordLinkChoicePage() {
                 <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.discord.linkSubtitle']()}</p>
             </div>
 
-            <div className="rounded-xl border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-4 py-3">
+            <div className="rounded-lg border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand)]">
                     {m['auth.discord.accountLabel']()}
                 </p>
@@ -72,7 +72,7 @@ export default function DiscordLinkChoicePage() {
                 <button
                     type="button"
                     onClick={() => navigate('/auth/discord/register')}
-                    className="group flex items-start gap-3 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4 text-left transition-colors hover:border-[var(--brand)] hover:bg-[var(--brand)]/8"
+                    className="group flex items-start gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4 text-left transition-colors hover:border-[var(--brand)] hover:bg-[var(--brand)]/8"
                 >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-accent)]/15 text-[var(--color-accent)]">
                         <UserPlus className="h-4 w-4" />
@@ -88,7 +88,7 @@ export default function DiscordLinkChoicePage() {
                     <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[var(--color-ink-faint)] transition-colors group-hover:text-[var(--brand)]" />
                 </button>
 
-                <div className="rounded-xl border border-[var(--color-border-strong)] p-4">
+                <div className="rounded-lg border border-[var(--color-border-strong)] p-4">
                     <div className="flex items-start gap-3">
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-warning)]/15 text-[var(--color-warning)]">
                             <Link2 className="h-4 w-4" />

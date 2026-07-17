@@ -6,7 +6,7 @@ import { Sparkles, ArrowRight, Megaphone } from 'lucide-react';
 // in a later pass — for now it's sensible default copy.
 export function StoreHero() {
     return (
-        <section className="overflow-hidden rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
+        <section className="overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
             <div className="bg-aurora relative px-6 py-10 sm:px-10 sm:py-14">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--brand)]">
                     <Sparkles className="h-3.5 w-3.5" /> {m['billing.store.hero.badge']()}
@@ -20,7 +20,7 @@ export function StoreHero() {
                 <div className="mt-6">
                     <a
                         href="#plans"
-                        className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
+                        className="inline-flex h-11 items-center gap-2 rounded-lg bg-[var(--brand)] px-5 text-sm font-medium text-[var(--color-brand-ink)] hover:bg-[var(--brand-hover)]"
                     >
                         {m['billing.store.hero.ctaPrimary']()} <ArrowRight className="h-4 w-4" />
                     </a>

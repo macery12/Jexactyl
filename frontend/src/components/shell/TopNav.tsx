@@ -4,6 +4,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Menu, ChevronDown, LogOut, User as UserIcon, Shield } from 'lucide-react';
 import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
+import { BrandMark } from '@/components/ui/BrandMark';
 import { readCsrfToken } from '@/lib/globals';
 import { cn } from '@/lib/cn';
 
@@ -34,15 +35,14 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                 {onToggleSidebar && (
                     <button
                         onClick={onToggleSidebar}
-                        className="flex h-10 w-10 items-center justify-center rounded-xl text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] lg:hidden"
+                        className="flex h-10 w-10 items-center justify-center rounded-lg text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] lg:hidden"
                         aria-label={m['nav.topnav.toggleNav']()}
                     >
                         <Menu className="h-5 w-5" />
                     </button>
                 )}
-                <Link to="/" className="flex items-center gap-2">
-                    <div className="h-7 w-7 rounded-lg bg-[var(--brand)]" />
-                    <span className="text-base font-semibold tracking-tight">{site?.name ?? 'M12Labs'}</span>
+                <Link to="/">
+                    <BrandMark name={site?.name ?? 'M12Labs'} />
                 </Link>
             </div>
 
@@ -51,7 +51,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                     <Link
                         to={inAdmin ? '/' : '/admin'}
                         className={cn(
-                            'hidden items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium sm:inline-flex',
+                            'hidden items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium sm:inline-flex',
                             'text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]',
                         )}
                     >
@@ -61,7 +61,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                 )}
 
                 <DropdownMenu.Root>
-                    <DropdownMenu.Trigger className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm hover:bg-[var(--color-surface-2)]">
+                    <DropdownMenu.Trigger className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--color-surface-2)]">
                         <img
                             src={user?.avatar_url}
                             alt=""
@@ -74,7 +74,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                         <DropdownMenu.Content
                             align="end"
                             sideOffset={8}
-                            className="z-50 min-w-48 rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 shadow-xl"
+                            className="z-50 min-w-48 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1.5 shadow-xl"
                         >
                             <DropdownMenu.Item asChild>
                                 <Link

@@ -36,7 +36,7 @@ export function ChoiceCard({
             onClick={onSelect}
             aria-pressed={selected}
             className={cn(
-                'group relative flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition-all',
+                'group relative flex w-full items-center gap-3 rounded-lg border p-4 text-left transition-all',
                 selected
                     ? 'border-[var(--brand)] bg-[var(--brand)]/10 ring-1 ring-[var(--brand)]'
                     : 'border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 hover:border-[var(--color-ink-faint)]',
@@ -88,7 +88,7 @@ export function CycleCard({
             onClick={onSelect}
             aria-pressed={selected}
             className={cn(
-                'relative flex w-full items-center justify-between gap-3 rounded-2xl border p-4 text-left transition-all',
+                'relative flex w-full items-center justify-between gap-3 rounded-lg border p-4 text-left transition-all',
                 selected
                     ? 'border-[var(--brand)] bg-[var(--brand)]/10 ring-1 ring-[var(--brand)]'
                     : 'border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 hover:border-[var(--color-ink-faint)]',
@@ -196,7 +196,7 @@ function CouponBox({ checkout }: { checkout: CheckoutController }) {
 
     if (checkout.couponData) {
         return (
-            <div className="flex items-center justify-between rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2">
+            <div className="flex items-center justify-between rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
                     <Tag className="h-3.5 w-3.5 text-[var(--color-accent)]" />
                     {checkout.couponData.coupon.code}
@@ -267,12 +267,12 @@ export function SummaryCart({
     );
 
     return (
-        <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/80 p-5">
+        <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/80 p-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-muted)]">
                 {m['billing.summary.yourBuild']()}
             </p>
 
-            <div className="mt-3 rounded-xl bg-[var(--color-surface-2)]/60 p-3">
+            <div className="mt-3 rounded-lg bg-[var(--color-surface-2)]/60 p-3">
                 <p className="font-semibold text-[var(--color-ink)]">{product.name}</p>
                 {product.description && (
                     <p className="mt-0.5 text-xs text-[var(--color-ink-muted)]">{product.description}</p>

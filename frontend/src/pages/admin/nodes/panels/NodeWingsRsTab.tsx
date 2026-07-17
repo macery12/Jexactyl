@@ -137,7 +137,7 @@ export function NodeWingsRsTab() {
 
             {!supercharged ? (
                 <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-14 text-center">
-                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--color-surface-2)]">
+                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-[var(--color-surface-2)]">
                         <Zap className="h-5 w-5 text-[var(--color-ink-faint)]" />
                     </div>
                     <h3 className="text-base font-medium">{m['admin.nodes.wingsRs.lockedTitle']()}</h3>

@@ -126,7 +126,7 @@ export function EmailLogDetailModal({ logId, onClose }: { logId: number; onClose
                                 {data.related_emails.map(e => (
                                     <li
                                         key={e.id}
-                                        className="flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-3 py-2"
+                                        className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 px-3 py-2"
                                     >
                                         <div className="min-w-0">
                                             <p className="truncate text-sm text-[var(--color-ink)]">{e.subject}</p>
@@ -168,7 +168,7 @@ function Item({ label, children, mono }: { label: string; children: React.ReactN
 
 function Code({ children }: { children: React.ReactNode }) {
     return (
-        <pre className="overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-canvas)] p-3 text-xs text-[var(--color-ink-muted)]">
+        <pre className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-canvas)] p-3 text-xs text-[var(--color-ink-muted)]">
             {children}
         </pre>
     );

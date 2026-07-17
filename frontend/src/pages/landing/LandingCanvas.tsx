@@ -1,6 +1,7 @@
 import { m } from '@/i18n';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/cn';
+import { BrandMark } from '@/components/ui/BrandMark';
 import type { LandingSection, LandingSectionId } from '@/lib/globals';
 import type { BandTone } from './sections/Band';
 import Hero from './sections/Hero';
@@ -38,13 +39,10 @@ export default function LandingCanvas({ sections, name, highlightId }: Props) {
     return (
         <div className="bg-aurora min-h-screen">
             <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-                <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-lg bg-[var(--brand)]" />
-                    <span className="text-lg font-semibold tracking-tight">{name}</span>
-                </div>
+                <BrandMark name={name} size="lg" />
                 <Link
                     to="/auth/login"
-                    className="inline-flex h-10 items-center rounded-xl border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"
+                    className="inline-flex h-10 items-center rounded-lg border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"
                 >
                     {m['landing.signIn']()}
                 </Link>
@@ -58,7 +56,7 @@ export default function LandingCanvas({ sections, name, highlightId }: Props) {
                         className={cn(
                             'scroll-mt-6',
                             highlightId === section.id &&
-                                'rounded-2xl outline-2 -outline-offset-2 outline-dashed outline-[var(--brand)]',
+                                'rounded-lg outline-2 -outline-offset-2 outline-dashed outline-[var(--brand)]',
                         )}
                     >
                         <SectionRenderer section={section} tone={tone} name={name} />

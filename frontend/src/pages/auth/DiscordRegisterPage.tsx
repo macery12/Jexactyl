@@ -137,7 +137,7 @@ export default function DiscordRegisterPage() {
                 <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.discord.registerSubtitle']()}</p>
             </div>
 
-            <div className="rounded-xl border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-4 py-3">
+            <div className="rounded-lg border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand)]">
                     {m['auth.discord.accountLabel']()}
                 </p>
@@ -154,7 +154,7 @@ export default function DiscordRegisterPage() {
             </div>
 
             {submitError && (
-                <div className="rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
+                <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
                     {submitError}
                 </div>
             )}
@@ -181,7 +181,7 @@ export default function DiscordRegisterPage() {
                 />
             </Field>
 
-            <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 px-4 py-3">
+            <div className="flex items-start gap-2.5 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 px-4 py-3">
                 <KeyRound className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                 <p className="text-xs text-[var(--color-ink-muted)]">{m['auth.discord.passwordNote']()}</p>
             </div>

@@ -15,7 +15,7 @@ export default function AccessDenied({ permission }: { permission?: string | str
 
     return (
         <div className="flex min-h-[50vh] flex-col items-center justify-center px-6 py-16 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-danger)]/10 text-[var(--color-danger)]">
+            <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--color-danger)]/10 text-[var(--color-danger)]">
                 <Lock className="h-6 w-6" />
             </div>
             <h1 className="mt-5 text-lg font-semibold text-[var(--color-ink)]">

@@ -33,7 +33,7 @@ export function Select({
             <RSelect.Trigger
                 id={id}
                 className={cn(
-                    'flex h-11 w-full items-center justify-between gap-2 rounded-xl border bg-[var(--color-surface-2)] px-4 text-sm text-[var(--color-ink)]',
+                    'flex h-11 w-full items-center justify-between gap-2 rounded-lg border bg-[var(--color-surface-2)] px-4 text-sm text-[var(--color-ink)]',
                     'transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60 disabled:opacity-50',
                     'data-[placeholder]:text-[var(--color-ink-faint)]',
                     invalid ? 'border-[var(--color-danger)]' : 'border-[var(--color-border-strong)]',
@@ -49,7 +49,7 @@ export function Select({
                 <RSelect.Content
                     position="popper"
                     sideOffset={6}
-                    className="z-[60] max-h-72 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface)] shadow-xl shadow-black/30"
+                    className="z-[60] max-h-72 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] shadow-xl shadow-black/30"
                 >
                     <RSelect.Viewport className="p-1">
                         {options.map(o => (

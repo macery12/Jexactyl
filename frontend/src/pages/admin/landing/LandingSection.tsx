@@ -37,7 +37,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
         <textarea
             {...props}
             className={cn(
-                'min-h-[88px] w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-ink)]',
+                'min-h-[88px] w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-ink)]',
                 'placeholder:text-[var(--color-ink-faint)] transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60',
                 props.className,
             )}
@@ -143,7 +143,7 @@ export default function LandingSection() {
                         href={abs()}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"
+                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"
                     >
                         <ExternalLink className="h-4 w-4" />
                         {m['landingAdmin.preview']()}
@@ -154,7 +154,7 @@ export default function LandingSection() {
                 </div>
             </header>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
                 <span className="min-w-0 flex-1">
                     <span className="block text-base font-semibold text-[var(--color-ink)]">{m['landingAdmin.enabled']()}</span>
                     <span className="mt-0.5 block text-sm text-[var(--color-ink-muted)]">{m['landingAdmin.enabledHelp']()}</span>
@@ -191,7 +191,7 @@ export default function LandingSection() {
 
                 {/* Center: editor for the selected section. */}
                 {selected && (
-                    <div className="rounded-2xl border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
+                    <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60 p-5">
                         <div className="mb-5 flex items-start justify-between gap-3 border-b border-[var(--color-border)] pb-4">
                             <div className="min-w-0">
                                 <h2 className="text-base font-semibold text-[var(--color-ink)]">{td(SECTION_META[selected.id].titleKey)}</h2>
@@ -215,7 +215,7 @@ export default function LandingSection() {
                         {m['landingAdmin.previewLabel']()}
                     </h2>
                     <p className="mb-2 px-1 text-xs text-[var(--color-ink-faint)]">{m['landingAdmin.previewHint']()}</p>
-                    <div className="max-h-[80vh] overflow-y-auto rounded-2xl border border-[var(--color-border-strong)]">
+                    <div className="max-h-[80vh] overflow-y-auto rounded-lg border border-[var(--color-border-strong)]">
                         <PreviewFrame>
                             <LandingCanvas sections={config.sections} name={name} highlightId={selectedId} />
                         </PreviewFrame>
@@ -289,7 +289,7 @@ function SectionListRow({
     return (
         <li
             className={cn(
-                'flex items-center gap-1 rounded-xl border px-2 py-1.5',
+                'flex items-center gap-1 rounded-lg border px-2 py-1.5',
                 selected
                     ? 'border-[var(--brand)] bg-[var(--brand-soft)]'
                     : 'border-transparent hover:bg-[var(--color-surface-2)]',
@@ -517,7 +517,7 @@ function CtaEditor({
     onChange: (cta: { label: string; href: string }) => void;
 }) {
     return (
-        <fieldset className="rounded-xl border border-[var(--color-border)] p-4">
+        <fieldset className="rounded-lg border border-[var(--color-border)] p-4">
             <legend className="px-1 text-sm font-medium text-[var(--color-ink-muted)]">{label}</legend>
             {hint && <p className="mb-2 text-xs text-[var(--color-ink-faint)]">{hint}</p>}
             <div className="grid gap-3">
@@ -545,7 +545,7 @@ function ItemList<T extends object>({
     return (
         <div className="flex flex-col gap-4">
             {items.map((item, i) => (
-                <div key={i} className="rounded-xl border border-[var(--color-border)] p-4">
+                <div key={i} className="rounded-lg border border-[var(--color-border)] p-4">
                     <div className="mb-3 flex items-center justify-between">
                         <span className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">#{i + 1}</span>
                         <button

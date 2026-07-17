@@ -24,7 +24,7 @@ export function Announcements() {
                 const tn = tone[alert.type];
                 const Icon = tn.icon;
                 return (
-                    <div key={alert.id} className={cn('flex gap-3 rounded-xl border bg-[var(--color-surface)]/70 p-4', tn.cls)}>
+                    <div key={alert.id} className={cn('flex gap-3 rounded-lg border bg-[var(--color-surface)] p-4', tn.cls)}>
                         <Icon className="mt-0.5 h-4 w-4 shrink-0" />
                         <div className="min-w-0">
                             {alert.title && <p className="text-sm font-semibold text-[var(--color-ink)]">{alert.title}</p>}

@@ -136,7 +136,7 @@ export default function BillingRulesSection() {
                     <Input type="number" min={1} max={365} value={defaultDays} className="max-w-[160px]" onChange={e => setDefaultDays(e.target.value)} />
                 </FieldRow>
 
-                <div className="overflow-hidden rounded-xl border border-[var(--color-border-strong)]">
+                <div className="overflow-hidden rounded-lg border border-[var(--color-border-strong)]">
                     <table className="w-full">
                         <thead className="border-b border-[var(--color-border)] bg-[var(--color-surface-2)]/40">
                             <tr>

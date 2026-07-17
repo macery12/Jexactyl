@@ -148,7 +148,7 @@ export function ExtensionManageDrawer({
             <>
                 <header className="flex items-start gap-3 border-b border-[var(--color-border)] p-4">
                     <div
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border"
                         style={{ background: tint(accent, 12), borderColor: tint(accent, 30), color: accent }}
                     >
                         <Icon className="h-5 w-5" />
@@ -337,7 +337,7 @@ export function ExtensionManageDrawer({
                             type="button"
                             disabled={busy || locked || e.source.repositoryId == null}
                             onClick={() => install.mutate()}
-                            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
+                            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
                         >
                             {install.isPending ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
                             {install.isPending ? m['extensions.drawer.installing']() : m['extensions.drawer.installCta']()}
@@ -349,7 +349,7 @@ export function ExtensionManageDrawer({
                                     type="button"
                                     disabled={busy || locked || e.source.repositoryId == null}
                                     onClick={() => updatePkg.mutate()}
-                                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors disabled:opacity-50"
+                                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium transition-colors disabled:opacity-50"
                                     style={{
                                         borderColor: tint('var(--color-warning)', 40),
                                         color: 'var(--color-warning)',
@@ -364,7 +364,7 @@ export function ExtensionManageDrawer({
                                 type="button"
                                 disabled={busy || locked}
                                 onClick={() => save.mutate()}
-                                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
+                                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
                             >
                                 {save.isPending && <Spinner className="h-4 w-4" />}
                                 {save.isPending ? m['common.states.saving']() : m['common.actions.saveChanges']()}
@@ -461,14 +461,14 @@ function SettingFieldRow({
                     value={String(value ?? '')}
                     placeholder={field.placeholder}
                     onChange={ev => onChange(ev.target.value)}
-                    className="w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
+                    className="w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
                 />
             ) : type === 'select' && field.options ? (
                 <select
                     disabled={disabled}
                     value={String(value ?? '')}
                     onChange={ev => onChange(ev.target.value)}
-                    className="h-10 w-full rounded-xl border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
+                    className="h-10 w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
                 >
                     {field.options.map(o => (
                         <option key={o.value} value={o.value}>
