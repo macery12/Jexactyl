@@ -225,6 +225,13 @@ class ExtensionPackageArtifactService
     }
 
     /**
+     * The highest manifest schema version this panel understands.
+     * v1: server-page extensions (implicit). v2 adds the admin page surface,
+     * database migrations, scheduled tasks, and admin API routes.
+     */
+    public const SUPPORTED_MANIFEST_VERSION = 2;
+
+    /**
      * Validate the manifest's extension id / version against expected values and return it unchanged.
      *
      * @param array<string, mixed> $manifest
@@ -247,7 +254,79 @@ class ExtensionPackageArtifactService
             throw new DisplayException('The downloaded package version does not match the repository manifest.');
         }
 
+        $this->assertValidManifestSchema($manifest, $extensionId);
+
         return $manifest;
+    }
+
+    /**
+     * Validate the v2 manifest additions (admin surface, backend capability
+     * declarations) and their consistency with the declared file list.
+     *
+     * @param array<string, mixed> $manifest
+     */
+    private function assertValidManifestSchema(array $manifest, string $extensionId): void
+    {
+        $manifestVersion = (int) Arr::get($manifest, 'manifestVersion', 1);
+        if ($manifestVersion > self::SUPPORTED_MANIFEST_VERSION) {
+            throw new DisplayException(sprintf(
+                'This extension package uses manifest version %d, which was built for a newer panel. Update the panel before installing it.',
+                $manifestVersion
+            ));
+        }
+
+        $filePaths = array_map(
+            fn ($file) => is_array($file) ? (string) ($file['path'] ?? '') : '',
+            (array) Arr::get($manifest, 'files', [])
+        );
+        $hasMigrationFiles = (bool) array_filter(
+            $filePaths,
+            fn (string $path) => Str::startsWith($path, sprintf('app/Extensions/Packages/%s/database/migrations/', $extensionId))
+        );
+        $hasScheduleFile = in_array(sprintf('app/Extensions/Packages/%s/schedule.php', $extensionId), $filePaths, true);
+
+        $admin = Arr::get($manifest, 'extension.admin');
+        $backend = Arr::get($manifest, 'backend', []);
+
+        if ($manifestVersion < 2) {
+            if ($admin !== null || $backend !== [] || $hasMigrationFiles || $hasScheduleFile) {
+                throw new DisplayException('This extension uses admin pages, migrations, or scheduled tasks, which require "manifestVersion": 2 in its manifest.');
+            }
+
+            return;
+        }
+
+        if ($admin !== null) {
+            $route = trim((string) Arr::get($admin, 'route', ''));
+            $label = trim((string) Arr::get($admin, 'label', ''));
+            $icon = Arr::get($admin, 'icon');
+
+            if (!is_array($admin)
+                || !preg_match('/^[a-z0-9_-]+$/', $route)
+                || $label === '' || mb_strlen($label) > 60
+                || ($icon !== null && !is_string($icon))
+            ) {
+                throw new DisplayException('The extension manifest declares an invalid admin page (route must be a slug, label must be 1-60 characters).');
+            }
+        }
+
+        if (!is_array($backend)) {
+            throw new DisplayException('The extension manifest "backend" section must be an object.');
+        }
+
+        $declaresMigrations = (bool) Arr::get($backend, 'migrations', false);
+        if ($declaresMigrations !== $hasMigrationFiles) {
+            throw new DisplayException($declaresMigrations
+                ? 'The extension manifest declares database migrations but ships no migration files.'
+                : 'The extension package ships migration files but does not declare "backend": {"migrations": true} in its manifest.');
+        }
+
+        $declaresSchedule = (bool) Arr::get($backend, 'schedule', false);
+        if ($declaresSchedule !== $hasScheduleFile) {
+            throw new DisplayException($declaresSchedule
+                ? 'The extension manifest declares scheduled tasks but ships no schedule.php.'
+                : 'The extension package ships a schedule.php but does not declare "backend": {"schedule": true} in its manifest.');
+        }
     }
 
     /**

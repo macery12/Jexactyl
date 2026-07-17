@@ -109,6 +109,14 @@ class ExtensionPanelRebuildService
 
         return [
             'M12LABS_EXTENSION_REBUILD_REASON' => $reason,
+            // The rebuild runs head-less from PHP with no TTY. When pnpm needs to
+            // purge and re-create node_modules (e.g. the store dir differs from
+            // the one node_modules was built against, which happens the first
+            // time an install runs under the www-data-owned runtime store), it
+            // refuses to remove the directory without a TTY unless CI is set.
+            'CI' => 'true',
+            'PNPM_CONFIG_CONFIRM_MODULES_PURGE' => 'false',
+            'npm_config_confirm_modules_purge' => 'false',
             'HOME' => $home,
             'PATH' => (string) (getenv('PATH') ?: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'),
             'XDG_CACHE_HOME' => $cache,

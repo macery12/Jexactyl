@@ -190,17 +190,39 @@ class ExtensionsController extends ApplicationApiController
     {
         $this->abortIfOperationRunning();
 
-        $this->uninstallService->uninstall($extensionId);
+        $dropData = $request->boolean('drop_data');
+        if ($dropData && trim((string) $request->input('confirm')) !== $extensionId) {
+            return new JsonResponse(['error' => 'Type the extension id in the confirmation field to drop its database tables.'], 422);
+        }
+
+        $result = $this->uninstallService->uninstall(
+            $extensionId,
+            $dropData,
+            sprintf('admin:%s', $request->user()?->email ?? 'unknown')
+        );
 
         Activity::event('admin:extensions:uninstall')
             ->property('extension_id', $extensionId)
+            ->property('drop_data', $dropData)
             ->log();
+
+        if ($result['dataDropped']) {
+            Activity::event('admin:extensions:data-drop')
+                ->property('extension_id', $extensionId)
+                ->property('migration_log', $result['migrationLog'])
+                ->log();
+        }
 
         return new JsonResponse([
             'object' => 'extension',
             'attributes' => $this->catalogService->getExtension($extensionId, true) ?? [
                 'id' => $extensionId,
                 'installed' => false,
+            ],
+            'meta' => [
+                'data_dropped' => $result['dataDropped'],
+                'preserved_tables' => $result['preservedTables'],
+                'manual_cleanup' => $result['manualCleanup'],
             ],
         ]);
     }

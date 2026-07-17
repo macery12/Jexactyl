@@ -30,6 +30,14 @@ class Kernel extends ConsoleKernel
     protected function commands(): void
     {
         $this->load(__DIR__ . '/Commands');
+
+        // Extension-contributed artisan commands. The glob is deliberately
+        // scoped to Console/Commands directories: a wholesale load() over
+        // Extensions/Packages would autoload-include route/schedule files and
+        // execute their top-level Route:: calls at command registration time.
+        foreach ((glob(app_path('Extensions/Packages/*/Console/Commands')) ?: []) as $extensionCommandDir) {
+            $this->load($extensionCommandDir);
+        }
     }
 
     /**
@@ -81,5 +89,8 @@ class Kernel extends ConsoleKernel
             $schedule->command('email:send-renewal-notices', ['--days' => 3])->dailyAt('09:15'); // 3 days notice
             $schedule->command('email:send-renewal-notices', ['--days' => 1])->dailyAt('09:30'); // 1 day notice
         }
+
+        // Scheduled tasks contributed by enabled extension packages.
+        $this->app->make(\Everest\Services\Extensions\ExtensionScheduleService::class)->register($schedule);
     }
 }

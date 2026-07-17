@@ -19,7 +19,8 @@ class ExtensionPackageUpdateService
         private ExtensionFilesystemOwnershipService $ownershipService,
         private ExtensionInstallProgressService $progressService,
         private ExtensionPackageArtifactService $artifactService,
-        private ExtensionPackageFileService $fileService
+        private ExtensionPackageFileService $fileService,
+        private ExtensionMigrationService $migrationService
     ) {
     }
 
@@ -242,6 +243,24 @@ class ExtensionPackageUpdateService
      */
     public function rollbackUpdate(array $prepared): void
     {
+        // Only migrations applied by THIS update are reverted (they form the
+        // newest batch); the previous version's migrations must survive. Runs
+        // before the file snapshot restore so the new migration files are
+        // still on disk for their down() methods.
+        if (!empty($prepared['appliedMigrations'])) {
+            try {
+                $this->migrationService->rollbackLastBatch($prepared['extensionId']);
+            } catch (\Throwable $exception) {
+                report($exception);
+                $this->migrationService->writeMigrationLog(
+                    $prepared['extensionId'],
+                    'update-rollback',
+                    ['migrations' => $prepared['appliedMigrations']],
+                    $exception
+                );
+            }
+        }
+
         if ($prepared['existingPackage']) {
             $this->fileService->restoreRollbackSnapshot($prepared['existingPackage']->files->all(), $prepared['rollbackRoot']);
         }
@@ -367,8 +386,11 @@ class ExtensionPackageUpdateService
                 File::copy($plan['sourcePath'], $plan['targetPath']);
             }
 
+            $appliedMigrations = $this->runNewMigrations($resolvedExtensionId, $newFilePlans);
+
             return [
                 'extensionId'             => $resolvedExtensionId,
+                'appliedMigrations'       => $appliedMigrations,
                 'existingPackage'         => $existingPackage,
                 'normalizedManifest'      => $normalizedManifest,
                 'fallbackPackageMetadata' => $fallbackPackageMetadata,
@@ -490,6 +512,58 @@ class ExtensionPackageUpdateService
         }
 
         return $plans;
+    }
+
+    /**
+     * Run migrations that are new in this version. Already-ran migrations are
+     * skipped by filename, so re-running the package path applies only files
+     * added since the previous release. A failure rolls the partial batch
+     * back, writes a migration error log, and aborts the update.
+     *
+     * @param array<int, array<string, mixed>> $newFilePlans
+     * @return array<int, string> the migration files applied by this update
+     */
+    private function runNewMigrations(string $extensionId, array $newFilePlans): array
+    {
+        $migrationsPrefix = $this->migrationService->migrationPath($extensionId) . '/';
+        $migrationFiles = [];
+        foreach ($newFilePlans as $plan) {
+            if (Str::startsWith($plan['path'], $migrationsPrefix)) {
+                $migrationFiles[] = $plan['targetPath'];
+            }
+        }
+
+        if ($migrationFiles === []) {
+            return [];
+        }
+
+        $this->progressService->report('update', $extensionId, 'migrating');
+        $this->migrationService->assertTablePrefixConvention($extensionId, $migrationFiles);
+
+        try {
+            $result = $this->migrationService->run($extensionId);
+        } catch (\Throwable $exception) {
+            try {
+                $this->migrationService->rollbackLastBatch($extensionId);
+            } catch (\Throwable $rollbackException) {
+                report($rollbackException);
+            }
+
+            $logPath = $this->migrationService->writeMigrationLog(
+                $extensionId,
+                'update',
+                ['migrations' => array_map('basename', $migrationFiles)],
+                $exception
+            );
+
+            throw new DisplayException(sprintf(
+                'A migration shipped by the "%s" update failed and was rolled back. Details were written to %s.',
+                $extensionId,
+                $logPath
+            ), $exception);
+        }
+
+        return array_map('basename', $result['files']);
     }
 
     /**

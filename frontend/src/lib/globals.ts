@@ -99,7 +99,9 @@ export interface EverestConfiguration {
     // `enabled` = mail delivery is configured; `module_enabled` = admin has
     // surfaced the Email admin module (the feature toggle drives the latter).
     email: { enabled: boolean; module_enabled?: boolean; [k: string]: unknown };
-    extensions: { enabled: boolean };
+    // `active` (enabled extension ids) is only present in admin sessions; it
+    // gates extension-contributed admin nav entries.
+    extensions: { enabled: boolean; active?: string[] };
     custom_domains: { enabled: boolean };
     [k: string]: unknown;
 }

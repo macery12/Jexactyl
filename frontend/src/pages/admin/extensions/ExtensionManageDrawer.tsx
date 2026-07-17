@@ -45,6 +45,8 @@ export function ExtensionManageDrawer({
     const [settings, setSettings] = useState<Record<string, unknown>>({});
     const [allowedNests, setAllowedNests] = useState<number[]>([]);
     const [allowedEggs, setAllowedEggs] = useState<number[]>([]);
+    const [dropData, setDropData] = useState(false);
+    const [dropConfirm, setDropConfirm] = useState('');
 
     // Re-seed local form state whenever a different extension is opened.
     useEffect(() => {
@@ -53,6 +55,8 @@ export function ExtensionManageDrawer({
         setSettings({ ...ext.settings });
         setAllowedNests([...ext.allowedNests]);
         setAllowedEggs([...ext.allowedEggs]);
+        setDropData(false);
+        setDropConfirm('');
     }, [ext]);
 
     const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'extensions'] });
@@ -88,9 +92,14 @@ export function ExtensionManageDrawer({
     });
 
     const remove = useMutation({
-        mutationFn: () => uninstallExtension(ext!.id),
-        onSuccess: e => {
-            push({ type: 'success', message: m['extensions.toast.uninstalled']({ name: e.name }) });
+        mutationFn: () => uninstallExtension(ext!.id, dropData, dropConfirm),
+        onSuccess: res => {
+            push({ type: 'success', message: m['extensions.toast.uninstalled']({ name: res.extension.name ?? ext!.id }) });
+            if (res.dataDropped) {
+                push({ type: 'success', message: m['extensions.toast.dataDropped']() });
+            } else if (res.preservedTables.length > 0) {
+                push({ type: 'info', message: m['extensions.toast.dataPreserved']({ tables: res.preservedTables.join(', ') }) });
+            }
             invalidate();
             onClose();
         },
@@ -167,6 +176,10 @@ export function ExtensionManageDrawer({
                             </span>
                             <span className="text-[var(--color-ink-faint)]">·</span>
                             <span style={{ color: accent }}>{td(`extensions.${toneLabelKey(tone)}`)}</span>
+                            <span className="text-[var(--color-ink-faint)]">·</span>
+                            <span className="rounded border border-[var(--color-border)] px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-[var(--color-ink-muted)]">
+                                {td(`extensions.type.${e.type}`)}
+                            </span>
                         </p>
                     </div>
                     <button
@@ -248,7 +261,9 @@ export function ExtensionManageDrawer({
                                 )}
                             </Section>
 
-                            {/* access control */}
+                            {/* access control — only meaningful for extensions with a
+                                per-server surface; admin-only extensions have no eggs/nests. */}
+                            {e.hasServerPage && (
                             <Section title={m['extensions.drawer.access']()}>
                                 <p className="-mt-1 mb-2 text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.accessHint']()}</p>
                                 <div className="space-y-3">
@@ -303,26 +318,59 @@ export function ExtensionManageDrawer({
                                     </div>
                                 </div>
                             </Section>
+                            )}
 
                             {/* danger zone */}
                             {e.canUninstall && (
                                 <Section title={m['extensions.drawer.dangerZone']()}>
                                     <div
-                                        className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
+                                        className="space-y-3 rounded-lg border px-3 py-2.5"
                                         style={{ borderColor: tint('var(--color-danger)', 30) }}
                                     >
-                                        <span className="text-xs text-[var(--color-ink-muted)]">{m['extensions.drawer.dangerHint']()}</span>
-                                        <button
-                                            type="button"
-                                            disabled={busy || locked}
-                                            onClick={() => {
-                                                if (window.confirm(m['extensions.drawer.uninstallConfirm']({ name: e.name }))) remove.mutate();
-                                            }}
-                                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/40 px-3 text-xs font-medium text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
-                                        >
-                                            {remove.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
-                                            {remove.isPending ? m['extensions.drawer.uninstalling']() : m['extensions.drawer.uninstall']()}
-                                        </button>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span className="text-xs text-[var(--color-ink-muted)]">{m['extensions.drawer.dangerHint']()}</span>
+                                            <button
+                                                type="button"
+                                                disabled={busy || locked || (dropData && dropConfirm.trim() !== e.id)}
+                                                onClick={() => {
+                                                    if (window.confirm(m['extensions.drawer.uninstallConfirm']({ name: e.name }))) remove.mutate();
+                                                }}
+                                                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/40 px-3 text-xs font-medium text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
+                                            >
+                                                {remove.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                                {remove.isPending ? m['extensions.drawer.uninstalling']() : m['extensions.drawer.uninstall']()}
+                                            </button>
+                                        </div>
+
+                                        {/* Data is preserved by default; dropping tables requires the
+                                            checkbox AND typing the extension id, mirroring the CLI. */}
+                                        <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--color-ink-muted)]">
+                                            <input
+                                                type="checkbox"
+                                                checked={dropData}
+                                                disabled={busy || locked}
+                                                onChange={ev => {
+                                                    setDropData(ev.target.checked);
+                                                    if (!ev.target.checked) setDropConfirm('');
+                                                }}
+                                                className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-danger)]"
+                                            />
+                                            <span>
+                                                {m['extensions.drawer.dropData']()}{' '}
+                                                <span className="text-[var(--color-danger)]">{m['extensions.drawer.dropDataWarning']()}</span>
+                                            </span>
+                                        </label>
+                                        {dropData && (
+                                            <Input
+                                                value={dropConfirm}
+                                                disabled={busy || locked}
+                                                placeholder={m['extensions.drawer.dropDataConfirm']({ id: e.id })}
+                                                onChange={ev => setDropConfirm(ev.target.value)}
+                                            />
+                                        )}
+                                        {!dropData && (
+                                            <p className="text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.dataPreservedHint']()}</p>
+                                        )}
                                     </div>
                                 </Section>
                             )}

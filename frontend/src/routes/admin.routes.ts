@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { lazy } from 'react';
 import { route, type RouteDef } from './registry';
+import { extensionAdminRoutes } from './extensionAdmin.routes';
 import { NodesRedirect, ServersRedirect } from '@/pages/admin/infrastructure/InfraRedirect';
 
 const SettingsSection = lazy(() => import('@/pages/admin/settings/SettingsSection'));
@@ -90,4 +91,9 @@ export const adminRoutes: RouteDef[] = [
     route('roles/*', { name: 'Roles', icon: UserCog, category: 'management', permission: 'roles.read', element: RolesSection }),
 
     route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read', element: NestsSection }),
+
+    // Admin pages contributed by installed extension packages. Appended last so
+    // they group into their own trailing sidebar section; their static
+    // extensions/<route>/* paths outrank the extensions/* management splat.
+    ...extensionAdminRoutes,
 ];

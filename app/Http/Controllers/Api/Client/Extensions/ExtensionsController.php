@@ -51,7 +51,9 @@ class ExtensionsController extends ClientApiController
             }
 
             $extensionDef = $availableExtensions[$config->extension_id] ?? null;
-            if ($extensionDef) {
+            // Admin-only extensions (manifest route: null) have no server page
+            // to link to, so they never appear in the server gallery.
+            if ($extensionDef && ($extensionDef['hasServerPage'] ?? true)) {
                 $extensions[] = [
                     'id' => $config->extension_id,
                     'name' => $extensionDef['name'],

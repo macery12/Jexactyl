@@ -3,6 +3,7 @@
 namespace Everest\Http\ViewComposers;
 
 use Illuminate\View\View;
+use Everest\Models\ExtensionConfig;
 use Everest\Models\Setting;
 use Everest\Services\Billing\InvoiceSettingsService;
 use Everest\Services\Billing\PaymentProcessorConfigService;
@@ -176,7 +177,26 @@ class EverestComposer
                 'plan_change_cooldown_hours' => config('modules.billing.plan_change_cooldown_hours', 72),
                 'require_billing_address' => (bool) $invoiceSettings->require_billing_address,
             ],
+            // Enabled extension ids gate extension-contributed admin nav/routes;
+            // non-admins never receive the list. The extensions.admin middleware
+            // enforces the same state server-side regardless.
+            'extensions' => [
+                'active' => $this->enabledExtensionIds(),
+            ],
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function enabledExtensionIds(): array
+    {
+        try {
+            return ExtensionConfig::query()->where('enabled', true)->pluck('extension_id')->all();
+        } catch (\Throwable) {
+            // Fresh installs may render views before migrations exist.
+            return [];
+        }
     }
 
     private function emailEnabled(): bool

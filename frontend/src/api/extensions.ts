@@ -8,6 +8,7 @@ import http from '@/lib/http';
 // verbatim and intentionally NOT routed through the i18n catalog.
 
 export type ExtensionStatus = 'core' | 'installed' | 'available';
+export type ExtensionType = 'user' | 'admin' | 'both';
 
 export interface ExtensionSource {
     type: 'core' | 'repository';
@@ -40,6 +41,10 @@ export interface Extension {
     author: string;
     icon: string;
     route: string;
+    // Surface type derived by the panel from the manifest. 'user' = per-server
+    // page, 'admin' = admin page only (no per-server access scoping), 'both'.
+    type: ExtensionType;
+    hasServerPage: boolean;
     enabled: boolean;
     allowedNests: number[];
     allowedEggs: number[];
@@ -163,10 +168,25 @@ export async function updateExtensionPackage(id: string, repositoryId: number, v
     return data.attributes as Extension;
 }
 
-// POST /extensions/{id}/uninstall — remove an installed package.
-export async function uninstallExtension(id: string): Promise<Extension> {
-    const { data } = await http.post(`${BASE}/${id}/uninstall`);
-    return data.attributes as Extension;
+export interface UninstallResult {
+    extension: Extension;
+    // Database tables are preserved by default; dropData rolls the extension's
+    // migrations back server-side after an explicit typed confirmation.
+    dataDropped: boolean;
+    preservedTables: string[];
+    manualCleanup: string[];
+}
+
+// POST /extensions/{id}/uninstall — remove an installed package. Pass dropData
+// (with confirm === id) to also drop the extension's database tables.
+export async function uninstallExtension(id: string, dropData = false, confirm?: string): Promise<UninstallResult> {
+    const { data } = await http.post(`${BASE}/${id}/uninstall`, dropData ? { drop_data: true, confirm } : {});
+    return {
+        extension: data.attributes as Extension,
+        dataDropped: Boolean(data.meta?.data_dropped),
+        preservedTables: (data.meta?.preserved_tables ?? []) as string[],
+        manualCleanup: (data.meta?.manual_cleanup ?? []) as string[],
+    };
 }
 
 export interface RepositoryPayload {

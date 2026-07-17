@@ -44,6 +44,9 @@ class ExtensionCatalogService
                 'author' => $definition['author'] ?? 'M12Labs',
                 'icon' => $definition['icon'] ?? 'puzzle',
                 'route' => $definition['route'] ?? $extensionId,
+                'hasServerPage' => true,
+                'admin' => null,
+                'type' => 'user',
                 'enabled' => (bool) ($config?->enabled ?? false),
                 'allowedNests' => array_values($config?->allowed_nests ?? $definition['allowed_nests'] ?? []),
                 'allowedEggs' => array_values($config?->allowed_eggs ?? $definition['allowed_eggs'] ?? []),
@@ -74,6 +77,11 @@ class ExtensionCatalogService
             $extension = (array) Arr::get($manifest, 'extension', []);
             $repository = $package->repository;
 
+            // Admin-only extensions declare "route": null in their manifest; the
+            // server gallery skips them and the admin drawer hides nest/egg scoping.
+            $hasServerPage = Arr::get($extension, 'route', $package->route ?: $package->extension_id) !== null;
+            $adminSurface = Arr::get($extension, 'admin');
+
             $extensions[$package->extension_id] = [
                 'id' => $package->extension_id,
                 'name' => $package->name,
@@ -83,6 +91,9 @@ class ExtensionCatalogService
                 'author' => $package->author ?? 'M12Labs',
                 'icon' => $package->icon ?: 'puzzle',
                 'route' => $package->route ?: $package->extension_id,
+                'hasServerPage' => $hasServerPage,
+                'admin' => $adminSurface,
+                'type' => $this->deriveExtensionType($hasServerPage, $adminSurface),
                 'enabled' => (bool) ($config?->enabled ?? false),
                 'allowedNests' => array_values($config?->allowed_nests ?? Arr::get($extension, 'defaults.allowedNests', [])),
                 'allowedEggs' => array_values($config?->allowed_eggs ?? Arr::get($extension, 'defaults.allowedEggs', [])),
@@ -176,6 +187,9 @@ class ExtensionCatalogService
                         'author' => $package['author'],
                         'icon' => $package['icon'],
                         'route' => $package['route'],
+                        'hasServerPage' => $package['hasServerPage'] ?? true,
+                        'admin' => $package['admin'] ?? null,
+                        'type' => $this->deriveExtensionType($package['hasServerPage'] ?? true, $package['admin'] ?? null),
                         'enabled' => false,
                         'allowedNests' => array_values($config?->allowed_nests ?? []),
                         'allowedEggs' => array_values($config?->allowed_eggs ?? []),
@@ -369,6 +383,13 @@ class ExtensionCatalogService
                 'author' => (string) ($package['author'] ?? 'M12Labs'),
                 'icon' => (string) ($package['icon'] ?? 'puzzle'),
                 'route' => (string) ($package['route'] ?? $extensionId),
+                // Surface hints for admin-only packages. Registries may declare a
+                // "surfaces" list or a null "route"; absent either, assume a
+                // server page (the classic v1 surface) for backwards compatibility.
+                'hasServerPage' => isset($package['surfaces']) && is_array($package['surfaces'])
+                    ? in_array('server', $package['surfaces'], true)
+                    : (array_key_exists('route', $package) ? $package['route'] !== null : true),
+                'admin' => $package['admin'] ?? null,
                 'settingsSchema' => $this->normalizeSettingsSchema($package['settingsSchema'] ?? []),
                 'versions' => $versions,
                 'latestRelease' => $versions[0],
@@ -383,6 +404,26 @@ class ExtensionCatalogService
             ],
             'packages' => $packages,
         ];
+    }
+
+    /**
+     * Derive the extension's surface type from which surfaces it exposes.
+     *
+     * 'user'  — a per-server page only (the classic surface; nest/egg access
+     *           scoping applies).
+     * 'admin' — an admin page only; there is no per-server surface, so nest/egg
+     *           access scoping is meaningless and is hidden in the UI.
+     * 'both'  — exposes both surfaces.
+     */
+    private function deriveExtensionType(bool $hasServerPage, mixed $admin): string
+    {
+        $hasAdminPage = is_array($admin) && $admin !== [];
+
+        if ($hasServerPage && $hasAdminPage) {
+            return 'both';
+        }
+
+        return $hasAdminPage ? 'admin' : 'user';
     }
 
     /**

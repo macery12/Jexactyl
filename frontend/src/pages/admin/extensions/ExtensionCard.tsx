@@ -90,7 +90,14 @@ export function ExtensionCard({
             </p>
 
             <div className="mt-auto flex items-center justify-between gap-2 px-4 py-3">
-                <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-[var(--color-ink-faint)]">
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-[var(--color-ink-faint)]">
+                    {/* admin-only / dual-surface extensions get a type tag; a plain
+                        server extension is the default and needs no label. */}
+                    {ext.type !== 'user' && (
+                        <span className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-[var(--color-ink-muted)]">
+                            {td(`extensions.type.${ext.type}`)}
+                        </span>
+                    )}
                     {ext.source.official && <BadgeCheck className="h-3.5 w-3.5 text-[var(--brand)]" />}
                     <span className="truncate">{ext.source.label}</span>
                 </span>

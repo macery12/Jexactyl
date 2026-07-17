@@ -9,7 +9,12 @@ class UninstallExtensionRequest extends ApplicationApiRequest
 {
     public function rules(): array
     {
-        return [];
+        return [
+            'drop_data' => 'sometimes|boolean',
+            // Destructive data drops require the caller to echo the extension
+            // id back, mirroring the CLI's typed confirmation.
+            'confirm' => 'required_if:drop_data,true|string',
+        ];
     }
 
     public function permission(): string

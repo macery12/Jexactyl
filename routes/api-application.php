@@ -355,6 +355,23 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::post('/batch-uninstall', [Application\Extensions\ExtensionsController::class, 'batchUninstall']);
         Route::post('/batch-update', [Application\Extensions\ExtensionsController::class, 'batchUpdate']);
 
+        // Extension-contributed admin routes (routes/admin.php in each installed
+        // package). The /ext/<id> prefix is derived from the package directory —
+        // never from the file itself — so an extension cannot claim another's
+        // namespace or escape its prefix, and the static /ext segment cannot
+        // collide with the /{extensionId} wildcard below. Admin authentication
+        // is inherited from the application-api stack wrapping this file; the
+        // extensions.admin middleware adds the installed + enabled gates.
+        foreach ((glob(app_path('Extensions/Packages/*/routes/admin.php')) ?: []) as $extensionAdminRoutes) {
+            $extensionRouteId = basename(dirname(dirname($extensionAdminRoutes)));
+            Route::group([
+                'prefix' => '/ext/' . $extensionRouteId,
+                'middleware' => ['extensions.admin:' . $extensionRouteId],
+            ], function () use ($extensionAdminRoutes) {
+                require $extensionAdminRoutes;
+            });
+        }
+
         Route::get('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'view']);
         Route::put('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'update']);
         Route::post('/{extensionId}/toggle', [Application\Extensions\ExtensionsController::class, 'toggle']);
