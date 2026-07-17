@@ -68,10 +68,36 @@ planned semver-range matching.
 | Surface | Files | Mount / loader | Gate |
 |---|---|---|---|
 | Server page | `frontend/.../index.tsx` + `meta.json.route` | `pages/server/extensions/registry.ts` glob → sub-route under `/server/:id/extensions/<route>` | `extension.*` perm + `EnsureExtensionAccess` (config enabled, nest/egg eligibility, subuser disable) |
-| Client API routes | `app/.../routes/client.php` | globbed in `routes/api-client.php` | `extensions.access:<id>` middleware |
+| Client API routes | `app/.../routes/client.php` | globbed in `routes/api-client.php`, **skipped unless enabled** | not loaded when disabled + `extensions.access:<id>` middleware |
 | Admin page | `frontend/.../admin.tsx` + `meta.json.admin` | `routes/extensionAdmin.routes.ts` glob → `/admin/extensions/<route>` | `extensions.read` perm + `FeatureGate` + `f.extensions.active` includes id |
-| Admin API routes | `app/.../routes/admin.php` | globbed in `routes/api-application.php` under `/ext/<id>` | inherited admin auth stack + `extensions.admin:<id>` middleware |
-| Scheduled tasks / commands | `app/.../schedule.php`, `Console/Commands/` | `ExtensionScheduleService` + `Console\Kernel::commands()` | schedule.php loaded only for **enabled** extensions; commands should early-exit when disabled |
+| Admin API routes | `app/.../routes/admin.php` | globbed in `routes/api-application.php` under `/ext/<id>`, **skipped unless enabled** | not loaded when disabled + `extensions.admin:<id>` middleware |
+| Scheduled tasks / commands | `app/.../schedule.php`, `Console/Commands/` | `ExtensionScheduleService` + `Console\Kernel::commands()`, **skipped unless enabled** | schedule + command classes loaded only for **enabled** extensions (a disabled extension's commands are unregistered) |
+
+### Load-time enforcement (disabled = not loaded)
+
+`ExtensionConfig.enabled` is enforced at **load time**, not merely at request
+time. Every backend load site — the admin-routes glob, the client-routes glob,
+and the command-directory loader — first consults
+`ExtensionRuntimeGate::enabledExtensionIds()` and `require`s/`load`s **only**
+enabled extensions. A disabled extension's PHP is therefore never included, so
+its top-level code (route registrations, class static initializers, anything at
+file scope) cannot execute at all — the request-time middleware 404 is a second
+layer, not the primary boundary.
+
+`ExtensionRuntimeGate` is deliberately backed by the two live authorities and
+**no cache**: the filesystem glob only finds files that physically exist (so an
+uninstalled extension is gone) and the enabled set is queried live from
+`ExtensionConfig` (so a disabled extension is filtered out). There is no
+generated manifest that could go stale and re-admit removed or disabled code.
+
+Because extension routes are registered at boot from this set, a **cached route
+table** (`php artisan route:cache`) would freeze it. The panel does not cache
+routes by default; if you enable route caching, the admin controller clears a
+stale cache on enable/disable/install/uninstall, but you should re-run
+`route:cache` as part of any deploy. The frontend admin-page bundle is the one
+surface still gated only at runtime (the compiled JS ships regardless of enabled
+state) — this is intentional, since the JS is inert without the now-hardened
+API.
 
 ### Admin page discovery
 
@@ -167,9 +193,12 @@ and JS (built into the bundle). Security rests on:
   claimed by two extensions.
 - **Structural route security** — admin auth inherited, prefixes/middleware
   derived from directory names, `withoutMiddleware()` prohibited.
-- **Enabled-state gates** — every surface checks `ExtensionConfig.enabled`
-  (server: eligibility middleware; admin page: nav condition; admin API:
-  `extensions.admin`; scheduler: only loads enabled extensions).
+- **Load-time enabled gate** — a disabled extension's backend code is never
+  loaded: the admin-route, client-route, and command globs `require`/`load` only
+  ids returned by `ExtensionRuntimeGate::enabledExtensionIds()`, so its
+  top-level PHP cannot run at all. Request-time gates (`EnsureExtensionAccess`,
+  `extensions.admin`, the admin-page nav condition) remain as defense-in-depth.
+  See [Load-time enforcement](#load-time-enforcement-disabled--not-loaded).
 - **Table-namespace enforcement** — `ext_<id>_` prefix required.
 - **Manual review** — every extension is reviewed and approved before it enters
   the M12Labs-Extensions repo. The repo-side scanner

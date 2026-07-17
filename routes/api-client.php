@@ -387,7 +387,18 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             foreach ((glob(__DIR__ . '/extensions/client/*.php') ?: []) as $extensionRoutes) {
                 require $extensionRoutes;
             }
+
+            // Package-contributed server routes. Only enabled extensions are
+            // require()'d, so a disabled extension's route file (and any
+            // top-level code in it) never loads — enabled state is enforced at
+            // load time, not just by request-time middleware.
+            $enabledExtensionIds = \Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
             foreach ((glob(app_path('Extensions/Packages/*/routes/client.php')) ?: []) as $extensionRoutes) {
+                $extensionRouteId = basename(dirname(dirname($extensionRoutes)));
+                if (!in_array($extensionRouteId, $enabledExtensionIds, true)) {
+                    continue;
+                }
+
                 require $extensionRoutes;
             }
 

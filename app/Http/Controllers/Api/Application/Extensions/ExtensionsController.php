@@ -124,6 +124,8 @@ class ExtensionsController extends ApplicationApiController
             ->property('enabled', $config->enabled)
             ->log();
 
+        $this->flushExtensionRouteCache();
+
         return new JsonResponse([
             'object' => 'extension',
             'attributes' => $this->catalogService->getExtension($extensionId, true),
@@ -152,6 +154,8 @@ class ExtensionsController extends ApplicationApiController
             ->property('enabled', $config->enabled)
             ->log();
 
+        $this->flushExtensionRouteCache();
+
         return new JsonResponse([
             'object' => 'extension',
             'attributes' => $this->catalogService->getExtension($extensionId, true),
@@ -176,6 +180,8 @@ class ExtensionsController extends ApplicationApiController
             ->property('version', $package->installed_version)
             ->property('repository', $package->source_repository_name)
             ->log();
+
+        $this->flushExtensionRouteCache();
 
         return new JsonResponse([
             'object' => 'extension',
@@ -213,6 +219,8 @@ class ExtensionsController extends ApplicationApiController
                 ->log();
         }
 
+        $this->flushExtensionRouteCache();
+
         return new JsonResponse([
             'object' => 'extension',
             'attributes' => $this->catalogService->getExtension($extensionId, true) ?? [
@@ -225,6 +233,22 @@ class ExtensionsController extends ApplicationApiController
                 'manual_cleanup' => $result['manualCleanup'],
             ],
         ]);
+    }
+
+    /**
+     * Invalidate a cached route table after a change to which extensions load.
+     *
+     * Extension routes are registered at boot from the enabled set
+     * ({@see \Everest\Services\Extensions\ExtensionRuntimeGate}); a cached route
+     * table (php artisan route:cache) would freeze that set, so enabling,
+     * disabling, installing or removing an extension must clear it. This is a
+     * no-op on the default configuration, which does not cache routes.
+     */
+    private function flushExtensionRouteCache(): void
+    {
+        if (app()->routesAreCached()) {
+            \Illuminate\Support\Facades\Artisan::call('route:clear');
+        }
     }
 
     /**

@@ -35,7 +35,17 @@ class Kernel extends ConsoleKernel
         // scoped to Console/Commands directories: a wholesale load() over
         // Extensions/Packages would autoload-include route/schedule files and
         // execute their top-level Route:: calls at command registration time.
+        //
+        // Only enabled extensions are loaded, so a disabled extension's command
+        // classes are never registered — they do not appear in artisan and
+        // cannot be invoked at all until the extension is re-enabled.
+        $enabledExtensionIds = \Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
         foreach ((glob(app_path('Extensions/Packages/*/Console/Commands')) ?: []) as $extensionCommandDir) {
+            $extensionId = basename(dirname(dirname($extensionCommandDir)));
+            if (!in_array($extensionId, $enabledExtensionIds, true)) {
+                continue;
+            }
+
             $this->load($extensionCommandDir);
         }
     }

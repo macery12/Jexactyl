@@ -361,9 +361,18 @@ Route::middleware([AdminSubject::class])->group(function () {
         // namespace or escape its prefix, and the static /ext segment cannot
         // collide with the /{extensionId} wildcard below. Admin authentication
         // is inherited from the application-api stack wrapping this file; the
-        // extensions.admin middleware adds the installed + enabled gates.
+        // extensions.admin middleware adds a request-time defense-in-depth gate.
+        //
+        // Only enabled extensions are require()'d: a disabled extension's route
+        // file — and therefore any top-level code in it — is never loaded, so
+        // disabling an extension makes its code fully inert, not just 404'd.
+        $enabledExtensionIds = \Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
         foreach ((glob(app_path('Extensions/Packages/*/routes/admin.php')) ?: []) as $extensionAdminRoutes) {
             $extensionRouteId = basename(dirname(dirname($extensionAdminRoutes)));
+            if (!in_array($extensionRouteId, $enabledExtensionIds, true)) {
+                continue;
+            }
+
             Route::group([
                 'prefix' => '/ext/' . $extensionRouteId,
                 'middleware' => ['extensions.admin:' . $extensionRouteId],
