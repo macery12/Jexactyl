@@ -1,7 +1,7 @@
 import { m } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Puzzle, RefreshCw, Package, Power, ArrowUpCircle, GitBranch, Search } from 'lucide-react';
+import { Puzzle, RefreshCw, Package, Power, ArrowUpCircle, GitBranch, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
     type Extension,
     getExtensions,
@@ -11,15 +11,36 @@ import {
     refreshCatalog,
     toggleExtension,
     installExtension,
+    batchInstallExtensions,
+    batchUninstallExtensions,
+    batchUpdateExtensions,
 } from '@/api/extensions';
+import { BatchActionBar } from './BatchActionBar';
 import { Spinner } from '@/components/ui/Spinner';
 import { Input } from '@/components/ui/Input';
 import { useFlashes } from '@/state/flashes';
 import { cn } from '@/lib/cn';
-import { ExtensionCard } from './ExtensionCard';
+import { ExtensionsTable, type Sort, type SortKey } from './ExtensionsTable';
+import { extensionTone } from './extMeta';
 import { ExtensionManageDrawer } from './ExtensionManageDrawer';
 import { RepositoriesPanel } from './RepositoriesPanel';
 import { OperationProgressBanner } from './OperationProgress';
+
+const PAGE_SIZES = [25, 50, 100];
+
+// Sort rank for the status column: things needing attention float up.
+const STATUS_RANK: Record<string, number> = { update: 0, enabled: 1, installed: 2, available: 3, core: 4 };
+
+// Numeric-aware version compare (semver-ish; missing parts sort as 0).
+function compareVersion(a: string, b: string): number {
+    const pa = a.split('.').map(n => parseInt(n, 10) || 0);
+    const pb = b.split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d) return d;
+    }
+    return 0;
+}
 
 type Filter = 'all' | 'installed' | 'available' | 'updates';
 
@@ -45,6 +66,12 @@ export default function ExtensionsOverviewPage() {
     const [filter, setFilter] = useState<Filter>('all');
     const [search, setSearch] = useState('');
     const [selected, setSelected] = useState<Extension | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [sort, setSort] = useState<Sort>({ key: 'status', dir: 'asc' });
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
+    // Anchor index for shift-click range selection (indexes into the current page).
+    const lastSelectedIndex = useRef<number | null>(null);
 
     const extensionsQuery = useQuery({ queryKey: ['admin', 'extensions'], queryFn: getExtensions });
     const reposQuery = useQuery({ queryKey: ['admin', 'extension-repositories'], queryFn: getRepositories });
@@ -115,6 +142,98 @@ export default function ExtensionsOverviewPage() {
         onError: reportError,
     });
 
+    // ---- multi-select + batch actions -------------------------------------
+    const clearSelection = () => setSelectedIds(new Set());
+    const toggleSelect = (id: string) =>
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+
+    const selectedExts = useMemo(() => extensions.filter(e => selectedIds.has(e.id)), [extensions, selectedIds]);
+
+    // Eligibility per batch action (mirrors the per-card affordances).
+    const isManageable = (e: Extension) => e.installed && !e.installable;
+    const forInstall = selectedExts.filter(e => e.installable && e.source.repositoryId != null && e.compatible !== false);
+    const forUninstall = selectedExts.filter(e => e.canUninstall);
+    const forUpdate = selectedExts.filter(e => e.updateAvailable && e.source.repositoryId != null);
+    const forEnable = selectedExts.filter(e => isManageable(e) && !e.enabled);
+    const forDisable = selectedExts.filter(e => isManageable(e) && e.enabled);
+
+    const onBatchSuccess = (data: Extension[], messageFn: () => string) => {
+        qc.setQueryData(['admin', 'extensions'], data);
+        qc.invalidateQueries({ queryKey: ['admin', 'extension-repositories'] });
+        clearSelection();
+        push({ type: 'success', message: messageFn() });
+    };
+
+    const batchInstall = useMutation({
+        mutationFn: () =>
+            batchInstallExtensions(
+                forInstall.map(e => ({ extensionId: e.id, repositoryId: e.source.repositoryId!, version: e.latestVersion })),
+            ),
+        onSuccess: data => onBatchSuccess(data, () => m['extensions.toast.batchInstalled']({ count: forInstall.length })),
+        onError: reportError,
+    });
+
+    const batchUninstall = useMutation({
+        mutationFn: () => batchUninstallExtensions(forUninstall.map(e => e.id)),
+        onSuccess: data => onBatchSuccess(data, () => m['extensions.toast.batchUninstalled']({ count: forUninstall.length })),
+        onError: reportError,
+    });
+
+    const batchUpdate = useMutation({
+        mutationFn: () =>
+            batchUpdateExtensions(
+                forUpdate.map(e => ({ extensionId: e.id, repositoryId: e.source.repositoryId!, version: e.latestVersion })),
+            ),
+        onSuccess: data => onBatchSuccess(data, () => m['extensions.toast.batchUpdated']({ count: forUpdate.length })),
+        onError: reportError,
+    });
+
+    // Enable/disable have no batch endpoint; fan out single toggles and report
+    // an aggregate result (partial failures surface a warning).
+    const runToggleBatch = async (targets: Extension[]) => {
+        const results = await Promise.allSettled(targets.map(e => toggleExtension(e.id)));
+        return results.filter(r => r.status === 'rejected').length;
+    };
+
+    const batchEnable = useMutation({
+        mutationFn: () => runToggleBatch(forEnable),
+        onSuccess: failed => {
+            clearSelection();
+            qc.invalidateQueries({ queryKey: ['admin', 'extensions'] });
+            push(
+                failed > 0
+                    ? { type: 'warning', message: m['extensions.toast.batchPartial']({ succeeded: forEnable.length - failed, failed }) }
+                    : { type: 'success', message: m['extensions.toast.batchEnabled']({ count: forEnable.length }) },
+            );
+        },
+        onError: reportError,
+    });
+
+    const batchDisable = useMutation({
+        mutationFn: () => runToggleBatch(forDisable),
+        onSuccess: failed => {
+            clearSelection();
+            qc.invalidateQueries({ queryKey: ['admin', 'extensions'] });
+            push(
+                failed > 0
+                    ? { type: 'warning', message: m['extensions.toast.batchPartial']({ succeeded: forDisable.length - failed, failed }) }
+                    : { type: 'success', message: m['extensions.toast.batchDisabled']({ count: forDisable.length }) },
+            );
+        },
+        onError: reportError,
+    });
+
+    const batchBusy =
+        batchInstall.isPending ||
+        batchUninstall.isPending ||
+        batchUpdate.isPending ||
+        batchEnable.isPending ||
+        batchDisable.isPending;
+
     const counts = useMemo(() => {
         const installed = extensions.filter(e => e.installed).length;
         const enabled = extensions.filter(e => e.enabled).length;
@@ -148,6 +267,84 @@ export default function ExtensionsOverviewPage() {
 
     const togglingId = toggle.isPending ? toggle.variables?.id : undefined;
     const installingId = install.isPending ? install.variables?.id : undefined;
+
+    // Drop selections for extensions that fell out of the catalog (e.g. after an
+    // uninstall) so the batch bar never acts on stale ids.
+    useEffect(() => {
+        setSelectedIds(prev => {
+            const live = new Set(extensions.map(e => e.id));
+            const next = new Set([...prev].filter(id => live.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [extensions]);
+
+    // Sort the filtered set, then page it client-side (the full catalog arrives in
+    // one request, so search/sort/paging are all instant and need no round-trips).
+    const sorted = useMemo(() => {
+        const ver = (e: Extension) => (e.installed ? e.version : e.latestVersion);
+        const dir = sort.dir === 'asc' ? 1 : -1;
+        return [...visible].sort((a, b) => {
+            let r = 0;
+            switch (sort.key) {
+                case 'name':
+                    r = a.name.localeCompare(b.name);
+                    break;
+                case 'type':
+                    r = a.type.localeCompare(b.type);
+                    break;
+                case 'status':
+                    r = (STATUS_RANK[extensionTone(a)] ?? 9) - (STATUS_RANK[extensionTone(b)] ?? 9);
+                    break;
+                case 'version':
+                    r = compareVersion(ver(a), ver(b));
+                    break;
+            }
+            return (r || a.name.localeCompare(b.name)) * dir;
+        });
+    }, [visible, sort]);
+
+    const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+    const pageRows = useMemo(() => sorted.slice((page - 1) * pageSize, page * pageSize), [sorted, page, pageSize]);
+
+    // Reset to the first page whenever the result set or ordering changes, and
+    // clamp the page if the set shrank underneath the current position.
+    useEffect(() => setPage(1), [filter, search, sort, pageSize]);
+    useEffect(() => {
+        if (page > pageCount) setPage(pageCount);
+    }, [page, pageCount]);
+
+    const onSort = (key: SortKey) =>
+        setSort(prev => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+
+    // Header checkbox selects/deselects the current page's rows.
+    const allPageSelected = pageRows.length > 0 && pageRows.every(e => selectedIds.has(e.id));
+    const somePageSelected = !allPageSelected && pageRows.some(e => selectedIds.has(e.id));
+    const togglePage = () =>
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (allPageSelected) pageRows.forEach(e => next.delete(e.id));
+            else pageRows.forEach(e => next.add(e.id));
+            return next;
+        });
+
+    // Per-row selection with shift-click range support (adds the span between the
+    // last-clicked row and this one, always additive — matching file-list UIs).
+    const handleRowSelect = (index: number, shiftKey: boolean) => {
+        const row = pageRows[index];
+        if (!row) return;
+        if (shiftKey && lastSelectedIndex.current !== null) {
+            const lo = Math.min(lastSelectedIndex.current, index);
+            const hi = Math.max(lastSelectedIndex.current, index);
+            setSelectedIds(prev => {
+                const next = new Set(prev);
+                pageRows.slice(lo, hi + 1).forEach(e => next.add(e.id));
+                return next;
+            });
+        } else {
+            toggleSelect(row.id);
+        }
+        lastSelectedIndex.current = index;
+    };
 
     return (
         <div className="relative flex flex-col gap-4">
@@ -245,19 +442,31 @@ export default function ExtensionsOverviewPage() {
                     {visible.length === 0 ? (
                         <EmptyState search={search} hasAny={extensions.length > 0} />
                     ) : (
-                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                            {visible.map(ext => (
-                                <ExtensionCard
-                                    key={ext.id}
-                                    ext={ext}
-                                    locked={active}
-                                    toggling={togglingId === ext.id}
-                                    installing={installingId === ext.id}
-                                    onOpen={() => setSelected(ext)}
-                                    onToggle={() => toggle.mutate(ext)}
-                                    onInstall={() => install.mutate(ext)}
-                                />
-                            ))}
+                        <div className="flex flex-col gap-3">
+                            <ExtensionsTable
+                                rows={pageRows}
+                                selectedIds={selectedIds}
+                                sort={sort}
+                                onSort={onSort}
+                                allPageSelected={allPageSelected}
+                                somePageSelected={somePageSelected}
+                                onTogglePage={togglePage}
+                                locked={active || batchBusy}
+                                togglingId={togglingId}
+                                installingId={installingId}
+                                onOpen={ext => setSelected(ext)}
+                                onToggle={ext => toggle.mutate(ext)}
+                                onInstall={ext => install.mutate(ext)}
+                                onRowSelect={handleRowSelect}
+                            />
+                            <TablePagination
+                                total={sorted.length}
+                                page={page}
+                                pageCount={pageCount}
+                                pageSize={pageSize}
+                                onPage={setPage}
+                                onPageSize={setPageSize}
+                            />
                         </div>
                     )}
 
@@ -272,6 +481,101 @@ export default function ExtensionsOverviewPage() {
                 locked={active}
                 onClose={() => setSelected(null)}
             />
+
+            <BatchActionBar
+                count={selectedIds.size}
+                busy={batchBusy || active}
+                counts={{
+                    install: forInstall.length,
+                    uninstall: forUninstall.length,
+                    update: forUpdate.length,
+                    enable: forEnable.length,
+                    disable: forDisable.length,
+                }}
+                onClear={clearSelection}
+                onInstall={() => {
+                    const thirdParty = forInstall.some(e => !e.source.official);
+                    const msg = thirdParty
+                        ? m['extensions.select.confirmInstallThirdParty']({ count: forInstall.length })
+                        : m['extensions.select.confirmInstall']({ count: forInstall.length });
+                    if (window.confirm(msg)) batchInstall.mutate();
+                }}
+                onUninstall={() => {
+                    if (window.confirm(m['extensions.select.confirmUninstall']({ count: forUninstall.length }))) batchUninstall.mutate();
+                }}
+                onUpdate={() => {
+                    if (window.confirm(m['extensions.select.confirmUpdate']({ count: forUpdate.length }))) batchUpdate.mutate();
+                }}
+                onEnable={() => batchEnable.mutate()}
+                onDisable={() => {
+                    if (window.confirm(m['extensions.select.confirmDisable']({ count: forDisable.length }))) batchDisable.mutate();
+                }}
+            />
+        </div>
+    );
+}
+
+function TablePagination({
+    total,
+    page,
+    pageCount,
+    pageSize,
+    onPage,
+    onPageSize,
+}: {
+    total: number;
+    page: number;
+    pageCount: number;
+    pageSize: number;
+    onPage: (p: number) => void;
+    onPageSize: (n: number) => void;
+}) {
+    const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
+    const end = Math.min(page * pageSize, total);
+    return (
+        <div className="flex flex-col items-center justify-between gap-3 px-1 sm:flex-row">
+            <p className="text-xs tabular-nums text-[var(--color-ink-muted)]">
+                {m['extensions.table.showing']({ start, end, total })}
+            </p>
+            <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-xs text-[var(--color-ink-muted)]">
+                    {m['extensions.table.rowsPerPage']()}
+                    <select
+                        value={pageSize}
+                        onChange={e => onPageSize(Number(e.target.value))}
+                        className="h-8 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-xs text-[var(--color-ink)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/50"
+                    >
+                        {PAGE_SIZES.map(n => (
+                            <option key={n} value={n}>
+                                {n}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => onPage(page - 1)}
+                        disabled={page <= 1}
+                        aria-label={m['extensions.table.prev']()}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border-strong)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                        <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="min-w-[6.5rem] text-center text-xs tabular-nums text-[var(--color-ink-muted)]">
+                        {m['extensions.table.page']({ page, pages: pageCount })}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onPage(page + 1)}
+                        disabled={page >= pageCount}
+                        aria-label={m['extensions.table.next']()}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border-strong)] text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-40 disabled:hover:bg-transparent"
+                    >
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }

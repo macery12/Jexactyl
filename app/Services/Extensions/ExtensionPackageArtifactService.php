@@ -330,23 +330,34 @@ class ExtensionPackageArtifactService
     }
 
     /**
+     * Whether the running panel satisfies an extension's declared compatibility.
+     * An empty list means "no constraint" (always compatible). The single source
+     * of truth for compatibility — used both to gate installs and to surface the
+     * "incompatible" state in the catalog before an install is attempted.
+     *
+     * @param array<int, string> $versions
+     */
+    public function isCompatiblePanelVersions(array $versions): bool
+    {
+        $versions = array_values(array_filter($versions, 'is_string'));
+
+        return $versions === [] || in_array((string) config('app.version'), $versions, true);
+    }
+
+    /**
      * @param array<int, string> $versions
      */
     public function assertCompatiblePanelVersions(array $versions): void
     {
-        $versions = array_values(array_filter($versions, 'is_string'));
-        if ($versions === []) {
+        if ($this->isCompatiblePanelVersions($versions)) {
             return;
         }
 
-        $currentVersion = (string) config('app.version');
-        if (!in_array($currentVersion, $versions, true)) {
-            throw new DisplayException(sprintf(
-                'This extension package supports M12Labs panel versions %s. The current panel version is %s.',
-                implode(', ', $versions),
-                $currentVersion
-            ));
-        }
+        throw new DisplayException(sprintf(
+            'This extension package supports M12Labs panel versions %s. The current panel version is %s.',
+            implode(', ', array_values(array_filter($versions, 'is_string'))),
+            (string) config('app.version')
+        ));
     }
 
     public function normalizeTargetPath(string $path, string $extensionId): string

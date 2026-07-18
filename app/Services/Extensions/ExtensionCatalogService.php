@@ -17,8 +17,11 @@ use Throwable;
 
 class ExtensionCatalogService
 {
-    public function __construct(private ExtensionRepositoryBootstrapService $bootstrapService)
-    {
+    public function __construct(
+        private ExtensionRepositoryBootstrapService $bootstrapService,
+        private ExtensionMigrationService $migrationService,
+        private ExtensionPackageArtifactService $artifactService
+    ) {
     }
 
     /**
@@ -55,8 +58,12 @@ class ExtensionCatalogService
                 'installed' => true,
                 'installable' => false,
                 'canUninstall' => false,
+                'hasDatabase' => false,
                 'status' => 'core',
                 'updateAvailable' => false,
+                // Core + already-installed extensions are never gated on
+                // compatibility — they're on disk and running.
+                'compatible' => true,
                 'compatiblePanelVersions' => [],
                 'source' => [
                     'type' => 'core',
@@ -104,8 +111,15 @@ class ExtensionCatalogService
                 'installed' => true,
                 'installable' => false,
                 'canUninstall' => true,
+                // Whether this package ships a database (migrations). Drives
+                // whether the uninstall UI offers the drop-tables option, so the
+                // operator is never asked about data an extension never created.
+                'hasDatabase' => $this->migrationService->hasMigrations($package->extension_id),
                 'status' => 'installed',
                 'updateAvailable' => false,
+                // Installed packages (including manual uploads that may sit outside
+                // the declared range) are already on disk and never blocked.
+                'compatible' => true,
                 'compatiblePanelVersions' => array_values(array_filter((array) Arr::get($manifest, 'compatiblePanelVersions', []), 'is_string')),
                 'source' => [
                     'type' => 'repository',
@@ -158,15 +172,30 @@ class ExtensionCatalogService
 
                 foreach ($packages as $package) {
                     $extensionId = $package['id'];
-                    $latestRelease = $package['latestRelease'];
+                    // Surface the newest release the running panel can actually
+                    // install — not just the newest overall. A package may ship
+                    // (e.g.) a 2.0.0 for the current panel and an older 1.0.0 for
+                    // a previous one; picking blindly by recency would flag the
+                    // whole extension incompatible whenever the newest build
+                    // targets a different panel version.
+                    $latestRelease = $this->selectInstallableRelease($package['versions']);
                     $config = $configs->get($extensionId);
 
                     if (isset($localExtensions[$extensionId])) {
                         $localExtensions[$extensionId]['latestVersion'] = $latestRelease['version'];
                         $localExtensions[$extensionId]['compatiblePanelVersions'] = $latestRelease['compatiblePanelVersions'];
+                        // Only offer an update when the repository release is
+                        // strictly NEWER than what's installed. A plain `!==`
+                        // check mis-fires when a manually installed build is ahead
+                        // of the repo (e.g. local 2.0.0 vs published 1.0.0) and
+                        // would otherwise advertise a downgrade as an "update".
                         $localExtensions[$extensionId]['updateAvailable'] =
                             in_array($localExtensions[$extensionId]['status'], ['installed', 'core'], true)
-                            && $localExtensions[$extensionId]['version'] !== $latestRelease['version'];
+                            && version_compare(
+                                (string) $latestRelease['version'],
+                                (string) $localExtensions[$extensionId]['version'],
+                                '>'
+                            );
 
                         if ($this->shouldMirrorCoreExtensionFromRepository($localExtensions[$extensionId], $repository)) {
                             $localExtensions[$extensionId] = $this->mirrorCoreExtensionFromRepository(
@@ -198,8 +227,14 @@ class ExtensionCatalogService
                         'installed' => false,
                         'installable' => true,
                         'canUninstall' => false,
+                        'hasDatabase' => false,
                         'status' => 'available',
                         'updateAvailable' => false,
+                        // A repository fetch is gated on the panel version: an
+                        // incompatible release surfaces as "incompatible" and the
+                        // install button is blocked (the install service enforces
+                        // the same rule server-side).
+                        'compatible' => $this->artifactService->isCompatiblePanelVersions($latestRelease['compatiblePanelVersions'] ?? []),
                         'compatiblePanelVersions' => $latestRelease['compatiblePanelVersions'],
                         'source' => [
                             'type' => 'repository',
@@ -404,6 +439,28 @@ class ExtensionCatalogService
             ],
             'packages' => $packages,
         ];
+    }
+
+    /**
+     * Choose which repository release to surface for install/update. Releases
+     * arrive newest-first (see the usort in normalizeRepositoryManifest); we
+     * prefer the newest one the running panel can actually install. Only when
+     * NO release is compatible do we fall back to the newest overall — the
+     * extension then reads as "incompatible" and the install button is blocked,
+     * listing that release's requirements.
+     *
+     * @param array<int, array<string, mixed>> $versions newest-first
+     * @return array<string, mixed>
+     */
+    private function selectInstallableRelease(array $versions): array
+    {
+        foreach ($versions as $release) {
+            if ($this->artifactService->isCompatiblePanelVersions($release['compatiblePanelVersions'] ?? [])) {
+                return $release;
+            }
+        }
+
+        return $versions[0];
     }
 
     /**

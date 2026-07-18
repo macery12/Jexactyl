@@ -53,8 +53,16 @@ export interface Extension {
     installed: boolean;
     installable: boolean;
     canUninstall: boolean;
+    // True when the package ships migrations (i.e. it created database tables).
+    // The uninstall drawer only offers the drop-tables option when this is set.
+    hasDatabase: boolean;
     status: ExtensionStatus;
     updateAvailable: boolean;
+    // False only for an *available* (repository) extension whose declared
+    // compatiblePanelVersions exclude the running panel. Installed/core/manual
+    // extensions are always true — compatibility gates repo fetches, not what's
+    // already on disk. Drives the "incompatible" badge + a blocked Install button.
+    compatible: boolean;
     compatiblePanelVersions: string[];
     source: ExtensionSource;
 }
@@ -194,6 +202,9 @@ export interface RepositoryPayload {
     manifestUrl?: string;
     homepageUrl?: string | null;
     enabled?: boolean;
+    // Only required when adding a repository: the operator must acknowledge that
+    // a repository can run arbitrary code. The backend enforces `required|accepted`.
+    acknowledgeRisk?: boolean;
 }
 
 // POST /extensions/repositories — register a new repository.
@@ -203,6 +214,7 @@ export async function storeRepository(payload: RepositoryPayload): Promise<Repos
         manifest_url: payload.manifestUrl,
         homepage_url: payload.homepageUrl,
         enabled: payload.enabled,
+        acknowledge_risk: payload.acknowledgeRisk,
     });
     return data.attributes as Repository;
 }
@@ -221,4 +233,35 @@ export async function updateRepository(id: number, payload: RepositoryPayload): 
 // DELETE /extensions/repositories/{id} — remove a custom repository.
 export async function deleteRepository(id: number): Promise<void> {
     await http.delete(`${BASE}/repositories/${id}`);
+}
+
+// A single item in a batch install/update payload.
+export interface BatchInstallItem {
+    extensionId: string;
+    repositoryId: number;
+    version?: string;
+}
+
+// POST /extensions/batch-install — install several packages in one rebuild.
+export async function batchInstallExtensions(items: BatchInstallItem[]): Promise<Extension[]> {
+    const { data } = await http.post(`${BASE}/batch-install`, {
+        extensions: items.map(i => ({ extension_id: i.extensionId, repository_id: i.repositoryId, version: i.version })),
+    });
+    return (data.data ?? []) as Extension[];
+}
+
+// POST /extensions/batch-uninstall — remove several packages in one rebuild.
+// Data is always preserved for batch uninstalls; dropping tables stays a
+// single-extension, typed-confirmation operation.
+export async function batchUninstallExtensions(extensionIds: string[]): Promise<Extension[]> {
+    const { data } = await http.post(`${BASE}/batch-uninstall`, { extension_ids: extensionIds });
+    return (data.data ?? []) as Extension[];
+}
+
+// POST /extensions/batch-update — update several packages in one rebuild.
+export async function batchUpdateExtensions(items: BatchInstallItem[]): Promise<Extension[]> {
+    const { data } = await http.post(`${BASE}/batch-update`, {
+        extensions: items.map(i => ({ extension_id: i.extensionId, repository_id: i.repositoryId, version: i.version })),
+    });
+    return (data.data ?? []) as Extension[];
 }

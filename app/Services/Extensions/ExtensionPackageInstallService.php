@@ -263,8 +263,14 @@ class ExtensionPackageInstallService
             $backupRoot = storage_path('app/extensions/backups/' . $extensionId . '/' . Str::uuid()->toString());
 
             $this->assertExtensionNotInstalled($extensionId);
-            $this->artifactService->assertCompatiblePanelVersions($compatiblePanelVersions);
-            $this->artifactService->assertCompatiblePanelVersions(Arr::get($normalizedManifest, 'compatiblePanelVersions', []));
+            // Compatibility is enforced only for repository fetches. A manual
+            // package upload (sourceRepositoryId === null) is an explicit operator
+            // action and is trusted to run whatever it ships, so we never block it
+            // on the declared panel-version range.
+            if ($sourceRepositoryId !== null) {
+                $this->artifactService->assertCompatiblePanelVersions($compatiblePanelVersions);
+                $this->artifactService->assertCompatiblePanelVersions(Arr::get($normalizedManifest, 'compatiblePanelVersions', []));
+            }
             $this->ownershipService->repairStandardPaths($extensionId);
 
             $filePlans = $this->prepareFilePlans($extractPath, $normalizedManifest, $backupRoot, $extensionId);

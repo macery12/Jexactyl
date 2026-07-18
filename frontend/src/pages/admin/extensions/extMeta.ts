@@ -90,13 +90,15 @@ export function resolveExtensionIcon(name: string | null | undefined): LucideIco
     return ICONS[key] ?? Plug;
 }
 
-export type ExtensionTone = 'core' | 'enabled' | 'installed' | 'available' | 'update';
+export type ExtensionTone = 'core' | 'enabled' | 'installed' | 'available' | 'update' | 'incompatible';
 
 // A single derived "tone" drives every status-coloured surface for an extension
 // (badge, icon ring, accent) so the card and the drawer stay visually in sync.
 export function extensionTone(ext: Extension): ExtensionTone {
     if (ext.updateAvailable) return 'update';
-    if (ext.status === 'available') return 'available';
+    // An available repo release the panel can't run reads as "incompatible"
+    // (danger tone) rather than a plain, installable "available".
+    if (ext.status === 'available') return ext.compatible === false ? 'incompatible' : 'available';
     if (ext.status === 'core') return 'core';
     return ext.enabled ? 'enabled' : 'installed';
 }
@@ -112,6 +114,8 @@ export function toneVar(tone: ExtensionTone): string {
             return 'var(--color-warning)';
         case 'available':
             return 'var(--brand)';
+        case 'incompatible':
+            return 'var(--color-danger)';
         case 'core':
         case 'installed':
         default:
@@ -119,7 +123,12 @@ export function toneVar(tone: ExtensionTone): string {
     }
 }
 
-type ToneLabelKey = 'status.updateAvailable' | 'status.available' | 'status.core' | 'status.installed';
+type ToneLabelKey =
+    | 'status.updateAvailable'
+    | 'status.available'
+    | 'status.incompatible'
+    | 'status.core'
+    | 'status.installed';
 
 // i18n key (in the `extensions` namespace) for a tone's badge label.
 export function toneLabelKey(tone: ExtensionTone): ToneLabelKey {
@@ -128,6 +137,8 @@ export function toneLabelKey(tone: ExtensionTone): ToneLabelKey {
             return 'status.updateAvailable';
         case 'available':
             return 'status.available';
+        case 'incompatible':
+            return 'status.incompatible';
         case 'core':
             return 'status.core';
         case 'enabled':

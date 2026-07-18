@@ -181,6 +181,10 @@ function RepoFormModal({
     const [manifestUrl, setManifestUrl] = useState(repo?.manifestUrl ?? '');
     const [homepageUrl, setHomepageUrl] = useState(repo?.homepageUrl ?? '');
     const [enabled, setEnabled] = useState(repo?.enabled ?? true);
+    // Only new repositories require the risk acknowledgement (the backend enforces
+    // `acknowledge_risk` on store, not on update).
+    const [acknowledgeRisk, setAcknowledgeRisk] = useState(false);
+    const isNew = repo === null;
 
     const save = useMutation({
         mutationFn: () => {
@@ -189,6 +193,7 @@ function RepoFormModal({
                 manifestUrl: manifestUrl.trim(),
                 homepageUrl: homepageUrl.trim() || null,
                 enabled,
+                acknowledgeRisk,
             };
             return repo ? updateRepository(repo.id, payload) : storeRepository(payload);
         },
@@ -204,7 +209,7 @@ function RepoFormModal({
         },
     });
 
-    const valid = name.trim().length > 0 && manifestUrl.trim().length > 0;
+    const valid = name.trim().length > 0 && manifestUrl.trim().length > 0 && (!isNew || acknowledgeRisk);
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -266,6 +271,21 @@ function RepoFormModal({
                         <span className="text-xs text-[var(--color-ink-muted)]">{m['extensions.repos.form.enabled']()}</span>
                         <Switch checked={enabled} onChange={setEnabled} />
                     </div>
+
+                    {isNew && (
+                        <label
+                            className="flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs leading-relaxed text-[var(--color-ink-muted)]"
+                            style={{ borderColor: tint('var(--color-warning)', 35), background: tint('var(--color-warning)', 8) }}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={acknowledgeRisk}
+                                onChange={e => setAcknowledgeRisk(e.target.checked)}
+                                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--color-warning)]"
+                            />
+                            <span>{m['extensions.repos.form.acknowledgeRisk']()}</span>
+                        </label>
+                    )}
 
                     <div className="flex items-center justify-end gap-2 pt-1">
                         <button

@@ -232,6 +232,20 @@ export function ExtensionManageDrawer({
                         )}
                     </div>
 
+                    {e.installable && e.compatible === false && (
+                        <div
+                            className="flex gap-2 rounded-lg border px-3 py-2.5 text-xs leading-relaxed"
+                            style={{
+                                background: tint('var(--color-danger)', 10),
+                                borderColor: tint('var(--color-danger)', 30),
+                                color: 'var(--color-danger)',
+                            }}
+                        >
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                            <span>{m['extensions.drawer.incompatibleNote']()}</span>
+                        </div>
+                    )}
+
                     {e.installable ? null : (
                         <>
                             {/* enable */}
@@ -342,34 +356,42 @@ export function ExtensionManageDrawer({
                                             </button>
                                         </div>
 
-                                        {/* Data is preserved by default; dropping tables requires the
-                                            checkbox AND typing the extension id, mirroring the CLI. */}
-                                        <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--color-ink-muted)]">
-                                            <input
-                                                type="checkbox"
-                                                checked={dropData}
-                                                disabled={busy || locked}
-                                                onChange={ev => {
-                                                    setDropData(ev.target.checked);
-                                                    if (!ev.target.checked) setDropConfirm('');
-                                                }}
-                                                className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-danger)]"
-                                            />
-                                            <span>
-                                                {m['extensions.drawer.dropData']()}{' '}
-                                                <span className="text-[var(--color-danger)]">{m['extensions.drawer.dropDataWarning']()}</span>
-                                            </span>
-                                        </label>
-                                        {dropData && (
-                                            <Input
-                                                value={dropConfirm}
-                                                disabled={busy || locked}
-                                                placeholder={m['extensions.drawer.dropDataConfirm']({ id: e.id })}
-                                                onChange={ev => setDropConfirm(ev.target.value)}
-                                            />
-                                        )}
-                                        {!dropData && (
-                                            <p className="text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.dataPreservedHint']()}</p>
+                                        {/* The drop-tables option only exists for extensions that
+                                            actually created a database. Data is preserved by default;
+                                            dropping requires the checkbox AND typing the extension id,
+                                            mirroring the CLI. */}
+                                        {e.hasDatabase ? (
+                                            <>
+                                                <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--color-ink-muted)]">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={dropData}
+                                                        disabled={busy || locked}
+                                                        onChange={ev => {
+                                                            setDropData(ev.target.checked);
+                                                            if (!ev.target.checked) setDropConfirm('');
+                                                        }}
+                                                        className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-danger)]"
+                                                    />
+                                                    <span>
+                                                        {m['extensions.drawer.dropData']()}{' '}
+                                                        <span className="text-[var(--color-danger)]">{m['extensions.drawer.dropDataWarning']()}</span>
+                                                    </span>
+                                                </label>
+                                                {dropData && (
+                                                    <Input
+                                                        value={dropConfirm}
+                                                        disabled={busy || locked}
+                                                        placeholder={m['extensions.drawer.dropDataConfirm']({ id: e.id })}
+                                                        onChange={ev => setDropConfirm(ev.target.value)}
+                                                    />
+                                                )}
+                                                {!dropData && (
+                                                    <p className="text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.dataPreservedHint']()}</p>
+                                                )}
+                                            </>
+                                        ) : (
+                                            <p className="text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.noDatabaseHint']()}</p>
                                         )}
                                     </div>
                                 </Section>
@@ -381,15 +403,27 @@ export function ExtensionManageDrawer({
                 {/* footer actions */}
                 <footer className="flex shrink-0 items-center gap-2 border-t border-[var(--color-border)] p-4">
                     {e.installable ? (
-                        <button
-                            type="button"
-                            disabled={busy || locked || e.source.repositoryId == null}
-                            onClick={() => install.mutate()}
-                            className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
-                        >
-                            {install.isPending ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
-                            {install.isPending ? m['extensions.drawer.installing']() : m['extensions.drawer.installCta']()}
-                        </button>
+                        e.compatible === false ? (
+                            <button
+                                type="button"
+                                disabled
+                                title={m['extensions.incompatible.blocked']()}
+                                className="inline-flex h-10 flex-1 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-[var(--color-danger)]/40 text-sm font-medium text-[var(--color-danger)]"
+                            >
+                                <AlertTriangle className="h-4 w-4" />
+                                {m['extensions.status.incompatible']()}
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                disabled={busy || locked || e.source.repositoryId == null}
+                                onClick={() => install.mutate()}
+                                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
+                            >
+                                {install.isPending ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+                                {install.isPending ? m['extensions.drawer.installing']() : m['extensions.drawer.installCta']()}
+                            </button>
+                        )
                     ) : (
                         <>
                             {e.updateAvailable && (
