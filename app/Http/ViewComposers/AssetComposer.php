@@ -21,6 +21,7 @@ class AssetComposer
             'setup' => config('app.setup') ?? false,
             'debug' => env('APP_DEBUG') ?? false,
             'locale' => Setting::get('settings::app:locale') ?: (config('app.locale') ?: 'en'),
+            'user_locale' => boolval(config('app.user_locale', true)),
             'speed_dial' => boolval(config('app.speed_dial', false)),
             'indicators' => boolval(config('app.indicators', false)),
             'captcha' => [

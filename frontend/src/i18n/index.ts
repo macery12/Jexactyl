@@ -65,25 +65,35 @@ function isSupported(value: string | null | undefined): value is Locale {
     return !!value && (locales as readonly string[]).includes(value);
 }
 
-// Resolve the active locale. The panel is driven entirely by the GLOBAL default
-// admins set on /admin/settings (window.SiteConfiguration.locale, backed by
-// the app:locale setting). Precedence:
-//   1. the global panel default,
-//   2. the per-account field (window.PterodactylUser.language) — legacy fallback,
+// Resolve the active locale. Precedence:
+//   1. the user's own choice (users.language, picked on /settings) — but only
+//      while admins allow it (SiteConfiguration.user_locale / app:user_locale),
+//   2. the GLOBAL default admins set on /admin/settings
+//      (window.SiteConfiguration.locale, backed by the app:locale setting),
 //   3. the base locale ('en').
-// We intentionally do NOT read localStorage: there is no per-user picker yet, so
-// a stale per-browser value must never be able to mask the global default. When
-// a per-user picker ships it gets its own tier ABOVE the global default here.
+// We intentionally do NOT read localStorage: the account is the source of truth
+// so a user's choice follows them across browsers, and a stale per-browser
+// value can never mask the global default.
 // Anything not in `locales` is ignored so we never boot into a missing catalog.
 function resolveLocale(): Locale {
     const candidates = [
+        window.SiteConfiguration?.user_locale !== false ? window.PterodactylUser?.language : null,
         window.SiteConfiguration?.locale,
-        window.PterodactylUser?.language,
     ];
     for (const c of candidates) {
         if (isSupported(c)) return c;
     }
     return baseLocale;
+}
+
+/**
+ * The locale the panel falls back to when a user has no (allowed) preference —
+ * the admin-set global default, or the base locale. Used by the account picker
+ * to switch live when the user clears their preference.
+ */
+export function panelDefaultLocale(): Locale {
+    const global = window.SiteConfiguration?.locale;
+    return isSupported(global) ? global : baseLocale;
 }
 
 let currentLocale: Locale = resolveLocale();

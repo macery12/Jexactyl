@@ -11,6 +11,7 @@ use Everest\Services\Users\UserUpdateService;
 use Everest\Transformers\Api\Client\AccountTransformer;
 use Everest\Http\Requests\Api\Client\Account\SetupUserRequest;
 use Everest\Http\Requests\Api\Client\Account\UpdateEmailRequest;
+use Everest\Http\Requests\Api\Client\Account\UpdateLanguageRequest;
 use Everest\Http\Requests\Api\Client\Account\UpdatePasswordRequest;
 
 class AccountController extends ClientApiController
@@ -70,6 +71,26 @@ class AccountController extends ClientApiController
         }
 
         Activity::event('user:account.password-changed')->log();
+
+        return new JsonResponse([], Response::HTTP_NO_CONTENT);
+    }
+
+    /**
+     * Update the authenticated user's preferred panel language. A null value
+     * clears the preference so the account follows the panel-wide default.
+     */
+    public function updateLanguage(UpdateLanguageRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $original = $user->language;
+
+        $user->forceFill(['language' => $request->input('language')])->saveOrFail();
+
+        if ($original !== $user->language) {
+            Activity::event('user:account.language-changed')
+                ->property(['old' => $original, 'new' => $user->language])
+                ->log();
+        }
 
         return new JsonResponse([], Response::HTTP_NO_CONTENT);
     }

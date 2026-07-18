@@ -9,14 +9,12 @@ import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { useFullWidthContent } from '@/components/shell/shellLayout';
 import { StatusBadge, PriorityBadge, TICKET_STATUSES, type TicketStatus } from '@/components/tickets/meta';
 import { NewTicketModal } from './NewTicketModal';
 
 type Filter = 'all' | TicketStatus;
 
 export default function TicketsPage() {
-    useFullWidthContent();
     const tickets = useFlags(s => s.everest?.tickets);
     const [filter, setFilter] = useState<Filter>('all');
     const [creating, setCreating] = useState(false);
@@ -41,7 +39,7 @@ export default function TicketsPage() {
     const tabs: Filter[] = ['all', ...TICKET_STATUSES];
 
     return (
-        <div className="flex w-full flex-col gap-6">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
             <div className="flex items-start justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight">{m['tickets.title']()}</h1>
@@ -102,7 +100,7 @@ export default function TicketsPage() {
                             <li key={t.id}>
                                 <Link
                                     to={`/tickets/${t.id}`}
-                                    className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[var(--color-surface-2)]/50"
+                                    className="flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[var(--color-surface-2)]/50"
                                 >
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2">

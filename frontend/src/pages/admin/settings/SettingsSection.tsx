@@ -1,5 +1,5 @@
-import { m, setLocale } from '@/i18n';
-import { getLocale, locales, type Locale } from '@/paraglide/runtime';
+import { m } from '@/i18n';
+import { getLocale, locales } from '@/paraglide/runtime';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -8,6 +8,7 @@ import {
     LayoutPanelTop,
     Zap,
     Languages,
+    UserRound,
     Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +17,7 @@ import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
+import { stashFlash } from '@/lib/pendingFlash';
 import { cn } from '@/lib/cn';
 import { updateGeneralSettings } from '@/api/adminSettings';
 
@@ -58,6 +60,7 @@ interface GeneralForm {
     name: string;
     logo: string;
     locale: string;
+    userLocale: boolean;
     indicators: boolean;
     speedDial: boolean;
 }
@@ -70,6 +73,7 @@ export default function SettingsSection() {
         name: site?.name ?? '',
         logo: site?.logo ?? '',
         locale: site?.locale ?? getLocale(),
+        userLocale: site?.user_locale ?? true,
         indicators: site?.indicators ?? false,
         speedDial: site?.speed_dial ?? false,
     };
@@ -96,17 +100,27 @@ export default function SettingsSection() {
                 name: form.name.trim(),
                 logo: form.logo.trim() || null,
                 locale: form.locale,
+                user_locale: form.userLocale,
                 indicators: form.indicators,
                 speed_dial: form.speedDial,
             });
             // The default language is a GLOBAL setting (app:locale) — now saved
             // for every user's next load. Mirror it onto the in-memory
-            // SiteConfiguration so a re-render reads the new default, then switch
-            // this session's locale live (re-renders the app, no page reload).
-            if (window.SiteConfiguration) window.SiteConfiguration.locale = form.locale;
+            // SiteConfiguration so a re-render reads the new default.
+            if (window.SiteConfiguration) {
+                window.SiteConfiguration.locale = form.locale;
+                window.SiteConfiguration.user_locale = form.userLocale;
+            }
             setSaved(form);
+            if (localeChanged) {
+                // Reboot Paraglide in the new default via a reload rather than a
+                // live router remount, which races Radix portal teardown
+                // ("removeChild" crash). The flash is stashed so it survives.
+                stashFlash({ type: 'success', message: m['admin.settings.saved']() });
+                window.location.reload();
+                return;
+            }
             push({ type: 'success', message: m['admin.settings.saved']() });
-            if (localeChanged) setLocale(form.locale as Locale);
         } catch (err) {
             push({ type: 'error', message: firstError(err) ?? m['admin.settings.saveError']() });
         } finally {
@@ -224,6 +238,16 @@ export default function SettingsSection() {
                     })}
                 </div>
                 <p className="mt-3 text-xs text-[var(--color-ink-faint)]">{m['admin.settings.language.help']()}</p>
+
+                <div className="mt-4">
+                    <ToggleRow
+                        icon={UserRound}
+                        label={m['admin.settings.language.userLocale']()}
+                        help={m['admin.settings.language.userLocaleHelp']()}
+                        checked={form.userLocale}
+                        onChange={v => set('userLocale', v)}
+                    />
+                </div>
             </SectionCard>
 
             <div className="flex flex-wrap items-center justify-between gap-3">

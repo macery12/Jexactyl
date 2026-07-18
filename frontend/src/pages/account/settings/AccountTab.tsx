@@ -1,23 +1,27 @@
 import { m } from '@/i18n';
-import { BadgeCheck, ShieldAlert } from 'lucide-react';
+import { BadgeCheck, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
 import { SettingsCard } from './SettingsCard';
 import { EmailForm } from './EmailForm';
 import { PasswordForm } from './PasswordForm';
-import { TwoFactorCard } from './TwoFactorCard';
-import { RecoveryCodeCard } from './RecoveryCodeCard';
-import { DiscordCard } from './DiscordCard';
-import { BillingAddressCard } from './BillingAddressCard';
+import { TwoFactorRow } from './TwoFactorRow';
+import { RecoveryCodeRow } from './RecoveryCodeRow';
+import { DiscordRow } from './DiscordRow';
+import { BillingAddressRow } from './BillingAddressRow';
+import { LanguageCard } from './LanguageCard';
 
-// "Account" tab of the settings page: identity summary plus the email, password,
-// Discord and billing-address sections.
+// "Account" tab of the settings page: identity summary, the email and password
+// forms, and a single "Sign-in & security" card of compact rows (2FA, recovery
+// code, Discord, billing address).
 export function AccountTab() {
     const user = useSession(s => s.user);
     const flags = useFlags(s => s.everest);
 
     const discordEnabled = flags?.auth.modules.discord.enabled ?? false;
     const billingEnabled = flags?.billing.enabled ?? false;
+    // Admins can disable per-user language selection (app:user_locale).
+    const userLocaleAllowed = window.SiteConfiguration?.user_locale !== false;
 
     const memberSince = user?.created_at ? new Date(user.created_at).toLocaleDateString() : null;
 
@@ -68,10 +72,22 @@ export function AccountTab() {
 
             <EmailForm />
             <PasswordForm />
-            <TwoFactorCard />
-            <RecoveryCodeCard />
-            {discordEnabled && <DiscordCard />}
-            {billingEnabled && <BillingAddressCard />}
+
+            <SettingsCard
+                title={m['account.security.title']()}
+                description={m['account.security.description']()}
+                icon={ShieldCheck}
+                flush
+            >
+                <div className="divide-y divide-[var(--color-border)]">
+                    <TwoFactorRow />
+                    <RecoveryCodeRow />
+                    {discordEnabled && <DiscordRow />}
+                    {billingEnabled && <BillingAddressRow />}
+                </div>
+            </SettingsCard>
+
+            {userLocaleAllowed && <LanguageCard />}
         </div>
     );
 }

@@ -8,12 +8,15 @@ export function SettingsCard({
     description,
     icon: Icon,
     right,
+    flush,
     children,
 }: {
     title: string;
     description?: string;
     icon?: LucideIcon;
     right?: ReactNode;
+    // Flush cards let children (e.g. SettingsRow lists) own their padding.
+    flush?: boolean;
     children: ReactNode;
 }) {
     return (
@@ -30,7 +33,7 @@ export function SettingsCard({
                 </div>
                 {right && <div className="shrink-0">{right}</div>}
             </header>
-            <div className="px-5 py-5">{children}</div>
+            <div className={flush ? undefined : 'px-5 py-5'}>{children}</div>
         </section>
     );
 }

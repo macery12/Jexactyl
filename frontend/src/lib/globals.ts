@@ -8,7 +8,8 @@ export interface PterodactylUser {
     email: string;
     root_admin: boolean;
     use_totp: boolean;
-    language: string;
+    // null = no preference; the panel-wide default locale applies.
+    language: string | null;
     avatar_url: string;
     admin_role_name: string;
     admin_role_id?: number;
@@ -27,6 +28,8 @@ export interface SiteConfiguration {
     setup: boolean;
     debug: boolean;
     locale: string;
+    // Admin toggle (app:user_locale): may users override the panel language?
+    user_locale: boolean;
     speed_dial: boolean;
     indicators: boolean;
     captcha: { enabled: boolean; siteKey: string };

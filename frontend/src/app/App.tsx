@@ -16,6 +16,7 @@ import AdminLayout from '@/layouts/AdminLayout';
 import LandingPage from '@/pages/landing/LandingPage';
 import FeatureDisabled from '@/pages/_shared/FeatureDisabled';
 import AccessDenied from '@/pages/_shared/AccessDenied';
+import RouteError from '@/pages/_shared/RouteError';
 import NotFound from '@/pages/NotFound';
 import { can } from '@/lib/can';
 import { BASE } from '@/lib/base';
@@ -94,13 +95,16 @@ function RootArea() {
     return <DashboardLayout />;
 }
 
+// Every top-level route carries `errorElement` so an uncaught render error in
+// any child subtree surfaces the panel-styled RouteError fallback (with a reload
+// / back-home escape) instead of react-router's bare default error screen.
 const router = createBrowserRouter(
     [
-        { path: '/auth', element: <AuthLayout />, children: childRoutes(authRoutes, 'open') },
-        { path: '/server/:id', element: <ServerLayout />, children: childRoutes(serverRoutes, 'server') },
-        { path: '/admin', element: <AdminLayout />, children: childRoutes(adminRoutes, 'admin') },
-        { path: '/', element: <RootArea />, children: childRoutes(accountRoutes, 'open') },
-        { path: '*', element: <NotFound /> },
+        { path: '/auth', element: <AuthLayout />, errorElement: <RouteError />, children: childRoutes(authRoutes, 'open') },
+        { path: '/server/:id', element: <ServerLayout />, errorElement: <RouteError />, children: childRoutes(serverRoutes, 'server') },
+        { path: '/admin', element: <AdminLayout />, errorElement: <RouteError />, children: childRoutes(adminRoutes, 'admin') },
+        { path: '/', element: <RootArea />, errorElement: <RouteError />, children: childRoutes(accountRoutes, 'open') },
+        { path: '*', element: <NotFound />, errorElement: <RouteError /> },
     ],
     { basename: BASE },
 );

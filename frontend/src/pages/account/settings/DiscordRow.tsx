@@ -9,9 +9,9 @@ import { useFlashes } from '@/state/flashes';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { SettingsCard } from './SettingsCard';
+import { SettingsRow } from './SettingsRow';
 
-export function DiscordCard() {
+export function DiscordRow() {
     const user = useSession(s => s.user);
     const setUser = useSession(s => s.setUser);
     const push = useFlashes(s => s.push);
@@ -47,14 +47,13 @@ export function DiscordCard() {
     );
 
     return (
-        <SettingsCard
+        <SettingsRow
+            icon={MessageSquare}
             title={m['account.discord.title']()}
             description={m['account.discord.description']()}
-            icon={MessageSquare}
-            right={badge}
-        >
-            <div className="flex justify-end">
-                {linked ? (
+            badge={badge}
+            action={
+                linked ? (
                     <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
                         {m['account.discord.unlink']()}
                     </Button>
@@ -63,9 +62,9 @@ export function DiscordCard() {
                         {link.isPending && <Spinner className="h-4 w-4" />}
                         {m['account.discord.link']()}
                     </Button>
-                )}
-            </div>
-
+                )
+            }
+        >
             <ConfirmDialog
                 open={confirming}
                 onClose={() => setConfirming(false)}
@@ -76,6 +75,6 @@ export function DiscordCard() {
                 busy={unlink.isPending}
                 onConfirm={() => unlink.mutate()}
             />
-        </SettingsCard>
+        </SettingsRow>
     );
 }

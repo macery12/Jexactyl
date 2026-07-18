@@ -56,6 +56,8 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             ->name('api:client.account.update-email');
         Route::put('/password', [Client\AccountController::class, 'updatePassword'])
             ->name('api:client.account.update-password');
+        Route::put('/language', [Client\AccountController::class, 'updateLanguage'])
+            ->name('api:client.account.update-language');
         Route::post('/email/verification', [Client\EmailVerificationController::class, 'send'])
             ->name('api:client.account.email-verification')
             ->middleware('throttle:email-verification');

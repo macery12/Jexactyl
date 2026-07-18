@@ -48,22 +48,39 @@ export default function ApiKeyCreateModal({ open, onClose }: { open: boolean; on
     });
 
     const canSubmit = description.trim().length >= 4;
+    const revealed = token !== null;
 
-    // Token-reveal view — replaces the form once the key is minted.
-    if (token) {
-        return (
-            <Modal
-                open={open}
-                onClose={onClose}
-                title={m['account.credentials.api.tokenTitle']()}
-                description={m['account.credentials.api.tokenSubtitle']()}
-                footer={
-                    <Button size="sm" onClick={onClose}>
+    // One stable Modal for both phases (form → token reveal). Swapping the whole
+    // <Modal> conditionally reconciled two very different trees onto the same
+    // live Radix Dialog, desyncing its portal DOM ("insertBefore" crash). Here
+    // the Dialog stays mounted and only the keyed body/footer swap as clean
+    // subtree replacements.
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            title={revealed ? m['account.credentials.api.tokenTitle']() : m['account.credentials.api.createTitle']()}
+            description={revealed ? m['account.credentials.api.tokenSubtitle']() : m['account.credentials.api.createSubtitle']()}
+            footer={
+                revealed ? (
+                    <Button key="reveal-footer" size="sm" onClick={onClose}>
                         {m['common.actions.close']()}
                     </Button>
-                }
-            >
-                <div className="flex flex-col gap-3">
+                ) : (
+                    <div key="form-footer" className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={onClose} disabled={mutation.isPending}>
+                            {m['common.actions.cancel']()}
+                        </Button>
+                        <Button size="sm" onClick={() => mutation.mutate()} disabled={!canSubmit || mutation.isPending}>
+                            {mutation.isPending && <Spinner className="h-4 w-4" />}
+                            {m['common.actions.create']()}
+                        </Button>
+                    </div>
+                )
+            }
+        >
+            {revealed ? (
+                <div key="reveal" className="flex flex-col gap-3">
                     <p className="flex items-start gap-2 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-sm text-[var(--color-warning)]">
                         <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
                         {m['account.credentials.api.tokenWarning']()}
@@ -91,59 +108,39 @@ export default function ApiKeyCreateModal({ open, onClose }: { open: boolean; on
                         </Button>
                     </div>
                 </div>
-            </Modal>
-        );
-    }
+            ) : (
+                <div key="form" className="flex flex-col gap-4">
+                    {error && (
+                        <p className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
+                            {error}
+                        </p>
+                    )}
 
-    return (
-        <Modal
-            open={open}
-            onClose={onClose}
-            title={m['account.credentials.api.createTitle']()}
-            description={m['account.credentials.api.createSubtitle']()}
-            footer={
-                <>
-                    <Button variant="ghost" size="sm" onClick={onClose} disabled={mutation.isPending}>
-                        {m['common.actions.cancel']()}
-                    </Button>
-                    <Button size="sm" onClick={() => mutation.mutate()} disabled={!canSubmit || mutation.isPending}>
-                        {mutation.isPending && <Spinner className="h-4 w-4" />}
-                        {m['common.actions.create']()}
-                    </Button>
-                </>
-            }
-        >
-            <div className="flex flex-col gap-4">
-                {error && (
-                    <p className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
-                        {error}
-                    </p>
-                )}
+                    <Field
+                        label={m['account.credentials.api.form.description']()}
+                        hint={m['account.credentials.api.form.descriptionHint']()}
+                    >
+                        <Input
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                            autoComplete="off"
+                            maxLength={500}
+                        />
+                    </Field>
 
-                <Field
-                    label={m['account.credentials.api.form.description']()}
-                    hint={m['account.credentials.api.form.descriptionHint']()}
-                >
-                    <Input
-                        value={description}
-                        onChange={e => setDescription(e.target.value)}
-                        autoComplete="off"
-                        maxLength={500}
-                    />
-                </Field>
-
-                <Field
-                    label={m['account.credentials.api.form.allowedIps']()}
-                    hint={m['account.credentials.api.form.allowedIpsHint']()}
-                >
-                    <Textarea
-                        value={allowedIps}
-                        onChange={e => setAllowedIps(e.target.value)}
-                        rows={4}
-                        spellCheck={false}
-                    />
-                </Field>
-            </div>
+                    <Field
+                        label={m['account.credentials.api.form.allowedIps']()}
+                        hint={m['account.credentials.api.form.allowedIpsHint']()}
+                    >
+                        <Textarea
+                            value={allowedIps}
+                            onChange={e => setAllowedIps(e.target.value)}
+                            rows={4}
+                            spellCheck={false}
+                        />
+                    </Field>
+                </div>
+            )}
         </Modal>
     );
 }

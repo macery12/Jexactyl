@@ -12,6 +12,8 @@ export interface GeneralSettings {
     name: string;
     logo: string | null;
     locale: string;
+    // Whether users may override the panel language from their account settings.
+    user_locale: boolean;
     indicators: boolean;
     speed_dial: boolean;
 }
@@ -23,6 +25,7 @@ export async function updateGeneralSettings(values: GeneralSettings): Promise<vo
         'app:name': values.name,
         'app:logo': values.logo || null,
         'app:locale': values.locale,
+        'app:user_locale': values.user_locale,
         'app:indicators': values.indicators,
         'app:speed_dial': values.speed_dial,
     });

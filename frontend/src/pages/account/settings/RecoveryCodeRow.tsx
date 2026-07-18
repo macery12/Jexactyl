@@ -9,12 +9,12 @@ import { Modal } from '@/components/ui/Modal';
 import { Input, Field } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { RecoveryCodeDisplay } from '@/components/auth/RecoveryCodeDisplay';
-import { SettingsCard } from './SettingsCard';
+import { SettingsRow } from './SettingsRow';
 
-// Offline recovery code section. The stored code is hashed and can never be shown
+// Offline recovery code row. The stored code is hashed and can never be shown
 // again, so "reveal" regenerates: it re-auths with the password, mints a fresh code
 // (invalidating the old one), and displays it exactly once.
-export function RecoveryCodeCard() {
+export function RecoveryCodeRow() {
     const queryClient = useQueryClient();
     const [open, setOpen] = useState(false);
 
@@ -36,34 +36,24 @@ export function RecoveryCodeCard() {
     );
 
     return (
-        <SettingsCardShell badge={badge}>
-            <div className="flex justify-end">
+        <SettingsRow
+            icon={KeyRound}
+            title={m['account.recoveryCode.title']()}
+            description={m['account.recoveryCode.description']()}
+            badge={badge}
+            action={
                 <Button size="sm" onClick={() => setOpen(true)}>
                     {m['account.recoveryCode.reveal']()}
                 </Button>
-            </div>
-
+            }
+        >
             {open && (
                 <RevealModal
                     onClose={() => setOpen(false)}
                     onGenerated={() => queryClient.invalidateQueries({ queryKey: ['account', 'recovery-code', 'status'] })}
                 />
             )}
-        </SettingsCardShell>
-    );
-}
-
-// Small wrapper so the card header/title live in one place.
-function SettingsCardShell({ badge, children }: { badge: React.ReactNode; children: React.ReactNode }) {
-    return (
-        <SettingsCard
-            title={m['account.recoveryCode.title']()}
-            description={m['account.recoveryCode.description']()}
-            icon={KeyRound}
-            right={badge}
-        >
-            {children}
-        </SettingsCard>
+        </SettingsRow>
     );
 }
 

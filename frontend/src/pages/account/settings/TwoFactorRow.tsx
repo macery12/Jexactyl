@@ -1,13 +1,13 @@
 import { m } from '@/i18n';
 import { useState } from 'react';
-import { ShieldCheck, Check } from 'lucide-react';
+import { Smartphone, Check } from 'lucide-react';
 import { useSession } from '@/state/session';
 import { Button } from '@/components/ui/Button';
-import { SettingsCard } from './SettingsCard';
+import { SettingsRow } from './SettingsRow';
 import { TwoFactorSetupModal } from './TwoFactorSetupModal';
 import { DisableTwoFactorModal } from './DisableTwoFactorModal';
 
-export function TwoFactorCard() {
+export function TwoFactorRow() {
     const user = useSession(s => s.user);
     const setUser = useSession(s => s.setUser);
     const [setup, setSetup] = useState(false);
@@ -29,14 +29,13 @@ export function TwoFactorCard() {
     );
 
     return (
-        <SettingsCard
+        <SettingsRow
+            icon={Smartphone}
             title={m['account.twoFactor.title']()}
             description={m['account.twoFactor.description']()}
-            icon={ShieldCheck}
-            right={badge}
-        >
-            <div className="flex justify-end">
-                {enabled ? (
+            badge={badge}
+            action={
+                enabled ? (
                     <Button variant="outline" size="sm" onClick={() => setDisable(true)}>
                         {m['account.twoFactor.disable']()}
                     </Button>
@@ -44,9 +43,9 @@ export function TwoFactorCard() {
                     <Button size="sm" onClick={() => setSetup(true)}>
                         {m['account.twoFactor.enable']()}
                     </Button>
-                )}
-            </div>
-
+                )
+            }
+        >
             {setup && (
                 <TwoFactorSetupModal
                     open
@@ -61,6 +60,6 @@ export function TwoFactorCard() {
                     onDisabled={() => setUseTotp(false)}
                 />
             )}
-        </SettingsCard>
+        </SettingsRow>
     );
 }

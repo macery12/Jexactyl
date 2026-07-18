@@ -22,6 +22,12 @@ export async function updatePassword({ current, password, confirmPassword }: Upd
     });
 }
 
+// Save the user's preferred panel language; null clears the preference so the
+// account follows the panel-wide default. 403s when admins disabled overrides.
+export async function updateLanguage(language: string | null): Promise<void> {
+    await http.put('/api/client/account/language', { language });
+}
+
 // ---- discord ---------------------------------------------------------------
 
 // Returns the OAuth URL to redirect the browser to for linking. The unlink
