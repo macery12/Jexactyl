@@ -1,6 +1,16 @@
 @import 'tailwindcss';
 
 /*
+ * Installed extension frontends live in a gitignored directory (they are runtime
+ * artifacts written by the extension installer, not tracked source). Tailwind v4's
+ * automatic content detection skips .gitignore'd paths, so any utility class used
+ * ONLY by an extension — and nowhere in core panel code — would be dropped from the
+ * compiled CSS (e.g. `invisible` / `group-hover:visible`, breaking tooltips).
+ * Registering the path explicitly forces Tailwind to scan it regardless.
+ */
+@source "../extensions/packages";
+
+/*
  * v2 design tokens. Runtime theme values (from window.ThemeConfiguration) are
  * applied to these CSS variables by lib/theme.ts → applyThemeVars(); the values
  * below are the dark-first M12Labs Blue defaults so the app renders correctly
