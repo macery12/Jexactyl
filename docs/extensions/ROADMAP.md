@@ -21,13 +21,6 @@ created/deleted, user registered, power action, backup completed…).
 - Scanner: add rules for hook files (no arbitrary `Event::listen`, allowlist
   membership).
 
-## Full admin-API capability
-
-Stage 1 ships the `routes/admin.php` glob. Still to formalize: documented
-conventions for versioning extension admin endpoints, response envelopes, and
-per-extension rate limits; scanner rules asserting every admin controller
-action uses a FormRequest.
-
 ## Per-extension admin permission keys
 
 Today admin pages/APIs gate on the static `extensions.read` panel permission.
@@ -51,34 +44,49 @@ Promote extension server pages from the Extensions gallery to first-class
 entries in the server sidebar (icon/label), gated by the same eligibility
 middleware.
 
-## Paraglide message fragments for extensions
-
-Extensions currently ship literal English strings because `frontend/messages/`
-is outside the install allowlist. Plan: let packages ship a `messages/`
-fragment merged into the Paraglide compile input at panel-build time. Requires
-extending the allowlist (or a merge step) and the build pipeline.
-
-## Semver-range panel compatibility
-
-Replace the exact-string `compatiblePanelVersions` match
-(`assertCompatiblePanelVersions`) with semver-range matching (e.g. `>=Alpha
-3.0 <Alpha 4.0`), so packages don't need republishing for every panel point
-release.
-
 ## Signed packages / publisher keys
 
 Add publisher signatures over the archive (beyond integrity checksums) so the
 panel can verify provenance, not just that the bytes are intact.
-
-## Runtime route-guard audit (defense-in-depth)
-
-`withoutMiddleware()` in an extension route file can strip inherited admin auth
-at boot. Stage 1 mitigates via scanner block + review. A post-boot audit of the
-route collection could assert every `/ext/<id>` route still carries the admin
-middleware and fail loudly (or drop the route) otherwise.
 
 ## Batch drop-data
 
 Stage 1 restricts the audited data-drop to single-extension uninstall. A batch
 drop-data flow (with the same per-extension audit logging and confirmation)
 could follow if needed.
+
+## DONE
+
+### Full admin-API capability (2026-07-19)
+
+Extension admin endpoints now have a formal contract (architecture.md
+"Extension admin API contract"): a per-user-per-extension rate limiter
+(`throttle:api.ext-admin`, default 60/min, asserted by the route guard),
+a response-envelope trait (`RespondsWithExtensionEnvelope`), an explicit
+no-URL-versioning stance (frontend/backend ship in lockstep), and scanner
+`block` rules — no closure route handlers, every public controller action
+takes a FormRequest, admin FormRequests define `permission()`.
+`node_health_history` refactored as the reference.
+
+### Semver-range panel compatibility (2026-07-19)
+
+`compatiblePanelVersions` entries now accept semver-range constraints
+(`>=Alpha 3.0 <Alpha 4.0`, `^3.1`, `3.x`) alongside the original exact strings.
+`PanelVersionCompatibilityService` normalizes the panel's `<Stage> <number>`
+scheme to semver (`Alpha 3.0` → `3.0-alpha`) and matches via `composer/semver`
+(now a direct dependency). See architecture.md "Manifest" section.
+
+### Runtime route-guard audit (2026-07-19)
+
+`ExtensionRouteGuardService` audits every route a package route file registers
+(admin and client globs), right after the `require` — so the verdict is baked
+into `route:cache`. Routes with middleware exclusions or a missing
+`extensions.admin:<id>` gate are dropped to a 404
+(`BlockedExtensionRouteController`) and reported via `report()`.
+
+### Paraglide message fragments for extensions (2026-07-19)
+
+Extensions ship localized UI via `messages/<locale>.json` fragments
+(namespaced `ext.<id>.`), merged into a second Paraglide pathPattern at panel
+build time — no install-allowlist change needed. `node_health_history` is the
+en-only pilot; consume via `td()` with fallback.

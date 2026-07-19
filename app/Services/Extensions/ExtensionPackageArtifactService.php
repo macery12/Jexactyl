@@ -14,6 +14,11 @@ class ExtensionPackageArtifactService
     public const MANIFEST_FILENAME = 'm12labs-extension.json';
     public const PACKAGE_ARTIFACT_FILENAME = 'package.M12LabsExtension';
 
+    public function __construct(
+        private PanelVersionCompatibilityService $panelVersionCompatibility
+    ) {
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -339,9 +344,10 @@ class ExtensionPackageArtifactService
      */
     public function isCompatiblePanelVersions(array $versions): bool
     {
-        $versions = array_values(array_filter($versions, 'is_string'));
-
-        return $versions === [] || in_array((string) config('app.version'), $versions, true);
+        return $this->panelVersionCompatibility->satisfiedBy(
+            (string) config('app.version'),
+            array_values(array_filter($versions, 'is_string'))
+        );
     }
 
     /**
@@ -354,7 +360,7 @@ class ExtensionPackageArtifactService
         }
 
         throw new DisplayException(sprintf(
-            'This extension package supports M12Labs panel versions %s. The current panel version is %s.',
+            'This extension package supports M12Labs panel versions %s (exact versions or semver ranges). The current panel version is %s.',
             implode(', ', array_values(array_filter($versions, 'is_string'))),
             (string) config('app.version')
         ));

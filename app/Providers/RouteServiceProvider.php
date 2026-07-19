@@ -6,8 +6,8 @@ use Everest\Models\Database;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Everest\Http\Middleware\TrimStrings;
-use Everest\Http\Middleware\ApiDocsAccess;
 use Illuminate\Cache\RateLimiting\Limit;
+use Everest\Http\Middleware\ApiDocsAccess;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Middleware\AdminAuthenticate;
 use Everest\Http\Middleware\RequireTwoFactorAuthentication;
@@ -123,6 +123,23 @@ class RouteServiceProvider extends ServiceProvider
                 config('http.rate_limit.application_period'),
                 config('http.rate_limit.application')
             )->by($key);
+        });
+
+        // Extension-contributed admin routes get their own, tighter budget so a
+        // chatty extension dashboard cannot exhaust the global application
+        // limit above (which still applies on top). Keyed per user *and* per
+        // extension — one extension hitting its limit never 429s another.
+        RateLimiter::for('api.ext-admin', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+
+            $extensionId = preg_match('~extensions/ext/([^/]+)~', $request->path(), $matches) === 1
+                ? $matches[1]
+                : 'unknown';
+
+            return Limit::perMinutes(
+                config('http.rate_limit.ext_admin_period'),
+                config('http.rate_limit.ext_admin')
+            )->by('ext-admin:' . $extensionId . ':' . $key);
         });
 
         RateLimiter::for('password-reset-ip', fn (Request $request) => Limit::perMinutes(3, 20)->by($request->ip()));

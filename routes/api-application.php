@@ -270,21 +270,21 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::post('/test-smtp', [Application\EmailController::class, 'testSmtpConnection']);
         Route::post('/test-resend', [Application\EmailController::class, 'testResendConnection']);
         Route::post('/test', [Application\EmailController::class, 'sendTest']);
-        
+
         // Email notification settings
         Route::get('/notifications', [Application\EmailController::class, 'getNotificationSettings']);
         Route::put('/notifications/{id}', [Application\EmailController::class, 'updateNotificationSetting']);
-        
+
         // Email quota management
         Route::get('/quotas', [Application\EmailController::class, 'getQuotaInfo']);
         Route::get('/quotas/user/{userId}', [Application\EmailController::class, 'getUserQuota']);
         Route::put('/quotas/user/{userId}', [Application\EmailController::class, 'updateUserQuota']);
-        
+
         // Email activity logs
         Route::get('/logs', [Application\EmailActivityController::class, 'index']);
         Route::get('/logs/templates', [Application\EmailActivityController::class, 'getTemplateKeys']);
         Route::get('/logs/{id}', [Application\EmailActivityController::class, 'show']);
-        
+
         // Deferred email queue
         Route::get('/deferred', [Application\EmailActivityController::class, 'getDeferredQueue']);
         Route::post('/deferred/{id}/send-now', [Application\EmailActivityController::class, 'sendDeferredNow']);
@@ -366,19 +366,30 @@ Route::middleware([AdminSubject::class])->group(function () {
         // Only enabled extensions are require()'d: a disabled extension's route
         // file — and therefore any top-level code in it — is never loaded, so
         // disabling an extension makes its code fully inert, not just 404'd.
-        $enabledExtensionIds = \Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+        //
+        // Every route the file registers is audited immediately afterwards
+        // (ExtensionRouteGuardService): a route that strips its inherited
+        // middleware or loses the extensions.admin gate is dropped to a 404.
+        $enabledExtensionIds = Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+        $extensionRouteGuard = app(Everest\Services\Extensions\ExtensionRouteGuardService::class);
         foreach ((glob(app_path('Extensions/Packages/*/routes/admin.php')) ?: []) as $extensionAdminRoutes) {
             $extensionRouteId = basename(dirname(dirname($extensionAdminRoutes)));
             if (!in_array($extensionRouteId, $enabledExtensionIds, true)) {
                 continue;
             }
 
-            Route::group([
-                'prefix' => '/ext/' . $extensionRouteId,
-                'middleware' => ['extensions.admin:' . $extensionRouteId],
-            ], function () use ($extensionAdminRoutes) {
-                require $extensionAdminRoutes;
-            });
+            $extensionRouteGuard->registerAndAudit(
+                $extensionRouteId,
+                ['extensions.admin:' . $extensionRouteId, 'throttle:api.ext-admin'],
+                function () use ($extensionRouteId, $extensionAdminRoutes) {
+                    Route::group([
+                        'prefix' => '/ext/' . $extensionRouteId,
+                        'middleware' => ['extensions.admin:' . $extensionRouteId, 'throttle:api.ext-admin'],
+                    ], function () use ($extensionAdminRoutes) {
+                        require $extensionAdminRoutes;
+                    });
+                }
+            );
         }
 
         Route::get('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'view']);

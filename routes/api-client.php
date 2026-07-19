@@ -62,9 +62,9 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             ->name('api:client.account.email-verification')
             ->middleware('throttle:email-verification');
 
-        Route::post('/discord/link', [\Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'requestLinkToken'])
+        Route::post('/discord/link', [Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'requestLinkToken'])
             ->name('api:client.account.discord.link');
-        Route::post('/discord/unlink', [\Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'unlinkDiscord'])
+        Route::post('/discord/unlink', [Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'unlinkDiscord'])
             ->name('api:client.account.discord.unlink');
 
         Route::get('/activity', Client\ActivityLogController::class)
@@ -394,14 +394,25 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             // require()'d, so a disabled extension's route file (and any
             // top-level code in it) never loads — enabled state is enforced at
             // load time, not just by request-time middleware.
-            $enabledExtensionIds = \Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+            //
+            // Every route the file registers is audited immediately afterwards
+            // (ExtensionRouteGuardService): a route that strips inherited
+            // middleware via withoutMiddleware() is dropped to a 404.
+            $enabledExtensionIds = Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+            $extensionRouteGuard = app(Everest\Services\Extensions\ExtensionRouteGuardService::class);
             foreach ((glob(app_path('Extensions/Packages/*/routes/client.php')) ?: []) as $extensionRoutes) {
                 $extensionRouteId = basename(dirname(dirname($extensionRoutes)));
                 if (!in_array($extensionRouteId, $enabledExtensionIds, true)) {
                     continue;
                 }
 
-                require $extensionRoutes;
+                $extensionRouteGuard->registerAndAudit(
+                    $extensionRouteId,
+                    [],
+                    function () use ($extensionRoutes) {
+                        require $extensionRoutes;
+                    }
+                );
             }
 
             // Extension check route (must come AFTER specific extension routes)

@@ -59,9 +59,15 @@ malformed `admin` blocks; a `backend.migrations`/`backend.schedule` declaration
 that disagrees with the actual file list; and any v2 feature under a v1
 manifest.
 
-`compatiblePanelVersions` is currently an **exact string match** against
-`config('app.version')` (today `Alpha 3.0`). See [ROADMAP](ROADMAP.md) for the
-planned semver-range matching.
+`compatiblePanelVersions` entries are matched against `config('app.version')`
+(today `Alpha 3.0`) by `PanelVersionCompatibilityService`. Each entry may be an
+**exact version string** (`"Alpha 3.0"` — the original contract, still
+supported) or a **semver-range constraint** (`">=Alpha 3.0 <Alpha 4.0"`,
+`"^3.1"`, `"3.x"`), so packages don't need republishing for every panel point
+release. Because panel versions aren't valid semver, both sides are normalized
+before matching (`Alpha 3.0` → `3.0-alpha`), which also makes release stages
+order correctly: `3.0-alpha < 3.0-beta < 3.0 < 4.0-alpha`. An empty list means
+"compatible with everything"; an unparseable entry can only match exactly.
 
 ## The five surfaces
 
@@ -70,7 +76,7 @@ planned semver-range matching.
 | Server page | `frontend/.../index.tsx` + `meta.json.route` | `pages/server/extensions/registry.ts` glob → sub-route under `/server/:id/extensions/<route>` | `extension.*` perm + `EnsureExtensionAccess` (config enabled, nest/egg eligibility, subuser disable) |
 | Client API routes | `app/.../routes/client.php` | globbed in `routes/api-client.php`, **skipped unless enabled** | not loaded when disabled + `extensions.access:<id>` middleware |
 | Admin page | `frontend/.../admin.tsx` + `meta.json.admin` | `routes/extensionAdmin.routes.ts` glob → `/admin/extensions/<route>` | `extensions.read` perm + `FeatureGate` + `f.extensions.active` includes id |
-| Admin API routes | `app/.../routes/admin.php` | globbed in `routes/api-application.php` under `/ext/<id>`, **skipped unless enabled** | not loaded when disabled + `extensions.admin:<id>` middleware |
+| Admin API routes | `app/.../routes/admin.php` | globbed in `routes/api-application.php` under `/ext/<id>`, **skipped unless enabled** | not loaded when disabled + `extensions.admin:<id>` middleware + `throttle:api.ext-admin` (per user per extension) |
 | Scheduled tasks / commands | `app/.../schedule.php`, `Console/Commands/` | `ExtensionScheduleService` + `Console\Kernel::commands()`, **skipped unless enabled** | schedule + command classes loaded only for **enabled** extensions (a disabled extension's commands are unregistered) |
 
 ### Load-time enforcement (disabled = not loaded)
@@ -119,8 +125,47 @@ authentication (`AuthenticateApplicationUser`), 2FA, and throttling are
 inherited structurally from the `application-api` group wrapping
 `routes/api-application.php` and cannot be opted out of — except via
 `withoutMiddleware()`, which is prohibited (scanner `block`-severity, review
-checklist). Extension controllers must use FormRequests extending
-`ApplicationApiRequest` with a `permission()` method for fine-grained checks.
+checklist) **and neutralized at runtime**: `ExtensionRouteGuardService` audits
+every route a package file registers, immediately after the `require`. A route
+that carries middleware exclusions, or (admin surface) lost its
+`extensions.admin:<id>` gate, is dropped — its handler is swapped for
+`BlockedExtensionRouteController` (plain 404, route:cache-safe), its exclusions
+are discarded, and the violation is reported via `report()`. The same audit
+wraps the client-route glob in `routes/api-client.php` (exclusions check only).
+Because it runs at registration time, the verdict is baked into cached routes
+when `route:cache` builds. Extension controllers must use FormRequests
+extending `ApplicationApiRequest` with a `permission()` method for
+fine-grained checks.
+
+### Extension admin API contract
+
+Formalized conventions for extension-contributed admin endpoints (the
+authoring-side version lives in the extensions repo, `docs/admin-pages.md`;
+the repo scanner enforces the structural rules at `block` severity):
+
+- **Rate limits**: the loader wraps every extension admin route in
+  `throttle:api.ext-admin` alongside the `extensions.admin:<id>` gate — the
+  route guard drops any route missing either. The limiter (RouteServiceProvider)
+  is keyed per admin user **per extension id** (parsed from the `/ext/<id>` path
+  segment), so one extension exhausting its budget never 429s another, and it
+  stacks inside the global `api.application` limit, so it can only be tighter.
+  Default 60 req/min via `http.rate_limit.ext_admin`
+  (`APP_API_EXT_ADMIN_RATELIMIT`); there is no per-extension opt-out.
+- **Response envelope**: success responses use the
+  `Everest\Traits\Controllers\RespondsWithExtensionEnvelope` helpers —
+  `extensionListResponse()` → `{object: "list", data: [...], meta?}` and
+  `extensionItemResponse()` → `{object: "<type>", attributes: {...}}`, matching
+  the core application API shape. Errors are thrown and shaped by the panel's
+  exception handler, never hand-rolled.
+- **Structure**: route files register `[Controller::class, 'method']` only (no
+  closures — unreviewable and not route:cache-able); every public controller
+  action takes a FormRequest; admin FormRequests extend `ApplicationApiRequest`
+  and define `permission()`.
+- **Versioning**: extension admin endpoints are internal to the package — their
+  only consumer is the `admin.tsx` shipped in the same version, so frontend and
+  backend can never skew and URL versioning is deliberately not required. An
+  extension exposing a stable automation surface for third parties self-prefixes
+  it (`v1/…`) in its own route file.
 
 ## Database migrations
 
