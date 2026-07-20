@@ -9,7 +9,7 @@ for fresh installs only.
 | Step | Status | Notes |
 |---|---|---|
 | Enumerate migrations | ✅ | **327 files**, dated 2016-01-23 → 2026-07-17 (325 at audit cutoff 2026-06-28 + 2 post-audit, see below) |
-| Establish ground-truth final schema | ✅ | Full chain run into a **scratch database** (`m12_schema_audit`; live `jexactyldb` untouched). All migrations ran clean on MariaDB 10.11. Result: **82 tables** (+ `migrations`). Dump committed as [fresh-schema.sql](fresh-schema.sql) |
+| Establish ground-truth final schema | ✅ | Full chain run into a **scratch database** (`m12_schema_audit`; live `jexactyldb` untouched). All migrations ran clean on MariaDB 10.11. Result: **82 tables** (+ `migrations`). Dump committed as [fresh-schema.sql](../../database/schema/fresh-schema.sql) |
 | Schema reference ([01](01-schema-reference.md)) | ✅ | Generated from `information_schema` — exact types/defaults/indexes/FKs; amended 2026-07-20 with `ai_usage_logs.cached` |
 | Churn history ([02](02-churn-history.md)) | ✅ | All hotspot sagas traced file-by-file |
 | Upstream divergence ([03](03-upstream-divergence.md)) | ✅ | Provenance from git authorship; recommendation: accept divergence + schema-diff safety net |
@@ -17,7 +17,7 @@ for fresh installs only.
 | Seeder audit | ✅ | `NestSeeder`/`EggSeeder`/`WebhookSeeder` use Eloquent models only — unaffected. Per D4, three **new** seeders added in Phase 2 (email notification settings, invoice settings, theme presets) |
 | File-organization | ✅ | Final: **22 files** (see bottom of this file) |
 | Live DB backup | ✅ | 2026-07-20: full dump + `.env` copy → `/root/db-backups/` (outside repo); gzip-verified and restore-tested into `m12_backup_verify` (84/84 tables, row counts match), then verify DB dropped |
-| Phase 2 (rebuild) | ✅ | 22 files written; legacy chain moved to `database/migrations_legacy/`; 3 new seeders wired into `DatabaseSeeder`; `scripts/schema-diff.sh` added. **Verified** (scratch DB `m12_schema_rebuild`, since dropped): migrate 22/22 clean · `db:seed` clean + idempotent (double-run stable) · full `migrate:rollback` clean · structural diff vs audit ground truth (columns/index-structure/FK-rules via `information_schema`, name-agnostic) showed **only** the whitelisted deltas: `ai_usage_logs.cached` added (D11), `subscriptions`+`subscription_items` omitted (D2), `email_quotas` migrate-date defaults (dynamic by design). [fresh-schema.sql](fresh-schema.sql) regenerated from the rebuilt set (81 CREATEs = 80 tables + `migrations`); `scripts/schema-diff.sh` passes against it. Everything left uncommitted for review. |
+| Phase 2 (rebuild) | ✅ | 22 files written; legacy chain moved to `database/migrations_legacy/`; 3 new seeders wired into `DatabaseSeeder`; `scripts/schema-diff.sh` added. **Verified** (scratch DB `m12_schema_rebuild`, since dropped): migrate 22/22 clean · `db:seed` clean + idempotent (double-run stable) · full `migrate:rollback` clean · structural diff vs audit ground truth (columns/index-structure/FK-rules via `information_schema`, name-agnostic) showed **only** the whitelisted deltas: `ai_usage_logs.cached` added (D11), `subscriptions`+`subscription_items` omitted (D2), `email_quotas` migrate-date defaults (dynamic by design). [fresh-schema.sql](../../database/schema/fresh-schema.sql) regenerated from the rebuilt set (81 CREATEs = 80 tables + `migrations`); `scripts/schema-diff.sh` passes against it. Everything left uncommitted for review. |
 
 ### Post-audit migrations (2026-06-28 → 2026-07-20)
 
@@ -36,7 +36,7 @@ rebuild's scope.
 ## Method
 
 1. All 325 migrations executed in order against a fresh scratch DB — the final
-   schema is *empirical*, not inferred. Dump: [fresh-schema.sql](fresh-schema.sql).
+   schema is *empirical*, not inferred. Dump: [fresh-schema.sql](../../database/schema/fresh-schema.sql).
 2. A parser extracted every `Schema::create/table/rename/drop`, `DB::statement`
    and `DB::table` call per migration → per-table operation timeline.
 3. Hotspot chains read in full and narrated in [02](02-churn-history.md).
@@ -148,7 +148,7 @@ Notes:
 - Old files move to `database/migrations_legacy/` until fresh-install
   verification passes (see D7).
 - Verification for Phase 2: migrate a fresh scratch DB with the new set, dump,
-  and diff against [fresh-schema.sql](fresh-schema.sql) — must be identical
+  and diff against [fresh-schema.sql](../../database/schema/fresh-schema.sql) — must be identical
   modulo migration-name bookkeeping and index-name noise (index names derived
   from historical table names, e.g. `service_variables_*` on `egg_variables`,
   will legitimately change; the diff review will whitelist name-only changes).

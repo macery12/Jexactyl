@@ -93,15 +93,36 @@ them there (only `database/migrations` is registered), so this is purely for
 human reference until fresh-install verification passes, then the directory can
 be deleted in a follow-up commit (git history preserves them regardless).
 
-## D8. Existing installs are out of scope — including the dev DB
+## D8. Existing installs — **RESOLVED 2026-07-20: `p:migrate:adopt`**
 
-The rebuilt chain will have all-new migration names; the `migrations` table of any
+The rebuilt chain has all-new migration names; the `migrations` table of any
 existing database (including the live `jexactyldb` on this box) will not match.
-Fresh installs only, per the task. The dev database was not touched during this
-audit (all verification ran against a scratch DB `m12_schema_audit`).
-**Do not run `php artisan migrate` from the rebuild branch against `jexactyldb`** —
-Laravel would see 325 "pending" unknown migrations. Phase 2 should add a guard
-note in the PR description.
+**Do not run `php artisan migrate` from the rebuild branch against an existing
+database** — Laravel would see 22 "pending" unknown migrations and try to create
+tables that already exist.
+
+Originally scoped as fresh-installs-only. Since resolved: existing installs are
+upgraded with **`php artisan p:migrate:adopt`**, documented in
+[../panel-upgrade.md](../panel-upgrade.md).
+
+What made this tractable is that the two chains are schema-equivalent. Comparing
+the live dev database against the rebuilt schema found **identical columns —
+881 on both sides, zero differences** — so the upgrade is bookkeeping plus a
+short tail of naming:
+
+- 9 indexes/constraints still carrying pre-rename table names (`service_options_*`
+  → `eggs_*`, `services_uuid_unique` → `nests_uuid_unique`, `servers_*_foreign`
+  → `servers_*_index`);
+- `ticket_messages_ticket_id_internal_note_index` created over `(ticket_id)`
+  alone instead of `(ticket_id, internal_note)` — the fluent
+  `->unique()->index()` gotcha in the old chain, fixed in the rebuild;
+- a redundant `ticket_messages_ticket_id_index`;
+- `subscriptions` + `subscription_items` dropped per D2.
+
+Verified by adopting a clone of the dev database and comparing it against a
+genuinely fresh `migrate`: **1244 schema facts on each side, zero differences.**
+
+The dev database itself was never touched — all verification ran against clones.
 
 ## D9. `products.category_uuid` has no FK
 

@@ -75,7 +75,7 @@ migrations themselves.** Reasoning:
 
 **Safety net (cheap, recommended for Phase 2):** keep the empirical schema dump
 (`mysqldump --no-data` of a fresh install) committed as a build artifact, e.g.
-`docs/database-rebuild/fresh-schema.sql`, regenerated whenever migrations change.
+`database/schema/fresh-schema.sql`, regenerated whenever migrations change.
 When upstream publishes a new migration:
 
 - port it by hand as a **new M12Labs migration** on top of the consolidated set

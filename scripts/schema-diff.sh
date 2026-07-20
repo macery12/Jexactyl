@@ -4,7 +4,7 @@
 #
 # Migrates the current migration set into a scratch database, dumps the
 # structure, and diffs it against the committed ground-truth dump
-# (docs/database-rebuild/fresh-schema.sql). Run after changing migrations and
+# (database/schema/fresh-schema.sql). Run after changing migrations and
 # commit the regenerated dump when the diff is intentional.
 #
 # Requires: root socket access to MariaDB (or set MYSQL_CLI / MYSQLDUMP_CLI),
@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SCRATCH_DB="${1:-m12_schema_drift_check}"
-BASELINE="docs/database-rebuild/fresh-schema.sql"
+BASELINE="database/schema/fresh-schema.sql"
 MYSQL_CLI="${MYSQL_CLI:-mariadb -u root}"
 MYSQLDUMP_CLI="${MYSQLDUMP_CLI:-mariadb-dump -u root}"
 APP_DB_USER="$(grep '^DB_USERNAME=' .env | cut -d= -f2-)"

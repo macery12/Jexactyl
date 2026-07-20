@@ -29,7 +29,8 @@ rather than guess when it meets a schema it does not recognise, so an
 out-of-date source fails loudly instead of importing partial rows.
 
 Upgrading an *existing* install of this panel is a different problem and is not
-what this command does — see [D8](database-rebuild/04-decisions.md).
+what this command does — use `p:migrate:adopt`, see
+[panel-upgrade.md](panel-upgrade.md).
 
 ## What it does
 
