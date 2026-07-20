@@ -198,7 +198,8 @@ rows intact — reinstalling the same version reattaches to the existing data.
 The CLI/API surface the preserved table list and generated manual-cleanup SQL.
 
 **Opt-in drop** (`--drop-data` on the CLI, `{ drop_data: true, confirm: "<id>" }`
-on the API, checkbox + type-to-confirm in the admin drawer) rolls the
+on the API, checkbox + type-to-confirm in the admin database-changes modal)
+rolls the
 extension's migrations back (dropping the tables) **before** files are removed.
 This path is closely audited:
 
@@ -216,7 +217,33 @@ This path is closely audited:
   unrecoverable, including if a later uninstall step fails and the schema is
   re-applied on rollback (the tables come back empty).
 
-Batch uninstall never drops data — the audited drop is single-extension only.
+Batch uninstall preserves data by default too, but an extension may opt into
+the same audited drop by including it in the request's `drop_data` list
+(`{id, confirm}`, each `confirm` echoing its own id). Every opted-in extension
+takes the identical `handleMigrationData` path — its own migration log and its
+own `admin:extensions:data-drop` activity entry — so the audit trail is
+per-extension, never aggregated.
+
+## Database-changes preview
+
+Before an install, update, or uninstall the admin UI can preview the schema
+changes it would make (`DatabaseChangesModal`), backed by the read-only
+`POST /api/application/extensions/{id}/database-plan` endpoint
+(`ExtensionsController::databasePlan` → `ExtensionDatabasePlanService`, gated on
+`extensions.read` — it inspects only, never mutating). The response is an
+extension envelope (`object: "database_plan"`) whose `hasDatabase` flag lets the
+UI skip the DB section when nothing changes.
+
+- **uninstall** — local and cheap: the extension's files are on disk, so the
+  owned tables (`listExtensionTables`, `ext_<id>_` prefix), ran migrations, and
+  manual-cleanup SQL are read directly.
+- **install / update** — the migration files aren't local yet, so the plan
+  downloads and extracts the package archive to a temp dir and parses its
+  migration sources for `Schema::create` table names
+  (`ExtensionMigrationService::parseCreatedTables`, the same regex the namespace
+  check uses). Update counts only migrations not already recorded as ran. This
+  is why the modal shows a "fetching" state on install: `hasDatabase` is always
+  false for a not-yet-installed extension until the archive is parsed.
 
 ## Install pipeline reference
 
@@ -254,6 +281,7 @@ and JS (built into the bundle). Security rests on:
 
 - Install/update/uninstall: `app/Services/Extensions/ExtensionPackage{Install,Update,Uninstall}Service.php`
 - Migrations: `app/Services/Extensions/ExtensionMigrationService.php`
+- Database-changes preview: `app/Services/Extensions/ExtensionDatabasePlanService.php`
 - Scheduler: `app/Services/Extensions/ExtensionScheduleService.php` + `app/Console/Kernel.php`
 - Manifest/allowlist: `app/Services/Extensions/ExtensionPackageArtifactService.php`
 - Admin API glob + middleware: `routes/api-application.php`, `app/Http/Middleware/Api/Application/Extensions/EnsureExtensionAdminAccess.php`

@@ -57,16 +57,19 @@ class ExtensionMigrationService
      * files. Only used to revert migrations applied by a failed install or
      * update; migrations from other batches are never touched.
      *
-     * @return array{output: string}
+     * @return array{rolledBack: array<int, string>, output: string}
      */
     public function rollbackLastBatch(string $extensionId): array
     {
-        $migrator = $this->migrator();
-        $buffer = $this->captureOutput($migrator);
+        $lastBatch = array_map(
+            fn ($migration) => (string) ((object) $migration)->migration,
+            $this->migrator()->getRepository()->getLast()
+        );
 
-        $migrator->rollback([base_path($this->migrationPath($extensionId))]);
-
-        return ['output' => $buffer->fetch()];
+        return $this->rollbackMigrations(
+            $extensionId,
+            array_values(array_intersect($this->ranMigrationNames($extensionId), $lastBatch))
+        );
     }
 
     /**
@@ -74,16 +77,44 @@ class ExtensionMigrationService
      * batch. This drops the extension's tables (assuming well-formed down()
      * methods) — only reachable through the audited uninstall --drop-data flow.
      *
-     * @return array{output: string}
+     * @return array{rolledBack: array<int, string>, output: string}
      */
     public function reset(string $extensionId): array
     {
-        $migrator = $this->migrator();
+        return $this->rollbackMigrations($extensionId, $this->ranMigrationNames($extensionId));
+    }
+
+    /**
+     * Run down() for exactly the named migrations, newest first.
+     *
+     * The framework's rollback/reset entry points read the whole migrations
+     * table and report every record they cannot resolve to a file in the given
+     * path — for a package migration path that means one real rollback and a
+     * "Migration not found" line for every core migration ever run, which makes
+     * the audit log unreadable. Driving the migrator with an explicit list keeps
+     * the log to the extension's own migrations.
+     *
+     * @param array<int, string> $migrationNames
+     * @return array{rolledBack: array<int, string>, output: string}
+     */
+    private function rollbackMigrations(string $extensionId, array $migrationNames): array
+    {
+        $migrator = $this->scopedMigrator();
         $buffer = $this->captureOutput($migrator);
 
-        $migrator->reset([base_path($this->migrationPath($extensionId))]);
+        if ($migrationNames === []) {
+            return ['rolledBack' => [], 'output' => ''];
+        }
 
-        return ['output' => $buffer->fetch()];
+        $rolledBack = $migrator->rollbackOnly(
+            array_reverse($migrationNames),
+            [base_path($this->migrationPath($extensionId))]
+        );
+
+        return [
+            'rolledBack' => array_map(fn (string $file) => $migrator->getMigrationName($file), $rolledBack),
+            'output' => $buffer->fetch(),
+        ];
     }
 
     /**
@@ -155,6 +186,39 @@ class ExtensionMigrationService
         }
 
         return $statements;
+    }
+
+    /**
+     * Parse the table names a set of migration files create via Schema::create.
+     *
+     * A source-level regex — it only detects CREATEs (not ALTER/DROP/index
+     * changes), which is enough for the namespace check and for previewing the
+     * tables an install/update will add. Files may be on disk (an installed
+     * extension) or freshly extracted from an archive (a not-yet-installed one).
+     *
+     * @param array<int, string> $migrationFilePaths absolute paths
+     * @return array<int, string> distinct created table names, in file order
+     */
+    public function parseCreatedTables(array $migrationFilePaths): array
+    {
+        $tables = [];
+
+        foreach ($migrationFilePaths as $filePath) {
+            if (!is_file($filePath)) {
+                continue;
+            }
+
+            $source = (string) file_get_contents($filePath);
+            preg_match_all("/Schema::create\\(\\s*['\"]([^'\"]+)['\"]/", $source, $matches);
+
+            foreach ($matches[1] as $table) {
+                if (!in_array($table, $tables, true)) {
+                    $tables[] = $table;
+                }
+            }
+        }
+
+        return $tables;
     }
 
     /**
@@ -241,6 +305,32 @@ class ExtensionMigrationService
     {
         /** @var Migrator $migrator */
         $migrator = app('migrator');
+
+        if (!$migrator->repositoryExists()) {
+            $migrator->getRepository()->createRepository();
+        }
+
+        return $migrator;
+    }
+
+    /**
+     * A Migrator that can roll back an explicit list of migrations. Built from
+     * the same container bindings the framework uses for the shared 'migrator'
+     * instance, so connections, events and the migrations table are identical.
+     */
+    private function scopedMigrator(): Migrator
+    {
+        $migrator = new class(app('migration.repository'), app('db'), app('files'), app('events')) extends Migrator {
+            /**
+             * @param array<int, string> $migrationNames in the order to run down
+             * @param array<int, string> $paths
+             * @return array<int, string> the migration files rolled back
+             */
+            public function rollbackOnly(array $migrationNames, array $paths): array
+            {
+                return $this->resetMigrations($migrationNames, $paths);
+            }
+        };
 
         if (!$migrator->repositoryExists()) {
             $migrator->getRepository()->createRepository();

@@ -49,13 +49,24 @@ middleware.
 Add publisher signatures over the archive (beyond integrity checksums) so the
 panel can verify provenance, not just that the bytes are intact.
 
-## Batch drop-data
-
-Stage 1 restricts the audited data-drop to single-extension uninstall. A batch
-drop-data flow (with the same per-extension audit logging and confirmation)
-could follow if needed.
-
 ## DONE
+
+### Database-changes preview + batch drop-data (2026-07-19)
+
+Install, update, and uninstall now surface a "this will modify your database"
+review before committing (architecture.md "Database-changes preview"): a
+read-only `POST /extensions/{id}/database-plan` endpoint
+(`ExtensionDatabasePlanService`, `extensions.read`) reports the tables an
+operation will add (parsed from the archive's `Schema::create` on install/
+update, downloaded on demand) or drop/preserve (local `ext_<id>_` introspection
+on uninstall). The admin UI shows it in `DatabaseChangesModal` (single via the
+manage drawer, batch via the action bar).
+
+The audited data-drop is no longer single-extension only: batch uninstall
+accepts a per-extension `drop_data` list (`{id, confirm}`, each typed-id
+confirmed), and each drop runs the same `handleMigrationData` path — its own
+migration log + `admin:extensions:data-drop` activity entry — so the audit
+trail stays per-extension.
 
 ### Full admin-API capability (2026-07-19)
 

@@ -4,6 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Puzzle, RefreshCw, Package, Power, ArrowUpCircle, GitBranch, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
     type Extension,
+    type DatabasePlanOperation,
+    type BatchDropDataItem,
     getExtensions,
     getRepositories,
     getNestsAndEggs,
@@ -16,6 +18,7 @@ import {
     batchUpdateExtensions,
 } from '@/api/extensions';
 import { BatchActionBar } from './BatchActionBar';
+import { DatabaseChangesModal, type DbModalExtension } from './DatabaseChangesModal';
 import { Spinner } from '@/components/ui/Spinner';
 import { Input } from '@/components/ui/Input';
 import { useFlashes } from '@/state/flashes';
@@ -40,6 +43,18 @@ function compareVersion(a: string, b: string): number {
         if (d) return d;
     }
     return 0;
+}
+
+// Map a batch operation to the extensions the database-changes modal previews.
+// Install/update carry the repository + version so the backend can fetch and
+// parse the archive; uninstall reads local state and needs neither.
+function batchModalExtensions(
+    op: DatabasePlanOperation,
+    lists: { forInstall: Extension[]; forUninstall: Extension[]; forUpdate: Extension[] },
+): DbModalExtension[] {
+    if (op === 'uninstall') return lists.forUninstall.map(e => ({ id: e.id, name: e.name }));
+    const src = op === 'install' ? lists.forInstall : lists.forUpdate;
+    return src.map(e => ({ id: e.id, name: e.name, repositoryId: e.source.repositoryId, version: e.latestVersion }));
 }
 
 type Filter = 'all' | 'installed' | 'available' | 'updates';
@@ -67,6 +82,10 @@ export default function ExtensionsOverviewPage() {
     const [search, setSearch] = useState('');
     const [selected, setSelected] = useState<Extension | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    // Which batch database-changes review modal is open (null = none).
+    const [batchModal, setBatchModal] = useState<DatabasePlanOperation | null>(null);
+    // The row whose one-click Install is awaiting database-changes review.
+    const [rowInstall, setRowInstall] = useState<Extension | null>(null);
     const [sort, setSort] = useState<Sort>({ key: 'status', dir: 'asc' });
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
@@ -178,7 +197,7 @@ export default function ExtensionsOverviewPage() {
     });
 
     const batchUninstall = useMutation({
-        mutationFn: () => batchUninstallExtensions(forUninstall.map(e => e.id)),
+        mutationFn: (drops: BatchDropDataItem[]) => batchUninstallExtensions(forUninstall.map(e => e.id), drops),
         onSuccess: data => onBatchSuccess(data, () => m['extensions.toast.batchUninstalled']({ count: forUninstall.length })),
         onError: reportError,
     });
@@ -456,7 +475,7 @@ export default function ExtensionsOverviewPage() {
                                 installingId={installingId}
                                 onOpen={ext => setSelected(ext)}
                                 onToggle={ext => toggle.mutate(ext)}
-                                onInstall={ext => install.mutate(ext)}
+                                onInstall={ext => setRowInstall(ext)}
                                 onRowSelect={handleRowSelect}
                             />
                             <TablePagination
@@ -493,24 +512,53 @@ export default function ExtensionsOverviewPage() {
                     disable: forDisable.length,
                 }}
                 onClear={clearSelection}
-                onInstall={() => {
-                    const thirdParty = forInstall.some(e => !e.source.official);
-                    const msg = thirdParty
-                        ? m['extensions.select.confirmInstallThirdParty']({ count: forInstall.length })
-                        : m['extensions.select.confirmInstall']({ count: forInstall.length });
-                    if (window.confirm(msg)) batchInstall.mutate();
-                }}
-                onUninstall={() => {
-                    if (window.confirm(m['extensions.select.confirmUninstall']({ count: forUninstall.length }))) batchUninstall.mutate();
-                }}
-                onUpdate={() => {
-                    if (window.confirm(m['extensions.select.confirmUpdate']({ count: forUpdate.length }))) batchUpdate.mutate();
-                }}
+                onInstall={() => setBatchModal('install')}
+                onUninstall={() => setBatchModal('uninstall')}
+                onUpdate={() => setBatchModal('update')}
                 onEnable={() => batchEnable.mutate()}
                 onDisable={() => {
                     if (window.confirm(m['extensions.select.confirmDisable']({ count: forDisable.length }))) batchDisable.mutate();
                 }}
             />
+
+            {batchModal && (
+                <DatabaseChangesModal
+                    open
+                    operation={batchModal}
+                    busy={batchBusy}
+                    extensions={batchModalExtensions(batchModal, { forInstall, forUninstall, forUpdate })}
+                    onClose={() => setBatchModal(null)}
+                    onConfirm={drops => {
+                        if (batchModal === 'install') batchInstall.mutate();
+                        else if (batchModal === 'update') batchUpdate.mutate();
+                        else batchUninstall.mutate(drops);
+                        setBatchModal(null);
+                    }}
+                />
+            )}
+
+            {/* The table's one-click Install gets the same database review the
+                drawer and batch bar do — no install skips the preview. */}
+            {rowInstall && (
+                <DatabaseChangesModal
+                    open
+                    operation="install"
+                    busy={install.isPending}
+                    extensions={[
+                        {
+                            id: rowInstall.id,
+                            name: rowInstall.name,
+                            repositoryId: rowInstall.source.repositoryId,
+                            version: rowInstall.latestVersion,
+                        },
+                    ]}
+                    onClose={() => setRowInstall(null)}
+                    onConfirm={() => {
+                        install.mutate(rowInstall);
+                        setRowInstall(null);
+                    }}
+                />
+            )}
         </div>
     );
 }

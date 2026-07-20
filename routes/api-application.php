@@ -394,6 +394,7 @@ Route::middleware([AdminSubject::class])->group(function () {
 
         Route::get('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'view']);
         Route::put('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'update']);
+        Route::post('/{extensionId}/database-plan', [Application\Extensions\ExtensionsController::class, 'databasePlan']);
         Route::post('/{extensionId}/toggle', [Application\Extensions\ExtensionsController::class, 'toggle']);
         Route::post('/{extensionId}/install', [Application\Extensions\ExtensionsController::class, 'install']);
         Route::post('/{extensionId}/update-package', [Application\Extensions\ExtensionsController::class, 'updatePackage']);

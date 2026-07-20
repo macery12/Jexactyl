@@ -18,6 +18,8 @@ import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { cn } from '@/lib/cn';
 import { resolveExtensionIcon, extensionTone, toneVar, toneLabelKey } from './extMeta';
+import { DatabaseChangesModal } from './DatabaseChangesModal';
+import type { DatabasePlanOperation } from '@/api/extensions';
 
 const tint = (v: string, pct: number) => `color-mix(in srgb, ${v} ${pct}%, transparent)`;
 
@@ -45,8 +47,9 @@ export function ExtensionManageDrawer({
     const [settings, setSettings] = useState<Record<string, unknown>>({});
     const [allowedNests, setAllowedNests] = useState<number[]>([]);
     const [allowedEggs, setAllowedEggs] = useState<number[]>([]);
-    const [dropData, setDropData] = useState(false);
-    const [dropConfirm, setDropConfirm] = useState('');
+    // Which database-changes review modal is open (null = none). The install,
+    // update, and uninstall actions all route through it before committing.
+    const [dbModal, setDbModal] = useState<DatabasePlanOperation | null>(null);
 
     // Re-seed local form state whenever a different extension is opened.
     useEffect(() => {
@@ -55,8 +58,7 @@ export function ExtensionManageDrawer({
         setSettings({ ...ext.settings });
         setAllowedNests([...ext.allowedNests]);
         setAllowedEggs([...ext.allowedEggs]);
-        setDropData(false);
-        setDropConfirm('');
+        setDbModal(null);
     }, [ext]);
 
     const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'extensions'] });
@@ -92,7 +94,8 @@ export function ExtensionManageDrawer({
     });
 
     const remove = useMutation({
-        mutationFn: () => uninstallExtension(ext!.id, dropData, dropConfirm),
+        mutationFn: (vars: { dropData: boolean; confirm?: string }) =>
+            uninstallExtension(ext!.id, vars.dropData, vars.confirm),
         onSuccess: res => {
             push({ type: 'success', message: m['extensions.toast.uninstalled']({ name: res.extension.name ?? ext!.id }) });
             if (res.dataDropped) {
@@ -334,65 +337,25 @@ export function ExtensionManageDrawer({
                             </Section>
                             )}
 
-                            {/* danger zone */}
+                            {/* danger zone — uninstall opens the database-changes
+                                review modal, which surfaces the tables that will be
+                                dropped/preserved and hosts the typed-id data drop. */}
                             {e.canUninstall && (
                                 <Section title={m['extensions.drawer.dangerZone']()}>
                                     <div
-                                        className="space-y-3 rounded-lg border px-3 py-2.5"
+                                        className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
                                         style={{ borderColor: tint('var(--color-danger)', 30) }}
                                     >
-                                        <div className="flex items-center justify-between gap-3">
-                                            <span className="text-xs text-[var(--color-ink-muted)]">{m['extensions.drawer.dangerHint']()}</span>
-                                            <button
-                                                type="button"
-                                                disabled={busy || locked || (dropData && dropConfirm.trim() !== e.id)}
-                                                onClick={() => {
-                                                    if (window.confirm(m['extensions.drawer.uninstallConfirm']({ name: e.name }))) remove.mutate();
-                                                }}
-                                                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/40 px-3 text-xs font-medium text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
-                                            >
-                                                {remove.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
-                                                {remove.isPending ? m['extensions.drawer.uninstalling']() : m['extensions.drawer.uninstall']()}
-                                            </button>
-                                        </div>
-
-                                        {/* The drop-tables option only exists for extensions that
-                                            actually created a database. Data is preserved by default;
-                                            dropping requires the checkbox AND typing the extension id,
-                                            mirroring the CLI. */}
-                                        {e.hasDatabase ? (
-                                            <>
-                                                <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--color-ink-muted)]">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={dropData}
-                                                        disabled={busy || locked}
-                                                        onChange={ev => {
-                                                            setDropData(ev.target.checked);
-                                                            if (!ev.target.checked) setDropConfirm('');
-                                                        }}
-                                                        className="mt-0.5 h-3.5 w-3.5 accent-[var(--color-danger)]"
-                                                    />
-                                                    <span>
-                                                        {m['extensions.drawer.dropData']()}{' '}
-                                                        <span className="text-[var(--color-danger)]">{m['extensions.drawer.dropDataWarning']()}</span>
-                                                    </span>
-                                                </label>
-                                                {dropData && (
-                                                    <Input
-                                                        value={dropConfirm}
-                                                        disabled={busy || locked}
-                                                        placeholder={m['extensions.drawer.dropDataConfirm']({ id: e.id })}
-                                                        onChange={ev => setDropConfirm(ev.target.value)}
-                                                    />
-                                                )}
-                                                {!dropData && (
-                                                    <p className="text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.dataPreservedHint']()}</p>
-                                                )}
-                                            </>
-                                        ) : (
-                                            <p className="text-[11px] text-[var(--color-ink-faint)]">{m['extensions.drawer.noDatabaseHint']()}</p>
-                                        )}
+                                        <span className="text-xs text-[var(--color-ink-muted)]">{m['extensions.drawer.dangerHint']()}</span>
+                                        <button
+                                            type="button"
+                                            disabled={busy || locked}
+                                            onClick={() => setDbModal('uninstall')}
+                                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-danger)]/40 px-3 text-xs font-medium text-[var(--color-danger)] transition-colors hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
+                                        >
+                                            {remove.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                            {remove.isPending ? m['extensions.drawer.uninstalling']() : m['extensions.drawer.uninstall']()}
+                                        </button>
                                     </div>
                                 </Section>
                             )}
@@ -417,7 +380,7 @@ export function ExtensionManageDrawer({
                             <button
                                 type="button"
                                 disabled={busy || locked || e.source.repositoryId == null}
-                                onClick={() => install.mutate()}
+                                onClick={() => setDbModal('install')}
                                 className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--brand)] text-sm font-medium text-[var(--color-brand-ink)] transition-colors hover:bg-[var(--brand-hover)] disabled:opacity-50"
                             >
                                 {install.isPending ? <Spinner className="h-4 w-4" /> : <Download className="h-4 w-4" />}
@@ -430,7 +393,7 @@ export function ExtensionManageDrawer({
                                 <button
                                     type="button"
                                     disabled={busy || locked || e.source.repositoryId == null}
-                                    onClick={() => updatePkg.mutate()}
+                                    onClick={() => setDbModal('update')}
                                     className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-medium transition-colors disabled:opacity-50"
                                     style={{
                                         borderColor: tint('var(--color-warning)', 40),
@@ -454,6 +417,25 @@ export function ExtensionManageDrawer({
                         </>
                     )}
                 </footer>
+
+                {dbModal && (
+                    <DatabaseChangesModal
+                        open
+                        operation={dbModal}
+                        busy={install.isPending || updatePkg.isPending || remove.isPending}
+                        extensions={[
+                            dbModal === 'uninstall'
+                                ? { id: e.id, name: e.name }
+                                : { id: e.id, name: e.name, repositoryId: e.source.repositoryId, version: e.latestVersion },
+                        ]}
+                        onClose={() => setDbModal(null)}
+                        onConfirm={drops => {
+                            if (dbModal === 'install') install.mutate();
+                            else if (dbModal === 'update') updatePkg.mutate();
+                            else remove.mutate({ dropData: drops.length > 0, confirm: drops[0]?.confirm });
+                        }}
+                    />
+                )}
             </>
         );
     }

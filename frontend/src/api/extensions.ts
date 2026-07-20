@@ -197,6 +197,45 @@ export async function uninstallExtension(id: string, dropData = false, confirm?:
     };
 }
 
+export type DatabasePlanOperation = 'install' | 'update' | 'uninstall';
+
+// Read-only preview of the database changes an install/update/uninstall would
+// make, from POST /extensions/{id}/database-plan. `hasDatabase` is false when
+// the operation touches no tables (frontend then skips the DB section).
+export interface DatabasePlan {
+    operation: DatabasePlanOperation;
+    extensionId: string;
+    tablePrefix: string;
+    hasDatabase: boolean;
+    version?: string;
+    // install / update — tables that will be created and the migrations to run.
+    tablesToCreate?: string[];
+    migrations?: string[];
+    // update — tables the extension already owns that stay in place.
+    unchangedTables?: string[];
+    // uninstall — tables/migrations the extension currently owns (dropped when
+    // drop-data is confirmed, otherwise preserved) + manual cleanup SQL.
+    existingTables?: string[];
+    ranMigrations?: string[];
+    manualCleanup?: string[];
+}
+
+// POST /extensions/{id}/database-plan — preview DB changes before committing.
+// install/update need the source repository (and optional version) to fetch
+// and parse the archive's migrations; uninstall reads local state.
+export async function getDatabasePlan(
+    id: string,
+    operation: DatabasePlanOperation,
+    opts?: { repositoryId?: number; version?: string },
+): Promise<DatabasePlan> {
+    const { data } = await http.post(`${BASE}/${id}/database-plan`, {
+        operation,
+        repository_id: opts?.repositoryId,
+        version: opts?.version,
+    });
+    return data.attributes as DatabasePlan;
+}
+
 export interface RepositoryPayload {
     name: string;
     manifestUrl?: string;
@@ -250,11 +289,24 @@ export async function batchInstallExtensions(items: BatchInstallItem[]): Promise
     return (data.data ?? []) as Extension[];
 }
 
+// A per-extension opt-in to drop data during a batch uninstall. `confirm` must
+// equal the extension id, matching the single-uninstall typed confirmation.
+export interface BatchDropDataItem {
+    id: string;
+    confirm: string;
+}
+
 // POST /extensions/batch-uninstall — remove several packages in one rebuild.
-// Data is always preserved for batch uninstalls; dropping tables stays a
-// single-extension, typed-confirmation operation.
-export async function batchUninstallExtensions(extensionIds: string[]): Promise<Extension[]> {
-    const { data } = await http.post(`${BASE}/batch-uninstall`, { extension_ids: extensionIds });
+// Data is preserved by default; pass `dropData` entries (each confirmed with
+// its own id) to also drop those extensions' tables, each audited separately.
+export async function batchUninstallExtensions(
+    extensionIds: string[],
+    dropData?: BatchDropDataItem[],
+): Promise<Extension[]> {
+    const { data } = await http.post(`${BASE}/batch-uninstall`, {
+        extension_ids: extensionIds,
+        ...(dropData && dropData.length ? { drop_data: dropData } : {}),
+    });
     return (data.data ?? []) as Extension[];
 }
 

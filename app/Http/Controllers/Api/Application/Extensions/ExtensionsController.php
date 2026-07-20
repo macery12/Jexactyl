@@ -11,9 +11,11 @@ use Everest\Models\Setting;
 use Everest\Models\ExtensionConfig;
 use Everest\Models\ExtensionRepository;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Traits\Controllers\RespondsWithExtensionEnvelope;
 use Everest\Http\Requests\Api\Application\Extensions\BatchInstallExtensionRequest;
 use Everest\Http\Requests\Api\Application\Extensions\BatchUninstallExtensionRequest;
 use Everest\Http\Requests\Api\Application\Extensions\BatchUpdateExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\DatabasePlanRequest;
 use Everest\Http\Requests\Api\Application\Extensions\GetExtensionsRequest;
 use Everest\Http\Requests\Api\Application\Extensions\InstallExtensionRequest;
 use Everest\Http\Requests\Api\Application\Extensions\StoreExtensionRepositoryRequest;
@@ -22,6 +24,7 @@ use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRequest;
 use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRepositoryRequest;
 use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionSettingsRequest;
 use Everest\Services\Extensions\ExtensionCatalogService;
+use Everest\Services\Extensions\ExtensionDatabasePlanService;
 use Everest\Services\Extensions\ExtensionInstallProgressService;
 use Everest\Services\Extensions\ExtensionPackageBatchService;
 use Everest\Services\Extensions\ExtensionPackageInstallService;
@@ -30,16 +33,36 @@ use Everest\Services\Extensions\ExtensionPackageUpdateService;
 
 class ExtensionsController extends ApplicationApiController
 {
+    use RespondsWithExtensionEnvelope;
+
     public function __construct(
         private ExtensionCatalogService $catalogService,
         private ExtensionPackageInstallService $installService,
         private ExtensionPackageUninstallService $uninstallService,
         private ExtensionPackageUpdateService $updateService,
         private ExtensionPackageBatchService $batchService,
-        private ExtensionInstallProgressService $progressService
+        private ExtensionInstallProgressService $progressService,
+        private ExtensionDatabasePlanService $databasePlanService
     )
     {
         parent::__construct();
+    }
+
+    /**
+     * Preview the database changes an install, update, or uninstall would make
+     * for a single extension — the tables it will add, drop, or preserve — so
+     * the admin can review before committing. Read-only: runs no migrations.
+     */
+    public function databasePlan(DatabasePlanRequest $request, string $extensionId): JsonResponse
+    {
+        $plan = $this->databasePlanService->plan(
+            $extensionId,
+            $request->input('operation'),
+            $request->filled('repository_id') ? (int) $request->input('repository_id') : null,
+            $request->input('version')
+        );
+
+        return $this->extensionItemResponse('database_plan', $plan);
     }
 
     /**
@@ -482,13 +505,44 @@ class ExtensionsController extends ApplicationApiController
         $this->abortIfOperationRunning();
         $extensionIds = $request->input('extension_ids', []);
 
-        $this->batchService->batchUninstall($extensionIds);
+        // Map each opt-in data drop to its extension after verifying the typed
+        // confirmation matches the id (mirrors the single-uninstall gate).
+        $dropIds = [];
+        foreach ($request->input('drop_data', []) as $entry) {
+            $id = (string) ($entry['id'] ?? '');
+            if (!in_array($id, $extensionIds, true)) {
+                return new JsonResponse(['error' => sprintf('The extension "%s" flagged for a data drop is not part of this batch.', $id)], 422);
+            }
+            if (trim((string) ($entry['confirm'] ?? '')) !== $id) {
+                return new JsonResponse(['error' => sprintf('Type the extension id "%s" in its confirmation field to drop its database tables.', $id)], 422);
+            }
+            $dropIds[$id] = true;
+        }
 
-        foreach ($extensionIds as $extensionId) {
+        $items = array_map(fn (string $extensionId) => [
+            'extensionId' => $extensionId,
+            'dropData'    => isset($dropIds[$extensionId]),
+        ], $extensionIds);
+
+        $results = $this->batchService->batchUninstall(
+            $items,
+            sprintf('admin:%s', $request->user()?->email ?? 'unknown')
+        );
+
+        foreach ($results as $result) {
             Activity::event('admin:extensions:uninstall')
-                ->property('extension_id', $extensionId)
+                ->property('extension_id', $result['extensionId'])
                 ->property('batch', true)
+                ->property('drop_data', $result['dataDropped'])
                 ->log();
+
+            if ($result['dataDropped']) {
+                Activity::event('admin:extensions:data-drop')
+                    ->property('extension_id', $result['extensionId'])
+                    ->property('migration_log', $result['migrationLog'])
+                    ->property('batch', true)
+                    ->log();
+            }
         }
 
         return new JsonResponse([

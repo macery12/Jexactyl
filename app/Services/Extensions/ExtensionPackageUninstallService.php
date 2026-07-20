@@ -240,6 +240,7 @@ class ExtensionPackageUninstallService
 
         try {
             $result = $this->migrationService->reset($extensionId);
+            $auditContext['rolled_back'] = $result['rolledBack'];
             $auditContext['migrator_output'] = $result['output'];
             $logPath = $this->migrationService->writeMigrationLog($extensionId, 'uninstall-drop-data', $auditContext);
         } catch (\Throwable $exception) {
