@@ -36,7 +36,7 @@ import { useAdminHeld } from '@/layouts/heldPermissions';
 import { useBilling } from '@/state/billing';
 import { formatMib } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import { SectionCard, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '../editorChrome';
+import { SectionCard, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { StatePill } from './productChrome';
 
 interface FormState {

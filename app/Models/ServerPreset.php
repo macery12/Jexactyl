@@ -14,6 +14,12 @@ use Illuminate\Support\Str;
  * @property int $memory
  * @property int $disk
  * @property int $cpu
+ * @property int $swap
+ * @property int $io
+ * @property int $databases
+ * @property int $backups
+ * @property int $allocations
+ * @property int $subusers
  * @property int|null $nest_id
  * @property int|null $egg_id
  * @property \Illuminate\Support\Carbon|null $created_at
@@ -45,6 +51,14 @@ class ServerPreset extends Model
         'memory' => 'required|numeric|min:0',
         'cpu' => 'required|numeric|min:0',
         'disk' => 'required|numeric|min:0',
+        'swap' => 'sometimes|numeric|min:-1',
+        // Mirrors Server::$validationRules — a preset that can hold an io value
+        // the server itself would reject is a trap.
+        'io' => 'sometimes|numeric|between:10,1000',
+        'databases' => 'sometimes|numeric|min:0',
+        'backups' => 'sometimes|numeric|min:0',
+        'allocations' => 'sometimes|numeric|min:0',
+        'subusers' => 'sometimes|numeric|min:-1',
         'nest_id' => 'nullable|exists:nests,id',
         'egg_id' => 'nullable|exists:eggs,id',
     ];
@@ -56,6 +70,12 @@ class ServerPreset extends Model
         'memory' => 'integer',
         'disk' => 'integer',
         'cpu' => 'integer',
+        'swap' => 'integer',
+        'io' => 'integer',
+        'databases' => 'integer',
+        'backups' => 'integer',
+        'allocations' => 'integer',
+        'subusers' => 'integer',
         'nest_id' => 'integer',
         'egg_id' => 'integer',
         self::CREATED_AT => 'datetime',

@@ -12,7 +12,6 @@ import { useAdminHeld } from '@/layouts/heldPermissions';
 import { useFlashes } from '@/state/flashes';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { CreateNodeModal } from '@/pages/admin/infrastructure/CreateNodeModal';
 import { deleteNode } from '@/api/nodes';
 
 export function NodeHeader() {
@@ -22,7 +21,6 @@ export function NodeHeader() {
     const qc = useQueryClient();
     const held = useAdminHeld();
     const [copied, setCopied] = useState(false);
-    const [editing, setEditing] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const address = `${node.scheme}://${node.fqdn}:${node.ports.httpPublic}`;
 
@@ -87,7 +85,7 @@ export function NodeHeader() {
 
             <div className="flex shrink-0 items-center gap-2">
                 {can(held, 'nodes.update') && (
-                    <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                    <Button variant="outline" size="sm" onClick={() => navigate(`/admin/infrastructure/nodes/${node.id}/edit`)}>
                         <Pencil className="h-4 w-4" /> {m['admin.infrastructure.server.edit']()}
                     </Button>
                 )}
@@ -98,7 +96,6 @@ export function NodeHeader() {
                 )}
             </div>
 
-            {editing && <CreateNodeModal open node={node} onClose={() => setEditing(false)} />}
             <ConfirmDialog
                 open={deleting}
                 onClose={() => setDeleting(false)}

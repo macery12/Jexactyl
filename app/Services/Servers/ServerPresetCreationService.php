@@ -33,6 +33,11 @@ class ServerPresetCreationService
         $allocation = Allocation::where('node_id', $data['node_id'])->where('server_id', null)->first();
         $environment = $this->getEnvironmentWithDefaults($egg);
 
+        // A node with nothing free used to fatal on ->id below.
+        if (is_null($allocation)) {
+            throw new DisplayException('The selected node has no free allocations available.');
+        }
+
         $data = [
             'owner_id' => $user->id,
             'name' => $preset->name . ' server',
@@ -40,9 +45,17 @@ class ServerPresetCreationService
             'cpu' => $preset->cpu,
             'memory' => $preset->memory,
             'disk' => $preset->disk,
-            'nest_id' => $preset->node_id ?? 1,
+            'swap' => $preset->swap,
+            'io' => $preset->io,
+            // Was `$preset->node_id`, a column server_presets does not have — so
+            // this silently resolved to null and every preset built on nest 1.
+            'nest_id' => $preset->nest_id ?? $egg->nest_id,
             'egg_id' => $preset->egg_id ?? 1,
             'allocation_id' => $allocation->id,
+            'database_limit' => $preset->databases,
+            'backup_limit' => $preset->backups,
+            'allocation_limit' => $preset->allocations,
+            'subuser_limit' => $preset->subusers,
             'image' => current($egg->docker_images),
             'startup' => $egg->startup,
             'environment' => $environment,

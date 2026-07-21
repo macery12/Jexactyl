@@ -33,7 +33,7 @@ import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
-import { SectionCard, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '../editorChrome';
+import { SectionCard, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { LimitField, ProductPreview } from './productChrome';
 import { CycleEditor, type CycleDraft } from './CycleEditor';
 

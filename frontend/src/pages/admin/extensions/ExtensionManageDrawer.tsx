@@ -525,14 +525,14 @@ function SettingFieldRow({
                     value={String(value ?? '')}
                     placeholder={field.placeholder}
                     onChange={ev => onChange(ev.target.value)}
-                    className="w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
+                    className="w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)] focus:border-[var(--color-focus)]"
                 />
             ) : type === 'select' && field.options ? (
                 <select
                     disabled={disabled}
                     value={String(value ?? '')}
                     onChange={ev => onChange(ev.target.value)}
-                    className="h-10 w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
+                    className="h-10 w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-ink)] focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)] focus:border-[var(--color-focus)]"
                 >
                     {field.options.map(o => (
                         <option key={o.value} value={o.value}>

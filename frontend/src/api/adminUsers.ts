@@ -12,10 +12,15 @@ export interface AdminUser {
     email: string;
 }
 
-// Minimal user list for the manual server builder's owner picker.
+// Minimal user list for the server builder's owner picker. This is a SEARCH
+// endpoint, not a complete list — the backend caps per_page at 100, so on any
+// sizeable panel the unsearched call is just the first page. Callers must expose
+// a search box (see Combobox) rather than treating the result as exhaustive.
+// `filter[*]` is the backend's wildcard (uuid/username/email/external_id), the
+// same one the users list page uses; filtering on email alone missed usernames.
 export async function getUsers(search?: string): Promise<AdminUser[]> {
     const params: Record<string, unknown> = { per_page: 100 };
-    if (search) params['filter[email]'] = search;
+    if (search) params['filter[*]'] = search;
     const { data } = await http.get('/api/application/users', { params });
     return (data.data ?? []).map((row: { attributes?: RawUserAttributes } & Partial<RawUserAttributes>) => {
         const a = (row.attributes ?? row) as RawUserAttributes;

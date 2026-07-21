@@ -124,6 +124,29 @@ genuinely fresh `migrate`: **1244 schema facts on each side, zero differences.**
 
 The dev database itself was never touched — all verification ran against clones.
 
+**Revised 2026-07-21.** The above holds for an install that ran the old chain to
+completion. Installs that tracked `develop` did not: each stopped at a different
+point, so they are missing different subsets of the same tables, columns and
+indexes. The original command refused these outright, on the assumption that an
+install was either fully migrated or not this panel at all.
+
+It now works from the live schema rather than the migration list, and builds
+whatever is missing — tables, columns, indexes and foreign keys — from
+`fresh-schema.sql`. Differences that cannot be closed without risking data (a
+column that would have to narrow, or one this install has and the shipped schema
+does not) are reported instead of forced, and hold back the migration history
+rewrite until resolved.
+
+Two failure modes found while doing this, both now fixed:
+
+- MariaDB drops a foreign key's identically-named backing index along with the
+  constraint. The plan was computed once up front, so a later index rename
+  referred to something the earlier FK rebuild had already removed, and the run
+  aborted part-way. Changes are now applied in phases with the plan recomputed
+  from the live schema between each.
+- A single failing statement aborted the whole run. Failures are now collected
+  and the remaining changes still attempted.
+
 ## D9. `products.category_uuid` has no FK
 
 `categories.uuid` exists but `products.category_uuid` was added (2025-03) without

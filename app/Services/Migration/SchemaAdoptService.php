@@ -2,7 +2,6 @@
 
 namespace Everest\Services\Migration;
 
-use RuntimeException;
 use Illuminate\Database\Connection;
 
 /**
@@ -26,35 +25,36 @@ class SchemaAdoptService
     /**
      * Reasons the install cannot be adopted, checked before anything is written.
      *
-     * @param string[] $legacyChain
-     * @param string[] $currentChain
+     * There is only one left. Being behind the old chain used to be a blocker,
+     * on the assumption that an install was either fully migrated or not this
+     * panel at all. Installs that tracked the development branch are neither:
+     * they sit at whatever point they last pulled, so any two are missing a
+     * different subset of the same changes. The live schema is compared against
+     * the baseline and whatever is missing is built, which covers all of those
+     * cases without needing to know which one this is.
      *
      * @return string[]
      */
-    public function blockers(array $legacyChain, array $currentChain): array
+    public function blockers(): array
     {
-        $blockers = [];
-        $applied = $this->appliedMigrations();
-
-        if ($applied === []) {
-            $blockers[] = 'This database has no migration history at all. `p:migrate:adopt` upgrades an existing install; a fresh install should just run `php artisan migrate`.';
-
-            return $blockers;
+        if ($this->appliedMigrations() === []) {
+            return ['This database has no migration history at all. `p:migrate:adopt` upgrades an existing install; a fresh install should just run `php artisan migrate`.'];
         }
 
-        $missing = array_diff($legacyChain, $applied);
+        return [];
+    }
 
-        if ($missing !== []) {
-            $blockers[] = sprintf(
-                "This install is behind the old migration chain — %d of %d migrations were never applied, the oldest being `%s`.\n"
-                    . 'Check out the last release before the schema rebuild, run `php artisan migrate`, then come back to this version and run this command.',
-                count($missing),
-                count($legacyChain),
-                reset($missing),
-            );
-        }
-
-        return $blockers;
+    /**
+     * How far behind the old chain this install is. Informational: the schema,
+     * not the bookkeeping, decides what gets built.
+     *
+     * @param string[] $legacyChain
+     *
+     * @return string[] the migrations that never ran here
+     */
+    public function historyGap(array $legacyChain): array
+    {
+        return array_values(array_diff($legacyChain, $this->appliedMigrations()));
     }
 
     /**
@@ -110,44 +110,72 @@ class SchemaAdoptService
     }
 
     /**
-     * Apply the reconciling statements.
+     * Apply the reconciling statements, a phase at a time.
      *
-     * DDL does not roll back on MySQL or MariaDB, so this deliberately does not
-     * pretend to be transactional. Instead each change is independent and the
-     * whole command is idempotent: the plan is recomputed from the live schema
-     * every run, so a failure part-way through is resumed by running it again.
-     * Changes are ordered cosmetic-first and destructive-last, so the earliest
-     * failure is also the cheapest one to be interrupted by.
+     * Two things shape this. First, DDL does not roll back on MySQL or MariaDB,
+     * so there is no pretence of a transaction — instead every change is
+     * independent and the whole command is idempotent, recomputing what is left
+     * from the live schema.
      *
-     * @param SchemaChange[] $changes
+     * Second, applying a change routinely changes what the remaining ones need
+     * to do. Adding a column makes an index over it possible; on MariaDB,
+     * rebuilding a foreign key takes its identically-named backing index with
+     * it, so a rename planned against the original schema would then be
+     * renaming something that no longer exists. So the plan is recomputed
+     * between phases rather than being fixed up front. $replan is what does
+     * that: it returns the filtered plan against the schema as it stands now.
      *
-     * @return SchemaChange[] the changes that were applied
+     * A failing change does not stop the run either. Anything that cannot be
+     * applied is recorded and the rest are still attempted, because the whole
+     * point is to get as close to the shipped schema as this install allows and
+     * then say plainly what is left.
+     *
+     * @param callable(): SchemaChange[] $replan
+     * @param callable(SchemaChange): void|null $onApplied
+     *
+     * @return array{applied: SchemaChange[], failed: array<array{change: SchemaChange, statement: string, error: string}>}
      */
-    public function applyChanges(array $changes): array
+    public function applyPlan(callable $replan, ?callable $onApplied = null): array
     {
         $applied = [];
+        $failed = [];
 
-        foreach ($this->ordered($changes) as $change) {
-            foreach ($change->statements as $statement) {
+        foreach (SchemaChange::phases() as $phase) {
+            $changes = array_values(array_filter($replan(), fn (SchemaChange $c) => $c->phase() === $phase));
+
+            foreach ($changes as $change) {
                 try {
-                    $this->connection->statement($statement);
+                    foreach ($change->statements as $statement) {
+                        $this->connection->statement($statement);
+                    }
                 } catch (\Throwable $e) {
-                    throw new RuntimeException(sprintf(
-                        "Failed while applying: %s\n  Statement: %s\n  %s\n\n"
-                            . '%d change(s) were applied before this one and are already in place. '
-                            . 'This command is safe to re-run once the cause is fixed — it recomputes what is left from the live schema.',
-                        $change->description,
-                        $statement,
-                        $e->getMessage(),
-                        count($applied),
-                    ), 0, $e);
+                    $failed[] = [
+                        'change' => $change,
+                        'statement' => $statement ?? '',
+                        'error' => $this->concise($e->getMessage()),
+                    ];
+
+                    continue;
+                }
+
+                $applied[] = $change;
+
+                if ($onApplied !== null) {
+                    $onApplied($change);
                 }
             }
-
-            $applied[] = $change;
         }
 
-        return $applied;
+        return ['applied' => $applied, 'failed' => $failed];
+    }
+
+    /**
+     * Laravel appends the connection, host and full SQL to every query error.
+     * All three are already on screen next to the message, so drop them.
+     */
+    private function concise(string $message): string
+    {
+        return trim((string) preg_replace('/ \(Connection: .*$/s', '', $message));
     }
 
     /**
@@ -195,30 +223,6 @@ class SchemaAdoptService
             'inserted' => $inserted,
             'archived' => $archived,
         ];
-    }
-
-    /**
-     * Cosmetic renames first (cheap, no behaviour change), then index rebuilds,
-     * then anything destructive.
-     *
-     * @param SchemaChange[] $changes
-     *
-     * @return SchemaChange[]
-     */
-    private function ordered(array $changes): array
-    {
-        $weight = [
-            SchemaChange::KIND_REBUILD_FOREIGN_KEY => 0,
-            SchemaChange::KIND_RENAME_INDEX => 1,
-            SchemaChange::KIND_CREATE_INDEX => 2,
-            SchemaChange::KIND_REBUILD_INDEX => 3,
-            SchemaChange::KIND_DROP_INDEX => 4,
-            SchemaChange::KIND_DROP_TABLE => 5,
-        ];
-
-        usort($changes, fn (SchemaChange $a, SchemaChange $b) => ($weight[$a->kind] ?? 9) <=> ($weight[$b->kind] ?? 9));
-
-        return $changes;
     }
 
     /** @return string[] */

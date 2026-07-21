@@ -16,54 +16,98 @@ use Illuminate\Database\Connection;
  */
 class SchemaReconciler
 {
+    /**
+     * information_schema lookups for the current pass, cleared by refresh().
+     *
+     * The plan is recomputed several times per run, and each pass reads every
+     * table's columns, indexes and constraints. Without this the command spends
+     * most of its time re-asking the server questions whose answers cannot have
+     * changed since the last statement it issued.
+     *
+     * @var array<string, mixed>
+     */
+    private array $cache = [];
+
     public function __construct(private readonly Connection $connection)
     {
     }
 
     /**
-     * Differences that this tool will not attempt to fix. Any of these means the
-     * install is not the schema the baseline describes, and the operator needs
-     * to know rather than have it papered over.
+     * Forget everything read from information_schema. Called after each phase of
+     * changes is applied, so the next plan is computed against the real schema
+     * rather than the one that existed when the run started.
+     */
+    public function refresh(): void
+    {
+        $this->cache = [];
+    }
+
+    /**
+     * Differences this tool will not attempt to fix, because correcting them
+     * could destroy data. Everything else that used to live here is now planned
+     * as a repair instead — see plan().
+     *
+     * These do not stop the run: the repairs that can be made are still worth
+     * making. They stop the migration history from being rewritten, because
+     * claiming the consolidated chain on a schema that does not match it would
+     * hide the problem from every later upgrade.
      *
      * @return string[]
      */
-    public function blockingDifferences(SchemaBaseline $baseline): array
+    public function unrepairableDifferences(SchemaBaseline $baseline): array
     {
         $problems = [];
         $actualTables = $this->tables();
 
         foreach ($baseline->tableNames() as $table) {
-            if ($table === 'migrations') {
+            if ($table === 'migrations' || !in_array($table, $actualTables, true)) {
                 continue;
             }
 
-            if (!in_array($table, $actualTables, true)) {
-                $problems[] = "table `{$table}` is missing";
-
-                continue;
-            }
-
-            $expected = $baseline->columns($table);
             $actual = $this->columns($table);
 
-            foreach ($expected as $column => $definition) {
+            foreach ($baseline->columns($table) as $column => $definition) {
                 if (!isset($actual[$column])) {
-                    $problems[] = "`{$table}`.`{$column}` is missing";
-
                     continue;
                 }
 
-                foreach ($this->describeColumnDifferences($definition, $actual[$column]) as $difference) {
-                    $problems[] = "`{$table}`.`{$column}`: {$difference}";
+                if (($reason = $this->lossyColumnChange($definition, $actual[$column])) !== null) {
+                    $problems[] = sprintf(
+                        '`%s`.`%s`: %s — changing this could truncate or reinterpret existing values, so it is left alone. Correct it by hand.',
+                        $table,
+                        $column,
+                        $reason,
+                    );
                 }
-            }
-
-            foreach (array_diff(array_keys($actual), array_keys($expected)) as $column) {
-                $problems[] = "`{$table}`.`{$column}` exists here but not in the shipped schema";
             }
         }
 
         return $problems;
+    }
+
+    /**
+     * Differences that are safe to live with: things this install has that the
+     * shipped schema does not. Dropping a column destroys data, so these are
+     * reported and kept.
+     *
+     * @return string[]
+     */
+    public function toleratedDifferences(SchemaBaseline $baseline): array
+    {
+        $notes = [];
+        $actualTables = $this->tables();
+
+        foreach ($baseline->tableNames() as $table) {
+            if ($table === 'migrations' || !in_array($table, $actualTables, true)) {
+                continue;
+            }
+
+            foreach (array_diff(array_keys($this->columns($table)), array_keys($baseline->columns($table))) as $column) {
+                $notes[] = "`{$table}`.`{$column}` exists here but not in the shipped schema — kept, since dropping it would lose whatever is in it";
+            }
+        }
+
+        return $notes;
     }
 
     /**
@@ -125,18 +169,36 @@ class SchemaReconciler
         $actualTables = $this->tables();
 
         foreach ($baseline->tableNames() as $table) {
-            if ($table === 'migrations' || !in_array($table, $actualTables, true)) {
+            if ($table === 'migrations') {
+                continue;
+            }
+
+            // A table this install never got is built outright, with its columns
+            // and indexes. Its foreign keys are added in a later phase, once
+            // every table they might point at exists.
+            if (!in_array($table, $actualTables, true)) {
+                $changes[] = $this->planCreateTable($baseline, $table);
+                $changes = array_merge($changes, $this->planForeignKeys($baseline, $table));
+
                 continue;
             }
 
             $changes = array_merge(
                 $changes,
+                $this->planColumns($baseline, $table),
                 $this->planForeignKeys($baseline, $table),
                 $this->planIndexes($baseline, $table),
             );
         }
 
         foreach ($dropTables as $table) {
+            // The caller resolves these once, before anything runs. By the time
+            // the plan is recomputed for a later phase they may already be gone,
+            // and re-proposing a drop would look like a change that failed.
+            if (!in_array($table, $actualTables, true)) {
+                continue;
+            }
+
             $changes[] = new SchemaChange(
                 kind: SchemaChange::KIND_DROP_TABLE,
                 table: $table,
@@ -168,9 +230,27 @@ class SchemaReconciler
             $match = $this->findByShape($actual, $definition, $matchedActual, ['columns', 'refTable', 'refColumns', 'onDelete', 'onUpdate']);
 
             if ($match === null) {
-                // A missing or reshaped FK is a structural difference, not a
-                // naming one; blockingDifferences() has already reported the
-                // column-level cause if there is one.
+                // Nothing here has this shape. If the column it needs is missing
+                // too, the add-column phase creates it first and the recomputed
+                // plan picks this up then; if the column is there, the install
+                // simply never got the constraint.
+                if (!$this->hasColumns($table, $definition['columns'])) {
+                    continue;
+                }
+
+                $changes[] = new SchemaChange(
+                    kind: SchemaChange::KIND_ADD_FOREIGN_KEY,
+                    table: $table,
+                    description: sprintf(
+                        '`%s`: add missing constraint `%s` (%s → `%s`)',
+                        $table,
+                        $name,
+                        implode(', ', $definition['columns']),
+                        $definition['refTable'],
+                    ),
+                    statements: [$this->addForeignKeyStatement($table, $name, $definition)],
+                );
+
                 continue;
             }
 
@@ -186,17 +266,123 @@ class SchemaReconciler
                 description: "`{$table}`: constraint `{$match}` → `{$name}` (historical name)",
                 statements: [
                     "ALTER TABLE `{$table}` DROP FOREIGN KEY `{$match}`",
-                    sprintf(
-                        'ALTER TABLE `%s` ADD CONSTRAINT `%s` FOREIGN KEY (%s) REFERENCES `%s` (%s)%s%s',
-                        $table,
-                        $name,
-                        $this->quoteList($definition['columns']),
-                        $definition['refTable'],
-                        $this->quoteList($definition['refColumns']),
-                        $definition['onDelete'] ? ' ON DELETE ' . $definition['onDelete'] : '',
-                        $definition['onUpdate'] ? ' ON UPDATE ' . $definition['onUpdate'] : '',
-                    ),
+                    $this->addForeignKeyStatement($table, $name, $definition),
                 ],
+            );
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Build a table this install never got.
+     *
+     * Foreign keys are deliberately left out: the table a key points at may not
+     * exist yet either. They are added in a later phase, by which point every
+     * table does.
+     */
+    private function planCreateTable(SchemaBaseline $baseline, string $table): SchemaChange
+    {
+        $lines = [];
+
+        foreach ($baseline->columns($table) as $column => $definition) {
+            $lines[] = '  ' . $this->columnDefinition($column, $definition);
+        }
+
+        if (($primary = $baseline->primaryKey($table)) !== []) {
+            $lines[] = '  PRIMARY KEY (' . $this->quoteList($primary) . ')';
+        }
+
+        foreach ($baseline->indexes($table) as $name => $definition) {
+            $lines[] = sprintf(
+                '  %sKEY `%s` (%s)',
+                $definition['unique'] ? 'UNIQUE ' : '',
+                $name,
+                $this->quoteList($definition['columns']),
+            );
+        }
+
+        $statement = sprintf(
+            "CREATE TABLE `%s` (\n%s\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=%s",
+            $table,
+            implode(",\n", $lines),
+            $baseline->collation($table),
+        );
+
+        return new SchemaChange(
+            kind: SchemaChange::KIND_CREATE_TABLE,
+            table: $table,
+            description: sprintf(
+                'create missing table `%s` (%d column(s)) — this install predates it',
+                $table,
+                count($baseline->columns($table)),
+            ),
+            statements: [$statement],
+        );
+    }
+
+    /**
+     * Columns the shipped schema has that this install does not, plus columns
+     * whose definition drifted in a way that can be corrected without risking
+     * the values already in them.
+     *
+     * This is what makes the command usable on installs that tracked the
+     * development branch and stopped at different points: each one is missing a
+     * different subset, and each subset is added on its own terms.
+     *
+     * @return SchemaChange[]
+     */
+    private function planColumns(SchemaBaseline $baseline, string $table): array
+    {
+        $expected = $baseline->columns($table);
+        $actual = $this->columns($table);
+        $changes = [];
+
+        // Tracks where each column lands so a run of several missing columns is
+        // added in the shipped order rather than all after the same anchor.
+        $previous = null;
+
+        foreach ($expected as $column => $definition) {
+            if (!isset($actual[$column])) {
+                $changes[] = new SchemaChange(
+                    kind: SchemaChange::KIND_ADD_COLUMN,
+                    table: $table,
+                    description: sprintf('`%s`: add missing column `%s` (%s)', $table, $column, $definition['type']),
+                    statements: [sprintf(
+                        'ALTER TABLE `%s` ADD COLUMN %s%s',
+                        $table,
+                        $this->columnDefinition($column, $definition),
+                        $previous === null ? ' FIRST' : " AFTER `{$previous}`",
+                    )],
+                    // A NOT NULL column with no default takes the type's zero
+                    // value on every existing row. That is a write, so say so.
+                    destructive: !$definition['nullable'] && $definition['default'] === null && $this->rowCount($table) > 0,
+                );
+
+                $previous = $column;
+
+                continue;
+            }
+
+            $previous = $column;
+
+            $differences = $this->describeColumnDifferences($definition, $actual[$column]);
+
+            if ($differences === [] || $this->lossyColumnChange($definition, $actual[$column]) !== null) {
+                continue;
+            }
+
+            $changes[] = new SchemaChange(
+                kind: SchemaChange::KIND_MODIFY_COLUMN,
+                table: $table,
+                description: sprintf('`%s`.`%s`: %s — corrected', $table, $column, implode('; ', $differences)),
+                statements: [sprintf(
+                    'ALTER TABLE `%s` MODIFY COLUMN %s',
+                    $table,
+                    $this->columnDefinition($column, $definition),
+                )],
+                // Tightening a nullable column rewrites any NULL already stored.
+                destructive: $actual[$column]['nullable'] && !$definition['nullable'],
             );
         }
 
@@ -217,6 +403,12 @@ class SchemaReconciler
         $matchedActual = [];
 
         foreach ($expected as $name => $definition) {
+            // An index over a column that is still missing has to wait for the
+            // add-column phase; the recomputed plan will pick it up then.
+            if (!$this->hasColumns($table, $definition['columns'])) {
+                continue;
+            }
+
             $match = $this->findByShape($actual, $definition, $matchedActual, ['columns', 'unique']);
 
             if ($match !== null) {
@@ -316,6 +508,115 @@ class SchemaReconciler
         return null;
     }
 
+    /**
+     * Render a column back into SQL from the structured facts the baseline
+     * parsed out of the dump. Clause order follows MySQL's column definition
+     * grammar: type, collation, nullability, default, attributes, comment.
+     */
+    private function columnDefinition(string $column, array $definition): string
+    {
+        $sql = "`{$column}` " . $definition['type'];
+
+        if ($definition['collation'] !== null) {
+            $sql .= ' COLLATE ' . $definition['collation'];
+        }
+
+        $sql .= $definition['nullable'] ? ' NULL' : ' NOT NULL';
+
+        if ($definition['default'] !== null) {
+            $sql .= ' DEFAULT ' . $this->defaultLiteral($definition['default']);
+        }
+
+        if ($definition['extra'] !== '') {
+            $sql .= ' ' . strtoupper($definition['extra']);
+        }
+
+        if ($definition['comment'] !== '') {
+            $sql .= " COMMENT '" . str_replace("'", "''", $definition['comment']) . "'";
+        }
+
+        return $sql;
+    }
+
+    /**
+     * The baseline rewrites defaults that are the date the dump was taken to a
+     * placeholder, so two installs compare equal. Writing one back out means
+     * putting a real date in again — today's, which is what a fresh install
+     * would have got.
+     */
+    private function defaultLiteral(string $default): string
+    {
+        return $default === "'<migrate-date>'" ? "'" . date('Y-m-d') . "'" : $default;
+    }
+
+    /**
+     * Whether correcting this column would risk the values already stored in
+     * it. A change of type family reinterprets every row, and a narrower type
+     * truncates. Neither is something an upgrade should decide on its own.
+     *
+     * Returns the reason, or null when the change is safe to make.
+     */
+    private function lossyColumnChange(array $expected, array $actual): ?string
+    {
+        if ($expected['type'] === $actual['type']) {
+            return null;
+        }
+
+        $expectedBase = $this->baseType($expected['type']);
+        $actualBase = $this->baseType($actual['type']);
+
+        if ($expectedBase !== $actualBase) {
+            return sprintf('type is `%s`, expected `%s`', $actual['type'], $expected['type']);
+        }
+
+        $expectedSize = $this->typeSize($expected['type']);
+        $actualSize = $this->typeSize($actual['type']);
+
+        if ($expectedSize !== null && $actualSize !== null && $expectedSize < $actualSize) {
+            return sprintf('`%s` is wider than the expected `%s`', $actual['type'], $expected['type']);
+        }
+
+        return null;
+    }
+
+    private function baseType(string $type): string
+    {
+        return strtolower((string) preg_replace('/\s*\(.*$/s', '', trim($type)));
+    }
+
+    /** The first number in the type's parentheses — length, or precision. */
+    private function typeSize(string $type): ?int
+    {
+        return preg_match('/\((\d+)/', $type, $m) ? (int) $m[1] : null;
+    }
+
+    /** @param string[] $columns */
+    private function hasColumns(string $table, array $columns): bool
+    {
+        $present = array_keys($this->columns($table));
+
+        return array_diff($columns, $present) === [];
+    }
+
+    private function rowCount(string $table): int
+    {
+        return $this->cache['rows'][$table] ??= (int) $this->connection->table($table)->count();
+    }
+
+    private function addForeignKeyStatement(string $table, string $name, array $definition): string
+    {
+        return sprintf(
+            'ALTER TABLE `%s` ADD CONSTRAINT `%s` FOREIGN KEY (%s) REFERENCES `%s` (%s)%s%s',
+            $table,
+            $name,
+            $this->quoteList($definition['columns']),
+            $definition['refTable'],
+            $this->quoteList($definition['refColumns']),
+            $definition['onDelete'] ? ' ON DELETE ' . $definition['onDelete'] : '',
+            $definition['onUpdate'] ? ' ON UPDATE ' . $definition['onUpdate'] : '',
+        );
+    }
+
     private function createIndexStatement(string $table, string $name, array $definition): string
     {
         return sprintf(
@@ -336,7 +637,7 @@ class SchemaReconciler
     /** @return string[] */
     private function tables(): array
     {
-        return array_map(
+        return $this->cache['tables'] ??= array_map(
             fn ($row) => $row->TABLE_NAME,
             $this->connection->select(
                 'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = "BASE TABLE" ORDER BY TABLE_NAME'
@@ -352,6 +653,10 @@ class SchemaReconciler
      */
     private function columns(string $table): array
     {
+        if (isset($this->cache['columns'][$table])) {
+            return $this->cache['columns'][$table];
+        }
+
         $rows = $this->connection->select(
             'SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, EXTRA, COLLATION_NAME, COLUMN_COMMENT
              FROM information_schema.COLUMNS
@@ -377,7 +682,7 @@ class SchemaReconciler
             ];
         }
 
-        return $columns;
+        return $this->cache['columns'][$table] = $columns;
     }
 
     /**
@@ -426,6 +731,10 @@ class SchemaReconciler
     /** @return array<string, array{columns: string[], unique: bool}> */
     private function indexes(string $table): array
     {
+        if (isset($this->cache['indexes'][$table])) {
+            return $this->cache['indexes'][$table];
+        }
+
         $rows = $this->connection->select(
             'SELECT INDEX_NAME, NON_UNIQUE, COLUMN_NAME
              FROM information_schema.STATISTICS
@@ -441,12 +750,16 @@ class SchemaReconciler
             $indexes[$row->INDEX_NAME]['unique'] = (int) $row->NON_UNIQUE === 0;
         }
 
-        return $indexes;
+        return $this->cache['indexes'][$table] = $indexes;
     }
 
     /** @return array<string, array> */
     private function foreignKeys(string $table): array
     {
+        if (isset($this->cache['foreignKeys'][$table])) {
+            return $this->cache['foreignKeys'][$table];
+        }
+
         $rows = $this->connection->select(
             'SELECT k.CONSTRAINT_NAME, k.COLUMN_NAME, k.REFERENCED_TABLE_NAME, k.REFERENCED_COLUMN_NAME,
                     r.DELETE_RULE, r.UPDATE_RULE
@@ -470,16 +783,17 @@ class SchemaReconciler
             $keys[$name]['onUpdate'] = in_array($row->UPDATE_RULE, ['RESTRICT', 'NO ACTION'], true) ? null : $row->UPDATE_RULE;
         }
 
-        return $keys;
+        return $this->cache['foreignKeys'][$table] = $keys;
     }
 
     /** @return string[] */
     private function foreignKeyBackingIndexes(string $table): array
     {
         $names = [];
+        $indexes = $this->indexes($table);
 
         foreach ($this->foreignKeys($table) as $key) {
-            foreach ($this->indexes($table) as $indexName => $index) {
+            foreach ($indexes as $indexName => $index) {
                 // InnoDB accepts any index whose leading columns cover the key.
                 if (array_slice($index['columns'], 0, count($key['columns'])) === $key['columns']) {
                     $names[] = $indexName;

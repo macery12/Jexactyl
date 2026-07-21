@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { updateBillingSetting, deleteStripeKeys } from '@/api/adminBillingSettings';
-import { SectionCard, ToggleGroup, ToggleRow } from '../editorChrome';
+import { SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { patchBilling } from './patchBilling';
 
 function StatusChip({ ok }: { ok: boolean }) {

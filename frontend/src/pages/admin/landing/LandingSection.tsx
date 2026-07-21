@@ -38,7 +38,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
             {...props}
             className={cn(
                 'min-h-[88px] w-full rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-4 py-3 text-sm text-[var(--color-ink)]',
-                'placeholder:text-[var(--color-ink-faint)] transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60',
+                'placeholder:text-[var(--color-ink-faint)] transition-colors focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)] focus:border-[var(--color-focus)]',
                 props.className,
             )}
         />

@@ -5,9 +5,10 @@ import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 
-// Shared chrome for the billing editor pages (product editor + category detail).
-// Mirrors the server-cockpit editor: titled section cards, a label/field row,
-// and a sticky save bar that reflects unsaved state.
+// Shared chrome for the panel's full-page editors — billing products and
+// categories, the egg editor, and the infrastructure server/node editors.
+// Titled section cards, a label/field row, and a sticky save bar that reflects
+// unsaved state. Lives in components/ui because it is no longer billing-only.
 
 export function SectionCard({
     id,
@@ -41,21 +42,36 @@ export function SectionCard({
     );
 }
 
+// Lays fields out side by side instead of one full-width row each. Dense admin
+// forms are mostly short inputs (ports, limits, counts) — stacking them turns a
+// four-field section into four screens of scrolling. Pair them up by default and
+// let the genuinely long ones opt out with <FieldRow wide>.
+export function FieldGrid({ children, columns = 2 }: { children: React.ReactNode; columns?: 2 | 3 }) {
+    return (
+        <div className={cn('grid gap-x-5 gap-y-4', columns === 3 ? 'sm:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2')}>
+            {children}
+        </div>
+    );
+}
+
 export function FieldRow({
     label,
     desc,
     mono,
     error,
+    wide,
     children,
 }: {
     label: string;
     desc?: string;
     mono?: string;
     error?: string;
+    /** Span the whole FieldGrid — for paths, commands, descriptions, textareas. */
+    wide?: boolean;
     children: React.ReactNode;
 }) {
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className={cn('flex flex-col gap-1.5', wide && 'sm:col-span-full')}>
             <label className="flex items-baseline gap-2 text-sm font-medium text-[var(--color-ink-muted)]">
                 {label}
                 {mono && <code className="font-mono text-[10px] text-[var(--color-ink-faint)]">{mono}</code>}
@@ -130,7 +146,7 @@ export function SaveBar({
             ) : (
                 <span className={cn('flex items-center gap-2 text-xs', dirty ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink-faint)]')}>
                     <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-ink-faint)]')} />
-                    {dirty ? m['admin.billing.common.unsaved']() : m['admin.billing.common.allSaved']()}
+                    {dirty ? m['common.editor.unsaved']() : m['common.editor.allSaved']()}
                 </span>
             )}
             <div className="flex items-center gap-2">

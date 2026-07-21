@@ -12,11 +12,11 @@ easy to confuse:
 | Already running this panel, upgrading past the schema rebuild | `p:migrate:adopt` |
 | Installing this panel for the first time | neither — just `php artisan migrate --seed --force` |
 
-> **This tool is experimental** and has not been tested against a real
-> installation. It alters the schema of a live database. Take a
-> backup first, run it with `--dry-run` to see exactly what it will do, and
-> report problems — with the command output and the version you upgraded from —
-> to the automated installer repository.
+> **This tool is experimental.** It has been verified against clones of a real
+> install, including deliberately damaged ones, but it alters the schema of a
+> live database. Take a backup first, run it with `--dry-run` to see exactly
+> what it will do, and report problems — with the command output and the version
+> you upgraded from — to the automated installer repository.
 
 ## Why this is needed
 
@@ -29,36 +29,42 @@ to create tables that are already there.
 
 `p:migrate:adopt` reconciles that. It:
 
-1. rewrites the `migrations` table to list the consolidated chain;
+1. builds anything the shipped schema has and this install does not — missing
+   tables, columns, indexes and foreign keys;
 2. renames the handful of indexes and foreign keys still carrying names from
    tables that were renamed years ago (`service_options_*` → `eggs_*`, and so
    on);
 3. rebuilds one index on `ticket_messages` that the old chain created over the
    wrong columns;
 4. drops `subscriptions` and `subscription_items`, which the rebuild removed
-   (D2) — **only if they are empty**.
+   (D2) — **only if they are empty**;
+5. rewrites the `migrations` table to list the consolidated chain — but only
+   once the schema actually matches.
 
-**No row data is read or written**, other than the `migrations` table itself.
+**No row data is read or written**, other than the `migrations` table itself,
+except where the plan marks a line with `!`. Those flag the two cases that do
+touch rows: adding a `NOT NULL` column with no default to a table that already
+has rows, and tightening a nullable column that already holds NULLs.
 
 ## Requirements and ordering
 
-The install must be **fully migrated on the old chain** before upgrading. The
-command checks this and refuses otherwise, naming the oldest missing migration.
+There is no requirement to be fully migrated on the old chain. The command
+works from **what the database actually contains**, not from what its
+`migrations` table claims, so an install that stopped part-way along the
+development branch is handled the same as one that got all the way: whatever is
+missing is compared against the shipped schema and built.
 
-That check matters because the new code no longer ships the old migration files,
-so there is no way to catch up from here. The upgrade path is:
+That matters because installs that tracked `develop` are all at slightly
+different points — one has eight of the last ten changes, another five, another
+all ten. There is no single "behind" state to catch up from, and the new code no
+longer ships the old migration files to catch up with. Comparing schemas instead
+of migration lists sidesteps the problem entirely.
+
+So the upgrade path is just:
 
 ```
-# on the last release before the schema rebuild
-php artisan migrate --force
-
-# then deploy this version, and
 php artisan p:migrate:adopt --assume-yes --no-interaction
 ```
-
-An installer that upgrades across the rebuild boundary must not skip that first
-step. If it deploys the new code onto a database that is behind, the operator
-has to check out the older release to recover.
 
 **Do not seed afterwards** — neither `php artisan db:seed` nor
 `php artisan migrate --seed`. The egg seeder updates eggs by UUID and would
@@ -88,28 +94,39 @@ php artisan p:migrate:adopt --assume-yes --no-interaction
 | `--keep-extra-indexes` | Keep indexes this install has that the shipped schema does not. |
 | `--assume-yes` | Answer the confirmation prompts yes. **Required for unattended runs.** |
 
-Exit code is `0` on success or when there is nothing to do, `1` on any refusal
-or failure.
+Exit code is `0` on success or when there is nothing to do, `1` when anything
+was left unresolved — including a partial success, where the fixable changes
+were applied but the migration history was not rewritten.
 
 ## Safety properties
 
-- **Idempotent.** Running it twice is a no-op — it detects an install already on
-  the consolidated chain and exits `0`. An installer can call it unconditionally.
-- **Refuses anything it does not recognise.** Every table, column, type,
-  nullability, default, collation and comment is compared against the shipped
-  schema first. Any mismatch aborts before a single statement runs, listing what
-  differs. A hand-modified schema, or an install that is not this panel, is
-  turned away rather than half-upgraded.
+- **Idempotent.** Running it twice is a no-op — the second run recomputes the
+  plan from the live schema, finds nothing to do, and exits `0`. An installer can
+  call it unconditionally.
+- **Repairs what it can, reports what it cannot.** A difference it cannot fix
+  safely does not stop the run. Everything fixable is still applied, and the
+  unfixable remainder is listed at the end with the reason. Nothing is
+  half-applied silently.
+- **Never destroys data to reach the target schema.** Two classes of difference
+  are deliberately left alone: a column whose type would have to narrow or
+  change family to match (truncation or reinterpretation), and a column this
+  install has that the shipped schema does not (dropping it loses whatever is in
+  it). Both are reported for the operator to resolve by hand.
 - **Resumable rather than transactional.** MySQL and MariaDB do not roll back
   DDL, so this does not pretend to be atomic. Instead every change is
-  independent and the plan is recomputed from the live schema on each run, so an
+  independent and the plan is recomputed from the live schema as it goes, so an
   interrupted upgrade is finished by running it again. Changes are ordered
-  cheapest and most reversible first; the two table drops happen last.
-- **The bookkeeping rewrite is last and transactional.** If anything fails
-  earlier, the install keeps its old migration history and stays re-runnable,
-  rather than claiming to be on a chain it is not.
-- **Verifies its own work.** After applying, it re-reads the schema and confirms
-  it matches the shipped one, and reports a failure if it does not.
+  build-first and destructive-last; the two table drops happen last.
+- **Recomputes between phases, not just between runs.** Applying one change
+  routinely changes what the rest need to do — adding a column makes an index
+  over it possible, and on MariaDB rebuilding a foreign key takes its
+  identically-named backing index with it. Changes are therefore applied a phase
+  at a time against a freshly-read schema, rather than from a plan fixed up
+  front.
+- **The bookkeeping rewrite is last, transactional, and conditional.** It only
+  happens once the schema genuinely matches. If anything is left over, the
+  install keeps its old migration history and stays re-runnable rather than
+  claiming to be on a chain it is not.
 - **Never drops a table holding rows.** `subscriptions` and `subscription_items`
   have no code referencing them, so rows there mean something unexpected wrote
   them. If either is non-empty it is kept and reported instead of dropped.
@@ -120,6 +137,14 @@ or failure.
   this install but ship with no file here — usually leftovers from removed
   features, and extension migrations, which are managed separately. They keep
   their rows.
+- **How far behind the old chain the install is.** Reported as context, since it
+  explains why there is work to do, but it is not what the plan is built from.
+- **Columns this install has and the shipped schema does not.** Kept, because
+  dropping a column destroys whatever is in it.
+- **Columns whose type would have to narrow or change family.** Kept, with the
+  expected and actual types named, because either change could truncate or
+  reinterpret stored values. These block the migration history rewrite until
+  resolved by hand.
 - **Extra tables.** Anything not in the shipped schema is listed and left alone.
   Tables prefixed `ext_` are ignored entirely; they belong to extensions.
 - **Column order.** A column added by a later `ALTER` sits at the end of the
@@ -152,13 +177,21 @@ needing a rename, not as a missing index plus a stranger. That is what makes the
 command safe against installs whose exact upgrade history is unknown: the old
 names are discovered, not assumed.
 
+Missing tables and columns are rebuilt from that same dump, so a column an
+install never got is created with exactly the type, nullability, default,
+collation and comment a fresh install would give it, in the same position in the
+table.
+
 The pre-rebuild chain is listed in
 [`database/schema/legacy-migrations.txt`](../database/schema/legacy-migrations.txt),
-shipped as a manifest so the "are you fully migrated?" check keeps working once
-`database/migrations_legacy/` is deleted.
+shipped as a manifest so the command knows which `migrations` rows belong to the
+old chain — those are the ones it replaces — once `database/migrations_legacy/`
+is deleted.
 
-**That manifest must survive as long as this upgrade path is supported** —
-deleting it would break the check that stops a half-migrated install being
-adopted. `database/migrations_legacy/` itself is only kept for human reference
-and is safe to delete (D7); the manifest exists precisely so that deleting it
-costs nothing.
+**That manifest must survive as long as this upgrade path is supported.**
+Without it the command cannot tell an old-chain row from a row belonging to an
+extension or a removed feature, and would either strand the old rows or delete
+rows it should keep. It is no longer used to gate the upgrade — being behind the
+old chain is fine — only to identify what to replace.
+`database/migrations_legacy/` itself is only kept for human reference and is safe
+to delete (D7); the manifest exists precisely so that deleting it costs nothing.

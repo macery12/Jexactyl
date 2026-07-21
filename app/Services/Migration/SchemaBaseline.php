@@ -117,6 +117,22 @@ class SchemaBaseline
         return $this->tables[$table]['foreignKeys'] ?? [];
     }
 
+    /**
+     * The primary key's columns. Needed to recreate a table an install never
+     * got; the upgrade never alters an existing one.
+     *
+     * @return string[]
+     */
+    public function primaryKey(string $table): array
+    {
+        return $this->tables[$table]['primaryKey'] ?? [];
+    }
+
+    public function collation(string $table): string
+    {
+        return $this->tables[$table]['collation'] ?? 'utf8mb4_unicode_ci';
+    }
+
     private function parse(string $sql): void
     {
         if (!preg_match_all('/CREATE TABLE `([^`]+)` \((.*?)\n\) ENGINE([^;]*);/s', $sql, $matches, PREG_SET_ORDER)) {
@@ -128,6 +144,7 @@ class SchemaBaseline
                 'columns' => [],
                 'indexes' => [],
                 'foreignKeys' => [],
+                'primaryKey' => [],
                 // Columns that do not name a collation inherit the table's.
                 'collation' => preg_match('/COLLATE=(\S+)/', $tail, $m) ? $m[1] : 'utf8mb4_unicode_ci',
             ];
@@ -144,9 +161,13 @@ class SchemaBaseline
             return;
         }
 
-        // PRIMARY KEY is never renamed or rebuilt by the upgrade — it is part of
-        // the table's identity, and a mismatch there is a hard stop, not a fix.
+        // PRIMARY KEY is never renamed or rebuilt on a table that already exists
+        // — it is part of the table's identity, and a mismatch there is a hard
+        // stop, not a fix. It is recorded only so a missing table can be created
+        // with the right one.
         if (str_starts_with($line, 'PRIMARY KEY')) {
+            $this->tables[$table]['primaryKey'] = $this->columnList($line);
+
             return;
         }
 

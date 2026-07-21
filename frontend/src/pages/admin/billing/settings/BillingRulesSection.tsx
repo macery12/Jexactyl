@@ -15,7 +15,7 @@ import {
     resetAllNodePricing,
     type NodePricing,
 } from '@/api/adminBillingSettings';
-import { SectionCard, FieldRow } from '../editorChrome';
+import { SectionCard, FieldRow } from '@/components/ui/editorChrome';
 import { patchBilling } from './patchBilling';
 
 interface Step {

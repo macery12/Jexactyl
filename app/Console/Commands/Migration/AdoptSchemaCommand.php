@@ -46,13 +46,7 @@ class AdoptSchemaCommand extends Command
 
         $this->printPreamble($connection->getDatabaseName());
 
-        if ($service->alreadyAdopted($currentChain)) {
-            $this->info('This install is already on the consolidated chain — nothing to do.');
-
-            return 0;
-        }
-
-        if (($blockers = $service->blockers($legacyChain, $currentChain)) !== []) {
+        if (($blockers = $service->blockers()) !== []) {
             $this->error('This install cannot be upgraded yet:');
             foreach ($blockers as $blocker) {
                 $this->line('');
@@ -63,21 +57,38 @@ class AdoptSchemaCommand extends Command
             return 1;
         }
 
-        if (($problems = $reconciler->blockingDifferences($baseline)) !== []) {
-            return $this->reportSchemaMismatch($problems);
-        }
-
         $dropTables = $this->resolveVestigialTables($service);
-        $changes = $reconciler->plan($baseline, $dropTables);
 
-        if ($this->option('keep-extra-indexes')) {
-            $changes = array_values(array_filter($changes, fn (SchemaChange $c) => $c->kind !== SchemaChange::KIND_DROP_INDEX));
+        // Recomputes the plan from the live schema every time it is called. The
+        // apply loop uses this between phases, and the run ends with one last
+        // call to see what is genuinely left.
+        $replan = function () use ($reconciler, $baseline, $dropTables): array {
+            $reconciler->refresh();
+            $changes = $reconciler->plan($baseline, $dropTables);
+
+            if ($this->option('keep-extra-indexes')) {
+                $changes = array_filter($changes, fn (SchemaChange $c) => $c->kind !== SchemaChange::KIND_DROP_INDEX);
+            }
+
+            return array_values($changes);
+        };
+
+        $changes = $replan();
+        $unrepairable = $reconciler->unrepairableDifferences($baseline);
+
+        if ($changes === [] && $unrepairable === [] && $service->alreadyAdopted($currentChain)) {
+            $this->info('This install already matches the shipped schema and is on the consolidated chain — nothing to do.');
+
+            return 0;
         }
 
         $this->reportPlan(
             $changes,
+            $unrepairable,
+            $reconciler->toleratedDifferences($baseline),
             array_values(array_diff($reconciler->extraTables($baseline), $dropTables)),
             $service->unknownMigrations($legacyChain, $currentChain),
+            $service->historyGap($legacyChain),
             $reconciler->columnOrderDifferences($baseline),
             $legacyChain,
             $currentChain,
@@ -96,11 +107,66 @@ class AdoptSchemaCommand extends Command
             return 1;
         }
 
-        try {
-            $applied = $service->applyChanges($changes);
-        } catch (RuntimeException $e) {
+        $this->line('');
+
+        $result = $service->applyPlan($replan, function (SchemaChange $change) {
+            $this->line('  ✔ ' . $change->description);
+        });
+
+        return $this->finish($service, $reconciler, $baseline, $replan, $result, $legacyChain, $currentChain);
+    }
+
+    /**
+     * Decide what the run achieved, rewrite the bookkeeping if it earned the
+     * right to, and say what is left.
+     *
+     * @param callable(): SchemaChange[] $replan
+     * @param array{applied: SchemaChange[], failed: array} $result
+     * @param string[] $legacyChain
+     * @param string[] $currentChain
+     */
+    private function finish(
+        SchemaAdoptService $service,
+        SchemaReconciler $reconciler,
+        SchemaBaseline $baseline,
+        callable $replan,
+        array $result,
+        array $legacyChain,
+        array $currentChain,
+    ): int {
+        $remaining = $replan();
+        $unrepairable = $reconciler->unrepairableDifferences($baseline);
+
+        $this->line('');
+        $this->line(sprintf('  Applied %d schema change(s).', count($result['applied'])));
+
+        if ($result['failed'] !== []) {
+            $this->reportFailures($result['failed']);
+        }
+
+        // The migration history is the panel's claim about what this schema is.
+        // Rewriting it while the schema still differs would make every later
+        // upgrade trust a description that is not true, so that claim is only
+        // made once it is earned.
+        if ($remaining !== [] || $unrepairable !== []) {
             $this->line('');
-            $this->error($e->getMessage());
+            $this->error('Could not bring this install fully in line with the shipped schema.');
+            $this->line('');
+            $this->line('Left over:');
+
+            foreach ($remaining as $change) {
+                $this->line('  - ' . $change->description);
+            }
+
+            foreach ($unrepairable as $problem) {
+                $this->line('  - ' . $problem);
+            }
+
+            $this->line('');
+            $this->line('  The migration history was left as it was, so this install is not yet');
+            $this->line('  claiming to be on the consolidated chain. Everything above was applied');
+            $this->line('  and is safe to keep; fix what is listed and run this command again to');
+            $this->line('  finish the job — it recomputes the remainder from the live schema.');
             $this->line('');
             $this->reportBug();
 
@@ -110,7 +176,32 @@ class AdoptSchemaCommand extends Command
         $history = $service->rewriteMigrationHistory($legacyChain, $currentChain);
         $this->archiveHistory($history['archived']);
 
-        return $this->verify($reconciler, $baseline, $applied, $history);
+        $this->line(sprintf('  Migration history: removed %d row(s), inserted %d.', $history['removed'], $history['inserted']));
+        $this->line('');
+        $this->info('Verified: this install now matches the shipped schema exactly.');
+        $this->line('');
+        $this->line('Next steps:');
+        $this->line('  1. `php artisan migrate` should now report nothing pending.');
+        $this->line('  2. Do NOT seed — neither `php artisan db:seed` nor `migrate --seed`.');
+        $this->line('     The egg seeder would overwrite any egg definitions you have customised.');
+        $this->line('  3. Check the panel loads and a few servers look right.');
+        $this->line('');
+
+        return 0;
+    }
+
+    /** @param array<array{change: SchemaChange, statement: string, error: string}> $failures */
+    private function reportFailures(array $failures): void
+    {
+        $this->line('');
+        $this->warn(sprintf('  ! %d change(s) could not be applied:', count($failures)));
+
+        foreach ($failures as $failure) {
+            $this->line('');
+            $this->line('    ' . $failure['change']->description);
+            $this->line('      statement: ' . $failure['statement']);
+            $this->line('      ' . $failure['error']);
+        }
     }
 
     private function printPreamble(string $database): void
@@ -120,10 +211,14 @@ class AdoptSchemaCommand extends Command
         $this->warn('  │  SCHEMA ADOPTION — EXPERIMENTAL                                    │');
         $this->warn('  └───────────────────────────────────────────────────────────────────┘');
         $this->line('');
-        $this->line('  This panel replaced its 327-file migration history with a consolidated');
-        $this->line('  22-file one. Both build the same tables and columns, so this command');
-        $this->line('  does not move any of your data — it rewrites the migration bookkeeping');
-        $this->line('  and aligns a handful of index and constraint names.');
+        $this->line('  This panel replaced its long migration history with a consolidated one.');
+        $this->line('  This command compares your live schema against the schema this version');
+        $this->line('  ships, builds whatever is missing, aligns index and constraint names,');
+        $this->line('  and then rewrites the migration bookkeeping to match.');
+        $this->line('');
+        $this->line('  It works from what your database actually contains, so it does not matter');
+        $this->line('  how far along the old history this install got. Anything it cannot safely');
+        $this->line('  fix is listed at the end rather than forced.');
         $this->line('');
         $this->line("  Target database: {$database}");
         $this->line('');
@@ -138,32 +233,6 @@ class AdoptSchemaCommand extends Command
     {
         $this->line('  Please report problems to the automated installer repository, with the');
         $this->line('  output of this command and the version you upgraded from attached.');
-    }
-
-    /** @param string[] $problems */
-    private function reportSchemaMismatch(array $problems): int
-    {
-        $this->error('This database does not match the schema this panel expects, so it will not be touched.');
-        $this->line('');
-        $this->line('Differences found:');
-
-        foreach (array_slice($problems, 0, 25) as $problem) {
-            $this->line('  - ' . $problem);
-        }
-
-        if (count($problems) > 25) {
-            $this->line(sprintf('  … and %d more.', count($problems) - 25));
-        }
-
-        $this->line('');
-        $this->line('This usually means one of:');
-        $this->line('  - the install is not fully migrated on the old chain (run the previous release\'s `php artisan migrate` first);');
-        $this->line('  - the schema was modified by hand or by a third-party extension;');
-        $this->line('  - this is not an install of this panel.');
-        $this->line('');
-        $this->reportBug();
-
-        return 1;
     }
 
     /** @return string[] */
@@ -195,37 +264,44 @@ class AdoptSchemaCommand extends Command
 
     /**
      * @param SchemaChange[] $changes
-     * @param string[]       $extraTables
-     * @param string[]       $unknownMigrations
-     * @param string[]       $columnOrderTables
-     * @param string[]       $legacyChain
-     * @param string[]       $currentChain
+     * @param string[] $unrepairable
+     * @param string[] $tolerated
+     * @param string[] $extraTables
+     * @param string[] $unknownMigrations
+     * @param string[] $historyGap
+     * @param string[] $columnOrderTables
+     * @param string[] $legacyChain
+     * @param string[] $currentChain
      */
     private function reportPlan(
         array $changes,
+        array $unrepairable,
+        array $tolerated,
         array $extraTables,
         array $unknownMigrations,
+        array $historyGap,
         array $columnOrderTables,
         array $legacyChain,
         array $currentChain,
     ): void {
         $this->line('');
-        $this->info('Schema: every table and column already matches the shipped schema.');
-        $this->line('');
+
+        if ($historyGap !== []) {
+            $this->line(sprintf(
+                'This install did not run %d of the %d old migrations — it stopped part-way along the',
+                count($historyGap),
+                count($legacyChain),
+            ));
+            $this->line('development branch. That is fine: what gets built below comes from comparing');
+            $this->line('your live schema against the shipped one, not from that list.');
+            $this->line('');
+        }
 
         if ($changes === []) {
-            $this->line('No schema changes needed.');
+            $this->info('Schema: already matches the shipped schema. No changes needed.');
         } else {
             $cosmetic = array_filter($changes, fn (SchemaChange $c) => $c->isCosmetic());
             $functional = array_filter($changes, fn (SchemaChange $c) => !$c->isCosmetic());
-
-            if ($cosmetic !== []) {
-                $this->line(sprintf('Naming only — %d index/constraint name(s) still carry historical table names:', count($cosmetic)));
-                foreach ($cosmetic as $change) {
-                    $this->line('  · ' . $change->description);
-                }
-                $this->line('');
-            }
 
             if ($functional !== []) {
                 $this->line(sprintf('Structural — %d change(s):', count($functional)));
@@ -234,11 +310,39 @@ class AdoptSchemaCommand extends Command
                 }
                 $this->line('');
             }
+
+            if ($cosmetic !== []) {
+                $this->line(sprintf('Naming only — %d index/constraint name(s) still carry historical table names:', count($cosmetic)));
+                foreach ($cosmetic as $change) {
+                    $this->line('  · ' . $change->description);
+                }
+                $this->line('');
+            }
         }
 
+        if ($unrepairable !== []) {
+            $this->line('');
+            $this->warn(sprintf('  ! %d difference(s) this command will not touch:', count($unrepairable)));
+            foreach ($unrepairable as $problem) {
+                $this->line('      ' . $problem);
+            }
+            $this->line('');
+            $this->line('    Every other change listed above is still applied. The migration history');
+            $this->line('    is only rewritten once these are resolved.');
+        }
+
+        if ($tolerated !== []) {
+            $this->line('');
+            $this->line(sprintf('  %d column(s) exist here but not in the shipped schema, and are kept:', count($tolerated)));
+            foreach ($tolerated as $note) {
+                $this->line('      ' . $note);
+            }
+        }
+
+        $this->line('');
         $this->line(sprintf(
-            'Migration history: %d old row(s) will be replaced with the %d consolidated migrations.',
-            count($legacyChain),
+            'Migration history: up to %d old row(s) will be replaced with the %d consolidated migrations.',
+            count($legacyChain) - count($historyGap),
             count($currentChain),
         ));
 
@@ -271,7 +375,9 @@ class AdoptSchemaCommand extends Command
         }
 
         $this->line('');
-        $this->line('No row data is read or written by this command, other than the migrations table itself.');
+        $this->line('No row data is read or written by this command, other than the migrations table');
+        $this->line('itself — except where a line above is marked `!`, which flags exactly the cases');
+        $this->line('where existing rows are touched.');
     }
 
     private function confirmRun(): bool
@@ -311,50 +417,5 @@ class AdoptSchemaCommand extends Command
         if (is_readable($path)) {
             $this->line("  Previous migration history archived to {$path}");
         }
-    }
-
-    /**
-     * @param SchemaChange[] $applied
-     * @param array{removed: int, inserted: int} $history
-     */
-    private function verify(SchemaReconciler $reconciler, SchemaBaseline $baseline, array $applied, array $history): int
-    {
-        $this->line('');
-        $this->line(sprintf('  Applied %d schema change(s).', count($applied)));
-        $this->line(sprintf('  Migration history: removed %d row(s), inserted %d.', $history['removed'], $history['inserted']));
-        $this->line('');
-
-        $remaining = $reconciler->plan($baseline);
-
-        if ($this->option('keep-extra-indexes') || $this->option('keep-vestigial')) {
-            $remaining = array_values(array_filter(
-                $remaining,
-                fn (SchemaChange $c) => $c->kind !== SchemaChange::KIND_DROP_INDEX
-            ));
-        }
-
-        $problems = $reconciler->blockingDifferences($baseline);
-
-        if ($problems !== [] || $remaining !== []) {
-            $this->error('Upgrade finished but the schema still differs from the shipped one:');
-            foreach (array_merge($problems, array_map(fn (SchemaChange $c) => $c->description, $remaining)) as $line) {
-                $this->line('  - ' . $line);
-            }
-            $this->line('');
-            $this->reportBug();
-
-            return 1;
-        }
-
-        $this->info('Verified: this install now matches the shipped schema exactly.');
-        $this->line('');
-        $this->line('Next steps:');
-        $this->line('  1. `php artisan migrate` should now report nothing pending.');
-        $this->line('  2. Do NOT seed — neither `php artisan db:seed` nor `migrate --seed`.');
-        $this->line('     The egg seeder would overwrite any egg definitions you have customised.');
-        $this->line('  3. Check the panel loads and a few servers look right.');
-        $this->line('');
-
-        return 0;
     }
 }

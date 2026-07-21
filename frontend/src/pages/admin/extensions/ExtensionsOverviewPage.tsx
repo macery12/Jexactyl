@@ -591,7 +591,7 @@ function TablePagination({
                     <select
                         value={pageSize}
                         onChange={e => onPageSize(Number(e.target.value))}
-                        className="h-8 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-xs text-[var(--color-ink)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/50"
+                        className="h-8 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-2 text-xs text-[var(--color-ink)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)] focus-visible:border-[var(--color-focus)]"
                     >
                         {PAGE_SIZES.map(n => (
                             <option key={n} value={n}>

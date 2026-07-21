@@ -11,15 +11,23 @@ const SIZE: Record<Size, string> = {
     lg: 'max-w-3xl',
 };
 
-// Reusable themed dialog built on Radix. Overlay + ESC + focus trap come for
-// free; the panel is themed with the V2 surface/border/radius tokens. Used by
-// every create / edit / confirm flow in the admin area.
+// Reusable themed dialog built on Radix. Overlay + focus trap come for free;
+// the panel is themed with the V2 surface/border/radius tokens. Used by every
+// create / edit / confirm flow in the admin area.
+//
+// Dismissal is deliberately NOT free: by default a dialog closes only via the X
+// button, its own Cancel action, or a successful submit. Radix's stock behaviour
+// (any pointerdown outside + ESC) silently destroyed in-progress forms — a
+// portalled Select popover closing onto the overlay was enough to wipe every
+// field in the server builder. Pass `dismissible` for lightweight informational
+// dialogs where losing state costs nothing.
 export function Modal({
     open,
     onClose,
     title,
     description,
     size = 'md',
+    dismissible = false,
     footer,
     children,
 }: {
@@ -28,14 +36,20 @@ export function Modal({
     title: string;
     description?: string;
     size?: Size;
+    dismissible?: boolean;
     footer?: React.ReactNode;
     children: React.ReactNode;
 }) {
+    const block = dismissible ? undefined : (e: Event | KeyboardEvent) => e.preventDefault();
+
     return (
         <Dialog.Root open={open} onOpenChange={next => !next && onClose()}>
             <Dialog.Portal>
                 <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=open]:fade-in" />
                 <Dialog.Content
+                    onPointerDownOutside={block}
+                    onInteractOutside={block}
+                    onEscapeKeyDown={block}
                     className={cn(
                         'fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col',
                         'rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] shadow-2xl shadow-black/40',

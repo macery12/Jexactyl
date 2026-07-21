@@ -32,11 +32,16 @@ export function Select({
         <RSelect.Root value={value} onValueChange={onChange} disabled={disabled}>
             <RSelect.Trigger
                 id={id}
+                // Opts out of the global brand focus outline — this trigger is a
+                // form field and carries Input.tsx's quieter treatment instead.
+                data-field-focus
                 className={cn(
                     'flex h-11 w-full items-center justify-between gap-2 rounded-lg border bg-[var(--color-surface-2)] px-4 text-sm text-[var(--color-ink)]',
-                    'transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60 disabled:opacity-50',
+                    'transition-colors focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)] disabled:opacity-50',
                     'data-[placeholder]:text-[var(--color-ink-faint)]',
-                    invalid ? 'border-[var(--color-danger)]' : 'border-[var(--color-border-strong)]',
+                    invalid
+                        ? 'border-[var(--color-danger)]'
+                        : 'border-[var(--color-border-strong)] focus:border-[var(--color-focus)]',
                     className,
                 )}
             >

@@ -426,7 +426,7 @@ export default function ThemeSection() {
                                 value={presetName}
                                 onChange={e => setPresetName(e.target.value)}
                                 placeholder={m['admin.theme.newPresetName']()}
-                                className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
+                                className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)] focus:border-[var(--color-focus)]"
                             />
                             <button
                                 onClick={onSaveAsPreset}
@@ -488,7 +488,7 @@ function ColorField({
                 value={value}
                 onChange={e => onChange(e.target.value)}
                 spellCheck={false}
-                className="h-9 w-28 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 font-mono text-xs uppercase tabular-nums text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60"
+                className="h-9 w-28 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 font-mono text-xs uppercase tabular-nums text-[var(--color-ink)] focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)] focus:border-[var(--color-focus)]"
             />
         </div>
     );

@@ -1,7 +1,7 @@
 import { m } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Server, Plus, ChevronDown, Zap, HardDrive, Layers } from 'lucide-react';
 import { getAdminServers } from '@/api/adminServers';
 import { getNodes, getNodeServerCount, type NodeListItem } from '@/api/nodes';
@@ -11,8 +11,6 @@ import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 import { CapacityRack } from '@/pages/admin/nodes/CapacityRack';
 import { ServersTable } from '@/pages/admin/servers/ServersTable';
-import { CreateNodeModal } from './CreateNodeModal';
-import { CreateServerModal } from './CreateServerModal';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 import { can } from '@/lib/can';
 
@@ -151,8 +149,7 @@ function EmptyState({ icon: Icon, title, body }: { icon: typeof Server; title: s
 
 export default function InfrastructureOverviewPage() {
     const [stored, setMode] = usePersistedState<ViewMode>('v2:admin:infra:view', 'nodes');
-    const [newServer, setNewServer] = useState(false);
-    const [newNode, setNewNode] = useState(false);
+    const navigate = useNavigate();
 
     // The retired network map and the short-lived separate capacity view both left
     // their own values in localStorage; anything unrecognised falls back to the default.
@@ -216,12 +213,12 @@ export default function InfrastructureOverviewPage() {
                 </div>
                 <div className="flex items-center gap-2">
                     <ViewToggle mode={mode} onChange={setMode} />
-                    <NewMenu onNewServer={() => setNewServer(true)} onNewNode={() => setNewNode(true)} />
+                    <NewMenu
+                        onNewServer={() => navigate('/admin/infrastructure/servers/new')}
+                        onNewNode={() => navigate('/admin/infrastructure/nodes/new')}
+                    />
                 </div>
             </div>
-
-            <CreateServerModal open={newServer} onClose={() => setNewServer(false)} />
-            <CreateNodeModal open={newNode} onClose={() => setNewNode(false)} />
 
             {isLoading && (
                 <div className="flex items-center justify-center py-24">

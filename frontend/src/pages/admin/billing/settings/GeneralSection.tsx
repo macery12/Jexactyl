@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import currencyDictionary from '@/assets/currency';
 import { updateBillingSetting, exportBillingConfiguration, importBillingConfiguration } from '@/api/adminBillingSettings';
 import { updateInvoiceSettings } from '@/api/adminBillingInvoices';
-import { SectionCard, FieldRow, ToggleGroup, ToggleRow } from '../editorChrome';
+import { SectionCard, FieldRow, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { patchBilling } from './patchBilling';
 
 export default function GeneralSection() {

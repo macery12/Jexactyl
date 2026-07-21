@@ -12,3 +12,35 @@ export function firstError(err: unknown): string | undefined {
     }
     return undefined;
 }
+
+interface FractalValidationError {
+    detail?: string;
+    meta?: { source_field?: string; rule?: string };
+}
+
+/**
+ * Map a 422's per-field messages onto a react-hook-form instance so they render
+ * next to the offending input instead of only as a toast. Laravel's validator
+ * reports the field in `meta.source_field`, already dotted for nested rules
+ * (`limits.io`), which is exactly RHF's path syntax.
+ *
+ * Returns true when at least one error was attached — callers can use that to
+ * skip the generic toast, since the form is now self-explanatory.
+ */
+export function applyFieldErrors(
+    err: unknown,
+    setError: (name: never, error: { type: string; message: string }) => void,
+): boolean {
+    if (!isAxiosError(err) || err.response?.status !== 422) return false;
+    const errors = err.response?.data?.errors;
+    if (!Array.isArray(errors)) return false;
+
+    let attached = false;
+    for (const e of errors as FractalValidationError[]) {
+        const field = e.meta?.source_field;
+        if (!field || !e.detail) continue;
+        setError(field as never, { type: 'server', message: e.detail });
+        attached = true;
+    }
+    return attached;
+}

@@ -235,11 +235,11 @@ export async function getServerView(id: number | string): Promise<ServerView> {
 
 // ---- Mutations --------------------------------------------------------------
 
-// Create a server from a preset — the service auto-assigns owner (current user),
-// the first free allocation on the node, and the egg's env defaults.
-export async function createServerFromPreset(values: { preset_id: number; node_id: number }): Promise<void> {
-    await http.post('/api/application/servers/preset', values);
-}
+// NOTE: POST /api/application/servers/preset is intentionally NOT wrapped here.
+// That endpoint auto-assigns owner, name and allocation with no way to override
+// them, so the admin UI instead applies a preset into the normal create form
+// (see ServerEditorPage) and posts through createServer below. The route stays
+// available for API consumers.
 
 // Full manual create — mirrors StoreServerRequest's nested shape.
 export interface CreateServerValues {
@@ -257,8 +257,10 @@ export interface CreateServerValues {
     allocation: { default: number; additional?: number[] };
 }
 
-export async function createServer(values: CreateServerValues): Promise<void> {
-    await http.post('/api/application/servers', values);
+// Returns the created server's id so the editor can navigate to its cockpit.
+export async function createServer(values: CreateServerValues): Promise<{ id: number }> {
+    const { data } = await http.post('/api/application/servers', values);
+    return { id: data?.attributes?.id };
 }
 
 // Edit details + build (PATCH /servers/{id}). Startup/egg/env go through the

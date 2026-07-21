@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import http from '@/lib/http';
 
 // Admin node view-models. The admin app API (/api/application/*) is session-authed
@@ -243,10 +244,13 @@ export interface NodeFormValues {
     daemon_base?: string;
     upload_size?: number;
     deployable?: boolean;
+    database_host_id?: number | null;
 }
 
-export async function createNode(values: NodeFormValues): Promise<void> {
-    await http.post('/api/application/nodes', values);
+// Returns the created node so the editor can navigate to its detail page.
+export async function createNode(values: NodeFormValues): Promise<NodeListItem> {
+    const { data } = await http.post('/api/application/nodes', values);
+    return toListItem(data);
 }
 
 export async function updateNode(id: number, values: Partial<NodeFormValues>): Promise<void> {
@@ -257,10 +261,30 @@ export async function deleteNode(id: number): Promise<void> {
     await http.delete(`/api/application/nodes/${id}`);
 }
 
-// GET /api/application/nodes/deployable — nodes a server can be deployed onto.
-export async function getDeployableNodes(): Promise<NodeListItem[]> {
-    const { data } = await http.get('/api/application/nodes/deployable', { params: { per_page: 100 } });
-    return (data.data ?? []).map(toListItem);
+/**
+ * GET /api/application/nodes/deployable — nodes with room for a given workload.
+ *
+ * `memory` and `disk` are REQUIRED by GetDeployableNodesRequest; omitting them
+ * 422s, which is what silently emptied the old node picker. Two further quirks
+ * of FindViableNodesService worth knowing before using this as a picker source:
+ *   - it filters `nodes.public = 1`, so private nodes never appear, and
+ *   - it THROWS NoViableNodeException on an empty result instead of returning
+ *     [], so "nothing has capacity" arrives as an error, not an empty list.
+ *
+ * Because of that this is an advisory capacity check, not a node list. Use
+ * getNodes() to populate a picker; use this to annotate it. Returns [] for the
+ * no-capacity case so callers can treat it as a normal answer.
+ */
+export async function getDeployableNodes(memory: number, disk: number): Promise<NodeListItem[]> {
+    try {
+        const { data } = await http.get('/api/application/nodes/deployable', {
+            params: { per_page: 100, memory, disk },
+        });
+        return (data.data ?? []).map(toListItem);
+    } catch (err) {
+        if (isAxiosError(err) && err.response?.status === 400) return [];
+        throw err;
+    }
 }
 
 export interface AllocationFormValues {

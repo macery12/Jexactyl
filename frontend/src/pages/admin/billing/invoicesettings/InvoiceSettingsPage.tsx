@@ -17,7 +17,7 @@ import {
     type InvoiceSettings,
     type StorageDriver,
 } from '@/api/adminBillingInvoices';
-import { SectionCard, FieldRow, ToggleGroup, ToggleRow, SaveBar } from '../editorChrome';
+import { SectionCard, FieldRow, ToggleGroup, ToggleRow, SaveBar } from '@/components/ui/editorChrome';
 
 // The extra storage-config keys we surface for the s3 / r2 drivers.
 const STORAGE_KEYS: Record<StorageDriver, string[]> = {

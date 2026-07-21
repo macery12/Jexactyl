@@ -11,6 +11,12 @@ export interface ServerPreset {
     memory: number;
     disk: number;
     cpu: number;
+    swap: number;
+    io: number;
+    databases: number;
+    backups: number;
+    allocations: number;
+    subusers: number;
     nestId: number | null;
     eggId: number | null;
 }
@@ -21,6 +27,12 @@ export interface PresetFormValues {
     memory: number;
     cpu: number;
     disk: number;
+    swap: number;
+    io: number;
+    databases: number;
+    backups: number;
+    allocations: number;
+    subusers: number;
     nest_id?: number | null;
     egg_id?: number | null;
 }
@@ -36,6 +48,12 @@ function toPreset(a: any): ServerPreset {
         memory: Number(a.memory ?? 0),
         disk: Number(a.disk ?? 0),
         cpu: Number(a.cpu ?? 0),
+        swap: Number(a.swap ?? 0),
+        io: Number(a.io ?? 500),
+        databases: Number(a.databases ?? 0),
+        backups: Number(a.backups ?? 0),
+        allocations: Number(a.allocations ?? 0),
+        subusers: Number(a.subusers ?? 0),
         nestId: a.nest_id ?? null,
         eggId: a.egg_id ?? null,
     };

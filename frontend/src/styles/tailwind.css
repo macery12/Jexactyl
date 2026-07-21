@@ -54,6 +54,13 @@
        the raw brand value can sit too dark to read. */
     --brand-bright: color-mix(in oklab, var(--brand) 68%, #fff);
 
+    /* Focus. Form fields get a neutral lift of their own border rather than a
+       brand-blue halo — a dense admin form is mostly inputs, and a saturated
+       ring on each one reads as noise. Bright enough to locate, quiet enough to
+       sit behind the content. */
+    --color-focus: color-mix(in oklab, var(--color-border-strong) 40%, var(--color-ink-muted));
+    --color-focus-ring: color-mix(in oklab, var(--color-ink) 10%, transparent);
+
     /* Surface aliases consumed by the shell + body. */
     --canvas: var(--color-canvas);
     --surface: var(--color-surface);
@@ -130,7 +137,12 @@ body {
     background: color-mix(in oklab, var(--brand) 40%, transparent);
 }
 
-*:focus-visible {
+/* Keyboard focus ring for buttons, links and other interactive chrome. Form
+   fields are excluded: they carry their own quieter treatment (see Input.tsx),
+   and browsers match :focus-visible on a text input even for a plain mouse
+   click — so this rule would otherwise fire a brand outline on every click,
+   stacking with the field's own ring. */
+*:focus-visible:not(input):not(textarea):not(select):not([data-field-focus]) {
     outline: 2px solid var(--brand);
     outline-offset: 2px;
     border-radius: 4px;

@@ -11,8 +11,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             className={cn(
                 'h-11 w-full rounded-lg border bg-[var(--color-surface-2)] px-4 text-sm text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]',
-                'transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/60',
-                invalid ? 'border-[var(--color-danger)]' : 'border-[var(--color-border-strong)]',
+                // Focus lifts the field's own border a step instead of painting a
+                // brand halo around it — see --color-focus in tailwind.css.
+                'transition-colors focus:outline-none focus:ring-1 focus:ring-[var(--color-focus-ring)]',
+                invalid
+                    ? 'border-[var(--color-danger)]'
+                    : 'border-[var(--color-border-strong)] focus:border-[var(--color-focus)]',
                 className,
             )}
             {...props}

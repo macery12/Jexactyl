@@ -401,8 +401,8 @@ export default function EggEditorPage() {
                                 )}
                             />
                             {tabDirty(tab as Exclude<TabId, 'variables'>)
-                                ? m['admin.billing.common.unsaved']()
-                                : m['admin.billing.common.allSaved']()}
+                                ? m['common.editor.unsaved']()
+                                : m['common.editor.allSaved']()}
                         </span>
                         <Button
                             size="sm"
