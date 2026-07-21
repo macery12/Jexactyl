@@ -147,6 +147,18 @@ Two failure modes found while doing this, both now fixed:
 - A single failing statement aborted the whole run. Failures are now collected
   and the remaining changes still attempted.
 
+Two refinements to what counts as unsafe, from a second install's dry run:
+
+- `char(191)` → `varchar(191)` was refused as a change of type family. It holds
+  the same values either way, and is now corrected. (`varchar` → `char` still is
+  not: padding out and trimming back loses trailing spaces.)
+- Signedness was ignored entirely, because the type comparison discarded
+  everything after the type's opening parenthesis — so `int(10) unsigned` →
+  `int(11)` was applied silently, and could have clamped values above 2³¹. The
+  integer display width is now recognised as the no-op MySQL treats it as, and
+  signedness compared on its own: the change is applied when no stored value
+  falls outside the target range, and reported when one does.
+
 ## D9. `products.category_uuid` has no FK
 
 `categories.uuid` exists but `products.category_uuid` was added (2025-03) without

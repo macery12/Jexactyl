@@ -2,7 +2,6 @@
 
 namespace Everest\Console\Commands\Migration;
 
-use RuntimeException;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Everest\Services\Migration\SchemaChange;
@@ -34,7 +33,7 @@ class AdoptSchemaCommand extends Command
             $baseline = SchemaBaseline::load(base_path(SchemaBaseline::PATH));
             $legacyChain = SchemaBaseline::legacyChain(base_path(SchemaBaseline::LEGACY_CHAIN_PATH));
             $currentChain = SchemaBaseline::currentChain(database_path('migrations'));
-        } catch (RuntimeException $e) {
+        } catch (\RuntimeException $e) {
             $this->error($e->getMessage());
 
             return 1;
@@ -375,9 +374,10 @@ class AdoptSchemaCommand extends Command
         }
 
         $this->line('');
-        $this->line('No row data is read or written by this command, other than the migrations table');
-        $this->line('itself — except where a line above is marked `!`, which flags exactly the cases');
-        $this->line('where existing rows are touched.');
+        $this->line('No row data is written by this command, other than the migrations table itself');
+        $this->line('— except where a line above is marked `!`, which flags exactly the cases where');
+        $this->line('existing rows are touched. Rows are counted, and checked against the range of a');
+        $this->line('column whose type is changing, but never read out or copied anywhere.');
     }
 
     private function confirmRun(): bool

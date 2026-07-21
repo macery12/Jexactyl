@@ -71,7 +71,7 @@ class SchemaReconciler
                     continue;
                 }
 
-                if (($reason = $this->lossyColumnChange($definition, $actual[$column])) !== null) {
+                if (($reason = $this->lossyColumnChange($table, $column, $definition, $actual[$column])) !== null) {
                     $problems[] = sprintf(
                         '`%s`.`%s`: %s — changing this could truncate or reinterpret existing values, so it is left alone. Correct it by hand.',
                         $table,
@@ -368,7 +368,7 @@ class SchemaReconciler
 
             $differences = $this->describeColumnDifferences($definition, $actual[$column]);
 
-            if ($differences === [] || $this->lossyColumnChange($definition, $actual[$column]) !== null) {
+            if ($differences === [] || $this->lossyColumnChange($table, $column, $definition, $actual[$column]) !== null) {
                 continue;
             }
 
@@ -486,8 +486,8 @@ class SchemaReconciler
      * already claimed by an earlier match.
      *
      * @param array<string, array> $candidates
-     * @param string[]             $claimed
-     * @param string[]             $keys
+     * @param string[] $claimed
+     * @param string[] $keys
      */
     private function findByShape(array $candidates, array $wanted, array $claimed, array $keys): ?string
     {
@@ -556,7 +556,7 @@ class SchemaReconciler
      *
      * Returns the reason, or null when the change is safe to make.
      */
-    private function lossyColumnChange(array $expected, array $actual): ?string
+    private function lossyColumnChange(string $table, string $column, array $expected, array $actual): ?string
     {
         if ($expected['type'] === $actual['type']) {
             return null;
@@ -565,8 +565,15 @@ class SchemaReconciler
         $expectedBase = $this->baseType($expected['type']);
         $actualBase = $this->baseType($actual['type']);
 
-        if ($expectedBase !== $actualBase) {
+        if ($expectedBase !== $actualBase && !$this->interchangeable($actualBase, $expectedBase)) {
             return sprintf('type is `%s`, expected `%s`', $actual['type'], $expected['type']);
+        }
+
+        // Integer widths in parentheses are a display hint that MySQL ignores,
+        // so comparing them says nothing. What does matter is signedness, which
+        // moves the range rather than resizing it.
+        if ($this->integerBounds($expectedBase, false) !== null) {
+            return $this->signednessChange($table, $column, $expected, $actual);
         }
 
         $expectedSize = $this->typeSize($expected['type']);
@@ -579,9 +586,96 @@ class SchemaReconciler
         return null;
     }
 
+    /**
+     * Type pairs that hold the same values, so swapping one for the other
+     * cannot reinterpret anything. `char` → `varchar` is the one that turns up
+     * in practice: an old migration declared a fixed-width column where the
+     * shipped schema has a variable-width one of the same length. Going the
+     * other way is not listed — padding a value out to the full width and
+     * trimming it back loses trailing spaces.
+     */
+    private function interchangeable(string $actualBase, string $expectedBase): bool
+    {
+        return $actualBase === 'char' && $expectedBase === 'varchar';
+    }
+
+    /**
+     * Whether flipping a column between signed and unsigned would put values
+     * already stored in it outside the target's range. The bounds are compared
+     * by the database rather than in PHP, because `bigint unsigned` overflows a
+     * PHP integer.
+     */
+    private function signednessChange(string $table, string $column, array $expected, array $actual): ?string
+    {
+        $unsigned = $this->isUnsigned($expected['type']);
+
+        if ($unsigned === $this->isUnsigned($actual['type'])) {
+            return null;
+        }
+
+        $bounds = $this->integerBounds($this->baseType($expected['type']), $unsigned);
+
+        if ($bounds === null) {
+            return null;
+        }
+
+        [$min, $max] = $bounds;
+
+        $offending = $this->connection->selectOne(sprintf(
+            'SELECT COUNT(*) AS n FROM `%s` WHERE `%s` < %s OR `%s` > %s',
+            $table,
+            $column,
+            $min,
+            $column,
+            $max,
+        ));
+
+        if ((int) $offending->n === 0) {
+            return null;
+        }
+
+        return sprintf(
+            'type is `%s`, expected `%s`, and %d row(s) hold a value outside the expected range',
+            $actual['type'],
+            $expected['type'],
+            (int) $offending->n,
+        );
+    }
+
+    private function isUnsigned(string $type): bool
+    {
+        return str_contains(strtolower($type), 'unsigned');
+    }
+
+    /**
+     * The inclusive range of an integer type, as numeric literals for SQL. Null
+     * for anything that is not an integer type.
+     *
+     * @return array{string, string}|null
+     */
+    private function integerBounds(string $base, bool $unsigned): ?array
+    {
+        $bounds = [
+            'tinyint' => [['-128', '127'], ['0', '255']],
+            'smallint' => [['-32768', '32767'], ['0', '65535']],
+            'mediumint' => [['-8388608', '8388607'], ['0', '16777215']],
+            'int' => [['-2147483648', '2147483647'], ['0', '4294967295']],
+            'bigint' => [
+                ['-9223372036854775808', '9223372036854775807'],
+                ['0', '18446744073709551615'],
+            ],
+        ];
+
+        if (!isset($bounds[$base])) {
+            return null;
+        }
+
+        return $bounds[$base][$unsigned ? 1 : 0];
+    }
+
     private function baseType(string $type): string
     {
-        return strtolower((string) preg_replace('/\s*\(.*$/s', '', trim($type)));
+        return strtolower((string) preg_replace('/\s*[(\s].*$/s', '', trim($type)));
     }
 
     /** The first number in the type's parentheses — length, or precision. */

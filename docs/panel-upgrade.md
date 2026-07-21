@@ -41,10 +41,15 @@ to create tables that are already there.
 5. rewrites the `migrations` table to list the consolidated chain — but only
    once the schema actually matches.
 
-**No row data is read or written**, other than the `migrations` table itself,
-except where the plan marks a line with `!`. Those flag the two cases that do
-touch rows: adding a `NOT NULL` column with no default to a table that already
-has rows, and tightening a nullable column that already holds NULLs.
+**No row data is written**, other than the `migrations` table itself, except
+where the plan marks a line with `!`. Those flag the two cases that do touch
+rows: adding a `NOT NULL` column with no default to a table that already has
+rows, and tightening a nullable column that already holds NULLs.
+
+Rows are *read* in two narrow ways, both aggregates: counting them, to know
+whether adding a `NOT NULL` column would write to anything, and checking whether
+any value falls outside the range of a type it is about to change to. No row is
+read out of the database or copied anywhere.
 
 ## Requirements and ordering
 
@@ -145,6 +150,12 @@ were applied but the migration history was not rewritten.
   expected and actual types named, because either change could truncate or
   reinterpret stored values. These block the migration history rewrite until
   resolved by hand.
+
+  Two type differences that *look* like this are corrected anyway, because they
+  provably lose nothing. `char(n)` → `varchar(n)` holds the same values either
+  way. A change of signedness on an integer column moves the range rather than
+  shrinking it, so it is allowed once the column has been checked to contain no
+  value outside the target range — and reported, not applied, when it does.
 - **Extra tables.** Anything not in the shipped schema is listed and left alone.
   Tables prefixed `ext_` are ignored entirely; they belong to extensions.
 - **Column order.** A column added by a later `ALTER` sits at the end of the
