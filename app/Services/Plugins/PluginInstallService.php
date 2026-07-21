@@ -10,8 +10,8 @@ use Everest\Models\Billing\Product;
 use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Services\Plugins\Adapters\SpigetProviderAdapter;
 use Everest\Services\Plugins\Adapters\ModrinthProviderAdapter;
-use Everest\Services\Plugins\Adapters\CurseForgeProviderAdapter;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
+use Everest\Models\MarketplaceInstallLog;
 
 class PluginInstallService
 {
@@ -26,13 +26,11 @@ class PluginInstallService
     private const BODY_PREVIEW_READ_BYTES = 512;
 
     public function __construct(
-        CurseForgeProviderAdapter $curseForgeProviderAdapter,
         ModrinthProviderAdapter $modrinthProviderAdapter,
         SpigetProviderAdapter $spigetProviderAdapter,
         private DaemonFileRepository $fileRepository
     ) {
         $this->adapters = [
-            'curseforge' => $curseForgeProviderAdapter,
             'modrinth' => $modrinthProviderAdapter,
             'spiget' => $spigetProviderAdapter,
             'spigot' => $spigetProviderAdapter,
@@ -44,7 +42,7 @@ class PluginInstallService
      *
      * @throws ModsServiceException
      */
-    public function installFromProvider(Server $server, string $provider, string $type, string|int $projectId, string|int $versionId): array
+    public function installFromProvider(Server $server, string $provider, string $type, string|int $projectId, string|int $versionId, ?int $userId = null): array
     {
         $providerKey = strtolower($provider);
         $adapter = $this->adapters[$providerKey] ?? null;
@@ -158,10 +156,34 @@ class PluginInstallService
             $targetPath = $this->ensureUniqueFilePath($server, $targetPath);
             $this->createTargetDirectory($server, $type);
 
-            $content = file_get_contents($tempPath);
-            $this->fileRepository->setServer($server)->putContent($targetPath, $content);
+            $this->fileRepository->setServer($server)->putFile($targetPath, $tempPath);
+
+            MarketplaceInstallLog::create([
+                'provider'        => $this->normalizeProviderForAnalytics($providerKey),
+                'type'            => $type,
+                'project_id'      => (string) $projectId,
+                'file_size_bytes' => $downloadedSize ?? 0,
+                'status'          => MarketplaceInstallLog::STATUS_SUCCESS,
+                'server_id'       => $server->id,
+                'user_id'         => $userId ?? auth()->id(),
+            ]);
         } catch (\Exception $e) {
             Log::error('PluginInstallService download error: ' . $e->getMessage());
+
+            try {
+                MarketplaceInstallLog::create([
+                    'provider'        => $this->normalizeProviderForAnalytics($providerKey),
+                    'type'            => $type,
+                    'project_id'      => (string) $projectId,
+                    'file_size_bytes' => 0,
+                    'status'          => MarketplaceInstallLog::STATUS_FAILED,
+                    'server_id'       => $server->id,
+                    'user_id'         => $userId ?? auth()->id(),
+                ]);
+            } catch (\Exception) {
+                // never let analytics recording break the user-facing error
+            }
+
             throw $e instanceof ModsServiceException ? $e : new ModsServiceException('An unexpected error occurred while downloading the file.');
         } finally {
             if (is_resource($fileHandle)) {
@@ -307,14 +329,9 @@ class PluginInstallService
     private function validateProviderEnabled(string $provider): void
     {
         $modsEnabled = (bool) Setting::get('settings::modules:mods:enabled', config('modules.mods.enabled', false));
-        $curseforgeKey = Setting::get('settings::modules:mods:curseforge_api_key', config('modules.mods.curseforge_api_key'));
 
         if (!$modsEnabled) {
             throw new ModsServiceException('Mods module is not enabled.');
-        }
-
-        if ($provider === 'curseforge' && empty($curseforgeKey)) {
-            throw new ModsServiceException('CurseForge is not configured.');
         }
     }
 
@@ -345,8 +362,8 @@ class PluginInstallService
     private function getMaxSizeForType(string $type): int
     {
         return match ($type) {
-            'plugin' => (int) config('modules.mods.max_plugin_size', self::DEFAULT_MAX_PLUGIN_SIZE),
-            default => (int) config('modules.mods.max_mod_size', self::DEFAULT_MAX_MOD_SIZE),
+            'plugin' => (int) Setting::get('settings::modules:mods:max_plugin_size', config('modules.mods.max_plugin_size', self::DEFAULT_MAX_PLUGIN_SIZE)),
+            default  => (int) Setting::get('settings::modules:mods:max_mod_size', config('modules.mods.max_mod_size', self::DEFAULT_MAX_MOD_SIZE)),
         };
     }
 
@@ -406,5 +423,13 @@ class PluginInstallService
         }
 
         return is_array($header) ? $header : [$header];
+    }
+
+    private function normalizeProviderForAnalytics(string $providerKey): string
+    {
+        return match ($providerKey) {
+            'spiget', 'spigot' => 'spigot',
+            default => $providerKey,
+        };
     }
 }

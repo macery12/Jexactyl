@@ -74,7 +74,7 @@ class GoogleLoginController extends AbstractLoginController
             $user = $this->createAccount(['email' => $response->email, 'username' => 'null_user_' . $this->randStr(16)]);
 
             $loginResponse = $this->sendLoginResponse($user, $request);
-            $redirect = redirect('/account/setup');
+            $redirect = redirect('/settings');
 
             foreach ($loginResponse->headers->getCookies() as $cookie) {
                 $redirect->headers->setCookie($cookie);

@@ -7,8 +7,7 @@ use Everest\Http\Middleware\Activity\AdminSubject;
 Route::middleware([AdminSubject::class])->group(function () {
     Route::get('/permissions', Application\PermissionsController::class);
 
-    Route::get('/overview/version', [Application\OverviewController::class, 'version']);
-    Route::get('/overview/metrics', [Application\OverviewController::class, 'metrics']);
+    Route::get('/overview', [Application\OverviewController::class, 'index']);
 
     Route::get('/activity', Application\ActivityLogController::class);
     Route::get('/activity/users', [Application\ActivityLogController::class, 'users']);
@@ -30,6 +29,21 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::group(['prefix' => '/settings'], function () {
         Route::patch('/', [Application\Settings\GeneralController::class, 'update']);
         Route::patch('/mode', [Application\Settings\ModeController::class, 'update']);
+        Route::get('/features', [Application\Settings\FeaturesController::class, 'index']);
+        Route::put('/features', [Application\Settings\FeaturesController::class, 'update']);
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Landing Page Controller Routes
+    |--------------------------------------------------------------------------
+    |
+    | Endpoint: /api/application/landing
+    |
+    */
+    Route::group(['prefix' => '/landing'], function () {
+        Route::get('/', [Application\Landing\LandingController::class, 'index']);
+        Route::patch('/', [Application\Landing\LandingController::class, 'update']);
     });
 
     /*
@@ -197,6 +211,7 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::put('/settings', [Application\IntelligenceController::class, 'update']);
         Route::post('/query', [Application\IntelligenceController::class, 'query']);
         Route::get('/test', [Application\IntelligenceController::class, 'testConnection']);
+        Route::get('/models', [Application\IntelligenceController::class, 'models']);
         Route::get('/stats', [Application\IntelligenceController::class, 'stats']);
         Route::get('/logs', [Application\IntelligenceController::class, 'recentLogs']);
     });
@@ -212,7 +227,6 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::group(['prefix' => '/plugins'], function () {
         Route::put('/settings', [Application\PluginsController::class, 'update']);
         Route::get('/analytics', [Application\PluginsController::class, 'analytics']);
-        Route::delete('/key', [Application\PluginsController::class, 'resetKey']);
 
         Route::get('/providers', [Application\PluginProviderRulesController::class, 'index']);
         Route::put('/providers', [Application\PluginProviderRulesController::class, 'update']);
@@ -222,7 +236,6 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::group(['prefix' => '/mods'], function () {
         Route::put('/settings', [Application\PluginsController::class, 'update']);
         Route::get('/analytics', [Application\PluginsController::class, 'analytics']);
-        Route::delete('/key', [Application\PluginsController::class, 'resetKey']);
     });
 
     /*
@@ -257,21 +270,21 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::post('/test-smtp', [Application\EmailController::class, 'testSmtpConnection']);
         Route::post('/test-resend', [Application\EmailController::class, 'testResendConnection']);
         Route::post('/test', [Application\EmailController::class, 'sendTest']);
-        
+
         // Email notification settings
         Route::get('/notifications', [Application\EmailController::class, 'getNotificationSettings']);
         Route::put('/notifications/{id}', [Application\EmailController::class, 'updateNotificationSetting']);
-        
+
         // Email quota management
         Route::get('/quotas', [Application\EmailController::class, 'getQuotaInfo']);
         Route::get('/quotas/user/{userId}', [Application\EmailController::class, 'getUserQuota']);
         Route::put('/quotas/user/{userId}', [Application\EmailController::class, 'updateUserQuota']);
-        
+
         // Email activity logs
         Route::get('/logs', [Application\EmailActivityController::class, 'index']);
         Route::get('/logs/templates', [Application\EmailActivityController::class, 'getTemplateKeys']);
         Route::get('/logs/{id}', [Application\EmailActivityController::class, 'show']);
-        
+
         // Deferred email queue
         Route::get('/deferred', [Application\EmailActivityController::class, 'getDeferredQueue']);
         Route::post('/deferred/{id}/send-now', [Application\EmailActivityController::class, 'sendDeferredNow']);
@@ -342,8 +355,46 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::post('/batch-uninstall', [Application\Extensions\ExtensionsController::class, 'batchUninstall']);
         Route::post('/batch-update', [Application\Extensions\ExtensionsController::class, 'batchUpdate']);
 
+        // Extension-contributed admin routes (routes/admin.php in each installed
+        // package). The /ext/<id> prefix is derived from the package directory —
+        // never from the file itself — so an extension cannot claim another's
+        // namespace or escape its prefix, and the static /ext segment cannot
+        // collide with the /{extensionId} wildcard below. Admin authentication
+        // is inherited from the application-api stack wrapping this file; the
+        // extensions.admin middleware adds a request-time defense-in-depth gate.
+        //
+        // Only enabled extensions are require()'d: a disabled extension's route
+        // file — and therefore any top-level code in it — is never loaded, so
+        // disabling an extension makes its code fully inert, not just 404'd.
+        //
+        // Every route the file registers is audited immediately afterwards
+        // (ExtensionRouteGuardService): a route that strips its inherited
+        // middleware or loses the extensions.admin gate is dropped to a 404.
+        $enabledExtensionIds = Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+        $extensionRouteGuard = app(Everest\Services\Extensions\ExtensionRouteGuardService::class);
+        foreach ((glob(app_path('Extensions/Packages/*/routes/admin.php')) ?: []) as $extensionAdminRoutes) {
+            $extensionRouteId = basename(dirname(dirname($extensionAdminRoutes)));
+            if (!in_array($extensionRouteId, $enabledExtensionIds, true)) {
+                continue;
+            }
+
+            $extensionRouteGuard->registerAndAudit(
+                $extensionRouteId,
+                ['extensions.admin:' . $extensionRouteId, 'throttle:api.ext-admin'],
+                function () use ($extensionRouteId, $extensionAdminRoutes) {
+                    Route::group([
+                        'prefix' => '/ext/' . $extensionRouteId,
+                        'middleware' => ['extensions.admin:' . $extensionRouteId, 'throttle:api.ext-admin'],
+                    ], function () use ($extensionAdminRoutes) {
+                        require $extensionAdminRoutes;
+                    });
+                }
+            );
+        }
+
         Route::get('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'view']);
         Route::put('/{extensionId}', [Application\Extensions\ExtensionsController::class, 'update']);
+        Route::post('/{extensionId}/database-plan', [Application\Extensions\ExtensionsController::class, 'databasePlan']);
         Route::post('/{extensionId}/toggle', [Application\Extensions\ExtensionsController::class, 'toggle']);
         Route::post('/{extensionId}/install', [Application\Extensions\ExtensionsController::class, 'install']);
         Route::post('/{extensionId}/update-package', [Application\Extensions\ExtensionsController::class, 'updatePackage']);

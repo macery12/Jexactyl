@@ -74,6 +74,13 @@ class AppServiceProvider extends ServiceProvider
                     return false;
                 }
 
+                // Hide internal receivers / machine-to-machine endpoints that a
+                // user never calls with an API token (webhook callbacks, the
+                // public storefront feed). See config/api-docs.php.
+                if (Str::startsWith($uri, config('api-docs.exclude_prefixes', []))) {
+                    return false;
+                }
+
                 return true;
             });
 

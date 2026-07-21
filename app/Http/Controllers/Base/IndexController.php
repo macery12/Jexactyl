@@ -4,25 +4,16 @@ namespace Everest\Http\Controllers\Base;
 
 use Illuminate\View\View;
 use Everest\Http\Controllers\Controller;
-use Illuminate\View\Factory as ViewFactory;
-use Everest\Contracts\Repository\ServerRepositoryInterface;
 
 class IndexController extends Controller
 {
     /**
-     * IndexController constructor.
+     * Serves the panel UI shell. Wildcard routes mount this for the root,
+     * /auth and /admin URL spaces — client-side routing is fully owned by
+     * the SPA.
      */
-    public function __construct(
-        protected ServerRepositoryInterface $repository,
-        protected ViewFactory $view
-    ) {
-    }
-
-    /**
-     * Returns listing of user's servers.
-     */
-    public function index(): View
+    public function v2(): View
     {
-        return view('templates/base.core');
+        return view('templates/v2.core');
     }
 }

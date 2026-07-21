@@ -14,5 +14,8 @@ class DatabaseSeeder extends Seeder
         $this->call(NestSeeder::class);
         $this->call(EggSeeder::class);
         $this->call(WebhookSeeder::class);
+        $this->call(EmailNotificationSettingsSeeder::class);
+        $this->call(InvoiceSettingsSeeder::class);
+        $this->call(ThemePresetSeeder::class);
     }
 }

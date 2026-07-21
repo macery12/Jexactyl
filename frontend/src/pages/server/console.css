@@ -1,0 +1,20 @@
+@import '@xterm/xterm/css/xterm.css';
+
+/* Let xterm fill its flex container; the panel owns the box + scrollbar look. */
+.xterm {
+    height: 100%;
+    padding: 0;
+}
+.xterm .xterm-viewport {
+    overflow-y: auto;
+    background: transparent !important;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+    width: 8px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 4px;
+}

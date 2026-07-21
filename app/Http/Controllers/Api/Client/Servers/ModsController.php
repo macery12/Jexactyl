@@ -10,15 +10,16 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Everest\Services\Mods\ModrinthService;
-use Everest\Services\Mods\CurseForgeService;
 use Everest\Services\Mods\SpigetService;
 use Everest\Services\Plugins\ProviderAccessService;
 use Everest\Repositories\Wings\DaemonFileRepository;
+use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
 use Everest\Services\Plugins\PluginInstallService;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
+use Everest\Jobs\DownloadModJob;
+use Everest\Models\DownloadQueue;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetModRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\SearchModsRequest;
@@ -48,7 +49,6 @@ class ModsController extends ClientApiController
      * ModsController constructor.
      */
     public function __construct(
-        private CurseForgeService $curseForgeService,
         private ModrinthService $modrinthService,
         private SpigetService $spigetService,
         private PluginInstallService $pluginInstallService,
@@ -61,13 +61,9 @@ class ModsController extends ClientApiController
     /**
      * Get the mod service based on the request source parameter.
      */
-    private function getModService(string $source = null): CurseForgeService|ModrinthService|SpigetService
+    private function getModService(string $source = null): ModrinthService|SpigetService
     {
         $source = $source ?? Setting::get('settings::modules:mods:default_source', config('modules.mods.default_source', 'modrinth'));
-
-        if ($source === 'curseforge') {
-            return $this->curseForgeService;
-        }
 
         if (in_array($source, ['spiget', 'spigot'], true)) {
             return $this->spigetService;
@@ -81,10 +77,6 @@ class ModsController extends ClientApiController
      */
     private function resolveProviderKey(?string $source, string $resource = 'mods'): string
     {
-        if ($source === 'curseforge') {
-            return 'curseforge';
-        }
-
         if (in_array($source, ['spiget', 'spigot'], true)) {
             return 'spigot.plugins';
         }
@@ -115,11 +107,10 @@ class ModsController extends ClientApiController
         return null;
     }
 
-    public function providerAccess(Server $server): JsonResponse
+    public function providerAccess(GetModRequest $request, Server $server): JsonResponse
     {
         $providers = [
             'modrinth.mods',
-            'curseforge',
             'modrinth.plugins',
             'spigot.plugins',
         ];
@@ -135,6 +126,51 @@ class ModsController extends ClientApiController
         return response()->json([
             'providers' => $result,
         ]);
+    }
+
+    public function serverConfig(GetModRequest $request, Server $server): JsonResponse
+    {
+        $cacheKey = "server:{$server->uuid}:server_config";
+
+        $result = Cache::remember($cacheKey, 60, function () use ($server) {
+            $versionVarNames = ['MINECRAFT_VERSION', 'MC_VERSION', 'VANILLA_VERSION'];
+            $detectedVersion = null;
+            foreach ($server->variables as $variable) {
+                if (in_array($variable->env_variable, $versionVarNames, true) && !empty($variable->server_value)) {
+                    $detectedVersion = $variable->server_value;
+                    break;
+                }
+            }
+
+            $loaderName = MinecraftStartupOptions::detectLoader($server->egg->name ?? '');
+
+            $pluginPlatforms = ['paper', 'spigot', 'bukkit', 'folia', 'purpur', 'velocity', 'waterfall', 'bungeecord', 'sponge'];
+
+            $detectedLoader   = null;
+            $detectedPlatform = null;
+
+            if ($loaderName !== null) {
+                if (in_array($loaderName, $pluginPlatforms, true)) {
+                    $detectedPlatform = $loaderName;
+                } else {
+                    $loaderIdMap = [
+                        'forge'    => ['id' => 1, 'name' => 'Forge',    'slug' => 'forge'],
+                        'neoforge' => ['id' => 6, 'name' => 'NeoForge', 'slug' => 'neoforge'],
+                        'fabric'   => ['id' => 4, 'name' => 'Fabric',   'slug' => 'fabric'],
+                        'quilt'    => ['id' => 5, 'name' => 'Quilt',    'slug' => 'quilt'],
+                    ];
+                    $detectedLoader = $loaderIdMap[$loaderName] ?? null;
+                }
+            }
+
+            return [
+                'detectedVersion'  => $detectedVersion,
+                'detectedLoader'   => $detectedLoader,
+                'detectedPlatform' => $detectedPlatform,
+            ];
+        });
+
+        return response()->json($result);
     }
 
     public function installed(GetInstalledAddonsRequest $request, Server $server): JsonResponse
@@ -345,9 +381,7 @@ class ModsController extends ClientApiController
     }
 
     /**
-     * Download a mod file and upload it to the server's /mods folder.
-     *
-     * @throws ModsServiceException
+     * Queue a mod/plugin/modpack download for background processing.
      */
     public function downloadMod(DownloadModRequest $request, Server $server, string $modId, string $fileId): JsonResponse
     {
@@ -357,26 +391,58 @@ class ModsController extends ClientApiController
             return $response;
         }
 
-        try {
-            $source = $request->input('source') ?? Setting::get('settings::modules:mods:default_source', config('modules.mods.default_source', 'modrinth'));
-            $type = $resource === 'plugins' || in_array($source, ['spiget', 'spigot'], true) ? 'plugin' : 'mod';
-            $result = $this->pluginInstallService->installFromProvider($server, $source, $type, $modId, $fileId);
+        $source = $request->input('source') ?? Setting::get('settings::modules:mods:default_source', config('modules.mods.default_source', 'modrinth'));
+        $type   = $resource === 'plugins' || in_array($source, ['spiget', 'spigot'], true) ? 'plugin' : 'mod';
 
-            // Invalidate cache after successful download.
-            $this->invalidateInstalledCache($server, $type === 'plugin' ? 'plugins' : 'mods');
+        // Enforce per-user per-minute submission rate.
+        $maxPerMinute   = (int) Setting::get('settings::modules:mods:download_max_per_minute', config('modules.mods.download.max_per_minute_per_user', 10));
+        $userRateKey    = 'download_queue_rate:' . $server->uuid . ':' . auth()->id();
+        $userSubmissions = Cache::get($userRateKey, 0);
 
-            return response()->json($result);
-        } catch (ModsServiceException $e) {
+        if ($userSubmissions >= $maxPerMinute) {
             return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
-        } catch (\Exception $e) {
-            Log::error('Mod download failed: ' . $e->getMessage());
-
-            return response()->json([
-                'error' => 'An unexpected error occurred while downloading the mod.',
-            ], 500);
+                'error' => "You can only queue {$maxPerMinute} downloads per minute. Please wait before adding more.",
+            ], 429);
         }
+
+        // Enforce per-server queue size cap.
+        $maxQueueSize = (int) Setting::get('settings::modules:mods:download_max_queue_size', config('modules.mods.download.max_queue_size_per_server', 20));
+        $activeCount  = DownloadQueue::where('server_id', $server->id)
+            ->whereNotIn('status', DownloadQueue::TERMINAL_STATUSES)
+            ->count();
+
+        if ($activeCount >= $maxQueueSize) {
+            return response()->json([
+                'error' => "The download queue is full ({$maxQueueSize} items). Wait for current downloads to finish.",
+            ], 429);
+        }
+
+        $queueItem = DownloadQueue::create([
+            'uuid'       => Str::uuid()->toString(),
+            'server_id'  => $server->id,
+            'user_id'    => auth()->id(),
+            'provider'   => $source,
+            'source'     => $type,
+            'project_id' => $modId,
+            'file_id'    => $fileId,
+            'status'     => DownloadQueue::STATUS_PENDING,
+        ]);
+
+        dispatch(new DownloadModJob($queueItem));
+
+        // Increment the per-user rate counter.
+        Cache::put($userRateKey, $userSubmissions + 1, 60);
+
+        $position = DownloadQueue::where('server_id', $server->id)
+            ->where('status', DownloadQueue::STATUS_PENDING)
+            ->where('id', '<=', $queueItem->id)
+            ->count();
+
+        return response()->json([
+            'queued'    => true,
+            'queue_id'  => $queueItem->uuid,
+            'position'  => $position,
+        ], 202);
     }
 
     /**
@@ -429,339 +495,6 @@ class ModsController extends ClientApiController
         } catch (ModsServiceException $e) {
             return response()->json([
                 'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Search for modpacks in the CurseForge database.
-     *
-     * @throws ModsServiceException
-     */
-    public function searchModpacks(SearchModsRequest $request, Server $server): JsonResponse
-    {
-        if ($response = $this->checkProviderAllowed($server, 'curseforge', 'modpacks')) {
-            return $response;
-        }
-
-        // Only accept valid modpack search parameters
-        $params = array_filter([
-            'searchFilter' => $request->input('searchFilter'),
-            'sortField' => $request->input('sortField'),
-            'sortOrder' => $request->input('sortOrder'),
-            'pageSize' => $request->input('pageSize', 20),
-            'index' => $request->input('index', 0),
-        ], function ($value) {
-            // Filter out null, empty strings, and ensure only valid values pass through
-            return $value !== null && $value !== '';
-        });
-
-        try {
-            $result = $this->curseForgeService->searchModpacks($params);
-
-            return response()->json($result);
-        } catch (ModsServiceException $e) {
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get details of a specific modpack.
-     *
-     * @throws ModsServiceException
-     */
-    public function getModpack(GetModRequest $request, Server $server, int $modpackId): JsonResponse
-    {
-        if ($response = $this->checkProviderAllowed($server, 'curseforge', 'modpacks')) {
-            return $response;
-        }
-
-        try {
-            $result = $this->curseForgeService->getModpack($modpackId);
-
-            return response()->json($result);
-        } catch (ModsServiceException $e) {
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Get files for a specific modpack.
-     *
-     * @throws ModsServiceException
-     */
-    public function getModpackFiles(GetModFilesRequest $request, Server $server, int $modpackId): JsonResponse
-    {
-        if ($response = $this->checkProviderAllowed($server, 'curseforge', 'modpacks')) {
-            return $response;
-        }
-
-        $params = array_filter([
-            'gameVersion' => $request->input('gameVersion'),
-            'modLoaderType' => $request->input('modLoaderType'),
-            'pageSize' => $request->input('pageSize', 20),
-            'index' => $request->input('index', 0),
-        ], function ($value) {
-            return $value !== null;
-        });
-
-        try {
-            $result = $this->curseForgeService->getModpackFiles($modpackId, $params);
-
-            return response()->json($result);
-        } catch (ModsServiceException $e) {
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
-    /**
-     * Download a modpack file and extract it to the server.
-     *
-     * @throws ModsServiceException
-     */
-    public function downloadModpack(DownloadModRequest $request, Server $server, int $modpackId, int $fileId): JsonResponse
-    {
-        if ($response = $this->checkProviderAllowed($server, 'curseforge', 'modpacks')) {
-            return $response;
-        }
-
-        // Extend PHP execution time for large modpack downloads (10 minutes)
-        // This can take a while with many mods to download and extract
-        set_time_limit(600);
-
-        try {
-            // Get modpack file details
-            $modpackFile = $this->curseForgeService->getModpackFile($modpackId, $fileId);
-
-            if (!isset($modpackFile['data'])) {
-                throw new ModsServiceException('Failed to retrieve modpack file details.');
-            }
-
-            $fileData = $modpackFile['data'];
-            $fileName = $fileData['fileName'] ?? 'modpack.zip';
-            $fileSize = $fileData['fileLength'] ?? 0;
-
-            // Check file size limit (500MB max)
-            $maxFileSize = config('modules.mods.max_modpack_size', 524288000); // 500MB default
-            if ($fileSize > $maxFileSize) {
-                throw new ModsServiceException('Modpack file size exceeds maximum allowed size.');
-            }
-
-            // Get download URL
-            $downloadUrl = $this->curseForgeService->getModFileDownloadUrl($modpackId, $fileId);
-
-            // Create temporary directory for extraction in a secure location
-            $baseTempDir = storage_path('app/temp');
-            if (!is_dir($baseTempDir)) {
-                mkdir($baseTempDir, 0755, true);
-            }
-
-            $tempDir = $baseTempDir . '/modpack_' . uniqid('', true);
-            mkdir($tempDir, 0755, true);
-            $zipPath = $tempDir . '/modpack.zip';
-
-            // Stream download to file to avoid loading entire file into memory
-            try {
-                $fileHandle = fopen($zipPath, 'w');
-                if (!$fileHandle) {
-                    throw new ModsServiceException('Failed to create temporary file for modpack download.');
-                }
-
-                $response = Http::timeout(300)->sink($fileHandle)->get($downloadUrl);
-                // Note: sink() automatically closes the file handle, so we don't call fclose() here
-
-                if (!$response->successful()) {
-                    $this->deleteDirectory($tempDir);
-                    throw new ModsServiceException('Failed to download modpack file from CurseForge.');
-                }
-
-                // Validate downloaded file size
-                $downloadedSize = filesize($zipPath);
-                if ($downloadedSize > $maxFileSize) {
-                    $this->deleteDirectory($tempDir);
-                    throw new ModsServiceException('Downloaded modpack exceeds maximum allowed size.');
-                }
-            } catch (\Exception $e) {
-                // Only close if still a valid resource (sink may not have been called yet)
-                if (isset($fileHandle) && is_resource($fileHandle)) {
-                    fclose($fileHandle);
-                }
-                $this->deleteDirectory($tempDir);
-                throw $e;
-            }
-
-            // Extract the zip file with path traversal protection
-            $zip = new \ZipArchive();
-            if ($zip->open($zipPath) === true) {
-                // Validate all entries to prevent Zip Slip attacks
-                $realTempDir = realpath($tempDir);
-                if ($realTempDir === false) {
-                    $zip->close();
-                    $this->deleteDirectory($tempDir);
-                    throw new ModsServiceException('Failed to resolve temporary directory path.');
-                }
-
-                for ($i = 0; $i < $zip->numFiles; $i++) {
-                    $entry = $zip->getNameIndex($i);
-                    
-                    // Resolve the full path and check if it's within the temp directory
-                    $extractPath = $tempDir . '/' . $entry;
-                    // Normalize path to prevent traversal
-                    $normalizedPath = str_replace(['\\', '/./'], ['/', '/'], $extractPath);
-                    $normalizedPath = preg_replace('#/+#', '/', $normalizedPath);
-                    
-                    // Check for path traversal attempts
-                    if (strpos($normalizedPath, '../') !== false || strpos($entry, '../') !== false) {
-                        $zip->close();
-                        $this->deleteDirectory($tempDir);
-                        throw new ModsServiceException('Modpack contains invalid file paths (path traversal detected).');
-                    }
-                    
-                    // Additional check: ensure extracted path would be within temp directory
-                    $parentDir = dirname($normalizedPath);
-                    if ($parentDir !== $tempDir && strpos($parentDir, $realTempDir) !== 0) {
-                        // For safety, also check if any parent directory escapes
-                        $testPath = $normalizedPath;
-                        while ($testPath !== '/' && $testPath !== '.') {
-                            if (!str_starts_with($testPath, $realTempDir)) {
-                                $zip->close();
-                                $this->deleteDirectory($tempDir);
-                                throw new ModsServiceException('Modpack contains paths outside allowed directory.');
-                            }
-                            $testPath = dirname($testPath);
-                            if ($testPath === $tempDir || $testPath === $realTempDir) {
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // All entries validated, safe to extract
-                $zip->extractTo($tempDir);
-                $zip->close();
-            } else {
-                $this->deleteDirectory($tempDir);
-                throw new ModsServiceException('Failed to extract modpack archive.');
-            }
-
-            // Parse manifest.json to get mod list
-            $manifestPath = $tempDir . '/manifest.json';
-            if (!file_exists($manifestPath)) {
-                $this->deleteDirectory($tempDir);
-                throw new ModsServiceException('Modpack manifest.json not found.');
-            }
-
-            $manifest = json_decode(file_get_contents($manifestPath), true);
-            if (!isset($manifest['files']) || !is_array($manifest['files'])) {
-                $this->deleteDirectory($tempDir);
-                throw new ModsServiceException('Invalid modpack manifest format.');
-            }
-
-            // Create /mods folder if it doesn't exist
-            try {
-                $this->fileRepository->setServer($server)->createDirectory('mods', '/');
-            } catch (\Exception $e) {
-                Log::info('Mods folder creation skipped: ' . $e->getMessage());
-            }
-
-            // Upload overrides folder if exists (configs, etc.)
-            $overridesDir = $tempDir . '/overrides';
-            if (is_dir($overridesDir)) {
-                $this->uploadDirectoryRecursively($server, $overridesDir, '/');
-            }
-
-            // Download and install each mod from the manifest
-            $downloadedMods = [];
-            $failedMods = [];
-
-            foreach ($manifest['files'] as $modEntry) {
-                try {
-                    $modFileId = $modEntry['fileID'];
-                    $projectId = $modEntry['projectID'];
-
-                    // Get the mod file download URL (cached, serialized API call)
-                    $modDownloadUrl = $this->curseForgeService->getModFileDownloadUrl($projectId, $modFileId);
-
-                    // Get mod file details to get the filename (cached, serialized API call)
-                    $modFileDetails = $this->curseForgeService->getModFile($projectId, $modFileId);
-                    $modFileName = $modFileDetails['data']['fileName'] ?? "mod_{$projectId}_{$modFileId}.jar";
-
-                    // Download the mod file to a temporary location first to avoid memory issues
-                    $tempModPath = $tempDir . '/temp_' . $modFileName;
-                    $modFileHandle = fopen($tempModPath, 'w');
-
-                    if (!$modFileHandle) {
-                        Log::warning("Failed to create temp file for mod {$projectId}");
-                        $failedMods[] = ['projectId' => $projectId, 'fileId' => $modFileId];
-                        continue;
-                    }
-
-                    try {
-                        $modResponse = Http::timeout(120)->sink($modFileHandle)->get($modDownloadUrl);
-                        // Note: sink() automatically closes the file handle, so we don't call fclose() here
-
-                        if ($modResponse->successful()) {
-                            // Read and upload the file content
-                            $modContent = file_get_contents($tempModPath);
-                            $this->fileRepository->setServer($server)->putContent("/mods/{$modFileName}", $modContent);
-                            $downloadedMods[] = $modFileName;
-
-                            // Clean up temp file
-                            @unlink($tempModPath);
-                        } else {
-                            @unlink($tempModPath);
-                            $failedMods[] = ['projectId' => $projectId, 'fileId' => $modFileId];
-                        }
-                    } catch (\Exception $modEx) {
-                        // Only close if still a valid resource (sink may not have been called yet)
-                        if (is_resource($modFileHandle)) {
-                            fclose($modFileHandle);
-                        }
-                        @unlink($tempModPath);
-                        throw $modEx;
-                    }
-                } catch (ModsServiceException $e) {
-                    Log::error("Failed to download mod {$modEntry['projectID']}: " . $e->getMessage());
-                    $failedMods[] = ['projectId' => $modEntry['projectID'], 'fileId' => $modEntry['fileID']];
-                } catch (\Exception $e) {
-                    Log::error("Failed to download mod {$modEntry['projectID']}: " . $e->getMessage());
-                    $failedMods[] = ['projectId' => $modEntry['projectID'], 'fileId' => $modEntry['fileID']];
-                }
-            }
-
-            // Clean up temporary files
-            $this->deleteDirectory($tempDir);
-
-            // Invalidate cache after modpack install.
-            $this->invalidateInstalledCache($server, 'mods');
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Modpack downloaded and installed successfully.',
-                'details' => [
-                    'modpack' => $manifest['name'] ?? 'Unknown',
-                    'version' => $manifest['version'] ?? 'Unknown',
-                    'mods_downloaded' => count($downloadedMods),
-                    'mods_failed' => count($failedMods),
-                    'downloaded_mods' => $downloadedMods,
-                    'failed_mods' => $failedMods,
-                ],
-            ]);
-        } catch (ModsServiceException $e) {
-            return response()->json([
-                'error' => $e->getMessage(),
-            ], 500);
-        } catch (\Exception $e) {
-            Log::error('Modpack download failed: ' . $e->getMessage());
-
-            return response()->json([
-                'error' => 'An unexpected error occurred while downloading the modpack.',
             ], 500);
         }
     }
@@ -993,79 +726,5 @@ class ModsController extends ClientApiController
         $trimmed = '/' . trim($path, '/');
 
         return $trimmed === '//' ? '/' : $trimmed;
-    }
-
-    /**
-     * Recursively upload a directory to the server with path validation.
-     */
-    private function uploadDirectoryRecursively(Server $server, string $localPath, string $remotePath): void
-    {
-        $items = scandir($localPath);
-        
-        // Validate the base local path
-        $realLocalPath = realpath($localPath);
-        if ($realLocalPath === false) {
-            throw new ModsServiceException('Invalid local path for upload.');
-        }
-
-        foreach ($items as $item) {
-            if ($item === '.' || $item === '..') {
-                continue;
-            }
-            
-            // Validate item name to prevent path traversal
-            if (strpos($item, '..') !== false || strpos($item, '/') !== false || strpos($item, '\\') !== false) {
-                Log::warning("Skipping potentially malicious file/directory name: {$item}");
-                continue;
-            }
-
-            $localItemPath = $localPath . '/' . $item;
-            
-            // Ensure the resolved path is still within the original base path
-            $realItemPath = realpath($localItemPath);
-            if ($realItemPath === false || strpos($realItemPath, $realLocalPath) !== 0) {
-                Log::warning("Skipping file outside allowed directory: {$localItemPath}");
-                continue;
-            }
-            
-            $remoteItemPath = rtrim($remotePath, '/') . '/' . $item;
-
-            if (is_dir($localItemPath)) {
-                try {
-                    $this->fileRepository->setServer($server)->createDirectory($item, $remotePath);
-                } catch (\Exception $e) {
-                    Log::info("Directory creation skipped for {$remoteItemPath}: " . $e->getMessage());
-                }
-                $this->uploadDirectoryRecursively($server, $localItemPath, $remoteItemPath);
-            } else {
-                $content = file_get_contents($localItemPath);
-                $this->fileRepository->setServer($server)->putContent($remoteItemPath, $content);
-            }
-        }
-    }
-
-    /**
-     * Recursively delete a directory.
-     */
-    private function deleteDirectory(string $dir): void
-    {
-        if (!is_dir($dir)) {
-            return;
-        }
-
-        $items = scandir($dir);
-        foreach ($items as $item) {
-            if ($item === '.' || $item === '..') {
-                continue;
-            }
-
-            $path = $dir . '/' . $item;
-            if (is_dir($path)) {
-                $this->deleteDirectory($path);
-            } else {
-                unlink($path);
-            }
-        }
-        rmdir($dir);
     }
 }

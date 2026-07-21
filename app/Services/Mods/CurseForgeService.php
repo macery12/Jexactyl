@@ -2,319 +2,153 @@
 
 namespace Everest\Services\Mods;
 
+use Everest\Models\Setting;
 use GuzzleHttp\Client;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
-use Everest\Models\CurseForgeRequestLog;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
-use Everest\Models\Setting;
 
+/**
+ * CurseForge API client. Powers modpacks only — individual mods/plugins are
+ * served by ModrinthService. The API key is stored encrypted in settings and
+ * read at runtime (never sourced from plaintext config).
+ */
 class CurseForgeService
 {
+    /** Minecraft game id on CurseForge. */
+    private const GAME_ID = 432;
+
+    /** Modpack class id on CurseForge (mods are 6). */
+    private const MODPACK_CLASS_ID = 4471;
+
+    /** Loader slug => CurseForge modLoaderType numeric id. */
+    private const LOADER_TYPE_MAP = [
+        'forge'    => 1,
+        'fabric'   => 4,
+        'quilt'    => 5,
+        'neoforge' => 6,
+    ];
+
+    /** Lowercased loader names that may appear in a file's gameVersions list. */
+    private const LOADER_NAMES = ['forge', 'neoforge', 'fabric', 'quilt'];
+
     private Client $client;
     private string $apiKey;
     private string $endpoint;
+    private int $requestsPerMinute;
+    private int $requestsPerHour;
     private bool $cacheEnabled;
     private array $cacheTtl;
-    private float $requestDelaySeconds = 1.5; // Simple 1-2 second delay between requests (avg 1.5)
-    private int $max429BeforeLockout = 50; // Lock out after 50 consecutive 429s
-    private int $lockoutDurationSeconds = 86400; // 24 hours lockout
-    private int $backoffDurationSeconds = 30; // Short-term backoff after 429s
-    private int $maxIndex = 9950; // CurseForge API index upper bound
+    private bool $cdnFallbackEnabled;
 
-    /**
-     * CurseForgeService constructor.
-     */
     public function __construct()
     {
-        $this->apiKey = Setting::get('settings::modules:mods:curseforge_api_key', config('modules.mods.curseforge_api_key')) ?: '';
+        $this->apiKey = (string) Setting::get('settings::modules:mods:curseforge_api_key', '');
         $this->endpoint = config('modules.mods.curseforge_api_url') ?: 'https://api.curseforge.com/v1';
-        $this->cacheEnabled = config('modules.mods.cache.enabled', true);
-
-        // Aggressive 24-hour caching for all API responses
+        $this->requestsPerMinute = (int) config('modules.mods.rate_limit.requests_per_minute', 30);
+        $this->requestsPerHour = (int) config('modules.mods.rate_limit.requests_per_hour', 1800);
+        $this->cacheEnabled = (bool) config('modules.mods.cache.enabled', true);
+        $this->cdnFallbackEnabled = (bool) \Everest\Models\Setting::get(
+            'settings::modules:mods:curseforge_cdn_fallback',
+            config('modules.mods.curseforge_cdn_fallback', true)
+        );
         $this->cacheTtl = config('modules.mods.cache.ttl', [
-            'search' => 86400,      // 24 hours
-            'mod_details' => 86400, // 24 hours
-            'mod_files' => 86400,   // 24 hours
-            'versions' => 86400,    // 24 hours
-            'loaders' => 86400,     // 24 hours
+            'search' => 300,
+            'mod_details' => 1800,
+            'mod_files' => 600,
+            'versions' => 3600,
+            'loaders' => 3600,
         ]);
 
         $this->client = new Client([
             'base_uri' => rtrim($this->endpoint, '/') . '/',
-            'timeout' => 30,
+            'timeout'  => 30,
         ]);
     }
 
     /**
-     * Acquire a lock to serialize API requests (max concurrency = 1).
+     * Map a loader slug (forge, neoforge, fabric, quilt) to CurseForge's numeric
+     * modLoaderType, or null if unknown.
      */
-    private function acquireApiLock(): bool
+    public static function loaderTypeId(?string $slug): ?int
     {
-        $lockKey = 'curseforge_api_lock';
-        $lockAcquired = Cache::lock($lockKey, 60)->get(function () {
-            // Lock acquired, can proceed with API request
-            return true;
-        });
+        return $slug ? (self::LOADER_TYPE_MAP[strtolower($slug)] ?? null) : null;
+    }
 
-        if (!$lockAcquired) {
-            // Wait a bit and retry once
-            usleep(500000); // 500ms
-
-            return Cache::lock($lockKey, 60)->get(function () {
-                return true;
-            });
-        }
-
-        return $lockAcquired;
+    public function isConfigured(): bool
+    {
+        return $this->apiKey !== '';
     }
 
     /**
-     * Check if CurseForge API is locked out due to excessive 429 errors.
+     * Enforce a Cache-based rate limit before each outbound request.
      *
      * @throws ModsServiceException
      */
-    private function checkLockout(): void
+    private function checkRateLimit(): void
     {
-        $lockoutKey = 'curseforge_lockout_until';
-        $lockoutUntil = Cache::get($lockoutKey);
-        $backoffUntil = Cache::get('curseforge_backoff_until');
+        $minute = (int) Cache::get('curseforge_rate_limit_minute', 0);
+        $hour   = (int) Cache::get('curseforge_rate_limit_hour', 0);
 
-        // Short-term backoff (e.g., after recent 429s) to avoid hammering the provider.
-        if ($backoffUntil && time() < $backoffUntil) {
-            $waitSeconds = max(1, $backoffUntil - time());
-            throw new ModsServiceException("CurseForge is backing off due to rate limits. Try again in {$waitSeconds} seconds.");
+        if ($minute >= $this->requestsPerMinute) {
+            throw new ModsServiceException('CurseForge API rate limit exceeded (per minute). Please try again shortly.');
+        }
+        if ($hour >= $this->requestsPerHour) {
+            throw new ModsServiceException('CurseForge API rate limit exceeded (per hour). Please try again later.');
         }
 
-        if ($lockoutUntil && time() < $lockoutUntil) {
-            $remainingSeconds = $lockoutUntil - time();
-            $remainingHours = round($remainingSeconds / 3600, 1);
-            throw new ModsServiceException("CurseForge API is locked out due to excessive rate limiting. Try again in {$remainingHours} hours.");
-        }
+        Cache::put('curseforge_rate_limit_minute', $minute + 1, 60);
+        Cache::put('curseforge_rate_limit_hour', $hour + 1, 3600);
     }
 
     /**
-     * Track 429 errors and trigger lockout if threshold is reached.
-     */
-    private function track429Error(): void
-    {
-        $counterKey = 'curseforge_429_counter';
-        $count = Cache::get($counterKey, 0) + 1;
-
-        // Store count with 1 hour expiry (resets if we go without 429s)
-        Cache::put($counterKey, $count, 3600);
-
-        Log::warning("CurseForge 429 error count: {$count}/{$this->max429BeforeLockout}");
-
-        // If we hit the threshold, trigger 24-hour lockout
-        if ($count >= $this->max429BeforeLockout) {
-            $lockoutUntil = time() + $this->lockoutDurationSeconds;
-            Cache::put('curseforge_lockout_until', $lockoutUntil, $this->lockoutDurationSeconds);
-            Cache::forget($counterKey); // Reset counter
-
-            Log::error("CurseForge API locked out for 24 hours after {$count} consecutive 429 errors");
-        }
-
-        // Apply a short-term backoff so subsequent UI requests do not immediately retry after 429s.
-        Cache::put('curseforge_backoff_until', time() + $this->backoffDurationSeconds, $this->backoffDurationSeconds);
-    }
-
-    /**
-     * Reset 429 error counter on successful request.
-     */
-    private function reset429Counter(): void
-    {
-        Cache::forget('curseforge_429_counter');
-    }
-
-    private function clampIndex(int $index): int
-    {
-        if ($index < 0) {
-            return 0;
-        }
-
-        return min($index, $this->maxIndex);
-    }
-
-    /**
-     * Simple throttling - just space requests 1-2 seconds apart.
-     */
-    private function simpleThrottle(): void
-    {
-        $lastRequestKey = 'curseforge_last_request_time';
-        $lastRequestTime = Cache::get($lastRequestKey, 0);
-        $now = microtime(true);
-
-        $timeSinceLastRequest = $now - $lastRequestTime;
-
-        // Wait if we haven't waited long enough
-        if ($timeSinceLastRequest < $this->requestDelaySeconds) {
-            $sleepTime = $this->requestDelaySeconds - $timeSinceLastRequest;
-            usleep((int) ($sleepTime * 1000000));
-        }
-
-        // Update last request time
-        Cache::put($lastRequestKey, microtime(true), 3600);
-    }
-
-    /**
-     * Track a CurseForge API request in the database.
-     */
-    private function trackRequest(string $endpoint, int $statusCode): void
-    {
-        try {
-            CurseForgeRequestLog::create([
-                'requested_at' => now(),
-                'endpoint' => $endpoint,
-                'status_code' => $statusCode,
-            ]);
-
-            // Probabilistic cleanup (5% chance) to reduce overhead under high load
-            // Full cleanup happens every ~20 requests on average
-            if (mt_rand(1, 20) === 1) {
-                CurseForgeRequestLog::where('requested_at', '<', now()->subHours(25))->delete();
-            }
-        } catch (\Exception $e) {
-            // Log error but don't fail the request
-            Log::error('Failed to track CurseForge request: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Get current rate limit usage with hourly and daily analytics.
-     */
-    public function getRateLimitUsage(): array
-    {
-        $now = now();
-        $oneMinuteAgo = $now->copy()->subMinute();
-        $oneHourAgo = $now->copy()->subHour();
-
-        // Get requests in the last minute
-        $requestsThisMinute = CurseForgeRequestLog::where('requested_at', '>=', $oneMinuteAgo)->count();
-
-        // Get requests in the last hour
-        $requestsThisHour = CurseForgeRequestLog::where('requested_at', '>=', $oneHourAgo)->count();
-
-        // CurseForge rate limits (as per their API documentation)
-        // These are conservative estimates - actual limits may vary
-        $limitPerMinute = 100; // Conservative estimate
-        $limitPerHour = 2500; // Conservative estimate
-
-        return [
-            'requests_this_minute' => $requestsThisMinute,
-            'requests_this_hour' => $requestsThisHour,
-            'limit_per_minute' => $limitPerMinute,
-            'limit_per_hour' => $limitPerHour,
-        ];
-    }
-
-    /**
-     * Get legacy 429 error tracking data (deprecated but kept for compatibility).
-     */
-    public function get429ErrorTracking(): array
-    {
-        $counter429 = Cache::get('curseforge_429_counter', 0);
-        $lockoutUntil = Cache::get('curseforge_lockout_until');
-
-        return [
-            '429_errors' => $counter429,
-            'max_429_before_lockout' => $this->max429BeforeLockout,
-            'locked_out' => $lockoutUntil && time() < $lockoutUntil,
-            'lockout_until' => $lockoutUntil ? date('Y-m-d H:i:s', $lockoutUntil) : null,
-        ];
-    }
-
-    /**
-     * Make a request to the CurseForge API with simple throttling and 429-based lockout.
+     * Issue a request to the CurseForge API.
      *
      * @throws ModsServiceException
      */
     private function makeRequest(string $method, string $path, array $params = [], int $retryAttempt = 0): array
     {
-        if (empty($this->apiKey)) {
+        if ($this->apiKey === '') {
             throw new ModsServiceException('CurseForge API key is not configured.');
         }
 
-        // Check if we're in lockout period
-        $this->checkLockout();
-
-        // Acquire lock to serialize all API requests (max concurrency = 1)
-        if (!$this->acquireApiLock()) {
-            throw new ModsServiceException('Failed to acquire API lock for CurseForge request.');
-        }
-
-        // Simple throttling: space requests 1-2 seconds apart
-        $this->simpleThrottle();
+        $this->checkRateLimit();
 
         try {
             $options = [
                 'headers' => [
-                    'Accept' => 'application/json',
+                    'Accept'    => 'application/json',
                     'x-api-key' => $this->apiKey,
                 ],
             ];
 
             if (!empty($params)) {
-                if ($method === 'GET') {
-                    $options['query'] = $params;
-                } else {
-                    $options['json'] = $params;
-                }
+                $options[$method === 'GET' ? 'query' : 'json'] = $params;
             }
 
             $response = $this->client->request($method, $path, $options);
-
-            $statusCode = $response->getStatusCode();
-            $body = $response->getBody()->getContents();
-            $data = json_decode($body, true);
+            $data = json_decode($response->getBody()->getContents(), true);
 
             if (json_last_error() !== JSON_ERROR_NONE) {
-                Log::error('CurseForge API JSON decode error: ' . json_last_error_msg());
                 throw new ModsServiceException('Failed to decode CurseForge API response.');
             }
-
-            // Track successful request
-            $this->trackRequest($path, $statusCode);
-
-            // Reset 429 counter on successful request
-            $this->reset429Counter();
 
             return $data;
         } catch (GuzzleException $e) {
             if ($e instanceof RequestException && $e->hasResponse()) {
-                $statusCode = $e->getResponse()->getStatusCode();
+                $status = $e->getResponse()->getStatusCode();
 
-                // Handle 429 with delay and tracking
-                if ($statusCode === 429) {
-                    // Track this 429 error in the database
-                    $this->trackRequest($path, $statusCode);
+                if ($status === 429 && $retryAttempt < 3) {
+                    sleep(mt_rand(3, 8));
 
-                    // Track this 429 error for lockout purposes
-                    $this->track429Error();
-
-                    // Get current counter to determine delay
-                    $count = Cache::get('curseforge_429_counter', 0);
-
-                    // If we're near the threshold, use longer delays (30-60s)
-                    if ($count >= $this->max429BeforeLockout - 10) {
-                        $delay = mt_rand(30, 60); // 30-60 second delay when approaching lockout
-                        Log::warning("CurseForge 429 (near threshold), waiting {$delay}s before retry");
-                    } else {
-                        $delay = mt_rand(5, 10); // 5-10 second delay for normal 429s
-                        Log::warning("CurseForge 429, waiting {$delay}s before retry");
-                    }
-
-                    // Only retry a few times per call to avoid infinite loops
-                    if ($retryAttempt < 3) {
-                        sleep($delay);
-
-                        return $this->makeRequest($method, $path, $params, $retryAttempt + 1);
-                    } else {
-                        throw new ModsServiceException('CurseForge API rate limit (429) exceeded after retries.');
-                    }
-                } elseif ($statusCode === 401 || $statusCode === 403) {
+                    return $this->makeRequest($method, $path, $params, $retryAttempt + 1);
+                }
+                if ($status === 429) {
+                    throw new ModsServiceException('CurseForge API rate limit (429) exceeded after retries.');
+                }
+                if ($status === 401 || $status === 403) {
                     throw new ModsServiceException('Invalid CurseForge API key.');
                 }
             }
@@ -325,211 +159,49 @@ class CurseForgeService
     }
 
     /**
-     * Make a cached request to the CurseForge API with memory-safe handling.
+     * Cache wrapper that coalesces concurrent identical requests.
      *
      * @throws ModsServiceException
      */
-    private function makeCachedRequest(string $cacheKey, int $ttl, callable $requestCallback): array
+    private function makeCachedRequest(string $cacheKey, int $ttl, callable $callback): array
     {
         if (!$this->cacheEnabled) {
-            return $requestCallback();
+            return $callback();
         }
 
-        // Coalesce concurrent requests for the same cache key to reduce provider hits.
-        $lock = Cache::lock("curseforge_cache_lock_{$cacheKey}", 5);
-        try {
-            return $lock->block(5, function () use ($cacheKey, $ttl, $requestCallback) {
-                $cached = Cache::get($cacheKey);
-                if ($cached !== null) {
-                    return $cached;
-                }
-
-                $data = $requestCallback();
-
-                // Only cache if data size is reasonable (< 1MB when serialized)
-                $serialized = serialize($data);
-                $sizeInBytes = strlen($serialized);
-                $maxCacheSize = 1048576; // 1MB limit
-
-                if ($sizeInBytes < $maxCacheSize) {
-                    try {
-                        Cache::put($cacheKey, $data, $ttl);
-                    } catch (\Exception $e) {
-                        // If caching fails due to memory, log but continue
-                        Log::warning("Failed to cache CurseForge response (size: {$sizeInBytes} bytes): " . $e->getMessage());
-                    }
-                } else {
-                    Log::info("Skipping cache for large response (size: {$sizeInBytes} bytes, key: {$cacheKey})");
-                }
-
-                return $data;
-            });
-        } catch (\Illuminate\Contracts\Cache\LockTimeoutException $e) {
-            throw new ModsServiceException('CurseForge request throttled due to high load. Please retry shortly.');
-        }
-    }
-
-    /**
-     * Search for mods in the CurseForge database.
-     *
-     * @param array $params Search parameters
-     *
-     * @throws ModsServiceException
-     */
-    public function searchMods(array $params = []): array
-    {
-        // CurseForge Minecraft game ID is 432
-        $defaultParams = [
-            'gameId' => 432,
-            'classId' => 6, // Mods class
-            'pageSize' => min($params['pageSize'] ?? 20, config('modules.mods.max_page_size', 50)),
-        ];
-
-        $searchParams = array_merge($defaultParams, array_filter([
-            'searchFilter' => $params['searchFilter'] ?? null,
-            'sortField' => $params['sortField'] ?? null,
-            'sortOrder' => $params['sortOrder'] ?? null,
-            'gameVersion' => $params['gameVersion'] ?? null,
-            'modLoaderType' => $params['modLoaderType'] ?? null,
-            'index' => $this->clampIndex($params['index'] ?? 0),
-        ], function ($value) {
-            return $value !== null;
-        }));
-
-        // Create cache key based on search parameters
-        $cacheKey = 'curseforge_search_' . md5(json_encode($searchParams));
-
-        return $this->makeCachedRequest($cacheKey, $this->cacheTtl['search'], function () use ($searchParams) {
-            return $this->makeRequest('GET', 'mods/search', $searchParams);
-        });
-    }
-
-    /**
-     * Get details of a specific mod.
-     *
-     * @throws ModsServiceException
-     */
-    public function getMod(int $modId): array
-    {
-        $cacheKey = "curseforge_mod_{$modId}";
-
-        return $this->makeCachedRequest($cacheKey, $this->cacheTtl['mod_details'], function () use ($modId) {
-            return $this->makeRequest('GET', 'mods/' . $modId);
-        });
-    }
-
-    /**
-     * Get files for a specific mod.
-     *
-     * @param array $params Filter parameters
-     *
-     * @throws ModsServiceException
-     */
-    public function getModFiles(int $modId, array $params = []): array
-    {
-        $fileParams = array_filter([
-            'gameVersion' => $params['gameVersion'] ?? null,
-            'modLoaderType' => $params['modLoaderType'] ?? null,
-            'pageSize' => min($params['pageSize'] ?? 20, config('modules.mods.max_page_size', 50)),
-            'index' => $this->clampIndex($params['index'] ?? 0),
-        ], function ($value) {
-            return $value !== null;
-        });
-
-        $cacheKey = "curseforge_mod_files_{$modId}_" . md5(json_encode($fileParams));
-
-        return $this->makeCachedRequest($cacheKey, $this->cacheTtl['mod_files'], function () use ($modId, $fileParams) {
-            return $this->makeRequest('GET', 'mods/' . $modId . '/files', $fileParams);
-        });
-    }
-
-    /**
-     * Get details of a specific mod file.
-     *
-     * @throws ModsServiceException
-     */
-    public function getModFile(int $modId, int $fileId): array
-    {
-        return $this->makeRequest('GET', 'mods/' . $modId . '/files/' . $fileId);
-    }
-
-    /**
-     * Get download URL for a mod file.
-     *
-     * @throws ModsServiceException
-     */
-    public function getModFileDownloadUrl(int $modId, int $fileId): string
-    {
-        $response = $this->makeRequest('GET', 'mods/' . $modId . '/files/' . $fileId . '/download-url');
-
-        if (!isset($response['data'])) {
-            throw new ModsServiceException('Failed to retrieve download URL from CurseForge API.');
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
         }
 
-        return $response['data'];
+        $data = $callback();
+        Cache::put($cacheKey, $data, $ttl);
+
+        return $data;
     }
 
     /**
-     * Get available Minecraft versions.
-     *
-     * @throws ModsServiceException
-     */
-    public function getMinecraftVersions(): array
-    {
-        $cacheKey = 'curseforge_minecraft_versions';
-
-        return $this->makeCachedRequest($cacheKey, $this->cacheTtl['versions'], function () {
-            // Game ID for Minecraft is 432
-            return $this->makeRequest('GET', 'games/432/versions');
-        });
-    }
-
-    /**
-     * Get available mod loader types.
-     *
-     * @throws ModsServiceException
-     */
-    public function getModLoaderTypes(): array
-    {
-        $cacheKey = 'curseforge_mod_loaders';
-
-        return $this->makeCachedRequest($cacheKey, $this->cacheTtl['loaders'], function () {
-            // Get Minecraft mod loaders (Forge, Fabric, NeoForge, etc.)
-            return $this->makeRequest('GET', 'minecraft/modloader');
-        });
-    }
-
-    /**
-     * Search for modpacks in the CurseForge database.
-     *
-     * @param array $params Search parameters
+     * Search modpacks. Accepts: searchFilter, sortField, sortOrder, gameVersion,
+     * modLoaderType, pageSize, index. Returns the CurseForge { data, pagination }
+     * envelope (already matches the frontend Mod shape).
      *
      * @throws ModsServiceException
      */
     public function searchModpacks(array $params = []): array
     {
-        // CurseForge Minecraft game ID is 432
-        $defaultParams = [
-            'gameId' => 432,
-            'classId' => 4471, // Modpacks class - REQUIRED for modpack searches
-            'pageSize' => min($params['pageSize'] ?? 20, config('modules.mods.max_page_size', 50)),
-        ];
+        $searchParams = array_merge([
+            'gameId'   => self::GAME_ID,
+            'classId'  => self::MODPACK_CLASS_ID,
+            'pageSize' => min($params['pageSize'] ?? 20, (int) config('modules.mods.max_page_size', 50)),
+        ], array_filter([
+            'searchFilter'  => $params['searchFilter'] ?? null,
+            'sortField'     => $params['sortField'] ?? null,
+            'sortOrder'     => $params['sortOrder'] ?? null,
+            'gameVersion'   => $params['gameVersion'] ?? null,
+            'modLoaderType' => $params['modLoaderType'] ?? null,
+            'index'         => $params['index'] ?? null,
+        ], fn ($v) => $v !== null && $v !== ''));
 
-        // Only include valid modpack search parameters
-        $searchParams = array_merge($defaultParams, array_filter([
-            'searchFilter' => $params['searchFilter'] ?? null,
-            'sortField' => $params['sortField'] ?? null,
-            'sortOrder' => $params['sortOrder'] ?? null,
-            'index' => $this->clampIndex($params['index'] ?? 0),
-        ], function ($value) {
-            // Filter out null and empty strings to prevent AND-filter conflicts
-            return $value !== null && $value !== '';
-        }));
-
-        // Log the search parameters for debugging
-        Log::info('CurseForge modpack search params:', $searchParams);
-
-        // Create cache key based on search parameters
         $cacheKey = 'curseforge_modpack_search_' . md5(json_encode($searchParams));
 
         return $this->makeCachedRequest($cacheKey, $this->cacheTtl['search'], function () use ($searchParams) {
@@ -538,7 +210,7 @@ class CurseForgeService
     }
 
     /**
-     * Get details of a specific modpack.
+     * Get a single modpack project.
      *
      * @throws ModsServiceException
      */
@@ -552,37 +224,212 @@ class CurseForgeService
     }
 
     /**
-     * Get files for a specific modpack.
-     *
-     * @param array $params Filter parameters
+     * List a modpack's files, normalized to the wizard's version shape and
+     * optionally filtered by game version + loader.
      *
      * @throws ModsServiceException
      */
-    public function getModpackFiles(int $modpackId, array $params = []): array
+    public function getModpackVersions(int $modpackId, ?string $gameVersion = null, ?int $modLoaderType = null): array
     {
         $fileParams = array_filter([
-            'gameVersion' => $params['gameVersion'] ?? null,
-            'modLoaderType' => $params['modLoaderType'] ?? null,
-            'pageSize' => min($params['pageSize'] ?? 20, config('modules.mods.max_page_size', 50)),
-            'index' => $params['index'] ?? 0,
-        ], function ($value) {
-            return $value !== null;
-        });
+            'gameVersion'   => $gameVersion,
+            'modLoaderType' => $modLoaderType,
+            'pageSize'      => 50,
+            'index'         => 0,
+        ], fn ($v) => $v !== null);
 
         $cacheKey = "curseforge_modpack_files_{$modpackId}_" . md5(json_encode($fileParams));
 
-        return $this->makeCachedRequest($cacheKey, $this->cacheTtl['mod_files'], function () use ($modpackId, $fileParams) {
+        $response = $this->makeCachedRequest($cacheKey, $this->cacheTtl['mod_files'], function () use ($modpackId, $fileParams) {
             return $this->makeRequest('GET', 'mods/' . $modpackId . '/files', $fileParams);
         });
+
+        return array_map(fn (array $file) => $this->normalizeVersion($file), $response['data'] ?? []);
     }
 
     /**
-     * Get details of a specific modpack file.
+     * Return the list of release Minecraft versions, newest first. Heavily
+     * cached — the version list rarely changes.
+     *
+     * @return string[]
+     * @throws ModsServiceException
+     */
+    public function getMinecraftVersions(): array
+    {
+        $data = $this->makeCachedRequest('curseforge_mc_versions', 86400, function () {
+            return $this->makeRequest('GET', 'minecraft/version');
+        });
+
+        $versions = [];
+        foreach ($data['data'] ?? [] as $v) {
+            $s = $v['versionString'] ?? '';
+            // Keep release versions only (e.g. 1.20.1) — skip snapshots/pre-releases.
+            if ($s !== '' && preg_match('/^\d+\.\d+(\.\d+)?$/', $s)) {
+                $versions[] = $s;
+            }
+        }
+
+        return array_values(array_unique($versions));
+    }
+
+    /**
+     * The newest release Minecraft version, or null if unavailable.
+     *
+     * @throws ModsServiceException
+     */
+    public function latestMinecraftVersion(): ?string
+    {
+        return $this->getMinecraftVersions()[0] ?? null;
+    }
+
+    /**
+     * Fetch a single modpack file (used to resolve the .zip download URL).
      *
      * @throws ModsServiceException
      */
     public function getModpackFile(int $modpackId, int $fileId): array
     {
-        return $this->makeRequest('GET', 'mods/' . $modpackId . '/files/' . $fileId);
+        $response = $this->makeRequest('GET', 'mods/' . $modpackId . '/files/' . $fileId);
+
+        return $response['data'] ?? [];
+    }
+
+    /**
+     * Bulk-fetch the serverSide value for a set of project (mod) IDs.
+     * Returns a map: projectId => serverSide (0=Unknown, 1=Required, 2=Optional, 3=Unsupported).
+     * Missing IDs default to 0 (Unknown) at the call-site.
+     *
+     * @param int[] $projectIds
+     * @return array<int, int>
+     * @throws ModsServiceException
+     */
+    public function getModsServerSide(array $projectIds): array
+    {
+        $projectIds = array_values(array_unique(array_map('intval', $projectIds)));
+        if (empty($projectIds)) {
+            return [];
+        }
+
+        $result = [];
+        foreach (array_chunk($projectIds, 50) as $chunk) {
+            $response = $this->makeRequest('POST', 'mods', ['modIds' => $chunk]);
+            foreach ($response['data'] ?? [] as $mod) {
+                $id = (int) ($mod['id'] ?? 0);
+                if ($id !== 0) {
+                    $result[$id] = (int) ($mod['serverSide'] ?? 0);
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Bulk-resolve file metadata for a set of file ids (manifest entries).
+     * Returns a map: fileId => [modId, file_name, file_length, download_url|null, sha1].
+     *
+     * @param int[] $fileIds
+     * @return array<int, array>
+     * @throws ModsServiceException
+     */
+    public function resolveFiles(array $fileIds): array
+    {
+        $fileIds = array_values(array_unique(array_map('intval', $fileIds)));
+        if (empty($fileIds)) {
+            return [];
+        }
+
+        $resolved = [];
+
+        // CurseForge caps the bulk endpoint; chunk to stay well within limits.
+        foreach (array_chunk($fileIds, 200) as $chunk) {
+            $response = $this->makeRequest('POST', 'mods/files', ['fileIds' => $chunk]);
+
+            foreach ($response['data'] ?? [] as $file) {
+                $id = (int) ($file['id'] ?? 0);
+                if ($id === 0) {
+                    continue;
+                }
+
+                $fileName = $file['fileName'] ?? '';
+                $apiUrl   = $file['downloadUrl'] ?? null;
+
+                $resolved[$id] = [
+                    'mod_id'       => (int) ($file['modId'] ?? 0),
+                    'file_name'    => $fileName,
+                    'file_length'  => (int) ($file['fileLength'] ?? 0),
+                    'download_url' => $apiUrl ?? ($this->cdnFallbackEnabled ? $this->buildCdnFallbackUrl($id, $fileName) : null),
+                    'sha1'         => $this->extractSha1($file['hashes'] ?? []),
+                ];
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Normalize a CurseForge file object into the wizard's version shape.
+     */
+    private function normalizeVersion(array $file): array
+    {
+        $gameVersions = [];
+        $loaders      = [];
+
+        foreach ($file['gameVersions'] ?? [] as $gv) {
+            $lower = strtolower((string) $gv);
+            if (in_array($lower, self::LOADER_NAMES, true)) {
+                $loaders[] = $lower;
+            } elseif (preg_match('/^\d/', (string) $gv)) {
+                $gameVersions[] = (string) $gv;
+            }
+        }
+
+        $releaseMap = [1 => 'release', 2 => 'beta', 3 => 'alpha'];
+
+        return [
+            'id'            => (int) ($file['id'] ?? 0),
+            'name'          => $file['displayName'] ?? ($file['fileName'] ?? ''),
+            'file_name'     => $file['fileName'] ?? '',
+            'release_type'  => $releaseMap[$file['releaseType'] ?? 1] ?? 'release',
+            'game_versions' => array_values(array_unique($gameVersions)),
+            'loaders'       => array_values(array_unique($loaders)),
+            'date_published' => $file['fileDate'] ?? '',
+            'download_url'  => $file['downloadUrl'] ?? null,
+            'file_length'   => (int) ($file['fileLength'] ?? 0),
+        ];
+    }
+
+    /**
+     * Construct a direct CDN URL for files where the author disabled third-party distribution
+     * (API returns null downloadUrl). CurseForge file IDs encode the CDN path:
+     *   floor(id/1000) / (id%1000) / fileName
+     * Returns null if the filename is missing (API bug — cannot build a valid URL).
+     */
+    private function buildCdnFallbackUrl(int $fileId, string $fileName): ?string
+    {
+        if ($fileName === '') {
+            return null;
+        }
+
+        return sprintf(
+            'https://mediafilez.forgecdn.net/files/%d/%d/%s',
+            intdiv($fileId, 1000),
+            $fileId % 1000,
+            rawurlencode($fileName)
+        );
+    }
+
+    /**
+     * Extract the SHA1 hash (algo == 1) from a CurseForge hashes array.
+     */
+    private function extractSha1(array $hashes): string
+    {
+        foreach ($hashes as $hash) {
+            if ((int) ($hash['algo'] ?? 0) === 1) {
+                return strtolower((string) ($hash['value'] ?? ''));
+            }
+        }
+
+        return '';
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Everest\Http\ViewComposers;
 
+use Everest\Models\Setting;
 use Illuminate\View\View;
 
 class AssetComposer
@@ -12,14 +13,15 @@ class AssetComposer
     public function compose(View $view): void
     {
         $turnstileService = app(\Everest\Services\Auth\TurnstileService::class);
-        
+
         $view->with('siteConfiguration', [
             'name' => config('app.name') ?? 'Everest',
             'logo' => config('app.logo') ?? null,
             'mode' => config('app.mode') ?? 'standard',
             'setup' => config('app.setup') ?? false,
             'debug' => env('APP_DEBUG') ?? false,
-            'locale' => config('app.locale') ?? 'en',
+            'locale' => Setting::get('settings::app:locale') ?: (config('app.locale') ?: 'en'),
+            'user_locale' => boolval(config('app.user_locale', true)),
             'speed_dial' => boolval(config('app.speed_dial', false)),
             'indicators' => boolval(config('app.indicators', false)),
             'captcha' => [

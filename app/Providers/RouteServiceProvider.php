@@ -6,8 +6,8 @@ use Everest\Models\Database;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Everest\Http\Middleware\TrimStrings;
-use Everest\Http\Middleware\ApiDocsAccess;
 use Illuminate\Cache\RateLimiting\Limit;
+use Everest\Http\Middleware\ApiDocsAccess;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Middleware\AdminAuthenticate;
 use Everest\Http\Middleware\RequireTwoFactorAuthentication;
@@ -37,14 +37,18 @@ class RouteServiceProvider extends ServiceProvider
 
         $this->routes(function () {
             Route::middleware('web')->group(function () {
-                Route::middleware(['auth.session', RequireTwoFactorAuthentication::class])
-                    ->group(base_path('routes/base.php'));
-
+                // Admin keeps V1's server-side gates: a guest or non-admin never
+                // receives the admin shell.
                 Route::middleware(['auth.session', RequireTwoFactorAuthentication::class, AdminAuthenticate::class])
                     ->prefix('/admin')
                     ->group(base_path('routes/admin.php'));
 
                 Route::middleware('guest')->prefix('/auth')->group(base_path('routes/auth.php'));
+
+                // Site root: V2 shell, web-only (no auth) — the landing page must
+                // render for guests and the SPA guards authenticated areas itself;
+                // the API (below) enforces auth + 2FA server-side.
+                Route::group([], base_path('routes/base.php'));
             });
 
             Route::middleware(['api', RequireTwoFactorAuthentication::class])->group(function () {
@@ -71,6 +75,11 @@ class RouteServiceProvider extends ServiceProvider
             // Payment webhooks - no authentication required
             Route::prefix('/api')
                 ->group(base_path('routes/webhooks.php'));
+
+            // Public read-only API (storefront catalog for the landing page) -
+            // no authentication, IP rate-limited.
+            Route::prefix('/api')
+                ->group(base_path('routes/api-public.php'));
         });
     }
 
@@ -114,6 +123,23 @@ class RouteServiceProvider extends ServiceProvider
                 config('http.rate_limit.application_period'),
                 config('http.rate_limit.application')
             )->by($key);
+        });
+
+        // Extension-contributed admin routes get their own, tighter budget so a
+        // chatty extension dashboard cannot exhaust the global application
+        // limit above (which still applies on top). Keyed per user *and* per
+        // extension — one extension hitting its limit never 429s another.
+        RateLimiter::for('api.ext-admin', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+
+            $extensionId = preg_match('~extensions/ext/([^/]+)~', $request->path(), $matches) === 1
+                ? $matches[1]
+                : 'unknown';
+
+            return Limit::perMinutes(
+                config('http.rate_limit.ext_admin_period'),
+                config('http.rate_limit.ext_admin')
+            )->by('ext-admin:' . $extensionId . ':' . $key);
         });
 
         RateLimiter::for('password-reset-ip', fn (Request $request) => Limit::perMinutes(3, 20)->by($request->ip()));
@@ -182,6 +208,23 @@ class RouteServiceProvider extends ServiceProvider
             });
         });
 
+        // Soft HTTP-layer cap for download submissions — real rate limiting is enforced inside the controller.
+        RateLimiter::for('mods.download', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+
+            return Limit::perMinute(60)->by($key)->response(function () {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => 'Too many download requests. Please wait before submitting more.',
+                        ],
+                    ],
+                ], 429);
+            });
+        });
+
         RateLimiter::for('wings-rs.search', function (Request $request) {
             $key = optional($request->user())->uuid ?: $request->ip();
 
@@ -204,6 +247,23 @@ class RouteServiceProvider extends ServiceProvider
             $key = optional($request->user())->uuid ?: $request->ip();
 
             return Limit::perMinute(5)->by($key);
+        });
+
+        // Public storefront catalog — unauthenticated, so it must be keyed purely
+        // by IP. Kept generous enough for normal browsing but tight enough to blunt
+        // scraping/abuse of the public endpoint.
+        RateLimiter::for('storefront.read', function (Request $request) {
+            return Limit::perMinute(60)->by($request->ip())->response(function () {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => 'Too many requests. Please wait a moment and try again.',
+                        ],
+                    ],
+                ], 429);
+            });
         });
     }
 

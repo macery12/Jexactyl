@@ -9,10 +9,6 @@ class ProviderAccessService
     private const PROVIDERS_BY_TYPE = [
         'mods' => [
             ['key' => 'modrinth.mods', 'name' => 'modrinth'],
-            ['key' => 'curseforge', 'name' => 'curseforge'],
-        ],
-        'modpacks' => [
-            ['key' => 'curseforge', 'name' => 'curseforge'],
         ],
         'plugins' => [
             ['key' => 'modrinth.plugins', 'name' => 'modrinth'],
@@ -44,7 +40,6 @@ class ProviderAccessService
     {
         $allowed = [
             'mods' => [],
-            'modpacks' => [],
             'plugins' => [],
         ];
 

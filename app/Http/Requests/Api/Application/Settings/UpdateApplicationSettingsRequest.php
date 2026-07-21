@@ -12,6 +12,8 @@ class UpdateApplicationSettingsRequest extends ApplicationApiRequest
         return [
             'app:name' => 'nullable|string|min:3|max:40',
             'app:logo' => 'nullable|url|max:255',
+            'app:locale' => 'nullable|string|max:10',
+            'app:user_locale' => 'nullable|bool',
             'app:indicators' => 'nullable|bool',
             'app:speed_dial' => 'nullable|bool',
         ];

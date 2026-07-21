@@ -17,6 +17,11 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'mode' => 'nullable|string|in:openai,ollama',
             'max_tokens' => 'nullable|integer|min:50|max:4000',
             'temperature' => 'nullable|numeric|min:0|max:1',
+            // How long Ollama keeps the model in memory after a request.
+            // '-1' = never unload (no cold starts, permanent VRAM use).
+            'keep_alive' => 'nullable|string|in:5m,10m,30m,1h,4h,24h,-1',
+            // Scheduled warm-up ping that keeps the Ollama model loaded.
+            'warm' => 'nullable|bool',
             'system_prompt' => 'nullable|string|min:10|max:1000',
             'feature_server_assistant' => 'nullable|bool',
             'feature_crash_analysis' => 'nullable|bool',

@@ -44,19 +44,27 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             Route::get('/two-factor', [Client\TwoFactorController::class, 'index'])->middleware('verified.view:credentials');
             Route::post('/two-factor', [Client\TwoFactorController::class, 'store'])->middleware('verified.interact:credentials');
             Route::post('/two-factor/disable', [Client\TwoFactorController::class, 'delete'])->middleware('verified.interact:credentials');
+
+            Route::get('/recovery-code', [Client\RecoveryCodeController::class, 'index'])->middleware('verified.view:credentials');
+            Route::post('/recovery-code', [Client\RecoveryCodeController::class, 'store'])
+                ->middleware(['verified.interact:credentials', 'throttle:6,1']);
+            Route::post('/recovery-code/acknowledge', [Client\RecoveryCodeController::class, 'acknowledge'])
+                ->middleware('verified.interact:credentials');
         });
 
         Route::put('/email', [Client\AccountController::class, 'updateEmail'])
             ->name('api:client.account.update-email');
         Route::put('/password', [Client\AccountController::class, 'updatePassword'])
             ->name('api:client.account.update-password');
+        Route::put('/language', [Client\AccountController::class, 'updateLanguage'])
+            ->name('api:client.account.update-language');
         Route::post('/email/verification', [Client\EmailVerificationController::class, 'send'])
             ->name('api:client.account.email-verification')
             ->middleware('throttle:email-verification');
 
-        Route::post('/discord/link', [\Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'requestLinkToken'])
+        Route::post('/discord/link', [Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'requestLinkToken'])
             ->name('api:client.account.discord.link');
-        Route::post('/discord/unlink', [\Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'unlinkDiscord'])
+        Route::post('/discord/unlink', [Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'unlinkDiscord'])
             ->name('api:client.account.discord.unlink');
 
         Route::get('/activity', Client\ActivityLogController::class)
@@ -106,17 +114,6 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
                 Route::delete('/{ticket:id}', [Client\TicketController::class, 'delete']);
                 Route::post('/{ticket:id}/messages', [Client\TicketController::class, 'message']);
             });
-        });
-
-        Route::prefix('/modpacks')->group(function () {
-            Route::get('/search', [Client\AccountModpacksController::class, 'search']);
-            Route::get('/compatible-servers', [Client\AccountModpacksController::class, 'getCompatibleServers']);
-            Route::get('/{modpackId}', [Client\AccountModpacksController::class, 'getModpack']);
-            Route::get('/{modpackId}/files', [Client\AccountModpacksController::class, 'getModpackFiles']);
-            Route::get('/minecraft/versions', [Client\AccountModpacksController::class, 'getMinecraftVersions']);
-            Route::get('/minecraft/loaders', [Client\AccountModpacksController::class, 'getModLoaderTypes']);
-            Route::get('/server/{serverId}/info', [Client\AccountModpacksController::class, 'getServerModpackInfo']);
-            Route::post('/install', [Client\AccountModpacksController::class, 'install']);
         });
 
         Route::post('/setup', [Client\AccountController::class, 'setup']);
@@ -261,20 +258,31 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
         Route::group(['prefix' => '/mods'], function () {
             Route::get('/search', [Client\Servers\ModsController::class, 'search'])->middleware(['throttle:mods.browse']);
             Route::get('/providers', [Client\Servers\ModsController::class, 'providerAccess']);
+            Route::get('/server-config', [Client\Servers\ModsController::class, 'serverConfig']);
+            Route::get('/minecraft/versions', [Client\Servers\ModsController::class, 'getMinecraftVersions'])->middleware(['throttle:mods.meta']);
+            Route::get('/minecraft/loaders', [Client\Servers\ModsController::class, 'getModLoaderTypes'])->middleware(['throttle:mods.meta']);
+
+            // Download queue management — must be declared before /{modId} wildcard
+            Route::get('/queue', [Client\Servers\ModQueueController::class, 'index']);
+            Route::post('/queue/bulk-clear', [Client\Servers\ModQueueController::class, 'bulkClear']);
+            Route::delete('/queue/{queueUuid}', [Client\Servers\ModQueueController::class, 'cancel']);
+            Route::post('/queue/{queueUuid}/retry', [Client\Servers\ModQueueController::class, 'retry']);
+
+            // Modpack routes — declared before wildcard /{modId}
+            Route::prefix('/modpacks')->group(function () {
+                Route::get('/search', [Client\Servers\ModpackController::class, 'search'])->middleware(['throttle:mods.browse']);
+                Route::get('/minecraft-versions', [Client\Servers\ModpackController::class, 'minecraftVersions'])->middleware(['throttle:mods.meta']);
+                Route::get('/loader-status', [Client\Servers\ModpackController::class, 'loaderStatus'])->middleware(['throttle:mods.meta']);
+                Route::post('/{projectId}/versions/{versionId}/preview', [Client\Servers\ModpackController::class, 'preview'])->middleware(['throttle:mods.browse']);
+                Route::post('/{projectId}/versions/{versionId}/install', [Client\Servers\ModpackController::class, 'install']);
+                Route::get('/{projectId}/versions', [Client\Servers\ModpackController::class, 'versions'])->middleware(['throttle:mods.browse']);
+                Route::get('/{projectId}', [Client\Servers\ModpackController::class, 'show'])->middleware(['throttle:mods.browse']);
+            });
+
+            // Wildcard mod routes last so static paths above are not swallowed
             Route::get('/{modId}', [Client\Servers\ModsController::class, 'getMod'])->middleware(['throttle:mods.browse']);
             Route::get('/{modId}/files', [Client\Servers\ModsController::class, 'getModFiles'])->middleware(['throttle:mods.browse']);
-            Route::post('/{modId}/files/{fileId}/download', [Client\Servers\ModsController::class, 'downloadMod'])->middleware(['throttle:5,1']);
-            Route::get('/minecraft/versions', [Client\Servers\ModsController::class, 'getMinecraftVersions'])->middleware(['throttle:mods.meta']);
-            Route::get('/minecraft/loaders', [Client\Servers\ModsController::class, 'getModLoaderTypes'])->middleware(['throttle:mods.meta']);
-        });
-
-        Route::group(['prefix' => '/modpacks'], function () {
-            Route::get('/search', [Client\Servers\ModsController::class, 'searchModpacks'])->middleware(['throttle:mods.browse']);
-            Route::get('/{modpackId}', [Client\Servers\ModsController::class, 'getModpack'])->middleware(['throttle:mods.browse']);
-            Route::get('/{modpackId}/files', [Client\Servers\ModsController::class, 'getModpackFiles'])->middleware(['throttle:mods.browse']);
-            Route::post('/{modpackId}/files/{fileId}/download', [Client\Servers\ModsController::class, 'downloadModpack'])->middleware(['throttle:5,1']);
-            Route::get('/minecraft/versions', [Client\Servers\ModsController::class, 'getMinecraftVersions'])->middleware(['throttle:mods.meta']);
-            Route::get('/minecraft/loaders', [Client\Servers\ModsController::class, 'getModLoaderTypes'])->middleware(['throttle:mods.meta']);
+            Route::post('/{modId}/files/{fileId}/download', [Client\Servers\ModsController::class, 'downloadMod'])->middleware(['throttle:mods.download']);
         });
 
         Route::group(['prefix' => '/schedules'], function () {
@@ -381,8 +389,30 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             foreach ((glob(__DIR__ . '/extensions/client/*.php') ?: []) as $extensionRoutes) {
                 require $extensionRoutes;
             }
+
+            // Package-contributed server routes. Only enabled extensions are
+            // require()'d, so a disabled extension's route file (and any
+            // top-level code in it) never loads — enabled state is enforced at
+            // load time, not just by request-time middleware.
+            //
+            // Every route the file registers is audited immediately afterwards
+            // (ExtensionRouteGuardService): a route that strips inherited
+            // middleware via withoutMiddleware() is dropped to a 404.
+            $enabledExtensionIds = Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+            $extensionRouteGuard = app(Everest\Services\Extensions\ExtensionRouteGuardService::class);
             foreach ((glob(app_path('Extensions/Packages/*/routes/client.php')) ?: []) as $extensionRoutes) {
-                require $extensionRoutes;
+                $extensionRouteId = basename(dirname(dirname($extensionRoutes)));
+                if (!in_array($extensionRouteId, $enabledExtensionIds, true)) {
+                    continue;
+                }
+
+                $extensionRouteGuard->registerAndAudit(
+                    $extensionRouteId,
+                    [],
+                    function () use ($extensionRoutes) {
+                        require $extensionRoutes;
+                    }
+                );
             }
 
             // Extension check route (must come AFTER specific extension routes)

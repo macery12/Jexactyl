@@ -29,19 +29,33 @@ class ThemePresetController extends ApplicationApiController
     }
 
     /**
+     * The themeable color keys captured by a preset (the semantic V2 model).
+     * Feel/texture settings are global and intentionally not part of a preset.
+     */
+    private const COLOR_KEYS = [
+        'primary',
+        'canvas',
+        'surface',
+        'surface_2',
+        'border',
+        'ink',
+        'ink_muted',
+        'accent',
+        'warning',
+        'danger',
+    ];
+
+    /**
      * Save the current theme colors as a new named preset.
      */
     public function store(UpdateThemeRequest $request): JsonResponse
     {
         $request->validate(['name' => 'required|string|max:191']);
 
-        $colors = [
-            'primary'    => config('colors.primary')    ?? config('modules.theme.colors.primary'),
-            'secondary'  => config('colors.secondary')  ?? config('modules.theme.colors.secondary'),
-            'background' => config('colors.background') ?? config('modules.theme.colors.background'),
-            'headers'    => config('colors.headers')    ?? config('modules.theme.colors.headers'),
-            'sidebar'    => config('colors.sidebar')    ?? config('modules.theme.colors.sidebar'),
-        ];
+        $colors = [];
+        foreach (self::COLOR_KEYS as $key) {
+            $colors[$key] = config('colors.' . $key) ?? config('modules.theme.colors.' . $key);
+        }
 
         $preset = ThemePreset::create([
             'name'       => $request->input('name'),

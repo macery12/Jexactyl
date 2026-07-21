@@ -17,8 +17,11 @@ use Throwable;
 
 class ExtensionCatalogService
 {
-    public function __construct(private ExtensionRepositoryBootstrapService $bootstrapService)
-    {
+    public function __construct(
+        private ExtensionRepositoryBootstrapService $bootstrapService,
+        private ExtensionMigrationService $migrationService,
+        private ExtensionPackageArtifactService $artifactService
+    ) {
     }
 
     /**
@@ -44,6 +47,9 @@ class ExtensionCatalogService
                 'author' => $definition['author'] ?? 'M12Labs',
                 'icon' => $definition['icon'] ?? 'puzzle',
                 'route' => $definition['route'] ?? $extensionId,
+                'hasServerPage' => true,
+                'admin' => null,
+                'type' => 'user',
                 'enabled' => (bool) ($config?->enabled ?? false),
                 'allowedNests' => array_values($config?->allowed_nests ?? $definition['allowed_nests'] ?? []),
                 'allowedEggs' => array_values($config?->allowed_eggs ?? $definition['allowed_eggs'] ?? []),
@@ -52,8 +58,12 @@ class ExtensionCatalogService
                 'installed' => true,
                 'installable' => false,
                 'canUninstall' => false,
+                'hasDatabase' => false,
                 'status' => 'core',
                 'updateAvailable' => false,
+                // Core + already-installed extensions are never gated on
+                // compatibility — they're on disk and running.
+                'compatible' => true,
                 'compatiblePanelVersions' => [],
                 'source' => [
                     'type' => 'core',
@@ -74,6 +84,11 @@ class ExtensionCatalogService
             $extension = (array) Arr::get($manifest, 'extension', []);
             $repository = $package->repository;
 
+            // Admin-only extensions declare "route": null in their manifest; the
+            // server gallery skips them and the admin drawer hides nest/egg scoping.
+            $hasServerPage = Arr::get($extension, 'route', $package->route ?: $package->extension_id) !== null;
+            $adminSurface = Arr::get($extension, 'admin');
+
             $extensions[$package->extension_id] = [
                 'id' => $package->extension_id,
                 'name' => $package->name,
@@ -83,6 +98,9 @@ class ExtensionCatalogService
                 'author' => $package->author ?? 'M12Labs',
                 'icon' => $package->icon ?: 'puzzle',
                 'route' => $package->route ?: $package->extension_id,
+                'hasServerPage' => $hasServerPage,
+                'admin' => $adminSurface,
+                'type' => $this->deriveExtensionType($hasServerPage, $adminSurface),
                 'enabled' => (bool) ($config?->enabled ?? false),
                 'allowedNests' => array_values($config?->allowed_nests ?? Arr::get($extension, 'defaults.allowedNests', [])),
                 'allowedEggs' => array_values($config?->allowed_eggs ?? Arr::get($extension, 'defaults.allowedEggs', [])),
@@ -93,8 +111,15 @@ class ExtensionCatalogService
                 'installed' => true,
                 'installable' => false,
                 'canUninstall' => true,
+                // Whether this package ships a database (migrations). Drives
+                // whether the uninstall UI offers the drop-tables option, so the
+                // operator is never asked about data an extension never created.
+                'hasDatabase' => $this->migrationService->hasMigrations($package->extension_id),
                 'status' => 'installed',
                 'updateAvailable' => false,
+                // Installed packages (including manual uploads that may sit outside
+                // the declared range) are already on disk and never blocked.
+                'compatible' => true,
                 'compatiblePanelVersions' => array_values(array_filter((array) Arr::get($manifest, 'compatiblePanelVersions', []), 'is_string')),
                 'source' => [
                     'type' => 'repository',
@@ -147,15 +172,30 @@ class ExtensionCatalogService
 
                 foreach ($packages as $package) {
                     $extensionId = $package['id'];
-                    $latestRelease = $package['latestRelease'];
+                    // Surface the newest release the running panel can actually
+                    // install — not just the newest overall. A package may ship
+                    // (e.g.) a 2.0.0 for the current panel and an older 1.0.0 for
+                    // a previous one; picking blindly by recency would flag the
+                    // whole extension incompatible whenever the newest build
+                    // targets a different panel version.
+                    $latestRelease = $this->selectInstallableRelease($package['versions']);
                     $config = $configs->get($extensionId);
 
                     if (isset($localExtensions[$extensionId])) {
                         $localExtensions[$extensionId]['latestVersion'] = $latestRelease['version'];
                         $localExtensions[$extensionId]['compatiblePanelVersions'] = $latestRelease['compatiblePanelVersions'];
+                        // Only offer an update when the repository release is
+                        // strictly NEWER than what's installed. A plain `!==`
+                        // check mis-fires when a manually installed build is ahead
+                        // of the repo (e.g. local 2.0.0 vs published 1.0.0) and
+                        // would otherwise advertise a downgrade as an "update".
                         $localExtensions[$extensionId]['updateAvailable'] =
                             in_array($localExtensions[$extensionId]['status'], ['installed', 'core'], true)
-                            && $localExtensions[$extensionId]['version'] !== $latestRelease['version'];
+                            && version_compare(
+                                (string) $latestRelease['version'],
+                                (string) $localExtensions[$extensionId]['version'],
+                                '>'
+                            );
 
                         if ($this->shouldMirrorCoreExtensionFromRepository($localExtensions[$extensionId], $repository)) {
                             $localExtensions[$extensionId] = $this->mirrorCoreExtensionFromRepository(
@@ -176,6 +216,9 @@ class ExtensionCatalogService
                         'author' => $package['author'],
                         'icon' => $package['icon'],
                         'route' => $package['route'],
+                        'hasServerPage' => $package['hasServerPage'] ?? true,
+                        'admin' => $package['admin'] ?? null,
+                        'type' => $this->deriveExtensionType($package['hasServerPage'] ?? true, $package['admin'] ?? null),
                         'enabled' => false,
                         'allowedNests' => array_values($config?->allowed_nests ?? []),
                         'allowedEggs' => array_values($config?->allowed_eggs ?? []),
@@ -184,8 +227,14 @@ class ExtensionCatalogService
                         'installed' => false,
                         'installable' => true,
                         'canUninstall' => false,
+                        'hasDatabase' => false,
                         'status' => 'available',
                         'updateAvailable' => false,
+                        // A repository fetch is gated on the panel version: an
+                        // incompatible release surfaces as "incompatible" and the
+                        // install button is blocked (the install service enforces
+                        // the same rule server-side).
+                        'compatible' => $this->artifactService->isCompatiblePanelVersions($latestRelease['compatiblePanelVersions'] ?? []),
                         'compatiblePanelVersions' => $latestRelease['compatiblePanelVersions'],
                         'source' => [
                             'type' => 'repository',
@@ -369,6 +418,13 @@ class ExtensionCatalogService
                 'author' => (string) ($package['author'] ?? 'M12Labs'),
                 'icon' => (string) ($package['icon'] ?? 'puzzle'),
                 'route' => (string) ($package['route'] ?? $extensionId),
+                // Surface hints for admin-only packages. Registries may declare a
+                // "surfaces" list or a null "route"; absent either, assume a
+                // server page (the classic v1 surface) for backwards compatibility.
+                'hasServerPage' => isset($package['surfaces']) && is_array($package['surfaces'])
+                    ? in_array('server', $package['surfaces'], true)
+                    : (array_key_exists('route', $package) ? $package['route'] !== null : true),
+                'admin' => $package['admin'] ?? null,
                 'settingsSchema' => $this->normalizeSettingsSchema($package['settingsSchema'] ?? []),
                 'versions' => $versions,
                 'latestRelease' => $versions[0],
@@ -383,6 +439,48 @@ class ExtensionCatalogService
             ],
             'packages' => $packages,
         ];
+    }
+
+    /**
+     * Choose which repository release to surface for install/update. Releases
+     * arrive newest-first (see the usort in normalizeRepositoryManifest); we
+     * prefer the newest one the running panel can actually install. Only when
+     * NO release is compatible do we fall back to the newest overall — the
+     * extension then reads as "incompatible" and the install button is blocked,
+     * listing that release's requirements.
+     *
+     * @param array<int, array<string, mixed>> $versions newest-first
+     * @return array<string, mixed>
+     */
+    private function selectInstallableRelease(array $versions): array
+    {
+        foreach ($versions as $release) {
+            if ($this->artifactService->isCompatiblePanelVersions($release['compatiblePanelVersions'] ?? [])) {
+                return $release;
+            }
+        }
+
+        return $versions[0];
+    }
+
+    /**
+     * Derive the extension's surface type from which surfaces it exposes.
+     *
+     * 'user'  — a per-server page only (the classic surface; nest/egg access
+     *           scoping applies).
+     * 'admin' — an admin page only; there is no per-server surface, so nest/egg
+     *           access scoping is meaningless and is hidden in the UI.
+     * 'both'  — exposes both surfaces.
+     */
+    private function deriveExtensionType(bool $hasServerPage, mixed $admin): string
+    {
+        $hasAdminPage = is_array($admin) && $admin !== [];
+
+        if ($hasServerPage && $hasAdminPage) {
+            return 'both';
+        }
+
+        return $hasAdminPage ? 'admin' : 'user';
     }
 
     /**

@@ -17,16 +17,24 @@ class ExtensionPackageUninstallService
         private ExtensionOperationLockService $operationLockService,
         private ExtensionFilesystemOwnershipService $ownershipService,
         private ExtensionInstallProgressService $progressService,
-        private ExtensionPackageFileService $fileService
+        private ExtensionPackageFileService $fileService,
+        private ExtensionMigrationService $migrationService
     ) {
     }
 
-    public function uninstall(string $extensionId): void
+    /**
+     * Uninstall an extension package. Database tables the extension created
+     * are PRESERVED by default; passing $dropData = true rolls back its
+     * migrations (dropping the tables) as a closely audited operation.
+     *
+     * @return array{dataDropped: bool, preservedTables: array<int, string>, manualCleanup: array<int, string>, migrationLog: ?string}
+     */
+    public function uninstall(string $extensionId, bool $dropData = false, ?string $initiator = null): array
     {
-        $this->operationLockService->withinLock('uninstall', $extensionId, function () use ($extensionId) {
+        return $this->operationLockService->withinLock('uninstall', $extensionId, function () use ($extensionId, $dropData, $initiator) {
             $prepared = null;
             try {
-                $prepared = $this->prepareUninstall($extensionId);
+                $prepared = $this->prepareUninstall($extensionId, $dropData, $initiator);
 
                 $this->rebuildService->rebuild(
                     sprintf('Uninstall extension %s', $extensionId),
@@ -42,6 +50,13 @@ class ExtensionPackageUninstallService
                 $this->progressService->report('uninstall', $extensionId, 'registering');
                 $this->finalizeUninstall($prepared);
                 $this->progressService->report('uninstall', $extensionId, 'completed');
+
+                return [
+                    'dataDropped' => (bool) ($prepared['resetMigrations'] ?? false),
+                    'preservedTables' => $prepared['preservedTables'] ?? [],
+                    'manualCleanup' => $prepared['manualCleanup'] ?? [],
+                    'migrationLog' => $prepared['migrationLog'] ?? null,
+                ];
             } catch (\Throwable $exception) {
                 if ($prepared !== null) {
                     $this->rollbackUninstall($prepared);
@@ -73,7 +88,7 @@ class ExtensionPackageUninstallService
      *
      * @return array<string, mixed> Opaque prepared state; pass to finalizeUninstall() and rollbackUninstall().
      */
-    public function prepareUninstall(string $extensionId): array
+    public function prepareUninstall(string $extensionId, bool $dropData = false, ?string $initiator = null): array
     {
         $package = ExtensionPackage::query()->with('files')->where('extension_id', $extensionId)->first();
         if (!$package) {
@@ -91,6 +106,8 @@ class ExtensionPackageUninstallService
         $this->assertWritableUninstallTargets($files->all());
 
         try {
+            $migrationState = $this->handleMigrationData($extensionId, $dropData, $initiator);
+
             $this->progressService->report('uninstall', $extensionId, 'removing');
             foreach ($files as $file) {
                 $targetPath = base_path($file->path);
@@ -111,12 +128,12 @@ class ExtensionPackageUninstallService
                 }
             }
 
-            return [
+            return array_merge([
                 'extensionId' => $extensionId,
                 'package' => $package,
                 'files' => $files,
                 'rollbackRoot' => $rollbackRoot,
-            ];
+            ], $migrationState);
         } catch (\Throwable $exception) {
             $this->fileService->restoreRollbackSnapshot($files->all(), $rollbackRoot);
             File::deleteDirectory($rollbackRoot);
@@ -157,6 +174,8 @@ class ExtensionPackageUninstallService
 
     /**
      * Roll back a prepared uninstall by restoring files from the rollback snapshot.
+     * When the prepared uninstall dropped the extension's data, the schema is
+     * re-applied afterwards — the dropped table CONTENTS are unrecoverable.
      *
      * @param array<string, mixed> $prepared
      */
@@ -164,6 +183,82 @@ class ExtensionPackageUninstallService
     {
         $this->fileService->restoreRollbackSnapshot($prepared['files']->all(), $prepared['rollbackRoot']);
         $this->ownershipService->repairStandardPaths($prepared['extensionId']);
+
+        if (!empty($prepared['resetMigrations'])) {
+            try {
+                $this->migrationService->run($prepared['extensionId']);
+                $this->migrationService->writeMigrationLog($prepared['extensionId'], 'uninstall-rollback-reapply', [
+                    'note' => 'Uninstall failed after its data drop; the schema was re-applied. Dropped table contents are not recoverable.',
+                ]);
+            } catch (\Throwable $exception) {
+                report($exception);
+                $this->migrationService->writeMigrationLog($prepared['extensionId'], 'uninstall-rollback-reapply', [], $exception);
+            }
+        }
+    }
+
+    /**
+     * Decide what happens to the extension's database schema during uninstall.
+     *
+     * Default: nothing — tables and migration records are preserved so a
+     * reinstall reattaches to the existing data, and the caller receives
+     * manual cleanup SQL to surface to the operator.
+     *
+     * With $dropData: the extension's migrations are reset (dropping its
+     * tables) BEFORE its files are removed (the migrator needs the files'
+     * down() methods). Every drop — success or failure — is written to a
+     * dedicated log under storage/logs/, and a failure aborts the uninstall
+     * with the log path and manual fallback SQL in the error.
+     *
+     * @return array<string, mixed> migration-related keys for the prepared state
+     */
+    private function handleMigrationData(string $extensionId, bool $dropData, ?string $initiator): array
+    {
+        $migrationNames = $this->migrationService->ranMigrationNames($extensionId);
+        $tables = $this->migrationService->listExtensionTables($extensionId);
+
+        if ($migrationNames === [] && $tables === []) {
+            return ['resetMigrations' => false, 'preservedTables' => [], 'manualCleanup' => [], 'migrationLog' => null];
+        }
+
+        if (!$dropData) {
+            return [
+                'resetMigrations' => false,
+                'preservedTables' => $tables,
+                'manualCleanup' => $this->migrationService->manualCleanupStatements($extensionId, $migrationNames),
+                'migrationLog' => null,
+            ];
+        }
+
+        $this->progressService->report('uninstall', $extensionId, 'migrating');
+        $manualCleanup = $this->migrationService->manualCleanupStatements($extensionId, $migrationNames);
+        $auditContext = [
+            'initiator' => $initiator ?? 'unknown',
+            'tables' => $tables,
+            'migrations' => $migrationNames,
+        ];
+
+        try {
+            $result = $this->migrationService->reset($extensionId);
+            $auditContext['rolled_back'] = $result['rolledBack'];
+            $auditContext['migrator_output'] = $result['output'];
+            $logPath = $this->migrationService->writeMigrationLog($extensionId, 'uninstall-drop-data', $auditContext);
+        } catch (\Throwable $exception) {
+            $logPath = $this->migrationService->writeMigrationLog($extensionId, 'uninstall-drop-data', $auditContext, $exception);
+
+            throw new DisplayException(sprintf(
+                "Dropping the extension's database tables failed, so the uninstall was aborted. Details: %s. Manual cleanup, if you still want the data removed:\n%s",
+                $logPath,
+                implode("\n", $manualCleanup)
+            ), $exception);
+        }
+
+        return [
+            'resetMigrations' => true,
+            'preservedTables' => [],
+            'manualCleanup' => [],
+            'migrationLog' => $logPath,
+        ];
     }
 
     /**

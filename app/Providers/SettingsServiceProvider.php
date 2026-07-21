@@ -15,7 +15,7 @@ class SettingsServiceProvider extends ServiceProvider
     protected array $keys = [
         // M12Labs-specific keys
         'app:name', 'app:logo', 'app:mode', 'app:setup', 'app:locale',
-        'app:speed_dial', 'app:indicators',
+        'app:user_locale', 'app:speed_dial', 'app:indicators',
         'pterodactyl:guzzle:timeout', 'pterodactyl:guzzle:connect_timeout',
         'pterodactyl:console:count', 'pterodactyl:console:frequency',
         'pterodactyl:auth:2fa_required',
@@ -88,6 +88,8 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:system_prompt',
         'modules:ai:feature_server_assistant',
         'modules:ai:feature_crash_analysis',
+        'modules:ai:keep_alive',
+        'modules:ai:warm',
 
         // Webhook module settings
         'modules:webhooks:enabled',
@@ -95,10 +97,24 @@ class SettingsServiceProvider extends ServiceProvider
 
         // Mods module settings
         'modules:mods:enabled',
+        'modules:mods:allow_external_downloads',
+        'modules:mods:curseforge_enabled',
         'modules:mods:curseforge_api_key',
+        'modules:mods:curseforge_cdn_fallback',
 
         // Extensions module settings
         'modules:extensions:enabled',
+
+        // Email module master toggle. Distinct from mail-delivery capability
+        // (EmailManager::isDeliveryEnabled) — this only governs whether the
+        // Email admin module is surfaced in the panel.
+        'modules:email:enabled',
+
+        // Landing page module settings
+        // NB: the rich section structure is stored as a JSON blob under
+        // `modules:landing:config` and read directly via Setting::get — only the
+        // scalar master toggle is hydrated into config() here.
+        'modules:landing:enabled',
 
         // Custom domains module settings
         'modules:custom_domains:enabled',

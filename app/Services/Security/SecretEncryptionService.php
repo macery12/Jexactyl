@@ -23,10 +23,10 @@ class SecretEncryptionService
         'settings::modules:billing:paypal_standalone:client_id',
         'settings::modules:billing:paypal_standalone:client_secret',
         'settings::modules:email:resend:api_key',
-        'settings::modules:mods:curseforge_api_key',
         'settings::modules:email:resend:api_key',
         'settings::modules:email:smtp:password',
         'settings::modules:ai:key',
+        'settings::modules:mods:curseforge_api_key',
         'settings::modules:auth:discord:client_secret',
         'settings::modules:auth:google:client_secret',
     ];

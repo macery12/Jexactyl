@@ -1,6 +1,7 @@
 <?php
 
 use Everest\Http\Controllers\Auth;
+use Everest\Http\Controllers\Base;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -13,10 +14,10 @@ use Illuminate\Support\Facades\Route;
 */
 
 // These routes are defined so that we can continue to reference them programmatically.
-// They all route to the same controller function which passes off to React.
-Route::get('/login', [Auth\LoginController::class, 'index'])->name('auth.login');
-Route::get('/password', [Auth\LoginController::class, 'index'])->name('auth.forgot-password');
-Route::get('/password/reset/{token}', [Auth\LoginController::class, 'index'])->name('auth.reset');
+// They all serve the V2 shell — the SPA owns the auth pages.
+Route::get('/login', [Base\IndexController::class, 'v2'])->name('auth.login');
+Route::get('/password', [Base\IndexController::class, 'v2'])->name('auth.forgot-password');
+Route::get('/password/reset/{token}', [Base\IndexController::class, 'v2'])->name('auth.reset');
 Route::prefix('/password-reset')->group(function () {
     Route::get('/method', [Auth\ForgotPasswordController::class, 'method'])
         ->middleware('throttle:10,1') // prevent automated config-probing
@@ -85,4 +86,4 @@ Route::post('/logout', [Auth\LoginController::class, 'logout'])
     ->name('auth.logout');
 
 // Catch any other combinations of routes and pass them off to the React component.
-Route::fallback([Auth\LoginController::class, 'index']);
+Route::fallback([Base\IndexController::class, 'v2']);

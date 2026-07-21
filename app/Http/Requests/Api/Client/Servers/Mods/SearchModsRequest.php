@@ -19,7 +19,7 @@ class SearchModsRequest extends ClientApiRequest
             'sortField' => 'nullable|string|max:50', // Allow provider-specific sort keys
             'sortOrder' => 'nullable|string|in:asc,desc',
             'gameVersion' => 'nullable|string|max:50',
-            'modLoaderType' => 'nullable|integer|min:0', // Mod loader IDs from CurseForge API
+            'modLoaderType' => 'nullable|integer|min:0', // Numeric mod loader type (forge=1, fabric=4, quilt=5, neoforge=6)
             'pageSize' => 'nullable|integer|min:1|max:50',
             'index' => 'nullable|integer|min:0',
             'categoryId' => 'nullable|integer|min:0',

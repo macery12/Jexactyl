@@ -1,0 +1,137 @@
+@import 'tailwindcss';
+
+/*
+ * Installed extension frontends live in a gitignored directory (they are runtime
+ * artifacts written by the extension installer, not tracked source). Tailwind v4's
+ * automatic content detection skips .gitignore'd paths, so any utility class used
+ * ONLY by an extension — and nowhere in core panel code — would be dropped from the
+ * compiled CSS (e.g. `invisible` / `group-hover:visible`, breaking tooltips).
+ * Registering the path explicitly forces Tailwind to scan it regardless.
+ */
+@source "../extensions/packages";
+
+/*
+ * v2 design tokens. Runtime theme values (from window.ThemeConfiguration) are
+ * applied to these CSS variables by lib/theme.ts → applyThemeVars(); the values
+ * below are the dark-first M12Labs Blue defaults so the app renders correctly
+ * before/without a theme. Hover/soft/faint shades are DERIVED in :root so the
+ * brand & base colors only need a single source value each.
+ */
+@theme {
+    --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+    --color-canvas: #0a0a0f;
+    --color-surface: #121219;
+    --color-surface-2: #1a1a24;
+    --color-border: #2e2e3d40;
+    --color-border-strong: #2e2e3d;
+
+    --color-ink: #f4f4f7;
+    --color-ink-muted: #9a9aae;
+    --color-ink-faint: #62627a;
+
+    --color-brand: #0047fc;
+    --color-brand-hover: #003ad1;
+    --color-brand-ink: #ffffff;
+
+    --color-accent: #18d39a;
+    --color-danger: #f1545b;
+    --color-warning: #f5a623;
+
+    --radius-card: 0.75rem;
+}
+
+:root {
+    color-scheme: dark;
+
+    /* Brand: single source (--brand). Hover/soft tints derive from it so a
+       theme only needs to set the one primary color. */
+    --brand: var(--color-brand);
+    --brand-hover: color-mix(in oklab, var(--brand) 88%, #000);
+    --brand-soft: color-mix(in oklab, var(--brand) 16%, transparent);
+    /* Lifted tint for small brand-colored text/glyphs on dark surfaces, where
+       the raw brand value can sit too dark to read. */
+    --brand-bright: color-mix(in oklab, var(--brand) 68%, #fff);
+
+    /* Surface aliases consumed by the shell + body. */
+    --canvas: var(--color-canvas);
+    --surface: var(--color-surface);
+    --sidebar: var(--color-surface);
+    --headers: var(--color-ink);
+
+    /* Feel / texture knobs (overridden at runtime from ThemeConfiguration.feel). */
+    --grid-opacity: 60; /* 0..100 → used as a color-mix percentage */
+    --grid-size: 28px;
+    --aurora-intensity: 1; /* 0..1 multiplier */
+}
+
+html,
+body,
+#app {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    background-color: var(--canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* Subtle ambient gradient used by the shell + landing backdrop. Intensity is
+   theme-driven; [data-aurora="off"] removes it entirely. */
+.bg-aurora {
+    background:
+        radial-gradient(
+            60rem 60rem at 15% -10%,
+            color-mix(in oklab, var(--brand) calc(22% * var(--aurora-intensity)), transparent),
+            transparent 60%
+        ),
+        radial-gradient(
+            50rem 50rem at 110% 10%,
+            color-mix(in oklab, var(--color-accent) calc(14% * var(--aurora-intensity)), transparent),
+            transparent 55%
+        ),
+        var(--canvas);
+}
+
+[data-aurora='off'] .bg-aurora {
+    background: var(--canvas);
+}
+
+/* Ops-grade faint grid backdrop. Line strength (--grid-opacity, 0..100) and
+   cell size (--grid-size) are theme-driven; [data-grid="off"] removes it. */
+.bg-grid {
+    background-image:
+        linear-gradient(
+            to right,
+            color-mix(in oklab, var(--color-border-strong) calc(var(--grid-opacity) * 1%), transparent) 1px,
+            transparent 1px
+        ),
+        linear-gradient(
+            to bottom,
+            color-mix(in oklab, var(--color-border-strong) calc(var(--grid-opacity) * 1%), transparent) 1px,
+            transparent 1px
+        );
+    background-size: var(--grid-size) var(--grid-size);
+    background-position: -1px -1px;
+    -webkit-mask-image: radial-gradient(120% 80% at 50% 0%, #000 35%, transparent 100%);
+    mask-image: radial-gradient(120% 80% at 50% 0%, #000 35%, transparent 100%);
+}
+
+[data-grid='off'] .bg-grid {
+    display: none;
+}
+
+::selection {
+    background: color-mix(in oklab, var(--brand) 40%, transparent);
+}
+
+*:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+}

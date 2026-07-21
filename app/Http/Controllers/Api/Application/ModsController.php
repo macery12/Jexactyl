@@ -8,10 +8,8 @@ use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\Mods\ModrinthService;
-use Everest\Services\Mods\CurseForgeService;
 use Everest\Http\Requests\Api\Application\Mods\GetModsAnalyticsRequest;
 use Everest\Http\Requests\Api\Application\Mods\UpdateModsSettingsRequest;
-use Everest\Http\Requests\Api\Application\Mods\DeleteCurseForgeKeyRequest;
 
 class ModsController extends ApplicationApiController
 {
@@ -19,7 +17,6 @@ class ModsController extends ApplicationApiController
      * ModsController constructor.
      */
     public function __construct(
-        private CurseForgeService $curseForgeService,
         private ModrinthService $modrinthService
     ) {
         parent::__construct();
@@ -33,10 +30,6 @@ class ModsController extends ApplicationApiController
     public function update(UpdateModsSettingsRequest $request): Response
     {
         foreach ($request->normalize() as $key => $value) {
-            if ($key == 'curseforge_api_key' && is_bool($value)) {
-                continue;
-            }
-
             Setting::set('settings::modules:mods:' . $key, $value);
         }
 
@@ -62,30 +55,10 @@ class ModsController extends ApplicationApiController
      */
     public function analytics(GetModsAnalyticsRequest $request): JsonResponse
     {
-        $curseForgeRateLimit = $this->curseForgeService->getRateLimitUsage();
         $modrinthRateLimit = $this->modrinthService->getRateLimitUsage();
 
         return response()->json([
-            'curseforge_rate_limit' => $curseForgeRateLimit,
             'modrinth_rate_limit' => $modrinthRateLimit,
         ]);
-    }
-
-    /**
-     * Delete the CurseForge API key saved to the Panel.
-     */
-    public function resetKey(DeleteCurseForgeKeyRequest $request): Response
-    {
-        Setting::forget('settings::modules:mods:curseforge_api_key');
-
-        // Clear config cache to ensure key removal is reflected
-        // SECURITY: Command name is hardcoded - never use dynamic command names with Artisan::call()
-        \Artisan::call('config:clear');
-
-        Activity::event('admin:mods:reset-key')
-            ->description('CurseForge API key for mods was reset')
-            ->log();
-
-        return $this->returnNoContent();
     }
 }

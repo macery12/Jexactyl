@@ -2,6 +2,7 @@
 
 namespace Everest\Services\Plugins\Adapters;
 
+use Everest\Models\Setting;
 use Everest\Services\Mods\SpigetService;
 use Everest\Services\Plugins\ProviderAdapterInterface;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
@@ -50,7 +51,13 @@ class SpigetProviderAdapter implements ProviderAdapterInterface
         }
 
         if ($project['isExternal'] ?? false) {
-            throw new ModsServiceException('External Spigot resources must be downloaded manually.');
+            $allowed = (bool) Setting::get(
+                'settings::modules:mods:allow_external_downloads',
+                config('modules.mods.allow_external_downloads', false)
+            );
+            if (!$allowed) {
+                throw new ModsServiceException('External Spigot resources must be downloaded manually. An administrator can enable external downloads in Marketplace Settings.');
+            }
         }
 
         $files = $this->spigetService->getModFiles($projectId, [

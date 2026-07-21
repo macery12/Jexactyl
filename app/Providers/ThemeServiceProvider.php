@@ -13,10 +13,22 @@ class ThemeServiceProvider extends ServiceProvider
 {
     protected array $keys = [
         'colors:primary',
-        'colors:secondary',
-        'colors:background',
-        'colors:headers',
-        'colors:sidebar',
+        'colors:canvas',
+        'colors:surface',
+        'colors:surface_2',
+        'colors:border',
+        'colors:ink',
+        'colors:ink_muted',
+        'colors:accent',
+        'colors:warning',
+        'colors:danger',
+
+        'feel:radius',
+        'feel:grid_enabled',
+        'feel:grid_opacity',
+        'feel:grid_size',
+        'feel:aurora_enabled',
+        'feel:aurora_intensity',
     ];
 
     protected array $map = [

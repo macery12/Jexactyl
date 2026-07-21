@@ -24,17 +24,16 @@ class ExtensionFilesystemOwnershipService
             return [];
         }
 
-        $paths = [
+        $paths = array_merge([
             storage_path('app/extensions'),
-            base_path('public/build'),
-        ];
+        ], $this->buildOutputPaths());
 
         if ($extensionId !== null && $extensionId !== '') {
             $paths[] = base_path(sprintf('app/Extensions/Packages/%s', $extensionId));
-            $paths[] = base_path(sprintf('resources/scripts/extensions/packages/%s', $extensionId));
+            $paths[] = base_path(sprintf('frontend/src/extensions/packages/%s', $extensionId));
         } else {
             $paths[] = base_path('app/Extensions/Packages');
-            $paths[] = base_path('resources/scripts/extensions');
+            $paths[] = base_path('frontend/src/extensions');
         }
 
         $repaired = [];
@@ -101,14 +100,11 @@ class ExtensionFilesystemOwnershipService
     {
         $ownership = $this->resolveOwnershipTarget();
 
-        $candidates = [
+        $candidates = array_merge([
             base_path(),
             base_path('vendor'),
-            base_path('node_modules'),
-            base_path('public/build'),
-            base_path('public/build/assets'),
             storage_path('app/extensions/runtime-home'),
-        ];
+        ], $this->buildOutputPaths());
 
         $mismatched = [];
 
@@ -160,6 +156,25 @@ class ExtensionFilesystemOwnershipService
     }
 
     /**
+     * Directories the frontend rebuild writes to and can leave root-owned when
+     * an install/update is run as root (the pnpm/paraglide/vite processes
+     * inherit the invoking user). These must be handed back to the panel user
+     * so a later www-data-run rebuild does not fail with EACCES while pnpm,
+     * paraglide-js, or vite tries to purge and regenerate its output.
+     *
+     * @return array<int, string>
+     */
+    private function buildOutputPaths(): array
+    {
+        return [
+            base_path('node_modules'),
+            base_path('frontend/node_modules'),
+            base_path('frontend/src/paraglide'),
+            base_path('public/build'),
+        ];
+    }
+
+    /**
      * @return array{uid: int, gid: int, user: string, group: string, sourcePath: string}|null
      */
     private function resolveOwnershipTarget(): ?array
@@ -184,7 +199,7 @@ class ExtensionFilesystemOwnershipService
         foreach ([
             storage_path(),
             storage_path('logs'),
-            base_path('resources/scripts'),
+            base_path('frontend'),
             base_path('bootstrap/cache'),
             base_path('public'),
         ] as $candidate) {

@@ -11,6 +11,29 @@ use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 class ThemeController extends ApplicationApiController
 {
     /**
+     * Settings the theme endpoint is allowed to write, as `<group>:<name>`
+     * suffixes (stored under `theme::<suffix>`). Mirrors ThemeServiceProvider.
+     */
+    private const ALLOWED_KEYS = [
+        'colors:primary',
+        'colors:canvas',
+        'colors:surface',
+        'colors:surface_2',
+        'colors:border',
+        'colors:ink',
+        'colors:ink_muted',
+        'colors:accent',
+        'colors:warning',
+        'colors:danger',
+        'feel:radius',
+        'feel:grid_enabled',
+        'feel:grid_opacity',
+        'feel:grid_size',
+        'feel:aurora_enabled',
+        'feel:aurora_intensity',
+    ];
+
+    /**
      * ThemeController constructor.
      */
     public function __construct(
@@ -20,13 +43,27 @@ class ThemeController extends ApplicationApiController
     }
 
     /**
-     * Update the colors for the panel theme.
+     * Update a single theme setting (color or feel). Bare keys (e.g. "primary")
+     * are treated as color keys for backward compatibility; namespaced keys
+     * (e.g. "colors:primary", "feel:grid_enabled") are stored as-is.
      *
      * @throws \Throwable
      */
     public function colors(UpdateThemeRequest $request): Response
     {
-        $this->theme->set('theme::colors:' . $request->input('key'), $request->input('value'));
+        $request->validate([
+            'key' => 'required|string',
+            'value' => 'present|string',
+        ]);
+
+        $key = $request->input('key');
+        $suffix = str_contains($key, ':') ? $key : 'colors:' . $key;
+
+        if (!in_array($suffix, self::ALLOWED_KEYS, true)) {
+            abort(422, 'Unknown theme key: ' . $suffix);
+        }
+
+        $this->theme->set('theme::' . $suffix, $request->input('value'));
 
         return $this->returnNoContent();
     }

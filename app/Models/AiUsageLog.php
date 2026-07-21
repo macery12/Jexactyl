@@ -25,11 +25,13 @@ class AiUsageLog extends Model
         'total_tokens',
         'latency_ms',
         'status',
+        'cached',
         'error_message',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
+        'cached' => 'boolean',
         'prompt_tokens' => 'integer',
         'completion_tokens' => 'integer',
         'total_tokens' => 'integer',

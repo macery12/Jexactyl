@@ -3,6 +3,7 @@
 namespace Everest\Http\ViewComposers;
 
 use Illuminate\View\View;
+use Everest\Models\ExtensionConfig;
 use Everest\Models\Setting;
 use Everest\Services\Billing\InvoiceSettingsService;
 use Everest\Services\Billing\PaymentProcessorConfigService;
@@ -87,6 +88,9 @@ class EverestComposer
             ],
             'email' => [
                 'enabled' => $this->emailEnabled(),
+                // Master toggle for surfacing the Email admin module in the panel
+                // (independent of whether mail delivery is actually configured).
+                'module_enabled' => boolval(config('modules.email.enabled', false)),
                 'resend' => [
                     'enabled' => $this->emailEnabled(),
                 ],
@@ -102,12 +106,26 @@ class EverestComposer
                 'url' => !empty(config('modules.webhooks.url')),
             ],
             'mods' => [
-                'enabled' => boolval(Setting::get('settings::modules:mods:enabled', config('modules.mods.enabled', false))),
-                'curseforge_api_key' => !empty(Setting::get('settings::modules:mods:curseforge_api_key', config('modules.mods.curseforge_api_key'))),
+                // Read the bridged config value (SettingsServiceProvider maps the
+                // stored string onto a real bool). Reading the raw setting here
+                // would hit PHP's boolval('false') === true trap and leave the
+                // module looking enabled after it was toggled off.
+                'enabled' => boolval(config('modules.mods.enabled', false)),
                 'default_source' => Setting::get('settings::modules:mods:default_source', config('modules.mods.default_source', 'modrinth')),
-                'rate_limit' => [
-                    'requests_per_minute' => config('modules.mods.rate_limit.requests_per_minute', 30),
-                    'requests_per_hour' => config('modules.mods.rate_limit.requests_per_hour', 1800),
+                'allow_external_downloads' => (bool) Setting::get('settings::modules:mods:allow_external_downloads', config('modules.mods.allow_external_downloads', false)),
+                'curseforge_cdn_fallback'  => (bool) Setting::get('settings::modules:mods:curseforge_cdn_fallback', config('modules.mods.curseforge_cdn_fallback', true)),
+                // CurseForge powers modpacks only. Expose whether the integration is usable
+                // (enabled by an admin AND an API key is configured) — never the key itself.
+                'curseforge' => [
+                    'enabled' => (bool) Setting::get('settings::modules:mods:curseforge_enabled', config('modules.mods.curseforge_enabled', false)),
+                    'configured' => !empty(Setting::get('settings::modules:mods:curseforge_api_key', '')),
+                ],
+                'download' => [
+                    'max_concurrent_per_server' => (int) Setting::get('settings::modules:mods:download_max_concurrent', config('modules.mods.download.max_concurrent_per_server', 3)),
+                    'max_per_minute_per_user'   => (int) Setting::get('settings::modules:mods:download_max_per_minute', config('modules.mods.download.max_per_minute_per_user', 10)),
+                    'max_queue_size_per_server' => (int) Setting::get('settings::modules:mods:download_max_queue_size', config('modules.mods.download.max_queue_size_per_server', 20)),
+                    'max_mod_size_mb'           => (int) round(Setting::get('settings::modules:mods:max_mod_size', config('modules.mods.max_mod_size', 157286400)) / 1048576),
+                    'max_plugin_size_mb'        => (int) round(Setting::get('settings::modules:mods:max_plugin_size', config('modules.mods.max_plugin_size', 104857600)) / 1048576),
                 ],
             ],
             'extensions' => [
@@ -159,7 +177,26 @@ class EverestComposer
                 'plan_change_cooldown_hours' => config('modules.billing.plan_change_cooldown_hours', 72),
                 'require_billing_address' => (bool) $invoiceSettings->require_billing_address,
             ],
+            // Enabled extension ids gate extension-contributed admin nav/routes;
+            // non-admins never receive the list. The extensions.admin middleware
+            // enforces the same state server-side regardless.
+            'extensions' => [
+                'active' => $this->enabledExtensionIds(),
+            ],
         ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function enabledExtensionIds(): array
+    {
+        try {
+            return ExtensionConfig::query()->where('enabled', true)->pluck('extension_id')->all();
+        } catch (\Throwable) {
+            // Fresh installs may render views before migrations exist.
+            return [];
+        }
     }
 
     private function emailEnabled(): bool

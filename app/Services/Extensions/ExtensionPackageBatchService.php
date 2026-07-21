@@ -112,24 +112,36 @@ class ExtensionPackageBatchService
      * Uninstall multiple extensions, performing all file removal first and rebuilding
      * the panel only once after every extension's files have been removed.
      *
-     * @param array<int, string> $extensionIds
+     * Data is preserved by default. An extension may opt into the same audited
+     * data drop the single uninstall performs by setting dropData => true on
+     * its item; each such drop rolls the extension's migrations back (before
+     * its files are removed) and writes its own migration log, so the audit
+     * trail stays per-extension.
+     *
+     * @param array<int, array{extensionId: string, dropData?: bool}> $items
+     * @return array<int, array{extensionId: string, dataDropped: bool, migrationLog: ?string}>
      */
-    public function batchUninstall(array $extensionIds): void
+    public function batchUninstall(array $items, ?string $initiator = null): array
     {
-        if ($extensionIds === []) {
-            return;
+        if ($items === []) {
+            return [];
         }
 
-        $this->operationLockService->withinLock('uninstall', 'batch', function () use ($extensionIds) {
+        return $this->operationLockService->withinLock('uninstall', 'batch', function () use ($items, $initiator) {
             $preparedList = [];
-            $total = count($extensionIds);
-            $allExtensionIds = array_values($extensionIds);
+            $total = count($items);
+            $allExtensionIds = array_column($items, 'extensionId');
 
             try {
-                foreach ($extensionIds as $index => $extensionId) {
+                foreach ($items as $index => $item) {
                     $current = $index + 1;
+                    $extensionId = $item['extensionId'];
                     $this->progressService->report('batch-uninstall', $extensionId, 'validating', $total, $current, $allExtensionIds);
-                    $prepared = $this->uninstallService->prepareUninstall($extensionId);
+                    $prepared = $this->uninstallService->prepareUninstall(
+                        $extensionId,
+                        (bool) ($item['dropData'] ?? false),
+                        $initiator
+                    );
                     $preparedList[] = $prepared;
                 }
 
@@ -156,6 +168,12 @@ class ExtensionPackageBatchService
                 }
 
                 $this->progressService->report('batch-uninstall', $lastExtensionId, 'completed', $total, $total, $allExtensionIds);
+
+                return array_map(fn (array $prepared) => [
+                    'extensionId' => $prepared['extensionId'],
+                    'dataDropped' => (bool) ($prepared['resetMigrations'] ?? false),
+                    'migrationLog' => $prepared['migrationLog'] ?? null,
+                ], $preparedList);
             } catch (\Throwable $exception) {
                 foreach ($preparedList as $prepared) {
                     $this->uninstallService->rollbackUninstall($prepared);

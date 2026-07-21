@@ -4,7 +4,7 @@ return [
     /*
      * Enable or disable support tickets
      */
-    'enabled' => env('TICKETS_ENABLED', false),
+    'enabled' => env('TICKETS_ENABLED', true),
 
     /*
      * The maximum number of tickets a user can create

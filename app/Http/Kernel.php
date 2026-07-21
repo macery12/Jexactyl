@@ -104,5 +104,6 @@ class Kernel extends HttpKernel
         'captcha' => VerifyTurnstile::class,
         'node.maintenance' => MaintenanceMiddleware::class,
         'extensions.access' => \Everest\Http\Middleware\Api\Client\Extensions\EnsureExtensionAccess::class,
+        'extensions.admin' => \Everest\Http\Middleware\Api\Application\Extensions\EnsureExtensionAdminAccess::class,
     ];
 }

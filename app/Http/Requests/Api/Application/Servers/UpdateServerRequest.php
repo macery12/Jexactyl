@@ -13,6 +13,14 @@ class UpdateServerRequest extends ApplicationApiRequest
     {
         $rules = Server::getRules();
 
+        // The limits object is optional on update (billing-only edits omit it), but the
+        // model rules mark each child `required`, which fires even when `limits` itself
+        // is absent — so scope the requirement to requests that actually send limits.
+        $withLimits = fn (array $rule): array => array_map(
+            fn ($piece) => $piece === 'required' ? 'required_with:limits' : $piece,
+            $rule,
+        );
+
         return [
             'external_id' => $rules['external_id'],
             'name' => $rules['name'],
@@ -20,12 +28,12 @@ class UpdateServerRequest extends ApplicationApiRequest
             'owner_id' => $rules['owner_id'],
 
             'limits' => 'sometimes|array',
-            'limits.memory' => $rules['memory'],
-            'limits.swap' => $rules['swap'],
-            'limits.disk' => $rules['disk'],
-            'limits.io' => $rules['io'],
+            'limits.memory' => $withLimits($rules['memory']),
+            'limits.swap' => $withLimits($rules['swap']),
+            'limits.disk' => $withLimits($rules['disk']),
+            'limits.io' => $withLimits($rules['io']),
             'limits.threads' => $rules['threads'],
-            'limits.cpu' => $rules['cpu'],
+            'limits.cpu' => $withLimits($rules['cpu']),
             'limits.oom_killer' => 'sometimes|boolean',
 
             'feature_limits' => 'required|array',
@@ -62,22 +70,10 @@ class UpdateServerRequest extends ApplicationApiRequest
             'description' => array_get($data, 'description'),
             'owner_id' => array_get($data, 'owner_id'),
 
-            'memory' => array_get($data, 'limits.memory'),
-            'swap' => array_get($data, 'limits.swap'),
-            'disk' => array_get($data, 'limits.disk'),
-            'io' => array_get($data, 'limits.io'),
-            'threads' => array_get($data, 'limits.threads'),
-            'cpu' => array_get($data, 'limits.cpu'),
-            'oom_killer' => array_get($data, 'limits.oom_killer'),
-
             'allocation_limit' => array_get($data, 'feature_limits.allocations'),
             'backup_limit' => array_get($data, 'feature_limits.backups'),
             'database_limit' => array_get($data, 'feature_limits.databases'),
             'subuser_limit' => array_get($data, 'feature_limits.subusers'),
-
-            'renewal_date' => array_get($data, 'renewal_date'),
-            'billing_product_id' => array_get($data, 'billing_product_id'),
-            'billing_days' => array_get($data, 'billing_days'),
 
             'allocation_id' => array_get($data, 'allocation_id'),
             'add_allocations' => array_get($data, 'add_allocations'),
@@ -86,6 +82,24 @@ class UpdateServerRequest extends ApplicationApiRequest
 
         if (Arr::has($data, 'feature_limits.subdomains')) {
             $response['subdomain_limit'] = array_get($data, 'feature_limits.subdomains');
+        }
+
+        // Same present-only treatment for build limits: BuildModificationService merges
+        // whatever keys exist (Arr::only), so emitting them unconditionally would write
+        // nulls over a server's build on any request that omitted the limits object.
+        foreach (['memory', 'swap', 'disk', 'io', 'threads', 'cpu', 'oom_killer'] as $limitKey) {
+            if (Arr::has($data, 'limits.' . $limitKey)) {
+                $response[$limitKey] = array_get($data, 'limits.' . $limitKey);
+            }
+        }
+
+        // Only surface the billing keys the request actually sent. DetailsModificationService
+        // keys off array_key_exists to leave a server's plan alone on a non-billing update,
+        // so emitting these unconditionally (as null) would wipe billing on every save.
+        foreach (['renewal_date', 'billing_product_id', 'billing_days'] as $billingKey) {
+            if (Arr::has($data, $billingKey)) {
+                $response[$billingKey] = array_get($data, $billingKey);
+            }
         }
 
         return is_null($key) ? $response : Arr::get($response, $key, $default);

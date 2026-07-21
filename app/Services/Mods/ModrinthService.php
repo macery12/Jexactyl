@@ -43,7 +43,6 @@ class ModrinthService
         $this->endpoint = config('modules.mods.modrinth_api_url') ?: 'https://api.modrinth.com/v2';
         $this->cacheEnabled = config('modules.mods.cache.enabled', true);
 
-        // Use the same cache TTL as CurseForge
         $this->cacheTtl = config('modules.mods.cache.ttl', [
             'search' => 86400,      // 24 hours
             'mod_details' => 86400, // 24 hours
@@ -242,7 +241,7 @@ class ModrinthService
             $facets[] = ['versions:' . $params['gameVersion']];
         }
 
-        // Add loader facet if provided (map from CurseForge IDs to Modrinth loader names)
+        // Add loader facet if provided (map numeric loader type IDs to Modrinth loader names)
         if ($projectType === 'mod' && !empty($params['modLoaderType'])) {
             $loaderMap = [
                 1 => 'forge',
@@ -267,7 +266,7 @@ class ModrinthService
         // $facets is always initialized with at least the project_type filter.
         $searchParams['facets'] = json_encode($facets);
 
-        // Map sort fields from CurseForge to Modrinth
+        // Map numeric sort field IDs to Modrinth index values
         if (!empty($params['sortField'])) {
             $sortMap = [
                 '1' => 'relevance',  // Featured
@@ -291,12 +290,11 @@ class ModrinthService
 
         $filtersMeta = $projectType === 'plugin' ? $this->getPluginFiltersMetadata() : null;
 
-        // Transform Modrinth response to match CurseForge format for frontend compatibility
         return $this->transformSearchResponse($response, $searchParams, $filtersMeta);
     }
 
     /**
-     * Transform Modrinth search response to CurseForge-compatible format.
+     * Transform Modrinth search response to the common marketplace format.
      */
     private function transformSearchResponse(array $response, array $searchParams, ?array $filtersMeta = null): array
     {
@@ -396,7 +394,7 @@ class ModrinthService
     }
 
     /**
-     * Transform a Modrinth mod object to CurseForge-compatible format.
+     * Transform a Modrinth mod object to the common marketplace format.
      */
     private function transformModToCommonFormat(array $modrinthMod): array
     {
@@ -473,7 +471,7 @@ class ModrinthService
     }
 
     /**
-     * Transform detailed Modrinth mod to CurseForge-compatible format.
+     * Transform a detailed Modrinth project to the common marketplace format.
      */
     private function transformModDetailsToCommonFormat(array $modrinthMod): array
     {
@@ -584,7 +582,7 @@ class ModrinthService
     }
 
     /**
-     * Transform Modrinth versions to CurseForge-compatible files format.
+     * Transform Modrinth versions to the common files format.
      */
     private function transformFilesResponse(array $versions, array $params): array
     {
@@ -610,7 +608,7 @@ class ModrinthService
     }
 
     /**
-     * Transform a Modrinth version to CurseForge file format.
+     * Transform a Modrinth version to the common file format.
      */
     private function transformVersionToFile(array $version): array
     {
@@ -649,7 +647,7 @@ class ModrinthService
     }
 
     /**
-     * Map Modrinth version type to CurseForge release type.
+     * Map Modrinth version type to a numeric release type (1=release, 2=beta, 3=alpha).
      */
     private function mapVersionType(string $versionType): int
     {
@@ -662,7 +660,7 @@ class ModrinthService
     }
 
     /**
-     * Map Modrinth dependency type to CurseForge relation type.
+     * Map Modrinth dependency type to a numeric relation type (1=incompatible, 2=optional, 3=required).
      */
     private function mapDependencyType(string $dependencyType): int
     {
@@ -715,7 +713,7 @@ class ModrinthService
                     'jsonDownloadUrl' => '',
                     'approved' => true,
                     'dateModified' => '',
-                    'gameVersionTypeId' => 1, // Set to 1 (release) for consistency with CurseForge
+                    'gameVersionTypeId' => 1, // 1 = release type
                     'gameVersionStatus' => 1,
                     'gameVersionTypeStatus' => 1,
                 ];
@@ -736,7 +734,7 @@ class ModrinthService
             return $this->makeRequest('GET', 'tag/loader');
         });
 
-        // Map to CurseForge format with IDs
+        // Map loader names to their numeric IDs for the common format
         $loaderIdMap = [
             'forge' => 1,
             'cauldron' => 2,
@@ -774,4 +772,5 @@ class ModrinthService
             'limit_per_hour' => 0,
         ];
     }
+
 }

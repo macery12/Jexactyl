@@ -19,7 +19,8 @@ class ExtensionPackageInstallService
         private ExtensionOperationLockService $operationLockService,
         private ExtensionFilesystemOwnershipService $ownershipService,
         private ExtensionInstallProgressService $progressService,
-        private ExtensionPackageArtifactService $artifactService
+        private ExtensionPackageArtifactService $artifactService,
+        private ExtensionMigrationService $migrationService
     ) {
     }
 
@@ -182,6 +183,22 @@ class ExtensionPackageInstallService
      */
     public function rollbackInstall(array $prepared): void
     {
+        // Migrations roll back first: the migration files must still exist on
+        // disk for the migrator to resolve their down() methods.
+        if (!empty($prepared['appliedMigrations'])) {
+            try {
+                $this->migrationService->rollbackLastBatch($prepared['extensionId']);
+            } catch (\Throwable $exception) {
+                report($exception);
+                $this->migrationService->writeMigrationLog(
+                    $prepared['extensionId'],
+                    'install-rollback',
+                    ['migrations' => $prepared['appliedMigrations']],
+                    $exception
+                );
+            }
+        }
+
         $this->rollbackAppliedFiles($prepared['appliedFiles'] ?? []);
         $this->ownershipService->repairStandardPaths($prepared['extensionId'] ?? null);
     }
@@ -246,8 +263,14 @@ class ExtensionPackageInstallService
             $backupRoot = storage_path('app/extensions/backups/' . $extensionId . '/' . Str::uuid()->toString());
 
             $this->assertExtensionNotInstalled($extensionId);
-            $this->artifactService->assertCompatiblePanelVersions($compatiblePanelVersions);
-            $this->artifactService->assertCompatiblePanelVersions(Arr::get($normalizedManifest, 'compatiblePanelVersions', []));
+            // Compatibility is enforced only for repository fetches. A manual
+            // package upload (sourceRepositoryId === null) is an explicit operator
+            // action and is trusted to run whatever it ships, so we never block it
+            // on the declared panel-version range.
+            if ($sourceRepositoryId !== null) {
+                $this->artifactService->assertCompatiblePanelVersions($compatiblePanelVersions);
+                $this->artifactService->assertCompatiblePanelVersions(Arr::get($normalizedManifest, 'compatiblePanelVersions', []));
+            }
             $this->ownershipService->repairStandardPaths($extensionId);
 
             $filePlans = $this->prepareFilePlans($extractPath, $normalizedManifest, $backupRoot, $extensionId);
@@ -260,8 +283,11 @@ class ExtensionPackageInstallService
                 $appliedFiles[] = $plan;
             }
 
+            $appliedMigrations = $this->runPackageMigrations($extensionId, $filePlans, 'install');
+
             return [
                 'extensionId' => $extensionId,
+                'appliedMigrations' => $appliedMigrations,
                 'normalizedManifest' => $normalizedManifest,
                 'fallbackPackageMetadata' => $fallbackPackageMetadata,
                 'filePlans' => $filePlans,
@@ -342,6 +368,57 @@ class ExtensionPackageInstallService
         );
 
         return $packageModel;
+    }
+
+    /**
+     * Run any migrations the package shipped, after its files have been
+     * copied into place. A failure mid-run rolls the partial batch back,
+     * writes a migration error log, and aborts the operation.
+     *
+     * @param array<int, array<string, mixed>> $filePlans
+     * @return array<int, string> the migration files applied (empty when the package ships none)
+     */
+    private function runPackageMigrations(string $extensionId, array $filePlans, string $action): array
+    {
+        $migrationsPrefix = $this->migrationService->migrationPath($extensionId) . '/';
+        $migrationFiles = [];
+        foreach ($filePlans as $plan) {
+            if (Str::startsWith($plan['path'], $migrationsPrefix)) {
+                $migrationFiles[] = $plan['targetPath'];
+            }
+        }
+
+        if ($migrationFiles === []) {
+            return [];
+        }
+
+        $this->progressService->report($action, $extensionId, 'migrating');
+        $this->migrationService->assertTablePrefixConvention($extensionId, $migrationFiles);
+
+        try {
+            $result = $this->migrationService->run($extensionId);
+        } catch (\Throwable $exception) {
+            try {
+                $this->migrationService->rollbackLastBatch($extensionId);
+            } catch (\Throwable $rollbackException) {
+                report($rollbackException);
+            }
+
+            $logPath = $this->migrationService->writeMigrationLog(
+                $extensionId,
+                $action,
+                ['migrations' => array_map('basename', $migrationFiles)],
+                $exception
+            );
+
+            throw new DisplayException(sprintf(
+                'A migration shipped by "%s" failed and was rolled back. Details were written to %s.',
+                $extensionId,
+                $logPath
+            ), $exception);
+        }
+
+        return array_map('basename', $result['files']);
     }
 
     private function assertExtensionNotInstalled(string $extensionId): void

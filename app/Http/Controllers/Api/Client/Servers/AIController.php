@@ -244,6 +244,7 @@ class AIController extends ClientApiController
                         'source' => 'client',
                         'latency_ms' => $latencyMs,
                         'status' => $status,
+                        'cached' => $this->aiService->wasCached(),
                         'error_message' => $errorMsg,
                     ]);
                 } catch (\Exception $logEx) {
@@ -276,6 +277,7 @@ class AIController extends ClientApiController
                     'total_tokens' => $usage['total_tokens'] ?? null,
                     'latency_ms' => $latencyMs,
                     'status' => 'success',
+                    'cached' => $this->aiService->wasCached(),
                 ]);
             } catch (\Exception $logEx) {
                 Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());

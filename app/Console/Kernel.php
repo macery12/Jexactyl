@@ -20,6 +20,7 @@ use Everest\Console\Commands\Billing\RefreshNodeAvailabilityCommand;
 use Everest\Console\Commands\Maintenance\CleanServiceBackupFilesCommand;
 use Everest\Console\Commands\Billing\DeleteScheduledServersCommand;
 use Everest\Console\Commands\AI\PruneAiConversationsCommand;
+use Everest\Console\Commands\AI\WarmAiModelCommand;
 
 class Kernel extends ConsoleKernel
 {
@@ -29,6 +30,24 @@ class Kernel extends ConsoleKernel
     protected function commands(): void
     {
         $this->load(__DIR__ . '/Commands');
+
+        // Extension-contributed artisan commands. The glob is deliberately
+        // scoped to Console/Commands directories: a wholesale load() over
+        // Extensions/Packages would autoload-include route/schedule files and
+        // execute their top-level Route:: calls at command registration time.
+        //
+        // Only enabled extensions are loaded, so a disabled extension's command
+        // classes are never registered — they do not appear in artisan and
+        // cannot be invoked at all until the extension is re-enabled.
+        $enabledExtensionIds = \Everest\Services\Extensions\ExtensionRuntimeGate::enabledExtensionIds();
+        foreach ((glob(app_path('Extensions/Packages/*/Console/Commands')) ?: []) as $extensionCommandDir) {
+            $extensionId = basename(dirname(dirname($extensionCommandDir)));
+            if (!in_array($extensionId, $enabledExtensionIds, true)) {
+                continue;
+            }
+
+            $this->load($extensionCommandDir);
+        }
     }
 
     /**
@@ -43,6 +62,9 @@ class Kernel extends ConsoleKernel
         $schedule->command(ProcessRunnableCommand::class)->everyMinute()->withoutOverlapping();
         $schedule->command(CleanServiceBackupFilesCommand::class)->daily();
         $schedule->command(PruneAiConversationsCommand::class)->daily();
+        // Re-assert Ollama keep_alive before it lapses; the command exits
+        // immediately unless AI is enabled with warm-up on and mode=ollama.
+        $schedule->command(WarmAiModelCommand::class)->everyFiveMinutes()->withoutOverlapping();
 
         if (config('backups.prune_age')) {
             // Every 30 minutes, run the backup pruning command so that any abandoned backups can be deleted.
@@ -77,5 +99,8 @@ class Kernel extends ConsoleKernel
             $schedule->command('email:send-renewal-notices', ['--days' => 3])->dailyAt('09:15'); // 3 days notice
             $schedule->command('email:send-renewal-notices', ['--days' => 1])->dailyAt('09:30'); // 1 day notice
         }
+
+        // Scheduled tasks contributed by enabled extension packages.
+        $this->app->make(\Everest\Services\Extensions\ExtensionScheduleService::class)->register($schedule);
     }
 }

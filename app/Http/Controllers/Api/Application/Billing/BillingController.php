@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Models\Billing\Order;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
+use Everest\Models\Billing\BillingException;
 use Everest\Services\Billing\BillingCycleService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Billing\DeleteStripeKeysRequest;
@@ -81,7 +82,7 @@ class BillingController extends ApplicationApiController
         // dashboard charts require). Capped at 10 000 rows so very large installs
         // never pull unbounded data into memory.
         $orders = Order::where('created_at', '>=', Carbon::now()->subYear())
-            ->select('id', 'status', 'created_at', 'total')
+            ->select('id', 'status', 'created_at', 'total', 'payment_processor')
             ->orderBy('created_at', 'desc')
             ->limit(10000)
             ->get();
@@ -111,6 +112,29 @@ class BillingController extends ApplicationApiController
 
         $forecast7Days = $totalDailyRevenue * 7;
         $forecast30Days = $totalDailyRevenue * 30;
+
+        // Subscription base: servers currently attached to a paid plan. This is the
+        // population the MRR/forecast figures are derived from.
+        $activeSubscriptions = Server::whereNotNull('billing_product_id')
+            ->where('billing_days', '>', 0)
+            ->where('billing_amount', '>', 0)
+            ->count();
+
+        // What's actually selling: per-product subscription count and MRR contribution
+        // (actual billed amounts, so coupons/cycle multipliers are reflected).
+        $topProducts = Server::query()
+            ->whereNotNull('billing_product_id')
+            ->where('billing_days', '>', 0)
+            ->where('billing_amount', '>', 0)
+            ->join('products', 'servers.billing_product_id', '=', 'products.id')
+            ->groupBy('servers.billing_product_id', 'products.name')
+            ->selectRaw('servers.billing_product_id as id, products.name as name')
+            ->selectRaw('COUNT(*) as subscriptions')
+            ->selectRaw('ROUND(COALESCE(SUM(servers.billing_amount / servers.billing_days), 0) * 30, 2) as mrr')
+            ->orderByDesc('mrr')
+            ->limit(5)
+            ->toBase() // plain rows — hydrating Server models would serialize appended accessors
+            ->get();
 
         // Get suspended servers with details (capped at 200 to protect memory)
         $suspendedServers = Server::where('status', Server::STATUS_SUSPENDED)
@@ -164,6 +188,9 @@ class BillingController extends ApplicationApiController
                 'next7Days' => round($forecast7Days, 2),
                 'next30Days' => round($forecast30Days, 2),
             ],
+            'activeSubscriptions' => $activeSubscriptions,
+            'topProducts' => $topProducts,
+            'exceptions7d' => BillingException::where('created_at', '>=', $now->copy()->subDays(7))->count(),
             'suspendedServers' => $suspendedServers,
             'recentEvents' => $recentEvents,
         ];

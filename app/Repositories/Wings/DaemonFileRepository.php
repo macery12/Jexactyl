@@ -69,6 +69,38 @@ class DaemonFileRepository extends DaemonRepository
     }
 
     /**
+     * Stream a local temp file to Wings without loading it into PHP memory.
+     * Use this instead of putContent() for large binaries (mods, modpack files).
+     *
+     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     */
+    public function putFile(string $path, string $tempFilePath): ResponseInterface
+    {
+        Assert::isInstanceOf($this->server, Server::class);
+
+        $handle = fopen($tempFilePath, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException('Failed to open temp file for streaming upload: ' . $tempFilePath);
+        }
+
+        try {
+            return $this->getHttpClient()->post(
+                sprintf('/api/servers/%s/files/write', $this->server->uuid),
+                [
+                    'query' => ['file' => $path],
+                    'body'  => $handle,
+                ]
+            );
+        } catch (TransferException $exception) {
+            throw new DaemonConnectionException($exception);
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+        }
+    }
+
+    /**
      * Return a directory listing for a given path.
      *
      * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException

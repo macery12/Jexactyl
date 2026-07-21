@@ -5,7 +5,7 @@ return [
      * Enable or disable the extensions module.
      * When enabled, admins can configure server extensions like player managers.
      */
-    'enabled' => env('EXTENSIONS_ENABLED', false),
+    'enabled' => env('EXTENSIONS_ENABLED', true),
 
     /*
      * Available extensions configuration.

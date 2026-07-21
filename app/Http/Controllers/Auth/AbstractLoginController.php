@@ -109,12 +109,21 @@ abstract class AbstractLoginController extends Controller
 
         Event::dispatch(new DirectLogin($user, true));
 
+        $responseData = [
+            'complete' => true,
+            'intended' => $this->redirectPath(),
+            'user' => $user->toReactObject(),
+        ];
+
+        // Surface the freshly generated offline recovery code exactly once, on the
+        // registration login response. It is null on every ordinary login, so this
+        // key is only ever present immediately after account creation.
+        if (!empty($user->recoveryCodePlain)) {
+            $responseData['recovery_code'] = $user->recoveryCodePlain;
+        }
+
         $response = new JsonResponse([
-            'data' => [
-                'complete' => true,
-                'intended' => $this->redirectPath(),
-                'user' => $user->toReactObject(),
-            ],
+            'data' => $responseData,
         ]);
 
         if ($shouldSetCookie && $deviceId) {

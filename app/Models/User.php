@@ -137,8 +137,18 @@ class User extends Model implements
         'state',
         'root_admin',
         'recovery_code',
+        'recovery_code_seen',
         'email_verified_at',
     ];
+
+    /**
+     * Transient (non-persisted) holder for a freshly generated recovery code.
+     * The stored `recovery_code` column is hashed and can never be read back, so
+     * the plaintext is surfaced exactly once — at generation — via this property.
+     * Declared as a real property so Eloquent's magic setter never routes it into
+     * the persisted attribute bag.
+     */
+    public ?string $recoveryCodePlain = null;
 
     /**
      * Cast values to correct type.
@@ -147,6 +157,7 @@ class User extends Model implements
         'root_admin' => 'boolean',
         'use_totp' => 'boolean',
         'gravatar' => 'boolean',
+        'recovery_code_seen' => 'boolean',
         'stripe_id' => 'string',
         'totp_authenticated_at' => 'datetime',
         'email_verified_at' => 'datetime',
@@ -163,7 +174,7 @@ class User extends Model implements
     protected $attributes = [
         'external_id' => null,
         'root_admin' => false,
-        'language' => 'en',
+        'language' => null,
         'use_totp' => false,
         'totp_secret' => null,
         'state' => null,
@@ -179,23 +190,30 @@ class User extends Model implements
         'username' => 'required|between:1,191|unique:users,username',
         'password' => 'sometimes|nullable|string',
         'root_admin' => 'boolean',
-        'language' => 'string',
+        'language' => 'nullable|string',
         'state' => 'sometimes|nullable|string',
         'use_totp' => 'boolean',
         'admin_role_id' => 'nullable|exists:admin_roles,id',
         'totp_secret' => 'nullable|string',
         'recovery_code' => 'nullable|string',
+        'recovery_code_seen' => 'sometimes|boolean',
     ];
 
     /**
      * Implement language verification by overriding Eloquence's gather
      * rules function.
+     *
+     * The panel's selectable locales live in config('app.locales') — the
+     * single source of truth kept in sync with the compiled Paraglide catalog
+     * (frontend/project.inlang/settings.json). The legacy getAvailableLanguages()
+     * scan of resources/lang only ever knows the V1 lang folders (just "en"),
+     * so it must not gate the stored preference.
      */
     public static function getRules(): array
     {
         $rules = parent::getRules();
 
-        $rules['language'][] = new In(array_keys((new self())->getAvailableLanguages()));
+        $rules['language'][] = new In(config('app.locales', ['en']));
         $rules['username'][] = new Username();
 
         return $rules;

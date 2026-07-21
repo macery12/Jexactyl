@@ -11,9 +11,8 @@ use Everest\Exceptions\DisplayException;
 use Everest\Services\Users\UserUpdateService;
 use Everest\Services\Auth\PasswordResetService;
 use Everest\Services\Email\EmailManager;
-use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 
@@ -56,22 +55,19 @@ class ForgotPasswordController extends AbstractLoginController
             throw new DisplayException('The information provided was incorrect.');
         }
 
-        // The recovery code is stored encrypted (not hashed); decrypt it and compare
-        // using hash_equals to prevent timing attacks.
-        try {
-            $storedCode = Crypt::decryptString($user->recovery_code ?? '');
-        } catch (DecryptException $e) {
+        // The recovery code is stored hashed (irreversible). Hash::check performs a
+        // constant-time comparison. An empty/legacy stored value fails closed.
+        if (empty($user->recovery_code) || !Hash::check((string) $request->input('code'), $user->recovery_code)) {
             throw new DisplayException('The information provided was incorrect.');
         }
 
-        if (!hash_equals($storedCode, (string) $request->input('code'))) {
-            throw new DisplayException('The information provided was incorrect.');
-        }
-
-        // Rotate the recovery code immediately so it cannot be replayed.
+        // Rotate the recovery code immediately so it cannot be replayed. It is stored
+        // hashed; the fresh plaintext is intentionally discarded here — the user must
+        // regenerate from account settings to obtain a new one.
         $user = $this->updateService->handle($user, [
             'password' => $request->input('password'),
-            'recovery_code' => Crypt::encryptString(Str::random(32)),
+            'recovery_code' => Hash::make(Str::random(32)),
+            'recovery_code_seen' => false,
         ]);
 
         if (!$user->use_totp) {

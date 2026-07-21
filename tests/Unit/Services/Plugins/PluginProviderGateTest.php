@@ -57,14 +57,14 @@ class PluginProviderGateTest extends TestCase
     public function testEggOverrideDeny(): void
     {
         PluginProviderRule::create([
-            'provider_key' => 'curseforge',
+            'provider_key' => 'modrinth.mods',
             'enabled_global' => true,
             'allowed_nest_ids' => [2],
             'allowed_egg_ids' => [201],
         ]);
 
         // Egg not listed should be denied even though nest is allowed.
-        $this->assertFalse($this->gate->isProviderAllowed('curseforge', 2, 202));
+        $this->assertFalse($this->gate->isProviderAllowed('modrinth.mods', 2, 202));
     }
 
     public function testEggOverrideAllow(): void

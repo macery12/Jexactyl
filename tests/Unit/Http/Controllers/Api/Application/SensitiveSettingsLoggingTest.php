@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Artisan;
 use Everest\Facades\Activity;
 use Everest\Services\AI\OpenAIService;
 use Everest\Services\Mods\ModrinthService;
-use Everest\Services\Mods\CurseForgeService;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 use Everest\Http\Controllers\Api\Application\ModsController;
@@ -60,34 +59,30 @@ class SensitiveSettingsLoggingTest extends TestCase
         $this->assertSame(Response::HTTP_NO_CONTENT, $response->getStatusCode());
     }
 
-    public function testPluginsSettingsActivityRedactsApiKeyValues(): void
+    public function testPluginsSettingsActivityLogsUpdate(): void
     {
         $repository = Mockery::mock(SettingsRepositoryInterface::class);
-        $repository->shouldReceive('set')->twice();
+        $repository->shouldReceive('set')->once();
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
         Artisan::shouldReceive('call')->once()->with('config:clear');
 
         $controller = new PluginsController(
-            Mockery::mock(CurseForgeService::class),
             Mockery::mock(ModrinthService::class)
         );
 
         $request = Mockery::mock(UpdateModsSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([
             'enabled' => true,
-            'curseforge_api_key' => 'cf-secret',
         ]);
         $request->shouldReceive('all')->once()->andReturn([
             'enabled' => true,
-            'curseforge_api_key' => 'cf-secret',
         ]);
 
         Activity::shouldReceive('event')->once()->with('admin:plugins:update')->andReturnSelf();
         Activity::shouldReceive('property')
             ->once()
             ->with('settings', Mockery::on(function (array $payload) {
-                return $payload['enabled'] === true
-                    && $payload['curseforge_api_key'] === EmailRedactor::REDACTED_VALUE;
+                return $payload['enabled'] === true;
             }))
             ->andReturnSelf();
         Activity::shouldReceive('description')->once()->andReturnSelf();
@@ -98,34 +93,30 @@ class SensitiveSettingsLoggingTest extends TestCase
         $this->assertSame(Response::HTTP_NO_CONTENT, $response->getStatusCode());
     }
 
-    public function testModsSettingsActivityRedactsApiKeyValues(): void
+    public function testModsSettingsActivityLogsUpdate(): void
     {
         $repository = Mockery::mock(SettingsRepositoryInterface::class);
-        $repository->shouldReceive('set')->twice();
+        $repository->shouldReceive('set')->once();
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
         Artisan::shouldReceive('call')->once()->with('config:clear');
 
         $controller = new ModsController(
-            Mockery::mock(CurseForgeService::class),
             Mockery::mock(ModrinthService::class)
         );
 
         $request = Mockery::mock(UpdateModsSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([
             'enabled' => true,
-            'curseforge_api_key' => 'cf-secret',
         ]);
         $request->shouldReceive('all')->once()->andReturn([
             'enabled' => true,
-            'curseforge_api_key' => 'cf-secret',
         ]);
 
         Activity::shouldReceive('event')->once()->with('admin:mods:update')->andReturnSelf();
         Activity::shouldReceive('property')
             ->once()
             ->with('settings', Mockery::on(function (array $payload) {
-                return $payload['enabled'] === true
-                    && $payload['curseforge_api_key'] === EmailRedactor::REDACTED_VALUE;
+                return $payload['enabled'] === true;
             }))
             ->andReturnSelf();
         Activity::shouldReceive('description')->once()->andReturnSelf();

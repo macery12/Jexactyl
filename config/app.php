@@ -121,6 +121,33 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Per-User Language Selection
+    |--------------------------------------------------------------------------
+    |
+    | Whether users may override the panel's default language from their own
+    | account settings. Hydrated from the settings::app:user_locale toggle on
+    | /admin/settings; when false, everyone sees the panel default and the
+    | account language picker is hidden.
+    |
+    */
+
+    'user_locale' => true,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Selectable Locales
+    |--------------------------------------------------------------------------
+    |
+    | Locale codes a user may store as their language preference. Keep in sync
+    | with the compiled frontend list in frontend/project.inlang/settings.json
+    | ("locales") — the account picker only offers what Paraglide compiled.
+    |
+    */
+
+    'locales' => ['en', 'ru'],
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Fallback Locale
     |--------------------------------------------------------------------------
     |
