@@ -108,7 +108,9 @@ export default function AdminActivityPage() {
     // V1 gated this route on the activity module flag; V2 handles the disabled
     // state in-page, same as ServerActivityPage (the flag lives in site config,
     // which registry `condition`s can't see).
-    const enabled = useFlags(s => s.site?.activity.enabled.admin ?? true);
+    // Boolean() because settings persisted through SettingsServiceProvider come
+    // back as 1/0, and react-query rejects a non-boolean `enabled`.
+    const enabled = useFlags(s => Boolean(s.site?.activity.enabled.admin ?? true));
     const [searchInput, setSearchInput] = useState('');
     const [search, setSearch] = useState('');
     const [actor, setActor] = useState('');

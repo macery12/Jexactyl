@@ -192,7 +192,7 @@ function useHashFilters(): { event?: string; ip?: string } {
 
 export default function ServerActivityPage() {
     const server = useServer();
-    const enabled = useFlags(s => s.site?.activity.enabled.server ?? true);
+    const enabled = useFlags(s => Boolean(s.site?.activity.enabled.server ?? true));
     const hashFilters = useHashFilters();
 
     const [searchInput, setSearchInput] = useState('');

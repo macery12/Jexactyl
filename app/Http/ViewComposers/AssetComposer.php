@@ -30,9 +30,9 @@ class AssetComposer
             ],
             'activity' => [
                 'enabled' => [
-                    'account' => config('activity.enabled.account', true),
-                    'server' => config('activity.enabled.server', true),
-                    'admin' => config('activity.enabled.admin', true),
+                    'account' => boolval(config('activity.enabled.account', true)),
+                    'server' => boolval(config('activity.enabled.server', true)),
+                    'admin' => boolval(config('activity.enabled.admin', true)),
                 ],
             ],
         ]);
