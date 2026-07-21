@@ -3,7 +3,22 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Info, Gauge, SlidersHorizontal, CalendarClock, Plus, Trash2 } from 'lucide-react';
+import {
+    ArrowLeft,
+    Info,
+    Gauge,
+    SlidersHorizontal,
+    CalendarClock,
+    Tag,
+    Copy,
+    Cpu,
+    MemoryStick,
+    HardDrive,
+    Archive,
+    Database,
+    Network,
+    Globe,
+} from 'lucide-react';
 import { getCategory } from '@/api/billingCategories';
 import {
     getProduct,
@@ -15,17 +30,17 @@ import {
 } from '@/api/billingProducts';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { SectionCard, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '../editorChrome';
+import { LimitField, ProductPreview } from './productChrome';
+import { CycleEditor, type CycleDraft } from './CycleEditor';
 
 interface FormShape {
     name: string;
     icon: string;
     price: number;
-    base_price: number;
     description: string;
     visible: boolean;
     cpu: number;
@@ -37,17 +52,10 @@ interface FormShape {
     subdomain: number;
 }
 
-interface CycleDraft {
-    id?: number;
-    days: number;
-    isEnabled: boolean;
-}
-
 const NEW_DEFAULTS: FormShape = {
     name: '',
     icon: '',
     price: 0,
-    base_price: NaN,
     description: '',
     visible: true,
     cpu: 100,
@@ -88,6 +96,7 @@ export default function ProductEditorPage() {
         register,
         handleSubmit,
         watch,
+        getValues,
         setValue,
         reset,
         formState: { errors, isDirty },
@@ -96,18 +105,17 @@ export default function ProductEditorPage() {
     const [cycles, setCycles] = useState<CycleDraft[]>([]);
     const [cyclesDirty, setCyclesDirty] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [cloning, setCloning] = useState(false);
 
     // Seed the form + cycles once the product (and its cycles) load.
     useEffect(() => {
-        if (!editing) return;
-        if (!product) return;
+        if (!editing || !product) return;
         reset({
             name: product.name,
             icon: product.icon ?? '',
             price: product.price,
-            base_price: product.basePrice ?? NaN,
             description: product.description ?? '',
-            visible: true,
+            visible: product.visible,
             cpu: product.limits.cpu,
             memory: product.limits.memory,
             disk: product.limits.disk,
@@ -125,36 +133,55 @@ export default function ProductEditorPage() {
         }
     }, [existingCycles]);
 
+    // Watched per-field rather than a bare watch(): the pricing preview and the
+    // limit inputs are controlled, so they need live values, but subscribing to
+    // the whole form would re-render the page on every keystroke in any field.
     const visible = watch('visible');
+    const price = watch('price');
+    const name = watch('name');
+    const description = watch('description');
+    const cpu = watch('cpu');
+    const memory = watch('memory');
+    const disk = watch('disk');
+    const backup = watch('backup');
+    const database = watch('database');
+    const allocation = watch('allocation');
+    const subdomain = watch('subdomain');
+
     const dirty = isDirty || cyclesDirty;
+
 
     const mutateCycles = (next: CycleDraft[]) => {
         setCycles(next);
         setCyclesDirty(true);
     };
 
-    const onSubmit = handleSubmit(async values => {
+    const setLimit = (key: keyof FormShape) => (next: number) =>
+        setValue(key, next as never, { shouldDirty: true });
+
+    const buildPayload = (v: FormShape): ProductValues => ({
+        name: v.name.trim(),
+        icon: v.icon.trim() || null,
+        price: Number(v.price) || 0,
+        description: v.description.trim() || null,
+        visible: v.visible,
+        limits: {
+            cpu: Number(v.cpu) || 0,
+            memory: Number(v.memory) || 0,
+            disk: Number(v.disk) || 0,
+            backup: Number(v.backup) || 0,
+            database: Number(v.database) || 0,
+            allocation: Number(v.allocation) || 0,
+            subdomain: Number(v.subdomain) || 0,
+        },
+    });
+
+    const onSubmit = handleSubmit(async v => {
         if (categoryId == null || !category) {
             push({ type: 'error', message: m['admin.billing.products.noCategory']() });
             return;
         }
-        const payload: ProductValues = {
-            name: values.name.trim(),
-            icon: values.icon.trim() || null,
-            price: Number(values.price) || 0,
-            base_price: Number.isNaN(values.base_price) ? null : Number(values.base_price),
-            description: values.description.trim() || null,
-            visible: values.visible,
-            limits: {
-                cpu: Number(values.cpu) || 0,
-                memory: Number(values.memory) || 0,
-                disk: Number(values.disk) || 0,
-                backup: Number(values.backup) || 0,
-                database: Number(values.database) || 0,
-                allocation: Number(values.allocation) || 0,
-                subdomain: Number(values.subdomain) || 0,
-            },
-        };
+        const payload = buildPayload(v);
         const cyclePayload = cycles
             .filter(c => c.days > 0)
             .map(c => ({ days: c.days, is_enabled: c.isEnabled }));
@@ -167,7 +194,7 @@ export default function ProductEditorPage() {
                 qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
                 push({ type: 'success', message: m['admin.billing.products.updated']() });
                 setCyclesDirty(false);
-                reset(values);
+                reset(v);
             } else {
                 const created = await createProduct(categoryId, category.uuid, payload);
                 if (cyclePayload.length > 0) {
@@ -183,6 +210,32 @@ export default function ProductEditorPage() {
             setSaving(false);
         }
     });
+
+    // Clone is done client-side — POST the current values under a new name and
+    // copy the cycles across. No dedicated endpoint needed.
+    const onClone = async () => {
+        if (categoryId == null || !category || !product) return;
+        setCloning(true);
+        try {
+            const current = getValues();
+            const payload = buildPayload({
+                ...current,
+                name: m['admin.billing.products.copyOf']({ name: current.name }),
+            });
+            const created = await createProduct(categoryId, category.uuid, payload);
+            const cyclePayload = cycles.filter(c => c.days > 0).map(c => ({ days: c.days, is_enabled: c.isEnabled }));
+            if (cyclePayload.length > 0) {
+                await syncBillingCycles(categoryId, created.id, cyclePayload);
+            }
+            qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
+            push({ type: 'success', message: m['admin.billing.products.cloned']() });
+            navigate(`/admin/billing/products/${created.id}?category=${categoryId}`);
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
+        } finally {
+            setCloning(false);
+        }
+    };
 
     const backTo = categoryId != null ? `/admin/billing/products/categories/${categoryId}` : '/admin/billing/products';
 
@@ -207,14 +260,16 @@ export default function ProductEditorPage() {
 
     return (
         <form onSubmit={onSubmit} className="flex flex-col gap-5">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0">
                     <Link
                         to={backTo}
                         className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
                     >
                         <ArrowLeft className="h-3.5 w-3.5" />{' '}
-                        {category ? m['admin.billing.products.backToCategory']({ name: category.name }) : m['admin.billing.products.backToCatalog']()}
+                        {category
+                            ? m['admin.billing.products.backToCategory']({ name: category.name })
+                            : m['admin.billing.products.backToCatalog']()}
                     </Link>
                     <h1 className="mt-1 truncate text-xl font-semibold text-[var(--color-ink)]">
                         {editing ? product?.name : m['admin.billing.products.newTitle']()}
@@ -225,116 +280,197 @@ export default function ProductEditorPage() {
                         </p>
                     )}
                 </div>
+
+                {editing && (
+                    <div className="flex shrink-0 items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={onClone} disabled={cloning}>
+                            {cloning ? <Spinner className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            {m['admin.billing.products.clone']()}
+                        </Button>
+                    </div>
+                )}
             </div>
 
-            <SectionCard id="details" icon={Info} title={m['admin.billing.products.section.details']()} desc={m['admin.billing.products.section.detailsDesc']()}>
-                <FieldRow label={m['admin.billing.products.name']()} error={errors.name && m['admin.billing.common.required']()}>
-                    <Input {...register('name', { required: true })} invalid={Boolean(errors.name)} />
-                </FieldRow>
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <FieldRow label={m['admin.billing.products.price']()} desc={m['admin.billing.products.priceDesc']()}>
-                        <Input type="number" step="0.01" min="0" {...register('price', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                    <FieldRow label={m['admin.billing.products.basePrice']()} desc={m['admin.billing.products.basePriceDesc']()}>
-                        <Input type="number" step="0.01" min="0" {...register('base_price', { valueAsNumber: true })} />
-                    </FieldRow>
-                </div>
-                <FieldRow label={m['admin.billing.products.icon']()} desc={m['admin.billing.products.iconDesc']()}>
-                    <Input {...register('icon')} placeholder="server" />
-                </FieldRow>
-                <FieldRow label={m['admin.billing.products.description']()} desc={m['admin.billing.products.descriptionDesc']()}>
-                    <Input {...register('description')} />
-                </FieldRow>
-                <ToggleGroup>
-                    <ToggleRow
-                        label={m['admin.billing.products.visible']()}
-                        desc={m['admin.billing.products.visibleDesc']()}
-                        checked={visible}
-                        onChange={v => setValue('visible', v, { shouldDirty: true })}
-                    />
-                </ToggleGroup>
-            </SectionCard>
+            {/*
+                Two columns rather than one stack: the left is what the customer GETS,
+                the right is what the plan IS and what it costs. Resources lead because
+                they're the part that actually defines a plan — a name and a price are
+                the easy half, and burying the limits third made the page read as an
+                undifferentiated wall of fields.
+            */}
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,400px)]">
+                <div className="flex min-w-0 flex-col gap-5">
+                    <SectionCard
+                        id="resources"
+                        icon={Gauge}
+                        title={m['admin.billing.products.section.resources']()}
+                        desc={m['admin.billing.products.section.resourcesDesc']()}
+                    >
+                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+                            <LimitField
+                                label={m['admin.billing.products.limit.cpu']()}
+                                icon={Cpu}
+                                unit="%"
+                                hint={m['admin.billing.products.limitDesc.cpu']()}
+                                value={cpu}
+                                onChange={setLimit('cpu')}
+                                unlimitable
+                                presets={[50, 100, 200, 400, 0]}
+                            />
+                            <LimitField
+                                label={m['admin.billing.products.limit.memory']()}
+                                icon={MemoryStick}
+                                unit="MiB"
+                                hint={m['admin.billing.products.limitDesc.memory']()}
+                                value={memory}
+                                onChange={setLimit('memory')}
+                                unlimitable
+                                presets={[1024, 2048, 4096, 8192, 16384, 0]}
+                            />
+                            <LimitField
+                                label={m['admin.billing.products.limit.disk']()}
+                                icon={HardDrive}
+                                unit="MiB"
+                                hint={m['admin.billing.products.limitDesc.disk']()}
+                                value={disk}
+                                onChange={setLimit('disk')}
+                                unlimitable
+                                presets={[5120, 10240, 20480, 51200, 0]}
+                            />
+                        </div>
+                    </SectionCard>
 
-            <SectionCard id="resources" icon={Gauge} title={m['admin.billing.products.section.resources']()} desc={m['admin.billing.products.section.resourcesDesc']()}>
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-                    <FieldRow label={m['admin.billing.products.limit.cpu']()} mono="%" desc={m['admin.billing.products.limitDesc.cpu']()}>
-                        <Input type="number" min="0" {...register('cpu', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                    <FieldRow label={m['admin.billing.products.limit.memory']()} mono="MiB" desc={m['admin.billing.products.limitDesc.memory']()}>
-                        <Input type="number" min="0" {...register('memory', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                    <FieldRow label={m['admin.billing.products.limit.disk']()} mono="MiB" desc={m['admin.billing.products.limitDesc.disk']()}>
-                        <Input type="number" min="0" {...register('disk', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                </div>
-            </SectionCard>
+                    <SectionCard
+                        id="features"
+                        icon={SlidersHorizontal}
+                        title={m['admin.billing.products.section.featureLimits']()}
+                        desc={m['admin.billing.products.section.featureLimitsDesc']()}
+                    >
+                        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                            <LimitField
+                                label={m['admin.billing.products.limit.backup']()}
+                                icon={Archive}
+                                hint={m['admin.billing.products.limitDesc.backup']()}
+                                value={backup}
+                                onChange={setLimit('backup')}
+                                presets={[0, 1, 3, 7]}
+                            />
+                            <LimitField
+                                label={m['admin.billing.products.limit.database']()}
+                                icon={Database}
+                                hint={m['admin.billing.products.limitDesc.database']()}
+                                value={database}
+                                onChange={setLimit('database')}
+                                presets={[0, 1, 2, 5]}
+                            />
+                            <LimitField
+                                label={m['admin.billing.products.limit.allocation']()}
+                                icon={Network}
+                                hint={m['admin.billing.products.limitDesc.allocation']()}
+                                value={allocation}
+                                onChange={setLimit('allocation')}
+                                presets={[0, 1, 2, 4]}
+                            />
+                            <LimitField
+                                label={m['admin.billing.products.limit.subdomain']()}
+                                icon={Globe}
+                                hint={m['admin.billing.products.limitDesc.subdomain']()}
+                                value={subdomain}
+                                onChange={setLimit('subdomain')}
+                                presets={[0, 1, 2]}
+                            />
+                        </div>
+                    </SectionCard>
 
-            <SectionCard id="features" icon={SlidersHorizontal} title={m['admin.billing.products.section.featureLimits']()} desc={m['admin.billing.products.section.featureLimitsDesc']()}>
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    <FieldRow label={m['admin.billing.products.limit.backup']()} desc={m['admin.billing.products.limitDesc.backup']()}>
-                        <Input type="number" min="0" {...register('backup', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                    <FieldRow label={m['admin.billing.products.limit.database']()} desc={m['admin.billing.products.limitDesc.database']()}>
-                        <Input type="number" min="0" {...register('database', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                    <FieldRow label={m['admin.billing.products.limit.allocation']()} desc={m['admin.billing.products.limitDesc.allocation']()}>
-                        <Input type="number" min="0" {...register('allocation', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
-                    <FieldRow label={m['admin.billing.products.limit.subdomain']()} desc={m['admin.billing.products.limitDesc.subdomain']()}>
-                        <Input type="number" min="0" {...register('subdomain', { valueAsNumber: true, min: 0 })} />
-                    </FieldRow>
+                    {/*
+                        Cycles live at the bottom of this column rather than in a
+                        full-width row of their own: a full-width row can't start
+                        until the taller column ends, which left a dead gap under
+                        Feature limits the height of the storefront preview.
+                    */}
+                    <SectionCard
+                        id="cycles"
+                        icon={CalendarClock}
+                        title={m['admin.billing.products.section.cycles']()}
+                        desc={m['admin.billing.products.section.cyclesDesc']()}
+                    >
+                        <CycleEditor cycles={cycles} onChange={mutateCycles} price={price} />
+                    </SectionCard>
                 </div>
-            </SectionCard>
 
-            <SectionCard id="cycles" icon={CalendarClock} title={m['admin.billing.products.section.cycles']()} desc={m['admin.billing.products.section.cyclesDesc']()}>
-                {cycles.length === 0 && (
-                    <p className="text-sm text-[var(--color-ink-faint)]">{m['admin.billing.cycles.empty']()}</p>
-                )}
-                <div className="flex flex-col gap-2">
-                    {cycles.map((c, i) => (
-                        <div key={c.id ?? `new-${i}`} className="flex items-center gap-3">
+                {/*
+                    self-start matters: a grid item stretches to the row height by
+                    default, which silently makes `sticky` do nothing.
+                */}
+                <aside className="flex min-w-0 flex-col gap-5 self-start lg:sticky lg:top-6">
+                    <SectionCard
+                        id="details"
+                        icon={Info}
+                        title={m['admin.billing.products.section.details']()}
+                        desc={m['admin.billing.products.section.detailsDesc']()}
+                    >
+                        <FieldRow
+                            label={m['admin.billing.products.name']()}
+                            error={errors.name && m['admin.billing.common.required']()}
+                        >
+                            <Input {...register('name', { required: true })} invalid={Boolean(errors.name)} />
+                        </FieldRow>
+                        <FieldRow
+                            label={m['admin.billing.products.icon']()}
+                            desc={m['admin.billing.products.iconDesc']()}
+                        >
+                            <Input {...register('icon')} placeholder="server" />
+                        </FieldRow>
+                        <FieldRow
+                            label={m['admin.billing.products.description']()}
+                            desc={m['admin.billing.products.descriptionDesc']()}
+                        >
+                            <Input {...register('description')} />
+                        </FieldRow>
+                        <ToggleGroup>
+                            <ToggleRow
+                                label={m['admin.billing.products.visible']()}
+                                desc={m['admin.billing.products.visibleDesc']()}
+                                checked={visible}
+                                onChange={v => setValue('visible', v, { shouldDirty: true })}
+                            />
+                        </ToggleGroup>
+                    </SectionCard>
+
+                    <SectionCard
+                        id="pricing"
+                        icon={Tag}
+                        title={m['admin.billing.products.section.price']()}
+                        desc={m['admin.billing.products.section.priceDesc']()}
+                    >
+                        <FieldRow
+                            label={m['admin.billing.products.price']()}
+                            desc={m['admin.billing.products.priceDesc']()}
+                        >
                             <Input
                                 type="number"
-                                min="1"
-                                max="365"
-                                value={Number.isNaN(c.days) ? '' : c.days}
-                                onChange={e =>
-                                    mutateCycles(cycles.map((x, xi) => (xi === i ? { ...x, days: Number(e.target.value) } : x)))
-                                }
-                                className="w-28"
-                                aria-label={m['admin.billing.cycles.days']()}
+                                step="0.01"
+                                min="0"
+                                {...register('price', { valueAsNumber: true, min: 0 })}
                             />
-                            <span className="text-sm text-[var(--color-ink-muted)]">{m['admin.billing.cycles.days']()}</span>
-                            <label className="ml-2 flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                                <Switch
-                                    checked={c.isEnabled}
-                                    onChange={v => mutateCycles(cycles.map((x, xi) => (xi === i ? { ...x, isEnabled: v } : x)))}
-                                />
-                                {m['admin.billing.cycles.enabled']()}
-                            </label>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="ml-auto"
-                                aria-label={m['admin.billing.cycles.remove']()}
-                                onClick={() => mutateCycles(cycles.filter((_, xi) => xi !== i))}
-                            >
-                                <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
-                            </Button>
-                        </div>
-                    ))}
-                </div>
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="self-start"
-                    onClick={() => mutateCycles([...cycles, { days: 30, isEnabled: true }])}
-                >
-                    <Plus className="h-4 w-4" /> {m['admin.billing.cycles.add']()}
-                </Button>
-            </SectionCard>
+                        </FieldRow>
+
+                        <FieldRow
+                            label={m['admin.billing.products.preview']()}
+                            desc={m['admin.billing.products.previewDesc']()}
+                        >
+                            <ProductPreview
+                                name={name}
+                                price={price}
+                                description={description}
+                                cpu={cpu}
+                                memory={memory}
+                                disk={disk}
+                            />
+                        </FieldRow>
+                    </SectionCard>
+                </aside>
+            </div>
 
             <SaveBar
                 dirty={dirty}

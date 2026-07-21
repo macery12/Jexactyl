@@ -76,12 +76,6 @@ export default function Pricing({ data, tone }: Props) {
                                                 {symbol}
                                                 {product.price}
                                             </span>
-                                            {product.base_price != null && product.base_price > product.price && (
-                                                <span className="font-mono text-sm tabular-nums text-[var(--color-ink-muted)] line-through">
-                                                    {symbol}
-                                                    {product.base_price}
-                                                </span>
-                                            )}
                                         </div>
                                         <ul className="mt-4 space-y-1.5 text-sm text-[var(--color-ink-muted)]">
                                             <li className="flex items-center gap-2">

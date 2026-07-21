@@ -19,7 +19,6 @@ class UpdateBillingProductRequest extends ApplicationApiRequest
             'description'      => 'nullable|string|max:1000',
             'icon'             => 'nullable|string|max:100',
             'price'            => 'sometimes|numeric|min:0',
-            'base_price'       => 'nullable|numeric|min:0',
             'visible'          => 'sometimes|boolean',
             'category_uuid'    => 'sometimes|string|exists:categories,uuid',
             'cpu_limit'        => 'sometimes|integer|min:0',

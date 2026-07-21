@@ -19,7 +19,6 @@ class StoreBillingProductRequest extends ApplicationApiRequest
             'description'      => 'nullable|string|max:1000',
             'icon'             => 'nullable|string|max:100',
             'price'            => 'required|numeric|min:0',
-            'base_price'       => 'nullable|numeric|min:0',
             'visible'          => 'sometimes|boolean',
             'category_uuid'    => 'required|string|exists:categories,uuid',
             'cpu_limit'        => 'required|integer|min:0',

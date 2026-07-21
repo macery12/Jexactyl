@@ -13,7 +13,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $name
  * @property string $icon
  * @property float $price
- * @property float|null $base_price
  * @property string $description
  * @property int $cpu_limit
  * @property int $memory_limit
@@ -44,7 +43,7 @@ class Product extends Model
      */
     protected $fillable = [
         'uuid', 'category_uuid',
-        'name', 'icon', 'price', 'base_price', 'description',
+        'name', 'icon', 'price', 'description', 'visible',
         'cpu_limit', 'memory_limit', 'disk_limit',
         'backup_limit', 'database_limit', 'allocation_limit', 'subdomain_limit',
     ];
@@ -54,7 +53,7 @@ class Product extends Model
      */
     protected $casts = [
         'price' => 'float',
-        'base_price' => 'float',
+        'visible' => 'boolean',
         'cpu_limit' => 'integer',
         'memory_limit' => 'integer',
         'disk_limit' => 'integer',
@@ -72,6 +71,7 @@ class Product extends Model
         'icon' => 'nullable|string|min:3|max:300',
         'price' => 'required',
         'description' => 'nullable|string|max:300',
+        'visible' => 'nullable|bool',
 
         'cpu_limit' => 'required|integer',
         'memory_limit' => 'required|integer',
@@ -157,14 +157,6 @@ class Product extends Model
     public function enabledBillingCycles(): HasMany
     {
         return $this->hasMany(BillingCycle::class)->where('is_enabled', true);
-    }
-
-    /**
-     * Get the effective base price (uses base_price if set, otherwise falls back to price).
-     */
-    public function getEffectiveBasePrice(): float
-    {
-        return $this->base_price ?? $this->price;
     }
 
     /**

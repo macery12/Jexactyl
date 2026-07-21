@@ -34,8 +34,11 @@ class ProductTransformer extends Transformer
             'name' => $model->name,
             'icon' => $model->icon,
             'price' => $model->price,
-            'base_price' => $model->base_price,
             'description' => $model->description,
+            // Legacy rows predate visibility being written, and NULL there means
+            // "never configured" — treat those as visible so existing storefronts
+            // don't silently empty out.
+            'visible' => $model->visible === null ? true : (bool) $model->visible,
             'limits' => [
                 'cpu' => $model->cpu_limit,
                 'memory' => $model->memory_limit,

@@ -11,7 +11,6 @@ import {
     Pencil,
     Trash2,
     Star,
-    ChevronRight,
     Cpu,
     MemoryStick,
     HardDrive,
@@ -34,9 +33,11 @@ import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
-import { formatMib, formatCurrency } from '@/lib/format';
+import { useBilling } from '@/state/billing';
+import { formatMib } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { SectionCard, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '../editorChrome';
+import { StatePill } from './productChrome';
 
 interface FormState {
     name: string;
@@ -139,14 +140,30 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
     const nestOptions = useMemo(() => (nests ?? []).map(n => ({ value: String(n.id), label: n.name })), [nests]);
 
     const dirty = JSON.stringify(form) !== JSON.stringify(seed);
-    const canSave = form.name.trim().length >= 3 && form.eggId != null && form.allowedEggs.length > 0 && dirty;
 
     const canCreate = can(held, 'billing.category-create');
     const canUpdate = can(held, 'billing.category-update');
     const canEditProduct = can(held, 'billing.product-update');
     const canCreateProduct = can(held, 'billing.product-create');
     const canDeleteProduct = can(held, 'billing.product-delete');
-    const canSubmit = (editing ? canUpdate : canCreate) && canSave;
+
+    // The first blocker, in the order the form asks for things. Surfacing this
+    // is what makes the new-category flow work: a category can't be saved
+    // without a primary egg, and the egg picker only appears once a nest is
+    // chosen, so an admin who fills in just a name used to hit a Save button
+    // that looked live and did nothing at all.
+    const blockedReason =
+        !(editing ? canUpdate : canCreate)
+            ? m['admin.billing.categories.blocked.permission']()
+            : form.name.trim().length < 3
+              ? m['admin.billing.categories.blocked.name']()
+              : form.nestId == null
+                ? m['admin.billing.categories.blocked.nest']()
+                : form.allowedEggs.length === 0 || form.eggId == null
+                  ? m['admin.billing.categories.blocked.egg']()
+                  : null;
+
+    const canSubmit = blockedReason == null && dirty;
 
     const saveMutation = useMutation({
         mutationFn: async (values: CategoryValues) => {
@@ -208,132 +225,137 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
                 </h1>
             </div>
 
-            <SectionCard icon={Settings2} title={m['admin.billing.categories.section.settings']()} desc={m['admin.billing.categories.section.settingsDesc']()}>
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            {/*
+                Settings and the egg picker share one row so the product list below can
+                have the full page width — on a category you're editing, the products
+                are the thing you came for, not the name field.
+            */}
+            <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+                <SectionCard icon={Settings2} title={m['admin.billing.categories.section.settings']()} desc={m['admin.billing.categories.section.settingsDesc']()}>
                     <FieldRow label={m['admin.billing.categories.name']()}>
                         <Input value={form.name} onChange={e => set('name', e.target.value)} />
                     </FieldRow>
                     <FieldRow label={m['admin.billing.categories.icon']()} desc={m['admin.billing.categories.iconDesc']()}>
                         <Input value={form.icon} onChange={e => set('icon', e.target.value)} placeholder="server" />
                     </FieldRow>
-                </div>
-                <FieldRow label={m['admin.billing.categories.description']()}>
-                    <Input value={form.description} onChange={e => set('description', e.target.value)} />
-                </FieldRow>
+                    <FieldRow label={m['admin.billing.categories.description']()}>
+                        <Input value={form.description} onChange={e => set('description', e.target.value)} />
+                    </FieldRow>
 
-                <div className="flex flex-col gap-2">
-                    <p className="text-sm font-medium text-[var(--color-ink-muted)]">{m['admin.billing.categories.options']()}</p>
-                    <ToggleGroup>
-                        <ToggleRow
-                            label={m['admin.billing.categories.visible']()}
-                            desc={m['admin.billing.categories.visibleDesc']()}
-                            checked={form.visible}
-                            onChange={v => set('visible', v)}
-                        />
-                        <ToggleRow
-                            label={m['admin.billing.categories.allowEggChanges']()}
-                            desc={m['admin.billing.categories.allowEggChangesDesc']()}
-                            checked={form.allowEggChanges}
-                            onChange={v => set('allowEggChanges', v)}
-                        />
-                        <ToggleRow
-                            label={m['admin.billing.categories.allowPlanChanges']()}
-                            desc={m['admin.billing.categories.allowPlanChangesDesc']()}
-                            checked={form.allowPlanChanges}
-                            onChange={v => set('allowPlanChanges', v)}
-                        />
-                    </ToggleGroup>
-                </div>
-            </SectionCard>
-
-            <SectionCard
-                icon={EggIcon}
-                title={m['admin.billing.categories.section.eggs']()}
-                desc={m['admin.billing.categories.section.eggsDesc']()}
-                right={
-                    <span className="rounded-full bg-[var(--color-surface-2)] px-2.5 py-0.5 text-xs font-medium text-[var(--color-ink-muted)]">
-                        {m['admin.billing.categories.eggsSelected']({ count: form.allowedEggs.length })}
-                    </span>
-                }
-            >
-                <FieldRow label={m['admin.billing.categories.nest']()} desc={m['admin.billing.categories.nestDesc']()}>
-                    <Select
-                        value={form.nestId != null ? String(form.nestId) : undefined}
-                        onChange={v => {
-                            const n = Number(v);
-                            setForm(f => ({ ...f, nestId: Number.isFinite(n) && n > 0 ? n : null, eggId: null, allowedEggs: [] }));
-                        }}
-                        options={nestOptions}
-                        placeholder={m['admin.billing.categories.selectNest']()}
-                    />
-                </FieldRow>
-
-                {form.nestId == null ? (
-                    <p className="text-sm text-[var(--color-ink-faint)]">{m['admin.billing.categories.pickNestFirst']()}</p>
-                ) : !eggs ? (
-                    <div className="flex justify-center py-4">
-                        <Spinner className="h-5 w-5" />
+                    <div className="flex flex-col gap-2">
+                        <p className="text-sm font-medium text-[var(--color-ink-muted)]">{m['admin.billing.categories.options']()}</p>
+                        <ToggleGroup>
+                            <ToggleRow
+                                label={m['admin.billing.categories.visible']()}
+                                desc={m['admin.billing.categories.visibleDesc']()}
+                                checked={form.visible}
+                                onChange={v => set('visible', v)}
+                            />
+                            <ToggleRow
+                                label={m['admin.billing.categories.allowEggChanges']()}
+                                desc={m['admin.billing.categories.allowEggChangesDesc']()}
+                                checked={form.allowEggChanges}
+                                onChange={v => set('allowEggChanges', v)}
+                            />
+                            <ToggleRow
+                                label={m['admin.billing.categories.allowPlanChanges']()}
+                                desc={m['admin.billing.categories.allowPlanChangesDesc']()}
+                                checked={form.allowPlanChanges}
+                                onChange={v => set('allowPlanChanges', v)}
+                            />
+                        </ToggleGroup>
                     </div>
-                ) : (
-                    <FieldRow label={m['admin.billing.categories.allowedEggs']()} desc={m['admin.billing.categories.allowedEggsDesc']()}>
-                        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                            {eggs.map(egg => {
-                                const allowed = form.allowedEggs.includes(egg.id);
-                                const primary = form.eggId === egg.id;
-                                return (
-                                    <div
-                                        key={egg.id}
-                                        role="checkbox"
-                                        aria-checked={allowed}
-                                        tabIndex={0}
-                                        onClick={() => toggleEgg(egg.id)}
-                                        onKeyDown={e => {
-                                            if (e.key === ' ' || e.key === 'Enter') {
-                                                e.preventDefault();
-                                                toggleEgg(egg.id);
-                                            }
-                                        }}
-                                        className={cn(
-                                            'flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/60',
-                                            allowed
-                                                ? 'border-[var(--brand)]/40 bg-[var(--brand)]/5 hover:bg-[var(--brand)]/10'
-                                                : 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)] hover:bg-[var(--color-surface-2)]/70',
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            className="pointer-events-none accent-[var(--color-accent)]"
-                                            checked={allowed}
-                                            readOnly
-                                            tabIndex={-1}
-                                            aria-hidden
-                                        />
-                                        <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-ink)]">{egg.name}</span>
-                                        <button
-                                            type="button"
-                                            disabled={!allowed}
-                                            onClick={e => {
-                                                e.stopPropagation();
-                                                set('eggId', egg.id);
+                </SectionCard>
+
+                <SectionCard
+                    icon={EggIcon}
+                    title={m['admin.billing.categories.section.eggs']()}
+                    desc={m['admin.billing.categories.section.eggsDesc']()}
+                    right={
+                        <span className="rounded-full bg-[var(--color-surface-2)] px-2.5 py-0.5 text-xs font-medium text-[var(--color-ink-muted)]">
+                            {m['admin.billing.categories.eggsSelected']({ count: form.allowedEggs.length })}
+                        </span>
+                    }
+                >
+                    <FieldRow label={m['admin.billing.categories.nest']()} desc={m['admin.billing.categories.nestDesc']()}>
+                        <Select
+                            value={form.nestId != null ? String(form.nestId) : undefined}
+                            onChange={v => {
+                                const n = Number(v);
+                                setForm(f => ({ ...f, nestId: Number.isFinite(n) && n > 0 ? n : null, eggId: null, allowedEggs: [] }));
+                            }}
+                            options={nestOptions}
+                            placeholder={m['admin.billing.categories.selectNest']()}
+                        />
+                    </FieldRow>
+
+                    {form.nestId == null ? (
+                        <p className="text-sm text-[var(--color-ink-faint)]">{m['admin.billing.categories.pickNestFirst']()}</p>
+                    ) : !eggs ? (
+                        <div className="flex justify-center py-4">
+                            <Spinner className="h-5 w-5" />
+                        </div>
+                    ) : (
+                        <FieldRow label={m['admin.billing.categories.allowedEggs']()} desc={m['admin.billing.categories.allowedEggsDesc']()}>
+                            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-2">
+                                {eggs.map(egg => {
+                                    const allowed = form.allowedEggs.includes(egg.id);
+                                    const primary = form.eggId === egg.id;
+                                    return (
+                                        <div
+                                            key={egg.id}
+                                            role="checkbox"
+                                            aria-checked={allowed}
+                                            tabIndex={0}
+                                            onClick={() => toggleEgg(egg.id)}
+                                            onKeyDown={e => {
+                                                if (e.key === ' ' || e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    toggleEgg(egg.id);
+                                                }
                                             }}
-                                            title={m['admin.billing.categories.makePrimary']()}
                                             className={cn(
-                                                'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-30',
-                                                primary
-                                                    ? 'text-[var(--brand)]'
-                                                    : 'text-[var(--color-ink-faint)] hover:text-[var(--color-ink-muted)]',
+                                                'flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/60',
+                                                allowed
+                                                    ? 'border-[var(--brand)]/40 bg-[var(--brand)]/5 hover:bg-[var(--brand)]/10'
+                                                    : 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)] hover:bg-[var(--color-surface-2)]/70',
                                             )}
                                         >
-                                            <Star className={cn('h-3.5 w-3.5', primary && 'fill-[var(--brand)]')} />
-                                            {primary ? m['admin.billing.categories.primary']() : ''}
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </FieldRow>
-                )}
-            </SectionCard>
+                                            <input
+                                                type="checkbox"
+                                                className="pointer-events-none accent-[var(--color-accent)]"
+                                                checked={allowed}
+                                                readOnly
+                                                tabIndex={-1}
+                                                aria-hidden
+                                            />
+                                            <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-ink)]">{egg.name}</span>
+                                            <button
+                                                type="button"
+                                                disabled={!allowed}
+                                                onClick={e => {
+                                                    e.stopPropagation();
+                                                    set('eggId', egg.id);
+                                                }}
+                                                title={m['admin.billing.categories.makePrimary']()}
+                                                className={cn(
+                                                    'flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors disabled:opacity-30',
+                                                    primary
+                                                        ? 'text-[var(--brand)]'
+                                                        : 'text-[var(--color-ink-faint)] hover:text-[var(--color-ink-muted)]',
+                                                )}
+                                            >
+                                                <Star className={cn('h-3.5 w-3.5', primary && 'fill-[var(--brand)]')} />
+                                                {primary ? m['admin.billing.categories.primary']() : ''}
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </FieldRow>
+                    )}
+                </SectionCard>
+            </div>
 
             {editing && category && (
                 <ProductsSection
@@ -350,7 +372,12 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
                 </p>
             )}
 
-            <SaveBar dirty={dirty} saving={saveMutation.isPending} onDiscard={() => setForm(seed)} />
+            <SaveBar
+                dirty={dirty}
+                saving={saveMutation.isPending}
+                onDiscard={() => setForm(seed)}
+                blockedReason={blockedReason}
+            />
         </form>
     );
 }
@@ -370,6 +397,7 @@ function ProductsSection({
     const navigate = useNavigate();
     const qc = useQueryClient();
     const { push } = useFlashes();
+    const { money } = useBilling();
     const [del, setDel] = useState<BillingProduct | null>(null);
 
     const { data: products, isLoading } = useQuery({
@@ -409,27 +437,50 @@ function ProductsSection({
                     <Spinner className="h-5 w-5" />
                 </div>
             ) : !products || products.length === 0 ? (
-                <p className="text-sm text-[var(--color-ink-faint)]">{m['admin.billing.products.empty']()}</p>
+                <div className="flex flex-col items-start gap-3 rounded-lg border border-dashed border-[var(--color-border-strong)] px-4 py-6">
+                    <p className="text-sm text-[var(--color-ink-faint)]">{m['admin.billing.products.empty']()}</p>
+                    {canCreate && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/admin/billing/products/new?category=${categoryId}`)}
+                        >
+                            <Plus className="h-4 w-4" /> {m['admin.billing.products.new']()}
+                        </Button>
+                    )}
+                </div>
             ) : (
-                <ul className="flex flex-col gap-1.5">
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {products.map(p => (
                         <li
                             key={p.id}
-                            className="flex items-center gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-3 py-2.5"
+                            className="flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]"
                         >
                             <button
                                 type="button"
                                 disabled={!canEdit}
                                 onClick={() => navigate(`/admin/billing/products/${p.id}?category=${categoryId}`)}
-                                className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
+                                className="flex min-w-0 flex-1 flex-col items-start gap-2 p-4 text-left disabled:cursor-default"
                             >
-                                <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-sm font-medium text-[var(--color-ink)]">{p.name}</span>
-                                    <span className="text-xs text-[var(--color-ink-faint)]">
-                                        {p.price === 0 ? m['admin.billing.products.free']() : formatCurrency(p.price)}
+                                <span className="flex w-full min-w-0 items-center gap-2">
+                                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--color-ink)]">
+                                        {p.name}
                                     </span>
+                                    {!p.visible && (
+                                        <StatePill
+                                            on={false}
+                                            onLabel={m['admin.billing.products.shown']()}
+                                            offLabel={m['admin.billing.products.hidden']()}
+                                        />
+                                    )}
                                 </span>
-                                <span className="hidden items-center gap-3 font-mono text-xs tabular-nums text-[var(--color-ink-muted)] sm:flex">
+
+                                <span className="font-mono text-lg font-semibold tabular-nums text-[var(--brand-bright)]">
+                                    {p.price === 0 ? m['admin.billing.products.free']() : money(p.price)}
+                                </span>
+
+                                <span className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs tabular-nums text-[var(--color-ink-muted)]">
                                     <span className="flex items-center gap-1">
                                         <Cpu className="h-3.5 w-3.5" /> {p.limits.cpu || '∞'}%
                                     </span>
@@ -440,32 +491,36 @@ function ProductsSection({
                                         <HardDrive className="h-3.5 w-3.5" /> {formatMib(p.limits.disk)}
                                     </span>
                                 </span>
-                                {canEdit && <ChevronRight className="h-4 w-4 shrink-0 text-[var(--color-ink-faint)]" />}
                             </button>
-                            <span className="flex shrink-0 items-center gap-1 border-l border-[var(--color-border)] pl-2">
-                                {canEdit && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        aria-label={m['admin.billing.products.edit']()}
-                                        onClick={() => navigate(`/admin/billing/products/${p.id}?category=${categoryId}`)}
-                                    >
-                                        <Pencil className="h-4 w-4" />
-                                    </Button>
-                                )}
-                                {canDelete && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        aria-label={m['admin.billing.products.delete']()}
-                                        onClick={() => setDel(p)}
-                                    >
-                                        <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
-                                    </Button>
-                                )}
-                            </span>
+
+                            {(canEdit || canDelete) && (
+                                <span className="flex items-center justify-end gap-1 border-t border-[var(--color-border)] px-2 py-1.5">
+                                    {canEdit && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label={m['admin.billing.products.edit']()}
+                                            onClick={() =>
+                                                navigate(`/admin/billing/products/${p.id}?category=${categoryId}`)
+                                            }
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    {canDelete && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label={m['admin.billing.products.delete']()}
+                                            onClick={() => setDel(p)}
+                                        >
+                                            <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
+                                        </Button>
+                                    )}
+                                </span>
+                            )}
                         </li>
                     ))}
                 </ul>

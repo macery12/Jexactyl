@@ -4,8 +4,10 @@ namespace Everest\Http\Controllers\Api\Application\Billing;
 
 use Ramsey\Uuid\Uuid;
 use Everest\Facades\Activity;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
 use Spatie\QueryBuilder\QueryBuilder;
@@ -53,6 +55,53 @@ class ProductController extends ApplicationApiController
     }
 
     /**
+     * Build the writable attributes shared by store() and update().
+     *
+     * Limits arrive nested under `limits` from the admin UI but are validated as
+     * flat `*_limit` keys, so accept either shape rather than hard-indexing one.
+     */
+    private function attributesFrom(Request $request, ?bool $visibleDefault = true): array
+    {
+        $limit = function (string $key, int $default = 0) use ($request): int {
+            $nested = $request->input("limits.$key");
+
+            return (int) ($nested ?? $request->input("{$key}_limit") ?? $default);
+        };
+
+        // On update the caller may omit `visible` entirely; passing null as the
+        // default drops the key so the stored value is preserved rather than
+        // being silently reset to visible.
+        $visible = $request->has('visible')
+            ? ['visible' => $request->boolean('visible')]
+            : ($visibleDefault === null ? [] : ['visible' => $visibleDefault]);
+
+        return $visible + [
+            'name' => $request->input('name'),
+            'icon' => $request->input('icon'),
+            // The single source of truth for what this plan costs: every cycle
+            // price is derived from it. There is no separate billing basis.
+            'price' => (float) $request->input('price'),
+            'description' => $request->input('description'),
+            'cpu_limit' => $limit('cpu'),
+            'memory_limit' => $limit('memory'),
+            'disk_limit' => $limit('disk'),
+            'backup_limit' => $limit('backup'),
+            'database_limit' => $limit('database'),
+            'allocation_limit' => $limit('allocation'),
+            'subdomain_limit' => $limit('subdomain', 1),
+        ];
+    }
+
+    /**
+     * Drop the storefront's cached product list for a category so visibility and
+     * price edits show up immediately instead of after the 60s TTL.
+     */
+    private function flushStorefrontCache(string $categoryUuid): void
+    {
+        Cache::forget("billing.storefront.products.{$categoryUuid}");
+    }
+
+    /**
      * Store a new product category in the database.
      */
     public function store(StoreBillingProductRequest $request, string $category): JsonResponse
@@ -61,27 +110,17 @@ class ProductController extends ApplicationApiController
 
         // TODO(jex): clean this up, make a service or somethin'
         try {
-            $product = Product::create([
+            $product = Product::create($this->attributesFrom($request) + [
                 'uuid' => Uuid::uuid4()->toString(),
                 'category_uuid' => $categoryModel->uuid,
-                'name' => $request->input('name'),
-                'icon' => $request->input('icon'),
-                'price' => (float) $request->input('price'),
-                'base_price' => $request->input('base_price') ? (float) $request->input('base_price') : null,
-                'description' => $request->input('description'),
-                'cpu_limit' => $request['limits']['cpu'],
-                'memory_limit' => $request['limits']['memory'],
-                'disk_limit' => $request['limits']['disk'],
-                'backup_limit' => $request['limits']['backup'],
-                'database_limit' => $request['limits']['database'],
-                'allocation_limit' => $request['limits']['allocation'],
-                'subdomain_limit' => $request['limits']['subdomain'] ?? 1,
             ]);
 
             // Create default billing cycles if provided
             if ($request->has('billing_cycles')) {
                 $this->billingCycleService->syncBillingCycles($product, $request->input('billing_cycles'));
             }
+
+            $this->flushStorefrontCache($categoryModel->uuid);
         } catch (\Exception $ex) {
             throw new \Exception('Failed to create a new product: ' . $ex->getMessage());
         }
@@ -104,25 +143,14 @@ class ProductController extends ApplicationApiController
         $productModel = Product::findOrFail((int) $product);
 
         try {
-            $productModel->update([
-                'name' => $request->input('name'),
-                'icon' => $request->input('icon'),
-                'price' => (float) $request->input('price'),
-                'base_price' => $request->input('base_price') ? (float) $request->input('base_price') : null,
-                'description' => $request->input('description'),
-                'cpu_limit' => $request['limits']['cpu'],
-                'memory_limit' => $request['limits']['memory'],
-                'disk_limit' => $request['limits']['disk'],
-                'backup_limit' => $request['limits']['backup'],
-                'database_limit' => $request['limits']['database'],
-                'allocation_limit' => $request['limits']['allocation'],
-                'subdomain_limit' => $request['limits']['subdomain'] ?? 1,
-            ]);
+            $productModel->update($this->attributesFrom($request, null));
 
             // Update billing cycles if provided
             if ($request->has('billing_cycles')) {
                 $this->billingCycleService->syncBillingCycles($productModel, $request->input('billing_cycles'));
             }
+
+            $this->flushStorefrontCache($productModel->category_uuid);
         } catch (\Exception $ex) {
             throw new \Exception('Failed to update a product: ' . $ex->getMessage());
         }
@@ -154,7 +182,10 @@ class ProductController extends ApplicationApiController
     public function delete(DeleteBillingProductRequest $request, string $category, string $product): Response
     {
         $productModel = Product::findOrFail((int) $product);
+        $categoryUuid = $productModel->category_uuid;
         $productModel->delete();
+
+        $this->flushStorefrontCache($categoryUuid);
 
         Activity::event('admin:billing:products:delete')
             ->property('product', $productModel)

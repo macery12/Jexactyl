@@ -20,7 +20,6 @@ export interface StorefrontProduct {
     name: string;
     icon: string | null;
     price: number;
-    base_price: number | null;
     description: string | null;
     limits: StorefrontProductLimits;
 }

@@ -1,5 +1,5 @@
 import { m } from '@/i18n';
-import { Save, RotateCcw, type LucideIcon } from 'lucide-react';
+import { Save, RotateCcw, AlertTriangle, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
@@ -101,18 +101,43 @@ export function ToggleRow({
     );
 }
 
-export function SaveBar({ dirty, saving, onDiscard }: { dirty: boolean; saving: boolean; onDiscard: () => void }) {
+export function SaveBar({
+    dirty,
+    saving,
+    onDiscard,
+    blockedReason,
+}: {
+    dirty: boolean;
+    saving: boolean;
+    onDiscard: () => void;
+    /**
+     * Why the form can't be submitted yet, if it can't. Passing this disables
+     * Save and shows the reason — an enabled button whose handler silently
+     * bails reads as "saving is broken", which is exactly how the new-category
+     * form failed before anyone had picked a nest.
+     */
+    blockedReason?: string | null;
+}) {
+    const blocked = Boolean(blockedReason);
+
     return (
         <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/95 px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur">
-            <span className={cn('flex items-center gap-2 text-xs', dirty ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink-faint)]')}>
-                <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-ink-faint)]')} />
-                {dirty ? m['admin.billing.common.unsaved']() : m['admin.billing.common.allSaved']()}
-            </span>
+            {blocked ? (
+                <span className="flex items-center gap-2 text-xs text-[var(--color-warning)]">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    {blockedReason}
+                </span>
+            ) : (
+                <span className={cn('flex items-center gap-2 text-xs', dirty ? 'text-[var(--color-warning)]' : 'text-[var(--color-ink-faint)]')}>
+                    <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-[var(--color-warning)]' : 'bg-[var(--color-ink-faint)]')} />
+                    {dirty ? m['admin.billing.common.unsaved']() : m['admin.billing.common.allSaved']()}
+                </span>
+            )}
             <div className="flex items-center gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty || saving}>
                     <RotateCcw className="h-4 w-4" /> {m['common.actions.discard']()}
                 </Button>
-                <Button type="submit" size="sm" disabled={!dirty || saving}>
+                <Button type="submit" size="sm" disabled={!dirty || saving || blocked}>
                     {saving ? <Spinner className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                     {m['common.actions.save']()}
                 </Button>

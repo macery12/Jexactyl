@@ -20,8 +20,8 @@ export interface BillingProduct {
     name: string;
     icon: string | null;
     price: number;
-    basePrice: number | null;
     description: string | null;
+    visible: boolean;
     limits: ProductLimits;
 }
 
@@ -42,7 +42,6 @@ export interface ProductValues {
     name: string;
     icon: string | null;
     price: number;
-    base_price: number | null;
     description: string | null;
     visible: boolean;
     limits: ProductLimits;
@@ -58,8 +57,10 @@ export function toProduct(row: any): BillingProduct {
         name: a.name,
         icon: a.icon ?? null,
         price: Number(a.price ?? 0),
-        basePrice: a.base_price != null ? Number(a.base_price) : null,
         description: a.description && a.description.length > 0 ? a.description : null,
+        // Rows created before visibility was persisted report null; treat those
+        // as visible, matching the transformer's own fallback.
+        visible: a.visible == null ? true : Boolean(a.visible),
         limits: {
             cpu: Number(l.cpu ?? 0),
             memory: Number(l.memory ?? 0),
@@ -79,7 +80,6 @@ function toPayload(categoryUuid: string, v: ProductValues): Record<string, unkno
         name: v.name,
         icon: v.icon,
         price: v.price,
-        base_price: v.base_price,
         description: v.description,
         visible: v.visible,
         limits: v.limits,

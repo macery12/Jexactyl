@@ -144,7 +144,6 @@ class BillingConfigImportService
                     'name' => $product['name'],
                     'icon' => $product['icon'] ?? null,
                     'price' => (float) $product['price'],
-                    'base_price' => isset($product['base_price']) ? (float) $product['base_price'] : null,
                     'description' => $product['description'],
                     'visible' => (bool) $product['visible'],
                     'cpu_limit' => (int) $product['cpu_limit'],

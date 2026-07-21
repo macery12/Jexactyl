@@ -19,7 +19,7 @@ class BillingCycleService
     public function calculatePrice(Product $product, int $billingDays, ?int $nodeId = null): array
     {
         $defaultBillingDays = BillingDefaults::defaultBillingDays();
-        $basePrice = $product->getEffectiveBasePrice();
+        $basePrice = (float) $product->price;
         $perDayPrice = $basePrice / $defaultBillingDays;
 
         // Get multiplier steps from settings

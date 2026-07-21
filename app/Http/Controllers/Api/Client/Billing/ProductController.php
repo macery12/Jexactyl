@@ -28,7 +28,11 @@ class ProductController extends ClientApiController
         $products = Cache::remember(
             "billing.storefront.products.{$category->uuid}",
             60,
-            fn () => Product::where('category_uuid', $category->uuid)->get(),
+            fn () => Product::where('category_uuid', $category->uuid)
+                // NULL means the row predates visibility ever being persisted;
+                // those stay on the storefront. Only an explicit false hides.
+                ->where(fn ($q) => $q->where('visible', true)->orWhereNull('visible'))
+                ->get(),
         );
 
         if ($products->isEmpty()) {

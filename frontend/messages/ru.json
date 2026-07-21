@@ -909,8 +909,6 @@
   "admin.billing.overview.upcomingRenewals": "Предстоящие продления",
   "admin.billing.products.backToCatalog": "Вернуться к каталогу",
   "admin.billing.products.backToCategory": "Вернуться к {name}",
-  "admin.billing.products.basePrice": "Базовая цена",
-  "admin.billing.products.basePriceDesc": "Рекомендуемая первоначальная цена, указанная зачеркнутой линией.",
   "admin.billing.products.count": "{count} товаров",
   "admin.billing.products.created": "Продукт создан.",
   "admin.billing.products.delete": "Удалить товар",

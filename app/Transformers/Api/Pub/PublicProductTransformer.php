@@ -24,7 +24,6 @@ class PublicProductTransformer extends Transformer
             'name' => $model->name,
             'icon' => $model->icon,
             'price' => $model->price,
-            'base_price' => $model->base_price,
             'description' => $model->description,
             'limits' => [
                 'cpu' => $model->cpu_limit,
