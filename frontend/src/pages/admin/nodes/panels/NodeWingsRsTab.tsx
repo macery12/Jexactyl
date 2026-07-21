@@ -13,10 +13,14 @@ import {
     Info,
     CheckCircle2,
     Circle,
+    ArrowUpCircle,
 } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Meter } from '@/components/ui/Meter';
 import { Spinner } from '@/components/ui/Spinner';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
+import { Input, Field } from '@/components/ui/Input';
 import { useNode } from '../NodeContext';
 import {
     detectWingsRs,
@@ -24,8 +28,11 @@ import {
     getWingsRsStats,
     getWingsRsLogs,
     getWingsRsLogContents,
+    upgradeWingsRs,
 } from '@/api/wingsRs';
-import { formatBytes, formatUptime, timeAgo } from '@/lib/format';
+import { firstError } from '@/lib/apiError';
+import { useFlashes } from '@/state/flashes';
+import { formatBytes, timeAgo } from '@/lib/format';
 
 const rate = (bps: number) => `${formatBytes(bps)}/s`;
 
@@ -50,20 +57,42 @@ function StatCell({ icon: Icon, label, value, sub }: { icon: typeof Cpu; label: 
     );
 }
 
-function DetectState({ supercharged, onDetect, detecting }: { supercharged: boolean; onDetect: () => void; detecting: boolean }) {
+function DetectState({
+    supercharged,
+    onDetect,
+    detecting,
+    onUpgrade,
+}: {
+    supercharged: boolean;
+    onDetect: () => void;
+    detecting: boolean;
+    onUpgrade: () => void;
+}) {
     const node = useNode();
     return (
         <Panel
             title={m['admin.nodes.wingsRs.integration']()}
             icon={Zap}
             right={
-                <button
-                    onClick={onDetect}
-                    disabled={detecting}
-                    className="inline-flex items-center gap-1.5 rounded-sm border border-[var(--color-border-strong)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-40"
-                >
-                    <Rocket className="h-3 w-3" /> {detecting ? m['admin.nodes.wingsRs.detecting']() : m['admin.nodes.wingsRs.redetect']()}
-                </button>
+                <div className="flex items-center gap-2">
+                    {/* Self-upgrade is a Wings-RS-only endpoint; the panel rejects it
+                        outright on standard wings nodes. */}
+                    {supercharged && (
+                        <button
+                            onClick={onUpgrade}
+                            className="inline-flex items-center gap-1.5 rounded-sm border border-[var(--color-border-strong)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)]"
+                        >
+                            <ArrowUpCircle className="h-3 w-3" /> {m['admin.nodes.wingsRs.upgrade']()}
+                        </button>
+                    )}
+                    <button
+                        onClick={onDetect}
+                        disabled={detecting}
+                        className="inline-flex items-center gap-1.5 rounded-sm border border-[var(--color-border-strong)] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-40"
+                    >
+                        <Rocket className="h-3 w-3" /> {detecting ? m['admin.nodes.wingsRs.detecting']() : m['admin.nodes.wingsRs.redetect']()}
+                    </button>
+                </div>
             }
         >
             <div className="flex items-center gap-2.5 py-1">
@@ -84,6 +113,105 @@ function DetectState({ supercharged, onDetect, detecting }: { supercharged: bool
                 </div>
             </div>
         </Panel>
+    );
+}
+
+// Mirrors the server-side validation in NodeWingsRsController::upgrade so the
+// admin gets feedback before the round trip. The daemon verifies the checksum
+// again after downloading and returns 409 on a mismatch.
+const HTTPS_URL = /^https:\/\/\S+$/i;
+const SHA256 = /^[0-9a-f]{64}$/;
+
+function UpgradeDialog({ open, onClose, nodeId }: { open: boolean; onClose: () => void; nodeId: number }) {
+    const push = useFlashes(s => s.push);
+    const [url, setUrl] = useState('');
+    const [sha256, setSha256] = useState('');
+    const [error, setError] = useState<string | null>(null);
+
+    const urlValid = HTTPS_URL.test(url.trim());
+    const shaValid = SHA256.test(sha256.trim().toLowerCase());
+
+    const close = () => {
+        setUrl('');
+        setSha256('');
+        setError(null);
+        onClose();
+    };
+
+    const upgrade = useMutation({
+        mutationFn: () => upgradeWingsRs(nodeId, { url: url.trim(), sha256: sha256.trim().toLowerCase() }),
+        onSuccess: () => {
+            push({ type: 'success', message: m['admin.nodes.wingsRs.upgradeQueued']() });
+            close();
+        },
+        // Surface whatever the daemon said verbatim — on a failed upgrade this is
+        // the only diagnostic the admin gets.
+        onError: err => setError(firstError(err) ?? m['common.states.genericError']()),
+    });
+
+    return (
+        <Modal
+            open={open}
+            onClose={close}
+            size="md"
+            title={m['admin.nodes.wingsRs.upgradeTitle']()}
+            description={m['admin.nodes.wingsRs.upgradeBody']()}
+            footer={
+                <div className="flex justify-end gap-2">
+                    <Button variant="ghost" size="sm" onClick={close} disabled={upgrade.isPending}>
+                        {m['common.actions.cancel']()}
+                    </Button>
+                    <Button
+                        size="sm"
+                        onClick={() => {
+                            setError(null);
+                            upgrade.mutate();
+                        }}
+                        disabled={!urlValid || !shaValid || upgrade.isPending}
+                    >
+                        {upgrade.isPending ? <Spinner className="h-4 w-4" /> : <ArrowUpCircle className="h-4 w-4" />}
+                        {m['admin.nodes.wingsRs.upgradeConfirm']()}
+                    </Button>
+                </div>
+            }
+        >
+            <div className="flex flex-col gap-4">
+                <Field
+                    label={m['admin.nodes.wingsRs.upgradeUrl']()}
+                    hint={m['admin.nodes.wingsRs.upgradeUrlHint']()}
+                    error={url.length > 0 && !urlValid ? m['admin.nodes.wingsRs.upgradeUrlInvalid']() : undefined}
+                >
+                    <Input
+                        value={url}
+                        onChange={e => setUrl(e.target.value)}
+                        placeholder="https://github.com/…/wings-rs"
+                        invalid={url.length > 0 && !urlValid}
+                        autoComplete="off"
+                        spellCheck={false}
+                    />
+                </Field>
+                <Field
+                    label={m['admin.nodes.wingsRs.upgradeSha']()}
+                    hint={m['admin.nodes.wingsRs.upgradeShaHint']()}
+                    error={sha256.length > 0 && !shaValid ? m['admin.nodes.wingsRs.upgradeShaInvalid']() : undefined}
+                >
+                    <Input
+                        value={sha256}
+                        onChange={e => setSha256(e.target.value)}
+                        placeholder="a1b2c3…"
+                        invalid={sha256.length > 0 && !shaValid}
+                        className="font-mono"
+                        autoComplete="off"
+                        spellCheck={false}
+                    />
+                </Field>
+                {error && (
+                    <p className="rounded-sm border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
+                        {error}
+                    </p>
+                )}
+            </div>
+        </Modal>
     );
 }
 
@@ -119,6 +247,7 @@ export function NodeWingsRsTab() {
         retry: false,
     });
 
+    const [upgrading, setUpgrading] = useState(false);
     const [activeLog, setActiveLog] = useState<string | null>(null);
     useEffect(() => {
         if (!activeLog && logs && logs.length > 0) setActiveLog(logs[0]!.name);
@@ -133,7 +262,13 @@ export function NodeWingsRsTab() {
 
     return (
         <div className="flex flex-col gap-4">
-            <DetectState supercharged={supercharged} onDetect={() => detect.mutate()} detecting={detect.isPending} />
+            <DetectState
+                supercharged={supercharged}
+                onDetect={() => detect.mutate()}
+                detecting={detect.isPending}
+                onUpgrade={() => setUpgrading(true)}
+            />
+            <UpgradeDialog open={upgrading} onClose={() => setUpgrading(false)} nodeId={node.id} />
 
             {!supercharged ? (
                 <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-14 text-center">
@@ -199,13 +334,23 @@ export function NodeWingsRsTab() {
                             ) : (
                                 <div className="flex flex-col">
                                     <Row label={m['admin.nodes.wingsRs.version']()} value={overview.version} />
-                                    <Row label={m['admin.nodes.wingsRs.rust']()} value={overview.rustVersion ?? '—'} />
-                                    <Row label={m['admin.nodes.wingsRs.build']()} value={overview.buildDate ?? '—'} />
                                     <Row label={m['admin.nodes.wingsRs.kernel']()} value={overview.kernel} />
-                                    <Row label={m['admin.nodes.wingsRs.uptime']()} value={overview.uptime != null ? formatUptime(overview.uptime * 1000) : '—'} />
+                                    <Row label={m['admin.nodes.wingsRs.arch']()} value={overview.arch} />
+                                    <Row label={m['admin.nodes.wingsRs.cpu']()} value={overview.cpuModel ?? '—'} />
                                     <Row
-                                        label={m['admin.nodes.wingsRs.features']()}
-                                        value={overview.features.length > 0 ? m['admin.nodes.wingsRs.featuresEnabled']({ count: overview.features.length }) : '—'}
+                                        label={m['admin.nodes.wingsRs.containerType']()}
+                                        value={overview.containerType ?? '—'}
+                                    />
+                                    <Row
+                                        label={m['admin.nodes.wingsRs.servers']()}
+                                        value={
+                                            overview.servers
+                                                ? m['admin.nodes.wingsRs.serversValue']({
+                                                      online: overview.servers.online,
+                                                      total: overview.servers.total,
+                                                  })
+                                                : '—'
+                                        }
                                     />
                                 </div>
                             )}

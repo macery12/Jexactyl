@@ -12,15 +12,17 @@ export interface WingsRsDetection {
     detectedAt: string | null;
 }
 
+// Only what /api/system/overview actually returns. Wings-RS 1.0.0-pre.4 emits no
+// rust version, build date, uptime or feature list, so those rows were dropped
+// rather than left permanently blank.
 export interface WingsRsOverview {
     version: string;
-    rustVersion: string | null;
-    buildDate: string | null;
-    os: string;
+    containerType: string | null;
     arch: string;
     kernel: string;
-    uptime: number | null;
-    features: string[];
+    cpuModel: string | null;
+    cpuCount: number | null;
+    servers: { total: number; online: number; offline: number } | null;
 }
 
 export interface WingsRsStats {
@@ -49,15 +51,22 @@ export async function detectWingsRs(nodeId: number | string): Promise<WingsRsDet
 
 export async function getWingsRsOverview(nodeId: number | string): Promise<WingsRsOverview> {
     const { data } = await http.get(`/api/application/nodes/${nodeId}/wings-rs/overview`);
+    const servers = data?.servers;
+
     return {
         version: data?.version ?? 'unknown',
-        rustVersion: data?.rust_version ?? data?.rust ?? null,
-        buildDate: data?.build_date ?? data?.build ?? null,
-        os: data?.os ?? data?.container_type ?? 'unknown',
-        arch: data?.arch ?? data?.architecture ?? 'unknown',
-        kernel: data?.kernel ?? data?.kernel_version ?? 'unknown',
-        uptime: data?.uptime !== undefined ? Number(data.uptime) : null,
-        features: Array.isArray(data?.features) ? data.features : [],
+        containerType: data?.container_type ?? data?.os ?? null,
+        arch: data?.architecture ?? data?.arch ?? 'unknown',
+        kernel: data?.kernel_version ?? data?.kernel ?? 'unknown',
+        cpuModel: data?.cpu?.brand ?? data?.cpu?.name ?? null,
+        cpuCount: data?.cpu?.cpu_count != null ? Number(data.cpu.cpu_count) : null,
+        servers: servers
+            ? {
+                  total: Number(servers.total ?? 0),
+                  online: Number(servers.online ?? 0),
+                  offline: Number(servers.offline ?? 0),
+              }
+            : null,
     };
 }
 

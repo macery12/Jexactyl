@@ -1,6 +1,7 @@
 import { m, td } from '@/i18n';
 import { useQuery } from '@tanstack/react-query';
-import { Layers } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ChevronRight, Layers } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { useNode } from '../NodeContext';
 import { getNodeServers } from '@/api/nodes';
@@ -42,9 +43,11 @@ export function NodeServersTab() {
             ) : (
                 <div className="flex flex-col">
                     {servers.map(s => (
-                        <div
+                        <Link
                             key={s.id}
-                            className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] py-2.5 last:border-0"
+                            to={`/admin/infrastructure/servers/${s.id}`}
+                            title={m['admin.nodes.serversTab.manage']()}
+                            className="group -mx-2 flex items-center justify-between gap-3 rounded-sm border-b border-[var(--color-border)] px-2 py-2.5 transition-colors last:border-0 hover:bg-[var(--color-surface-2)]"
                         >
                             <div className="flex min-w-0 items-center gap-2.5">
                                 <Badge tone={s.suspended ? 'danger' : (stateTone[s.status ?? 'offline'] ?? 'muted')}>
@@ -54,10 +57,11 @@ export function NodeServersTab() {
                                 </Badge>
                                 <span className="truncate text-sm text-[var(--color-ink)]">{s.name}</span>
                             </div>
-                            <span className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--color-ink-faint)]">
+                            <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums text-[var(--color-ink-faint)]">
                                 {formatMib(s.memory)} · {formatMib(s.disk)}
+                                <ChevronRight className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
                             </span>
-                        </div>
+                        </Link>
                     ))}
                 </div>
             )}

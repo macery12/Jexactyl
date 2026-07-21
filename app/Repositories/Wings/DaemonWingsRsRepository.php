@@ -101,9 +101,12 @@ class DaemonWingsRsRepository extends DaemonRepository
     /**
      * POST /api/system/upgrade — trigger Wings-RS self-upgrade.
      *
-     * The restart mechanism is intentionally left to the daemon; this panel
-     * endpoint no longer forwards caller-supplied restart commands or custom
-     * download headers to prevent arbitrary command/header injection.
+     * The daemon requires all five fields — its Payload struct has no serde
+     * defaults, so omitting any of them fails deserialization before the
+     * upgrade is even attempted. It then spawns `restart_command` verbatim,
+     * which is why the command and the download headers come from server-side
+     * config instead of the API request: callers must not be able to turn this
+     * endpoint into arbitrary command execution on the node.
      */
     public function upgradeSystem(string $url, string $sha256): void
     {
@@ -113,7 +116,14 @@ class DaemonWingsRsRepository extends DaemonRepository
             $this->getHttpClient()->post('/api/system/upgrade', [
                 'json' => [
                     'url' => $url,
+                    // No extra download headers: the binary URL must be publicly
+                    // fetchable. Sent explicitly because the field is required.
+                    'headers' => (object) [],
                     'sha256' => $sha256,
+                    'restart_command' => config('everest.wings_rs.restart_command'),
+                    'restart_command_args' => array_values(
+                        config('everest.wings_rs.restart_command_args')
+                    ),
                 ],
             ]);
         } catch (TransferException $exception) {

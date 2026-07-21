@@ -100,6 +100,7 @@ class ServerTransferService
         // Generate a token for the transfer.
         $token = $this->jwtService
             ->setExpiresAt(CarbonImmutable::now()->addMinutes(15))
+            ->setScope(NodeJWTService::SCOPE_TRANSFER)
             ->setSubject($server->uuid)
             ->setClaims(['server_uuid' => $server->uuid])
             ->handle($node, $server->uuid . $transfer->id);

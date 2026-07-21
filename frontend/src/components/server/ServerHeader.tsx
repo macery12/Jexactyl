@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, Copy, Check, Play, RotateCcw, Square } from 'lucide-react';
+import { ChevronLeft, Copy, Check, Play, RotateCcw, Shield, Square } from 'lucide-react';
 import { useServer } from './ServerContext';
+import { useSession } from '@/state/session';
 import { useServerSocket } from '@/state/serverSocket';
 import { SocketRequest } from '@/lib/Websocket';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
-import { td } from '@/i18n';
+import { m, td } from '@/i18n';
 
 const stateMeta: Record<string, { label: string; dot: string }> = {
     running: { label: 'Running', dot: 'bg-[var(--color-accent)]' },
@@ -17,6 +18,7 @@ const stateMeta: Record<string, { label: string; dot: string }> = {
 
 export function ServerHeader() {
     const server = useServer();
+    const rootAdmin = useSession(s => Boolean(s.user?.root_admin));
     const status = useServerSocket(s => s.status);
     const instance = useServerSocket(s => s.instance);
     const connected = useServerSocket(s => s.connected);
@@ -90,8 +92,19 @@ export function ServerHeader() {
                 </div>
             </div>
 
-            {canControl && !suspended && (
-                <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
+                {/* Admin escape hatch back to this server's admin page. The admin area
+                    routes by numeric primary key, not the client identifier. */}
+                {rootAdmin && (
+                    <Link
+                        to={`/admin/infrastructure/servers/${server.internalId}`}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-[var(--color-border-strong)] px-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
+                    >
+                        <Shield className="h-3.5 w-3.5" /> {m['server.header.viewAsAdmin']()}
+                    </Link>
+                )}
+                {canControl && !suspended && (
+                    <>
                     <button
                         onClick={() => send('start')}
                         disabled={!isOffline || !connected}
@@ -113,8 +126,9 @@ export function ServerHeader() {
                     >
                         <Square className="h-3.5 w-3.5" /> Stop
                     </button>
-                </div>
-            )}
+                    </>
+                )}
+            </div>
         </div>
     );
 }

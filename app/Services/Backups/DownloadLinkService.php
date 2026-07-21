@@ -29,6 +29,7 @@ class DownloadLinkService
 
         $token = $this->jwtService
             ->setExpiresAt(CarbonImmutable::now()->addMinutes(15))
+            ->setScope(NodeJWTService::SCOPE_BACKUP_DOWNLOAD)
             ->setUser($user)
             ->setClaims([
                 'backup_uuid' => $backup->uuid,

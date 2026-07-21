@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { Server, Plus } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -6,6 +7,7 @@ import { getServers } from '@/api/servers';
 import { getServerResources } from '@/api/serverResources';
 import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
+import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { StatTiles } from './StatTiles';
 import { LiveServerCard } from './LiveServerCard';
@@ -15,20 +17,29 @@ import { AccountHealth } from './AccountHealth';
 
 export default function DashboardPage() {
     const user = useSession(s => s.user);
+    const rootAdmin = Boolean(user?.root_admin);
     const billingEnabled = useFlags(s => s.everest)?.billing.enabled ?? false;
 
+    // Admins can flip the list between their own servers and every server on the
+    // system. The scope is part of the query key so the two lists cache separately.
+    const [showAll, setShowAll] = useState(false);
+    const scope = rootAdmin && showAll ? 'admin-all' : undefined;
+
     const { data: servers, isLoading, isError, error } = useQuery({
-        queryKey: ['servers'],
-        queryFn: getServers,
+        queryKey: ['servers', scope ?? 'own'],
+        queryFn: () => getServers(scope),
     });
 
     // Live per-server usage. Centralised here so the cards stay presentational
-    // and the "running" stat can aggregate across all of them. Polls every 10s.
+    // and the "running" stat can aggregate across all of them. One request per
+    // server per tick, so back the cadence off as the list grows — an admin
+    // browsing every server on the system would otherwise hammer the API.
+    const pollInterval = (servers?.length ?? 0) > 24 ? 60_000 : 10_000;
     const resourceQueries = useQueries({
         queries: (servers ?? []).map(s => ({
             queryKey: ['resources', s.id],
             queryFn: () => getServerResources(s.id),
-            refetchInterval: 10_000,
+            refetchInterval: pollInterval,
             enabled: !!servers,
         })),
     });
@@ -86,7 +97,29 @@ export default function DashboardPage() {
 
                     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                         <div className="flex flex-col gap-4 xl:col-span-2">
-                            <h2 className="text-sm font-semibold text-[var(--color-ink-muted)]">{m['dashboard.yourServers']()}</h2>
+                            <div className="flex items-center justify-between gap-3">
+                                <h2 className="text-sm font-semibold text-[var(--color-ink-muted)]">
+                                    {showAll ? m['dashboard.allServers']() : m['dashboard.yourServers']()}
+                                </h2>
+                                {rootAdmin && (
+                                    <div className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--color-border-strong)] p-0.5">
+                                        {([false, true] as const).map(all => (
+                                            <button
+                                                key={String(all)}
+                                                onClick={() => setShowAll(all)}
+                                                className={cn(
+                                                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                                                    showAll === all
+                                                        ? 'bg-[var(--color-surface-2)] text-[var(--color-ink)]'
+                                                        : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+                                                )}
+                                            >
+                                                {all ? m['dashboard.scope.all']() : m['dashboard.scope.mine']()}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                             {servers.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[var(--color-border-strong)] bg-[var(--color-surface)]/40 px-6 py-16 text-center">
                                     <Server className="mb-4 h-7 w-7 text-[var(--color-ink-faint)]" />

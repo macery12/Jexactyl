@@ -54,6 +54,7 @@ class WebsocketController extends ClientApiController
 
         $token = $this->jwtService
             ->setExpiresAt(CarbonImmutable::now()->addMinutes(10))
+            ->setScope(NodeJWTService::SCOPE_WEBSOCKET)
             ->setUser($request->user())
             ->setClaims([
                 'server_uuid' => $server->uuid,

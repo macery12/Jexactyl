@@ -142,6 +142,7 @@ class FileController extends ClientApiController
     {
         $token = $this->jwtService
             ->setExpiresAt(CarbonImmutable::now()->addMinutes(15))
+            ->setScope(NodeJWTService::SCOPE_FILE_DOWNLOAD)
             ->setUser($request->user())
             ->setClaims([
                 'file_path' => rawurldecode($request->get('file')),

@@ -44,8 +44,10 @@ function toServer({ attributes: a }: FractalServer): ServerListItem {
 }
 
 // GET /api/client — servers the current user can access (same endpoint V1 uses).
-export async function getServers(): Promise<ServerListItem[]> {
-    const { data } = await http.get('/api/client', { params: { per_page: 100 } });
+// Passing 'admin-all' returns every server on the system; the backend silently
+// returns nothing for non-admins, so it is safe to send unconditionally.
+export async function getServers(type?: 'admin-all'): Promise<ServerListItem[]> {
+    const { data } = await http.get('/api/client', { params: { per_page: 100, type } });
     return (data.data ?? []).map(toServer);
 }
 
@@ -113,9 +115,11 @@ export async function getServer(id: string): Promise<ServerDetail> {
         ...toServer({ attributes: a }),
         status: a.status,
         dockerImage: a.docker_image ?? '',
-        isInstalling: a.is_installing ?? false,
+        // The transformer only emits `status`; there are no is_installing/is_suspended
+        // keys to read, so derive both from it (as V1 did) or the badges never render.
+        isInstalling: a.status === 'installing',
         isTransferring: a.is_transferring ?? false,
-        isSuspended: a.is_suspended ?? false,
+        isSuspended: a.status === 'suspended',
         isNodeSupercharged: a.is_node_supercharged ?? false,
         isDeletionScheduled: a.is_deletion_scheduled ?? false,
         isOwner,

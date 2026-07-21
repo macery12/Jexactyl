@@ -6,7 +6,7 @@ import { Meter } from '@/components/ui/Meter';
 import { useNode } from '../NodeContext';
 import { getNodeInformation, getNodeUtilization } from '@/api/nodes';
 import { getWingsRsOverview } from '@/api/wingsRs';
-import { formatBytes, formatMib, formatUptime } from '@/lib/format';
+import { formatBytes, formatMib } from '@/lib/format';
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
     return (
@@ -43,12 +43,25 @@ function WingsRsOverviewPanel() {
                 <p className="py-4 text-sm text-[var(--color-ink-faint)]">{m['common.states.loading']()}</p>
             ) : (
                 <div className="flex flex-col">
+                    {/* Kernel/arch are already in the System info panel below, so this
+                        panel only carries what is unique to the Wings-RS overview. */}
                     <Row label={m['admin.nodes.wingsRs.version']()} value={overview.version} />
-                    <Row label={m['admin.nodes.wingsRs.rust']()} value={overview.rustVersion ?? '—'} />
-                    <Row label={m['admin.nodes.wingsRs.build']()} value={overview.buildDate ?? '—'} />
-                    <Row label={m['admin.nodes.wingsRs.kernel']()} value={overview.kernel} />
-                    <Row label={m['admin.nodes.wingsRs.uptime']()} value={overview.uptime != null ? formatUptime(overview.uptime * 1000) : '—'} />
-                    <Row label={m['admin.nodes.wingsRs.features']()} value={overview.features.length > 0 ? m['admin.nodes.wingsRs.featuresEnabled']({ count: overview.features.length }) : '—'} />
+                    <Row label={m['admin.nodes.wingsRs.cpu']()} value={overview.cpuModel ?? '—'} />
+                    <Row
+                        label={m['admin.nodes.wingsRs.containerType']()}
+                        value={overview.containerType ?? '—'}
+                    />
+                    <Row
+                        label={m['admin.nodes.wingsRs.servers']()}
+                        value={
+                            overview.servers
+                                ? m['admin.nodes.wingsRs.serversValue']({
+                                      online: overview.servers.online,
+                                      total: overview.servers.total,
+                                  })
+                                : '—'
+                        }
+                    />
                 </div>
             )}
         </Panel>

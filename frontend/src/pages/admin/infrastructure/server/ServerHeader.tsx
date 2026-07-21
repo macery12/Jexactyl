@@ -2,7 +2,7 @@ import { m, td } from '@/i18n';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, Copy, Check, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronLeft, Copy, Check, ExternalLink, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react';
 import { useServerView } from './ServerContext';
 import { Badge } from '@/pages/admin/nodes/NodeBadges';
 import { SERVER_STATE } from '@/pages/admin/servers/serverState';
@@ -86,32 +86,42 @@ export function ServerHeader() {
                 </div>
             </div>
 
-            {(canUpdate || canDelete) && (
-                <div className="flex shrink-0 items-center gap-2">
-                    {canUpdate && (
-                        <>
-                            {suspended ? (
-                                <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => unsuspendServer(server.id), m['admin.infrastructure.server.unsuspended']())}>
-                                    <Power className="h-4 w-4" /> {m['admin.infrastructure.server.unsuspend']()}
+            <div className="flex shrink-0 items-center gap-2">
+                {/* Client-side view. Keyed on the 8-char identifier, which is what the
+                    client API binds {server} against — not the numeric admin id. */}
+                <Link
+                    to={`/server/${server.identifier}`}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--color-border-strong)] px-3 text-sm font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-2)]"
+                >
+                    <ExternalLink className="h-4 w-4" /> {m['admin.infrastructure.server.viewAsUser']()}
+                </Link>
+                {(canUpdate || canDelete) && (
+                    <>
+                        {canUpdate && (
+                            <>
+                                {suspended ? (
+                                    <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => unsuspendServer(server.id), m['admin.infrastructure.server.unsuspended']())}>
+                                        <Power className="h-4 w-4" /> {m['admin.infrastructure.server.unsuspend']()}
+                                    </Button>
+                                ) : (
+                                    <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => suspendServer(server.id), m['admin.infrastructure.server.suspended']())}>
+                                        <PowerOff className="h-4 w-4" /> {m['admin.infrastructure.server.suspend']()}
+                                    </Button>
+                                )}
+                                <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => reinstallServer(server.id), m['admin.infrastructure.server.reinstalled']())}>
+                                    <RefreshCw className="h-4 w-4" /> {m['admin.infrastructure.server.reinstall']()}
                                 </Button>
-                            ) : (
-                                <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => suspendServer(server.id), m['admin.infrastructure.server.suspended']())}>
-                                    <PowerOff className="h-4 w-4" /> {m['admin.infrastructure.server.suspend']()}
-                                </Button>
-                            )}
-                            <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => reinstallServer(server.id), m['admin.infrastructure.server.reinstalled']())}>
-                                <RefreshCw className="h-4 w-4" /> {m['admin.infrastructure.server.reinstall']()}
+                            </>
+                        )}
+                        {canDelete && (
+                            <Button variant="ghost" size="sm" onClick={() => setDeleting(true)}>
+                                <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
                             </Button>
-                        </>
-                    )}
-                    {canDelete && (
-                        <Button variant="ghost" size="sm" onClick={() => setDeleting(true)}>
-                            <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
-                        </Button>
-                    )}
-                    {busy && <Spinner className="h-4 w-4" />}
-                </div>
-            )}
+                        )}
+                        {busy && <Spinner className="h-4 w-4" />}
+                    </>
+                )}
+            </div>
 
             <ConfirmDialog
                 open={deleting}

@@ -163,4 +163,24 @@ return [
     'assets' => [
         'use_hash' => env('PTERODACTYL_USE_ASSET_HASH', false),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Wings-RS Self-Upgrade
+    |--------------------------------------------------------------------------
+    |
+    | Wings-RS requires a restart command in its upgrade payload and spawns it
+    | verbatim once the new binary is in place. These values are deliberately
+    | read from server-side configuration rather than the API request, so an
+    | admin with node-update permission cannot turn the upgrade endpoint into
+    | arbitrary command execution on the node.
+    |
+    | Override these only if your nodes run Wings-RS under a different service
+    | manager or unit name.
+    */
+
+    'wings_rs' => [
+        'restart_command' => env('WINGS_RS_RESTART_COMMAND', 'systemctl'),
+        'restart_command_args' => explode(',', env('WINGS_RS_RESTART_ARGS', 'restart,wings')),
+    ],
 ];

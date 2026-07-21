@@ -14,6 +14,25 @@ use Everest\Extensions\Lcobucci\JWT\Encoding\TimestampDates;
 
 class NodeJWTService
 {
+    /**
+     * Scopes understood by the daemon. Wings 1.11+ (and Wings-RS) reject a token
+     * outright if the "scope" claim does not contain the scope the endpoint
+     * expects — the websocket in particular reports this as "jwt: missing connect
+     * permission", which is misleading since the permission list is fine.
+     *
+     * These strings are part of the daemon's wire contract, not ours: see
+     * router/tokens/token.go in Wings and remote/jwt.rs in Wings-RS.
+     */
+    public const SCOPE_WEBSOCKET = 'websocket';
+
+    public const SCOPE_FILE_UPLOAD = 'file-upload';
+
+    public const SCOPE_FILE_DOWNLOAD = 'file-download';
+
+    public const SCOPE_BACKUP_DOWNLOAD = 'backup-download';
+
+    public const SCOPE_TRANSFER = 'transfer';
+
     private array $claims = [];
 
     private ?User $user = null;
@@ -21,6 +40,8 @@ class NodeJWTService
     private ?\DateTimeImmutable $expiresAt = null;
 
     private ?string $subject = null;
+
+    private ?string $scope = null;
 
     /**
      * Set the claims to include in this JWT.
@@ -46,6 +67,18 @@ class NodeJWTService
     public function setExpiresAt(\DateTimeImmutable $date): self
     {
         $this->expiresAt = $date;
+
+        return $this;
+    }
+
+    /**
+     * Sets the scope this token is valid for. Every token handed to the daemon
+     * needs one — pass one of the SCOPE_* constants matching the endpoint the
+     * token will be presented to.
+     */
+    public function setScope(string $scope): self
+    {
+        $this->scope = $scope;
 
         return $this;
     }
@@ -79,6 +112,10 @@ class NodeJWTService
 
         if (!empty($this->subject)) {
             $builder = $builder->relatedTo($this->subject)->withHeader('sub', $this->subject);
+        }
+
+        if (!is_null($this->scope)) {
+            $builder = $builder->withClaim('scope', $this->scope);
         }
 
         foreach ($this->claims as $key => $value) {
