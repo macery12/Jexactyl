@@ -10,9 +10,10 @@ easy to confuse:
 |---|---|
 | Coming from Pterodactyl, Jexactyl or JexPanel | `p:migrate:import` |
 | Already running this panel, upgrading past the schema rebuild | `p:migrate:adopt` |
-| Installing this panel for the first time | neither — just `migrate` and `db:seed` |
+| Installing this panel for the first time | neither — just `php artisan migrate --seed --force` |
 
-> **This tool is experimental.** It alters the schema of a live database. Take a
+> **This tool is experimental** and has not been tested against a real
+> installation. It alters the schema of a live database. Take a
 > backup first, run it with `--dry-run` to see exactly what it will do, and
 > report problems — with the command output and the version you upgraded from —
 > to the automated installer repository.
@@ -59,8 +60,9 @@ An installer that upgrades across the rebuild boundary must not skip that first
 step. If it deploys the new code onto a database that is behind, the operator
 has to check out the older release to recover.
 
-**Do not run `php artisan db:seed` afterwards.** Its egg seeder updates eggs by
-UUID and would overwrite any egg definitions the operator has customised.
+**Do not seed afterwards** — neither `php artisan db:seed` nor
+`php artisan migrate --seed`. The egg seeder updates eggs by UUID and would
+overwrite any egg definitions the operator has customised.
 
 ## Invocation
 
@@ -129,7 +131,7 @@ or failure.
 ## Afterwards
 
 1. `php artisan migrate` should report nothing pending.
-2. Do **not** run `db:seed`.
+2. Do **not** seed — neither `db:seed` nor `migrate --seed`.
 3. Check the panel loads and a few servers look right.
 
 The replaced migration rows are written to

@@ -8,8 +8,8 @@ their old data in it.
 This document is the integration contract for the installer. For the reasoning
 behind the target schema itself, see [database-rebuild/](database-rebuild/).
 
-> **This tool is experimental.** It is new and lightly tested against real
-> installations. It can fail to migrate some data correctly. Every run should be
+> **This tool is experimental.** It is new and has not been tested against a real
+> installation. It can fail to migrate some data correctly. Every run should be
 > preceded by a database backup, and the operator should be told to report
 > problems — with the command output and their source panel version — to the
 > automated installer repository.
@@ -59,12 +59,14 @@ php artisan migrate --force          # create the schema
 php artisan p:migrate:import ...     # import
 ```
 
-**Do not run `php artisan db:seed` after an import.** Its egg seeder updates eggs
-by UUID and would overwrite imported egg definitions with the shipped ones. The
+**Do not seed after an import** — neither `php artisan db:seed` nor
+`php artisan migrate --seed`. The egg seeder updates eggs by UUID and would
+overwrite imported egg definitions with the shipped ones. The
 import command seeds the tables this panel has and the source does not (email
 notification settings, invoice settings, theme presets) by itself.
 
-If the installer normally runs `db:seed`, it must skip it on the import path.
+If the installer normally seeds — whether as `db:seed` or as `migrate --seed` —
+it must skip seeding on the import path.
 
 ## Invocation
 
@@ -168,7 +170,7 @@ before asking for confirmation):
 
 The command prints these, and the installer should surface them too:
 
-1. Do **not** run `db:seed`.
+1. Do **not** seed — neither `db:seed` nor `migrate --seed`.
 2. Configure this panel's settings — they are not imported.
 3. Node tokens were re-encrypted for this panel, so every node needs its
    configuration regenerated and its Wings pointed here and restarted:
