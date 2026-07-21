@@ -2,22 +2,21 @@ import { m } from '@/i18n';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Server, Plus, ChevronDown, Zap, HardDrive, Layers, Share2 } from 'lucide-react';
+import { Server, Plus, ChevronDown, Zap, HardDrive, Layers } from 'lucide-react';
 import { getAdminServers } from '@/api/adminServers';
 import { getNodes, getNodeServerCount, type NodeListItem } from '@/api/nodes';
 import { formatMib } from '@/lib/format';
 import { usePersistedState } from '@/hooks/usePersistedState';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
-import { NetworkMap } from '@/pages/admin/servers/NetworkMap';
+import { CapacityRack } from '@/pages/admin/nodes/CapacityRack';
 import { ServersTable } from '@/pages/admin/servers/ServersTable';
-import { NodeCard } from '@/pages/admin/nodes/NodeCard';
 import { CreateNodeModal } from './CreateNodeModal';
 import { CreateServerModal } from './CreateServerModal';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 import { can } from '@/lib/can';
 
-type ViewMode = 'map' | 'servers' | 'nodes';
+type ViewMode = 'nodes' | 'servers';
 
 function SummaryCell({ icon: Icon, label, value, sub }: { icon: typeof Server; label: string; value: string; sub?: string }) {
     return (
@@ -35,10 +34,9 @@ function SummaryCell({ icon: Icon, label, value, sub }: { icon: typeof Server; l
 }
 
 function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
-    const opts: { id: ViewMode; label: string; icon: typeof Share2 }[] = [
-        { id: 'map', label: m['admin.infrastructure.view.map'](), icon: Share2 },
-        { id: 'servers', label: m['admin.infrastructure.view.servers'](), icon: Layers },
+    const opts: { id: ViewMode; label: string; icon: typeof Server }[] = [
         { id: 'nodes', label: m['admin.infrastructure.view.nodes'](), icon: Server },
+        { id: 'servers', label: m['admin.infrastructure.view.servers'](), icon: Layers },
     ];
     return (
         <div className="inline-flex rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-0.5">
@@ -152,16 +150,20 @@ function EmptyState({ icon: Icon, title, body }: { icon: typeof Server; title: s
 }
 
 export default function InfrastructureOverviewPage() {
-    const [mode, setMode] = usePersistedState<ViewMode>('v2:admin:infra:view', 'map');
+    const [stored, setMode] = usePersistedState<ViewMode>('v2:admin:infra:view', 'nodes');
     const [newServer, setNewServer] = useState(false);
     const [newNode, setNewNode] = useState(false);
+
+    // The retired network map and the short-lived separate capacity view both left
+    // their own values in localStorage; anything unrecognised falls back to the default.
+    const mode: ViewMode = stored === 'servers' ? 'servers' : 'nodes';
 
     // Honor a `?view=` deep link once (e.g. the admin overview's server/node tiles),
     // then strip the param so the persisted choice owns the view from there on.
     const [searchParams, setSearchParams] = useSearchParams();
     useEffect(() => {
         const requested = searchParams.get('view');
-        if (requested === 'map' || requested === 'servers' || requested === 'nodes') {
+        if (requested === 'servers' || requested === 'nodes') {
             setMode(requested);
             searchParams.delete('view');
             setSearchParams(searchParams, { replace: true });
@@ -235,16 +237,9 @@ export default function InfrastructureOverviewPage() {
 
             {!isLoading && !isError && nodes && servers && (
                 <>
-                    {/* The map carries its own floating stats; the table views get the strip. */}
-                    {mode !== 'map' && <FleetSummary nodes={nodes} totalServers={totalServers} activeServers={activeServers} />}
+                    <FleetSummary nodes={nodes} totalServers={totalServers} activeServers={activeServers} />
 
-                    {mode === 'map' ? (
-                        nodes.length === 0 ? (
-                            <EmptyState icon={Server} title={m['admin.nodes.empty.title']()} body={m['admin.nodes.empty.body']()} />
-                        ) : (
-                            <NetworkMap nodes={nodes} servers={servers} updatedAt={serversQ.dataUpdatedAt} />
-                        )
-                    ) : mode === 'servers' ? (
+                    {mode === 'servers' ? (
                         servers.length === 0 ? (
                             <EmptyState icon={Layers} title={m['admin.servers.empty.title']()} body={m['admin.servers.empty.body']()} />
                         ) : (
@@ -253,11 +248,7 @@ export default function InfrastructureOverviewPage() {
                     ) : nodes.length === 0 ? (
                         <EmptyState icon={Server} title={m['admin.nodes.empty.title']()} body={m['admin.nodes.empty.body']()} />
                     ) : (
-                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                            {nodes.map(n => (
-                                <NodeCard key={n.id} node={n} serverCount={countById.has(n.id) ? countById.get(n.id)! : null} />
-                            ))}
-                        </div>
+                        <CapacityRack nodes={nodes} servers={servers} countById={countById} updatedAt={nodesQ.dataUpdatedAt} />
                     )}
                 </>
             )}
