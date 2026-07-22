@@ -202,6 +202,7 @@ function PresetForm({
         },
     });
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() opts out of the react compiler
     const nestId = watch('nest_id');
     const eggsQ = useQuery({
         queryKey: ['admin', 'nest-eggs', nestId],

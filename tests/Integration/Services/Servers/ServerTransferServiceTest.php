@@ -35,13 +35,13 @@ class ServerTransferServiceTest extends IntegrationTestCase
 
     public function testServerCanBeTransferredToNewNode()
     {
-        /** @var \Everest\Models\Server $server */
+        /** @var Server $server */
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Node $targetNode */
+        /** @var Node $targetNode */
         $targetNode = Node::factory()->create();
 
-        /** @var \Everest\Models\Allocation $targetAllocation */
+        /** @var Allocation $targetAllocation */
         $targetAllocation = Allocation::factory()->create([
             'node_id' => $targetNode->id,
             'server_id' => null,

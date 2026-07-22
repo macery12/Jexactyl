@@ -2,9 +2,9 @@
 
 namespace Everest\Services\Extensions;
 
+use Illuminate\Support\Facades\File;
 use Everest\Exceptions\DisplayException;
 use Everest\Models\ExtensionPackageFile;
-use Illuminate\Support\Facades\File;
 
 /**
  * Shared file-level helpers used by the install, update and uninstall services:
@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\File;
 class ExtensionPackageFileService
 {
     public function __construct(
-        private ExtensionFilesystemOwnershipService $ownershipService
+        private ExtensionFilesystemOwnershipService $ownershipService,
     ) {
     }
 
@@ -23,7 +23,7 @@ class ExtensionPackageFileService
      * Throw if any tracked file has been externally modified since installation.
      *
      * @param array<int, ExtensionPackageFile> $files
-     * @param string $verb  Human-readable operation verb for the error message (e.g. 'uninstalled', 'updated').
+     * @param string $verb Human-readable operation verb for the error message (e.g. 'uninstalled', 'updated').
      */
     public function assertFilesUnmodified(array $files, string $verb): void
     {
@@ -48,12 +48,7 @@ class ExtensionPackageFileService
         $preview = implode(', ', array_slice($modified, 0, 5));
         $suffix = count($modified) > 5 ? ', and more' : '';
 
-        throw new DisplayException(sprintf(
-            'The extension cannot be %s because these files were modified after installation: %s%s.',
-            $verb,
-            $preview,
-            $suffix
-        ));
+        throw new DisplayException(sprintf('The extension cannot be %s because these files were modified after installation: %s%s.', $verb, $preview, $suffix));
     }
 
     /**

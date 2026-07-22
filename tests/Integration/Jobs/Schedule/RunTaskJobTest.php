@@ -12,10 +12,10 @@ use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Bus;
 use Everest\Jobs\Schedule\RunTaskJob;
 use GuzzleHttp\Exception\BadResponseException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Repositories\Wings\DaemonPowerRepository;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class RunTaskJobTest extends IntegrationTestCase
 {
@@ -26,14 +26,14 @@ class RunTaskJobTest extends IntegrationTestCase
     {
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create([
             'server_id' => $server->id,
             'is_processing' => true,
             'last_run_at' => null,
             'is_active' => false,
         ]);
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create(['schedule_id' => $schedule->id, 'is_queued' => true]);
 
         $job = new RunTaskJob($task);
@@ -48,14 +48,15 @@ class RunTaskJobTest extends IntegrationTestCase
         $this->assertFalse($schedule->is_active);
         $this->assertTrue(CarbonImmutable::now()->isSameAs(\DateTimeInterface::ATOM, $schedule->last_run_at));
     }
+
     #[DataProvider('isManualRunDataProvider')]
     public function testJobWithInvalidActionThrowsException()
     {
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create(['server_id' => $server->id]);
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create(['schedule_id' => $schedule->id, 'action' => 'foobar']);
 
         $job = new RunTaskJob($task);
@@ -65,19 +66,19 @@ class RunTaskJobTest extends IntegrationTestCase
         Bus::dispatchSync($job);
     }
 
-    /***/
+
     public function testJobIsExecuted(bool $isManualRun)
     {
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create([
             'server_id' => $server->id,
             'is_active' => !$isManualRun,
             'is_processing' => true,
             'last_run_at' => null,
         ]);
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create([
             'schedule_id' => $schedule->id,
             'action' => Task::ACTION_POWER,
@@ -104,15 +105,15 @@ class RunTaskJobTest extends IntegrationTestCase
         $this->assertTrue(CarbonImmutable::now()->isSameAs(\DateTimeInterface::ATOM, $schedule->last_run_at));
     }
 
-    /***/
+
     #[DataProvider('isManualRunDataProvider')]
     public function testExceptionDuringRunIsHandledCorrectly(bool $continueOnFailure)
     {
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create(['server_id' => $server->id]);
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create([
             'schedule_id' => $schedule->id,
             'action' => Task::ACTION_POWER,

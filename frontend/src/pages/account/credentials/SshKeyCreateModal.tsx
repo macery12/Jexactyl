@@ -19,6 +19,7 @@ export default function SshKeyCreateModal({ open, onClose }: { open: boolean; on
 
     useEffect(() => {
         if (!open) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setName('');
         setPublicKey('');
         setError(null);

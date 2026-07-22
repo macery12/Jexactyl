@@ -76,12 +76,16 @@ export default function MarketplaceSection() {
     const [tab, setTab] = useState<Tab>(urlTab ?? stored.tab ?? 'installed');
 
     // Provider (source) for the mods/plugins browsers.
-    const providers: ProviderKey[] = tab === 'plugins' ? caps?.plugins ?? [] : caps?.mods ?? [];
+    const providers: ProviderKey[] = useMemo(
+        () => (tab === 'plugins' ? caps?.plugins ?? [] : caps?.mods ?? []),
+        [tab, caps],
+    );
     const urlSource = params.get('provider') as Source | null;
     const [source, setSource] = useState<Source>(urlSource ?? stored.source ?? 'modrinth');
 
     // Keep the active tab valid once capabilities load.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (caps && !tabs.includes(tab)) setTab(tabs[0] ?? 'installed');
     }, [caps, tabs, tab]);
 
@@ -89,6 +93,7 @@ export default function MarketplaceSection() {
     useEffect(() => {
         const first = providers[0];
         if ((tab === 'mods' || tab === 'plugins') && first && !providers.includes(source)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setSource(first);
         }
     }, [tab, providers, source]);

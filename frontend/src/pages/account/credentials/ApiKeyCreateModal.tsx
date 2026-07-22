@@ -24,6 +24,7 @@ export default function ApiKeyCreateModal({ open, onClose }: { open: boolean; on
 
     useEffect(() => {
         if (!open) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setDescription('');
         setAllowedIps('');
         setError(null);

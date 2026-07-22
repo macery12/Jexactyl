@@ -2,17 +2,17 @@
 
 namespace Everest\Tests\Unit\Http\Requests\Api\Application\Billing;
 
-use Everest\Models\AdminRole;
 use Everest\Tests\TestCase;
+use Everest\Models\AdminRole;
 use Illuminate\Support\Facades\Validator;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\GetNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\ResetNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\UpdateNodePricingRequest;
-use Everest\Http\Requests\Api\Application\Billing\NodePricing\BatchUpdateNodePricingRequest;
-use Everest\Http\Requests\Api\Application\Billing\NodePricing\ResetAllNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\BillingCycles\GetBillingCyclesRequest;
 use Everest\Http\Requests\Api\Application\Billing\BillingCycles\SyncBillingCyclesRequest;
+use Everest\Http\Requests\Api\Application\Billing\NodePricing\ResetAllNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\BillingCycles\DeleteBillingCycleRequest;
+use Everest\Http\Requests\Api\Application\Billing\NodePricing\BatchUpdateNodePricingRequest;
 
 class BillingPermissionsRequestTest extends TestCase
 {

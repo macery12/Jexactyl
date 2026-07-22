@@ -41,6 +41,7 @@ export default function UserFormModal({
     // Reset the form whenever the dialog opens for a (different) user.
     useEffect(() => {
         if (!open) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setUsername(user?.username ?? '');
         setEmail(user?.email ?? '');
         setPassword('');

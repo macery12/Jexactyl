@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
-use Everest\Services\Email\EmailMessage;
 use Everest\Tests\TestCase;
+use Everest\Services\Email\EmailMessage;
 
 class EmailMessageTest extends TestCase
 {

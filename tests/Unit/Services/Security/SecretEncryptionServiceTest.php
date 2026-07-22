@@ -2,9 +2,9 @@
 
 namespace Everest\Tests\Unit\Services\Security;
 
+use Everest\Tests\TestCase;
 use Illuminate\Encryption\MissingAppKeyException;
 use Everest\Services\Security\SecretEncryptionService;
-use Everest\Tests\TestCase;
 
 class SecretEncryptionServiceTest extends TestCase
 {

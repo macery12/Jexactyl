@@ -5,8 +5,8 @@ namespace Everest\Transformers\Api\Application;
 use Everest\Models\User;
 use Illuminate\Support\Str;
 use Everest\Models\ActivityLog;
-use Illuminate\Support\Facades\Log;
 use League\Fractal\Resource\Item;
+use Illuminate\Support\Facades\Log;
 use Everest\Transformers\Api\Transformer;
 use League\Fractal\Resource\NullResource;
 

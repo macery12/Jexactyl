@@ -2,15 +2,15 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
 use Illuminate\Support\Facades\File;
-use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
+use Everest\Exceptions\DisplayException;
+use Symfony\Component\Process\ExecutableFinder;
 
 class ExtensionPanelRebuildService
 {
     public function __construct(
-        private ExtensionFilesystemOwnershipService $ownershipService
+        private ExtensionFilesystemOwnershipService $ownershipService,
     ) {
     }
 
@@ -57,10 +57,7 @@ class ExtensionPanelRebuildService
             ];
 
             if (!$process->isSuccessful()) {
-                throw new DisplayException(
-                    sprintf('M12Labs rebuild failed while running "%s".', implode(' ', $command)),
-                    new \RuntimeException($combinedOutput)
-                );
+                throw new DisplayException(sprintf('M12Labs rebuild failed while running "%s".', implode(' ', $command)), new \RuntimeException($combinedOutput));
             }
         }
 

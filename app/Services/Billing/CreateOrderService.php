@@ -6,7 +6,6 @@ use Everest\Models\User;
 use Everest\Models\Billing\Order;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\PaymentTransaction;
-use Everest\Services\Billing\BillingDefaults;
 
 class CreateOrderService
 {
@@ -30,7 +29,7 @@ class CreateOrderService
         array $additionalData = [],
         ?float $preCalculatedTotal = null,
         ?float $preCalculatedSubtotal = null,
-        ?float $preCalculatedDiscount = null
+        ?float $preCalculatedDiscount = null,
     ): Order {
         $order = new Order();
         $uuid = uuid_create();

@@ -136,6 +136,7 @@ export default function ProductEditorPage() {
     // Watched per-field rather than a bare watch(): the pricing preview and the
     // limit inputs are controlled, so they need live values, but subscribing to
     // the whole form would re-render the page on every keystroke in any field.
+    // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() opts out of the react compiler
     const visible = watch('visible');
     const price = watch('price');
     const name = watch('name');

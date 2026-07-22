@@ -38,7 +38,10 @@ to create tables that are already there.
    wrong columns;
 4. drops `subscriptions` and `subscription_items`, which the rebuild removed
    (D2) — **only if they are empty**;
-5. rewrites the `migrations` table to list the consolidated chain — but only
+5. walks you through any **data decision** the schema cannot make on its own —
+   an integer column that this panel reads as text, or a NOT NULL column that
+   still holds NULLs — proposing a safe default and applying what you confirm;
+6. rewrites the `migrations` table to list the consolidated chain — but only
    once the schema actually matches.
 
 **No row data is written**, other than the `migrations` table itself, except
@@ -50,6 +53,41 @@ Rows are *read* in two narrow ways, both aggregates: counting them, to know
 whether adding a `NOT NULL` column would write to anything, and checking whether
 any value falls outside the range of a type it is about to change to. No row is
 read out of the database or copied anywhere.
+
+The one exception is a **data decision** (see below): where a column's meaning,
+not just its shape, has to change, the command reads that column's distinct
+values, proposes a mapping, and writes the rows you confirm. This is the only
+place it rewrites ordinary table data, and it always shows the exact `UPDATE`
+before running it.
+
+## Data decisions
+
+Some differences cannot be closed by DDL alone, because they turn on what the
+rows *mean*. Two come up in practice on installs that passed through a fork:
+
+- **An integer column this panel reads as text.** A fork stored `users.state`
+  as an enum of integers; this panel uses `NULL` for a normal account,
+  `'suspended'`, or `'pending'`. Widening `int` to `varchar` keeps the data but
+  not the meaning — only you know which integer stood for "suspended". The
+  command shows you the distinct values and how many accounts hold each, and
+  asks, per value, what it means. Anything you do not claim becomes a normal
+  (NULL) account. Getting this wrong would silently un-suspend or lock out
+  users, so it is never guessed.
+- **A NOT NULL column that still holds NULLs.** `egg_variables.rules` may be
+  NULL on older installs, but the shipped schema requires a value. Tightening it
+  as-is lets the database blank every NULL to `''` with no warning — which for a
+  rule set silently removes all validation. Instead the command proposes a safe
+  fill (`'nullable|string'`, meaning "optional") and lets you change it before
+  the column is made NOT NULL.
+
+These run **before** the schema changes, so by the time a column is altered its
+rows already fit. Each is applied as a plain `UPDATE` you see first.
+
+Under `--assume-yes`, a decision with a safe default (a NULL fill) is taken
+automatically; one that needs a genuine choice (the state remap) is **skipped
+and reported**, and holds back the migration-history rewrite so the upgrade is
+finished by re-running it interactively. Automation never guesses a mapping it
+cannot be sure of.
 
 ## Requirements and ordering
 
@@ -112,11 +150,13 @@ were applied but the migration history was not rewritten.
   safely does not stop the run. Everything fixable is still applied, and the
   unfixable remainder is listed at the end with the reason. Nothing is
   half-applied silently.
-- **Never destroys data to reach the target schema.** Two classes of difference
-  are deliberately left alone: a column whose type would have to narrow or
-  change family to match (truncation or reinterpretation), and a column this
-  install has that the shipped schema does not (dropping it loses whatever is in
-  it). Both are reported for the operator to resolve by hand.
+- **Never destroys data to reach the target schema.** Where a difference cannot
+  be closed without a judgement about the data — an integer column read as text,
+  a NOT NULL column holding NULLs — it is turned into a guided **data decision**
+  (see above) rather than forced. Where even that is unsafe to automate — a
+  column whose type would have to narrow or change family, or a column this
+  install has that the shipped schema does not — it is reported for the operator
+  to resolve by hand. Nothing is silently coerced or dropped.
 - **Resumable rather than transactional.** MySQL and MariaDB do not roll back
   DDL, so this does not pretend to be atomic. Instead every change is
   independent and the plan is recomputed from the live schema as it goes, so an

@@ -3,10 +3,10 @@
 namespace Everest\Services\Billing;
 
 use Everest\Models\Billing\Invoice;
-use Everest\Models\Billing\InvoiceSettings;
-use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Everest\Models\Billing\InvoiceSettings;
+use Illuminate\Contracts\Filesystem\Filesystem;
 
 /**
  * Handles all remote-storage I/O for invoice data snapshots.
@@ -29,8 +29,9 @@ class InvoiceStorageService
     /**
      * Encrypt a data snapshot and persist it to the configured storage driver.
      *
-     * @param  array  $snapshot  Plain-PHP array containing all invoice data (PII included)
-     * @param  string $invoiceNumber  e.g. "INV-2026-000001"
+     * @param array $snapshot Plain-PHP array containing all invoice data (PII included)
+     * @param string $invoiceNumber e.g. "INV-2026-000001"
+     *
      * @return array{path: string, disk: string, size_bytes: int}
      *
      * @throws \RuntimeException if storage config is incomplete or R2 limit would be exceeded
@@ -67,7 +68,7 @@ class InvoiceStorageService
     /**
      * Load and decrypt an invoice's data snapshot from storage.
      *
-     * @return array  Decrypted snapshot array
+     * @return array Decrypted snapshot array
      *
      * @throws \RuntimeException if the file is missing or decryption fails
      */
@@ -88,10 +89,7 @@ class InvoiceStorageService
         try {
             return $this->encryption->decryptToArray($encrypted);
         } catch (\Throwable $e) {
-            throw new \RuntimeException(
-                "Failed to decrypt invoice snapshot for {$invoice->uuid}: " . $e->getMessage(),
-                previous: $e,
-            );
+            throw new \RuntimeException("Failed to decrypt invoice snapshot for {$invoice->uuid}: " . $e->getMessage(), previous: $e);
         }
     }
 
@@ -142,10 +140,7 @@ class InvoiceStorageService
 
         $missing = array_filter($required, fn ($k) => empty($config[$k]));
         if (!empty($missing)) {
-            throw new \RuntimeException(
-                "Invoice storage is set to '{$driver}' but the following required config fields are missing: " .
-                implode(', ', $missing) . '. Configure them in Admin → Billing → Invoice Settings → Storage.'
-            );
+            throw new \RuntimeException("Invoice storage is set to '{$driver}' but the following required config fields are missing: " . implode(', ', $missing) . '. Configure them in Admin → Billing → Invoice Settings → Storage.');
         }
 
         $diskConfig = [
@@ -165,9 +160,7 @@ class InvoiceStorageService
                 : ($accountId ? "https://{$accountId}.r2.cloudflarestorage.com" : null);
 
             if (empty($diskConfig['endpoint'])) {
-                throw new \RuntimeException(
-                    'R2 endpoint cannot be determined. Provide an Account ID or a custom Endpoint URL in Invoice Settings.'
-                );
+                throw new \RuntimeException('R2 endpoint cannot be determined. Provide an Account ID or a custom Endpoint URL in Invoice Settings.');
             }
 
             $diskConfig['options'] = ['ChecksumAlgorithm' => null];
@@ -207,12 +200,7 @@ class InvoiceStorageService
         if ($projected >= $settings->r2_bytes_limit) {
             $usedMb = round($settings->r2_bytes_used / 1024 / 1024, 1);
             $limitMb = round($settings->r2_bytes_limit / 1024 / 1024, 1);
-            throw new \RuntimeException(
-                "Invoice storage blocked: R2 usage ({$usedMb} MB) would exceed the hard limit ({$limitMb} MB). " .
-                'Clear old invoice data or increase the limit in Invoice Settings.'
-            );
+            throw new \RuntimeException("Invoice storage blocked: R2 usage ({$usedMb} MB) would exceed the hard limit ({$limitMb} MB). " . 'Clear old invoice data or increase the limit in Invoice Settings.');
         }
     }
 }
-
-

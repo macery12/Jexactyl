@@ -17,13 +17,13 @@ class DaemonScriptRepository extends DaemonRepository
      * supplied — the default Guzzle timeout (15s) is far too short for an
      * install that downloads dozens of mods.
      *
-     * @param array<string, scalar> $environment    env vars injected into the container
-     * @param string|null           $containerImage overrides the default installer image — e.g. a
-     *                                              Java image when the script must run `java` (loader installs)
+     * @param array<string, scalar> $environment env vars injected into the container
+     * @param string|null $containerImage overrides the default installer image — e.g. a
+     *                                    Java image when the script must run `java` (loader installs)
      *
      * @return array{stdout: string, stderr: string}
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     public function run(string $script, array $environment = [], ?int $timeout = null, ?string $containerImage = null): array
     {

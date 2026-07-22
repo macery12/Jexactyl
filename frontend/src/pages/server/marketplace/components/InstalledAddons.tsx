@@ -36,6 +36,7 @@ export function InstalledAddons({ serverId }: { serverId: string }) {
         const t = setTimeout(() => setSearch(text), 250);
         return () => clearTimeout(t);
     }, [text]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
     useEffect(() => setPage(1), [type, status, search]);
 
     const queryKey = useMemo(

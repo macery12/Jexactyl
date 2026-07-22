@@ -3,12 +3,12 @@
 namespace Everest\Services\Auth;
 
 use Carbon\Carbon;
-use Everest\Events\Email\PasswordResetRequested;
 use Everest\Models\User;
-use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
+use Illuminate\Auth\Events\PasswordReset;
+use Everest\Events\Email\PasswordResetRequested;
 
 class PasswordResetService
 {

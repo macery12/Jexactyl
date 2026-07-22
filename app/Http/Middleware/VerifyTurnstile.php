@@ -5,8 +5,8 @@ namespace Everest\Http\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Everest\Events\Auth\FailedCaptcha;
-use Illuminate\Contracts\Events\Dispatcher;
 use Everest\Services\Auth\TurnstileService;
+use Illuminate\Contracts\Events\Dispatcher;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class VerifyTurnstile
@@ -16,7 +16,7 @@ class VerifyTurnstile
      */
     public function __construct(
         private Dispatcher $dispatcher,
-        private TurnstileService $turnstileService
+        private TurnstileService $turnstileService,
     ) {
     }
 

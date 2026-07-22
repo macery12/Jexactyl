@@ -22,7 +22,7 @@ class ServerTransferService
     public function __construct(
         private ConnectionInterface $connection,
         private NodeJWTService $jwtService,
-        private DaemonTransferRepository $daemonTransferRepository
+        private DaemonTransferRepository $daemonTransferRepository,
     ) {
     }
 
@@ -42,7 +42,7 @@ class ServerTransferService
 
         // Check that the new node exists.
         try {
-            /** @var \Everest\Models\Node $node */
+            /** @var Node $node */
             $node = Node::query()->findOrFail($node_id);
         } catch (ModelNotFoundException) {
             throw new DisplayException('The requested node does not exist.');
@@ -77,7 +77,7 @@ class ServerTransferService
             }
         }
 
-        /** @var \Everest\Models\ServerTransfer $transfer */
+        /** @var ServerTransfer $transfer */
         $transfer = $this->connection->transaction(function () use ($server, $node, $allocation, $additional_allocations) {
             // Reserve the new allocations.
             $allocationIds = array_merge([$allocation->id], $additional_allocations);

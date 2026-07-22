@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Bus;
 use Everest\Jobs\Schedule\RunTaskJob;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Contracts\Bus\Dispatcher;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Services\Schedules\ProcessScheduleService;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class ProcessScheduleServiceTest extends IntegrationTestCase
 {
@@ -37,13 +37,13 @@ class ProcessScheduleServiceTest extends IntegrationTestCase
     {
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create([
             'server_id' => $server->id,
             'cron_minute' => 'hodor', // this will break the getNextRunDate() function.
         ]);
 
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create(['schedule_id' => $schedule->id, 'sequence_id' => 1]);
 
         $this->expectException(\InvalidArgumentException::class);
@@ -64,10 +64,10 @@ class ProcessScheduleServiceTest extends IntegrationTestCase
 
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create(['server_id' => $server->id]);
 
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create(['schedule_id' => $schedule->id, 'time_offset' => 10, 'sequence_id' => 1]);
 
         $this->getService()->handle($schedule, $now);
@@ -96,10 +96,10 @@ class ProcessScheduleServiceTest extends IntegrationTestCase
         Bus::fake();
 
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create(['server_id' => $server->id]);
 
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task2 = Task::factory()->create(['schedule_id' => $schedule->id, 'sequence_id' => 4]);
         $task = Task::factory()->create(['schedule_id' => $schedule->id, 'sequence_id' => 2]);
         $task3 = Task::factory()->create(['schedule_id' => $schedule->id, 'sequence_id' => 3]);
@@ -127,9 +127,9 @@ class ProcessScheduleServiceTest extends IntegrationTestCase
         $this->swap(Dispatcher::class, $dispatcher = \Mockery::mock(Dispatcher::class));
 
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create(['server_id' => $server->id, 'last_run_at' => null]);
-        /** @var \Everest\Models\Task $task */
+        /** @var Task $task */
         $task = Task::factory()->create(['schedule_id' => $schedule->id, 'sequence_id' => 1]);
 
         $dispatcher->expects('dispatchNow')->andThrows(new \Exception('Test thrown exception'));

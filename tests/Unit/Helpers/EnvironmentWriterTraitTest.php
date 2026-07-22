@@ -3,8 +3,8 @@
 namespace Everest\Tests\Unit\Helpers;
 
 use Everest\Tests\TestCase;
-use Everest\Traits\Commands\EnvironmentWriterTrait;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Traits\Commands\EnvironmentWriterTrait;
 
 class EnvironmentWriterTraitTest extends TestCase
 {

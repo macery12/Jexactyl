@@ -6,14 +6,14 @@ use Everest\Models\Server;
 use Everest\Facades\Activity;
 use Illuminate\Http\JsonResponse;
 use Everest\Services\Servers\StartupCommandService;
-use Everest\Services\Servers\StartupVariableVersionService;
 use Everest\Repositories\Eloquent\ServerVariableRepository;
+use Everest\Services\Servers\StartupVariableVersionService;
 use Everest\Transformers\Api\Client\EggVariableTransformer;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Everest\Http\Requests\Api\Client\Servers\Startup\GetStartupRequest;
-use Everest\Http\Requests\Api\Client\Servers\Startup\GetStartupVariableVersionsRequest;
 use Everest\Http\Requests\Api\Client\Servers\Startup\UpdateStartupVariableRequest;
+use Everest\Http\Requests\Api\Client\Servers\Startup\GetStartupVariableVersionsRequest;
 
 class StartupController extends ClientApiController
 {
@@ -23,7 +23,7 @@ class StartupController extends ClientApiController
     public function __construct(
         private StartupCommandService $startupCommandService,
         private StartupVariableVersionService $versionService,
-        private ServerVariableRepository $repository
+        private ServerVariableRepository $repository,
     ) {
         parent::__construct();
     }

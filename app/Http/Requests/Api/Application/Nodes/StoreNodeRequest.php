@@ -12,7 +12,7 @@ class StoreNodeRequest extends ApplicationApiRequest
     /**
      * Validation rules to apply to this request.
      */
-    public function rules(array $rules = null): array
+    public function rules(?array $rules = null): array
     {
         return collect($rules ?? Node::getRules())->only([
             'name',

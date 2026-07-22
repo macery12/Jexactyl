@@ -2,15 +2,15 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Models\Server;
 use Everest\Models\User;
+use Everest\Models\Server;
 use Illuminate\Support\Facades\Crypt;
 use Everest\Models\ExtensionFileSnapshot;
 
 class ExtensionFileSnapshotService
 {
     /**
-     * @param array<string, string> $fileContentsMap Map of file path => plain text file contents.
+     * @param array<string, string> $fileContentsMap map of file path => plain text file contents
      */
     public function create(Server $server, string $extensionId, ?User $actor, string $action, array $fileContentsMap): ExtensionFileSnapshot
     {
@@ -29,7 +29,7 @@ class ExtensionFileSnapshotService
     }
 
     /**
-     * @return array<string, string> Map of file path => decrypted contents.
+     * @return array<string, string> map of file path => decrypted contents
      */
     public function decryptFiles(ExtensionFileSnapshot $snapshot): array
     {

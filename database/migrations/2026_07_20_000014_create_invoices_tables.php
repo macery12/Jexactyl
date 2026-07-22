@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Invoice snapshots, the invoice-settings singleton and encrypted user billing
  * profiles. The invoice_settings default row is seeded by InvoiceSettingsSeeder
  * (docs/database-rebuild/04 D4) — this migration is structure only.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('invoices', function (Blueprint $table) {

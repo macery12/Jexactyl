@@ -15,7 +15,7 @@ class StoreServerDatabaseRequest extends ApplicationApiRequest
 {
     public function rules(): array
     {
-        /** @var \Everest\Models\Server $server */
+        /** @var Server $server */
         $server = $this->route()->parameter('server');
 
         return [
@@ -36,8 +36,6 @@ class StoreServerDatabaseRequest extends ApplicationApiRequest
     /**
      * @param string|null $key
      * @param string|array|null $default
-     *
-     * @return mixed
      */
     public function validated($key = null, $default = null)
     {

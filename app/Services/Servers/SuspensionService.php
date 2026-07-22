@@ -19,7 +19,7 @@ class SuspensionService
      * SuspensionService constructor.
      */
     public function __construct(
-        private DaemonServerRepository $daemonServerRepository
+        private DaemonServerRepository $daemonServerRepository,
     ) {
     }
 
@@ -53,7 +53,7 @@ class SuspensionService
         try {
             // Tell wings to re-sync the server state.
             $this->daemonServerRepository->setServer($server)->sync();
-            
+
             // Dispatch email notification events
             if ($isSuspending) {
                 event(new ServerSuspended(

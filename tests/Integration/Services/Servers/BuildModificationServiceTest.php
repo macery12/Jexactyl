@@ -37,7 +37,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
         $server = $this->createServerModel();
         $server2 = $this->createServerModel();
 
-        /** @var \Everest\Models\Allocation[] $allocations */
+        /** @var Allocation[] $allocations */
         $allocations = Allocation::factory()->times(4)->create(['node_id' => $server->node_id, 'notes' => 'Random notes']);
 
         $initialAllocationId = $server->allocation_id;
@@ -84,7 +84,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
     public function testExceptionIsThrownIfRemovingTheDefaultAllocation()
     {
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Allocation[] $allocations */
+        /** @var Allocation[] $allocations */
         $allocations = Allocation::factory()->times(4)->create(['node_id' => $server->node_id]);
 
         $allocations[0]->update(['server_id' => $server->id]);
@@ -168,7 +168,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
     public function testNoExceptionIsThrownIfOnlyRemovingAllocation()
     {
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create(['node_id' => $server->node_id, 'server_id' => $server->id]);
 
         $this->daemonServerRepository->expects('setServer->sync')->andReturnUndefined();
@@ -191,7 +191,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
     public function testAllocationInBothAddAndRemoveIsAdded()
     {
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create(['node_id' => $server->node_id]);
 
         $this->daemonServerRepository->expects('setServer->sync')->andReturnUndefined();
@@ -210,9 +210,9 @@ class BuildModificationServiceTest extends IntegrationTestCase
     public function testUsingSameAllocationIdMultipleTimesDoesNotError()
     {
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create(['node_id' => $server->node_id, 'server_id' => $server->id]);
-        /** @var \Everest\Models\Allocation $allocation2 */
+        /** @var Allocation $allocation2 */
         $allocation2 = Allocation::factory()->create(['node_id' => $server->node_id]);
 
         $this->daemonServerRepository->expects('setServer->sync')->andReturnUndefined();
@@ -235,7 +235,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
     public function testThatUpdatesAreRolledBackIfExceptionIsEncountered()
     {
         $server = $this->createServerModel();
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create(['node_id' => $server->node_id]);
 
         $this->daemonServerRepository->expects('setServer->sync')->andThrows(new DisplayException('Test'));
@@ -254,7 +254,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
     {
         $server = $this->createServerModel();
 
-        /** @var \Everest\Models\Allocation[] $allocations */
+        /** @var Allocation[] $allocations */
         $allocations = Allocation::factory()->times(3)->create(['node_id' => $server->node_id]);
 
         $this->daemonServerRepository->expects('setServer->sync')->andReturnUndefined();

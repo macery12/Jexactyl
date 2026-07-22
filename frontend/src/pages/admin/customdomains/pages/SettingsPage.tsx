@@ -38,6 +38,7 @@ export default function SettingsPage() {
 
     const [form, setForm] = useState<CustomDomainSettings | null>(null);
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (data) setForm(data);
     }, [data]);
 

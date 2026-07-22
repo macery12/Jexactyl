@@ -119,12 +119,13 @@ export default function ExtensionsOverviewPage() {
         prevActive.current = active;
     }, [active, qc]);
 
-    const extensions = extensionsQuery.data ?? [];
+    const extensions = useMemo(() => extensionsQuery.data ?? [], [extensionsQuery.data]);
 
     // Keep the open drawer's data fresh after mutations invalidate the list.
     useEffect(() => {
         if (!selected) return;
         const next = extensions.find(e => e.id === selected.id);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (next && next !== selected) setSelected(next);
     }, [extensions, selected]);
 
@@ -166,7 +167,8 @@ export default function ExtensionsOverviewPage() {
     const toggleSelect = (id: string) =>
         setSelectedIds(prev => {
             const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
             return next;
         });
 
@@ -290,6 +292,7 @@ export default function ExtensionsOverviewPage() {
     // Drop selections for extensions that fell out of the catalog (e.g. after an
     // uninstall) so the batch bar never acts on stale ids.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setSelectedIds(prev => {
             const live = new Set(extensions.map(e => e.id));
             const next = new Set([...prev].filter(id => live.has(id)));
@@ -327,8 +330,10 @@ export default function ExtensionsOverviewPage() {
 
     // Reset to the first page whenever the result set or ordering changes, and
     // clamp the page if the set shrank underneath the current position.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
     useEffect(() => setPage(1), [filter, search, sort, pageSize]);
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (page > pageCount) setPage(pageCount);
     }, [page, pageCount]);
 

@@ -18,13 +18,14 @@ class TurnstileService
      *
      * @param string $token The cf-turnstile-response token from the frontend
      * @param string|null $ip Optional IP address for additional verification
+     *
      * @return bool True if verification successful, false otherwise
      */
     public function verify(string $token, ?string $ip = null): bool
     {
         // Check if captcha is enabled
         $provider = Setting::get('settings::modules:auth:captcha:provider', 'disabled');
-        
+
         if ($provider !== 'turnstile') {
             // Captcha is disabled or using a different provider
             return true;
@@ -32,15 +33,16 @@ class TurnstileService
 
         // Get the secret key from settings
         $secretKey = Setting::get('settings::modules:auth:captcha:secret_key');
-        
+
         if (empty($secretKey)) {
             Log::warning('Turnstile verification attempted but secret key is not configured');
+
             return false;
         }
 
         try {
             $client = new Client();
-            
+
             $params = [
                 'secret' => $secretKey,
                 'response' => $token,
@@ -58,7 +60,7 @@ class TurnstileService
 
             if ($response->getStatusCode() === 200) {
                 $result = json_decode($response->getBody(), true);
-                
+
                 if (isset($result['success']) && $result['success'] === true) {
                     return true;
                 }
@@ -81,19 +83,16 @@ class TurnstileService
 
     /**
      * Check if Turnstile captcha is enabled.
-     *
-     * @return bool
      */
     public function isEnabled(): bool
     {
         $provider = Setting::get('settings::modules:auth:captcha:provider', 'disabled');
+
         return $provider === 'turnstile';
     }
 
     /**
      * Get the site key for frontend rendering.
-     *
-     * @return string|null
      */
     public function getSiteKey(): ?string
     {

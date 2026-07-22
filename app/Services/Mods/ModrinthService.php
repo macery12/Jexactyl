@@ -361,7 +361,6 @@ class ModrinthService
     /**
      * Normalize platform inputs to allowed lowercase list.
      *
-     * @param array|string $platforms
      * @return array<int, string>
      */
     private function normalizePlatforms(array|string|null $platforms): array
@@ -382,7 +381,6 @@ class ModrinthService
     /**
      * Return only plugin loader platforms, defaulting to the recommended set.
      *
-     * @param array|string|null $platforms
      * @return array<int, string>
      */
     private function filterPluginLoaderPlatforms(array|string|null $platforms): array
@@ -772,5 +770,4 @@ class ModrinthService
             'limit_per_hour' => 0,
         ];
     }
-
 }

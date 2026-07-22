@@ -54,6 +54,7 @@ export function ExtensionManageDrawer({
     // Re-seed local form state whenever a different extension is opened.
     useEffect(() => {
         if (!ext) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setEnabled(ext.enabled);
         setSettings({ ...ext.settings });
         setAllowedNests([...ext.allowedNests]);

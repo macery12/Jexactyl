@@ -2,10 +2,10 @@
 
 namespace Everest\Services\Billing;
 
-use Everest\Models\Billing\Invoice;
-use Everest\Models\Billing\Order;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Everest\Models\Billing\Order;
+use Everest\Models\Billing\Invoice;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Creates an invoice record and persists its encrypted data snapshot.
@@ -150,5 +150,3 @@ class InvoiceGenerationService
         return $invoice;
     }
 }
-
-

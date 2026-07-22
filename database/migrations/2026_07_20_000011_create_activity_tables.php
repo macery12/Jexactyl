@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Activity/audit logging. audit_logs is superseded by activity_logs but kept
  * per docs/database-rebuild/04 D2. activity_logs.server_id / api_key_id have
  * plain indexes and no FKs, matching the historical chain.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('audit_logs', function (Blueprint $table) {

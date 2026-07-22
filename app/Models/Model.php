@@ -147,7 +147,7 @@ abstract class Model extends IlluminateModel
     /**
      * Determines if the model is in a valid state or not.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function validate(): void
     {
@@ -174,8 +174,6 @@ abstract class Model extends IlluminateModel
 
     /**
      * Return a timestamp as DateTime object.
-     *
-     * @param mixed $value
      */
     protected function asDateTime($value): Carbon|CarbonImmutable
     {

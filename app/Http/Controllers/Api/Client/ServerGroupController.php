@@ -2,14 +2,14 @@
 
 namespace Everest\Http\Controllers\Api\Client;
 
-use Illuminate\Http\JsonResponse;
 use Everest\Models\ServerGroup;
+use Illuminate\Http\JsonResponse;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
+use Everest\Transformers\Api\Client\ServerGroupTransformer;
 use Everest\Http\Requests\Api\Client\ServerGroups\StoreServerGroupRequest;
 use Everest\Http\Requests\Api\Client\ServerGroups\UpdateServerGroupRequest;
 use Everest\Http\Requests\Api\Client\ServerGroups\AssignServerToGroupRequest;
 use Everest\Http\Requests\Api\Client\ServerGroups\RemoveServerFromGroupRequest;
-use Everest\Transformers\Api\Client\ServerGroupTransformer;
 
 class ServerGroupController extends ClientApiController
 {
@@ -48,6 +48,7 @@ class ServerGroupController extends ClientApiController
     {
         $data = $request->validated();
         $group = $request->user()->serverGroups()->findOrFail($id);
+        /** @var \Everest\Models\Server $server */
         $server = $request->user()->servers()->where('uuid', $data['server'])->firstOrFail();
 
         $server->groups()->syncWithoutDetaching([$group->id]);
@@ -63,6 +64,7 @@ class ServerGroupController extends ClientApiController
         $data = $request->validated();
         // Verify group ownership - findOrFail ensures the group belongs to this user
         $request->user()->serverGroups()->findOrFail($id);
+        /** @var \Everest\Models\Server $server */
         $server = $request->user()->servers()->where('uuid', $data['server'])->firstOrFail();
 
         $server->groups()->detach($id);

@@ -10,7 +10,7 @@ use Everest\Repositories\Wings\DaemonConfigurationRepository;
 class WingsDetectionService
 {
     public function __construct(
-        private DaemonConfigurationRepository $configurationRepository
+        private DaemonConfigurationRepository $configurationRepository,
     ) {
     }
 

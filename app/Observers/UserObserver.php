@@ -26,7 +26,7 @@ class UserObserver
     public function created(User $user): void
     {
         event(new Events\User\Created($user));
-        
+
         if ($this->emailSendingEnabled()) {
             // Dispatch email notification for account created
             event(new Events\Email\AccountCreated(

@@ -23,7 +23,7 @@ class ServerDetailsController extends Controller
         protected ConnectionInterface $connection,
         private ServerRepository $repository,
         private ServerConfigurationStructureService $configurationStructureService,
-        private EggConfigurationService $eggConfigurationService
+        private EggConfigurationService $eggConfigurationService,
     ) {
     }
 
@@ -91,7 +91,7 @@ class ServerDetailsController extends Controller
             ->get();
 
         $this->connection->transaction(function () use ($node, $servers) {
-            /** @var \Everest\Models\Server $server */
+            /** @var Server $server */
             foreach ($servers as $server) {
                 /** @var \Everest\Models\ActivityLog|null $activity */
                 $activity = $server->activity->first();

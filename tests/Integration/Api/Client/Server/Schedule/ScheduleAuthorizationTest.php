@@ -4,8 +4,8 @@ namespace Everest\Tests\Integration\Api\Client\Server\Schedule;
 
 use Everest\Models\Subuser;
 use Everest\Models\Schedule;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class ScheduleAuthorizationTest extends ClientApiIntegrationTestCase
 {

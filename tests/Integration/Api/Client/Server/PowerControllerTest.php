@@ -4,9 +4,9 @@ namespace Everest\Tests\Integration\Api\Client\Server;
 
 use Illuminate\Http\Response;
 use Everest\Models\Permission;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Repositories\Wings\DaemonPowerRepository;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class PowerControllerTest extends ClientApiIntegrationTestCase
 {

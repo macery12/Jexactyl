@@ -19,7 +19,7 @@ class SubuserCreationService
     public function __construct(
         private ConnectionInterface $connection,
         private SubuserRepository $subuserRepository,
-        private UserRepositoryInterface $userRepository
+        private UserRepositoryInterface $userRepository,
     ) {
     }
 
@@ -28,9 +28,9 @@ class SubuserCreationService
      * Users must already exist on the system - new users will not be created.
      *
      * @throws \Everest\Exceptions\Model\DataValidationException
-     * @throws \Everest\Exceptions\Service\Subuser\ServerSubuserExistsException
-     * @throws \Everest\Exceptions\Service\Subuser\UserIsServerOwnerException
-     * @throws \Everest\Exceptions\Repository\RecordNotFoundException
+     * @throws ServerSubuserExistsException
+     * @throws UserIsServerOwnerException
+     * @throws RecordNotFoundException
      * @throws \Throwable
      */
     public function handle(Server $server, string $identifier, array $permissions): Subuser

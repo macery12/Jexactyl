@@ -32,7 +32,7 @@ class ServerCreationService
         private ServerRepository $repository,
         private ServerDeletionService $serverDeletionService,
         private ServerVariableRepository $serverVariableRepository,
-        private VariableValidatorService $validatorService
+        private VariableValidatorService $validatorService,
     ) {
     }
 
@@ -49,7 +49,7 @@ class ServerCreationService
      * @throws \Everest\Exceptions\Service\Deployment\NoViableNodeException
      * @throws \Everest\Exceptions\Service\Deployment\NoViableAllocationException
      */
-    public function handle(array $data, DeploymentObject $deployment = null): Server
+    public function handle(array $data, ?DeploymentObject $deployment = null): Server
     {
         // If a deployment object has been passed we need to get the allocation
         // that the server should use, and assign the node from that allocation.

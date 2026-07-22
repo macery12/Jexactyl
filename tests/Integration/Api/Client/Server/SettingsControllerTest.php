@@ -5,9 +5,9 @@ namespace Everest\Tests\Integration\Api\Client\Server;
 use Everest\Models\Server;
 use Illuminate\Http\Response;
 use Everest\Models\Permission;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Repositories\Wings\DaemonServerRepository;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class SettingsControllerTest extends ClientApiIntegrationTestCase
 {
@@ -17,7 +17,7 @@ class SettingsControllerTest extends ClientApiIntegrationTestCase
     #[DataProvider('renamePermissionsDataProvider')]
     public function testServerNameCanBeChanged(array $permissions)
     {
-        /** @var \Everest\Models\Server $server */
+        /** @var Server $server */
         [$user, $server] = $this->generateTestAccount($permissions);
         $originalName = $server->name;
         $originalDescription = $server->description;
@@ -72,7 +72,7 @@ class SettingsControllerTest extends ClientApiIntegrationTestCase
     #[DataProvider('reinstallPermissionsDataProvider')]
     public function testServerCanBeReinstalled(array $permissions)
     {
-        /** @var \Everest\Models\Server $server */
+        /** @var Server $server */
         [$user, $server] = $this->generateTestAccount($permissions);
         $this->assertTrue($server->isInstalled());
 

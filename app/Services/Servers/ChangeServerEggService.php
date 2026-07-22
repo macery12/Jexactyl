@@ -2,8 +2,8 @@
 
 namespace Everest\Services\Servers;
 
-    use Everest\Models\Egg;
-    use Everest\Models\Server;
+use Everest\Models\Egg;
+use Everest\Models\Server;
 use Illuminate\Support\Facades\Log;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Database\ConnectionInterface;
@@ -19,7 +19,7 @@ class ChangeServerEggService
         private ConnectionInterface $connection,
         private DaemonServerRepository $daemonServerRepository,
         private DaemonFileRepository $daemonFileRepository,
-        private ReinstallServerService $reinstallService
+        private ReinstallServerService $reinstallService,
     ) {
     }
 

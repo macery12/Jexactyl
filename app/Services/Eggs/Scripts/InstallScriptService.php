@@ -20,7 +20,7 @@ class InstallScriptService
      *
      * @throws \Everest\Exceptions\Model\DataValidationException
      * @throws \Everest\Exceptions\Repository\RecordNotFoundException
-     * @throws \Everest\Exceptions\Service\Egg\InvalidCopyFromException
+     * @throws InvalidCopyFromException
      */
     public function handle(Egg $egg, array $data): void
     {

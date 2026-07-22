@@ -2,8 +2,8 @@
 
 namespace Everest\Console\Commands\Billing;
 
-use Everest\Services\Billing\InvoicePdfService;
 use Illuminate\Console\Command;
+use Everest\Services\Billing\InvoicePdfService;
 
 class ExpirePdfCacheCommand extends Command
 {
@@ -24,6 +24,7 @@ class ExpirePdfCacheCommand extends Command
                 ->where('pdf_expires_at', '<=', now())
                 ->count();
             $this->info("[DRY RUN] {$count} cached PDF(s) would be evicted.");
+
             return 0;
         }
 

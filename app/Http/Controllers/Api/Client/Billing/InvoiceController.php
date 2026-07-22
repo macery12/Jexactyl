@@ -2,14 +2,13 @@
 
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
-use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
-use Everest\Http\Controllers\Api\Client\ClientApiController;
-use Everest\Models\Billing\Invoice;
-use Everest\Services\Billing\InvoicePdfService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Spatie\QueryBuilder\AllowedFilter;
+use Illuminate\Http\JsonResponse;
+use Everest\Models\Billing\Invoice;
 use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Services\Billing\InvoicePdfService;
+use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 
 class InvoiceController extends ClientApiController
 {
@@ -29,10 +28,10 @@ class InvoiceController extends ClientApiController
         }
 
         $invoices = QueryBuilder::for(
-                Invoice::query()
+            Invoice::query()
                     ->where('user_id', $request->user()->id)
                     ->with('order')
-            )
+        )
             ->allowedFilters(...['status'])
             ->allowedSorts(...['generated_at', 'total'])
             ->defaultSort('-generated_at')
@@ -65,6 +64,7 @@ class InvoiceController extends ClientApiController
         }
 
         $url = url("/api/client/billing/invoices/{$uuid}/serve");
+
         return response()->json(['url' => $url, 'expires_in' => 86400]);
     }
 

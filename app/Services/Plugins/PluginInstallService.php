@@ -2,16 +2,16 @@
 
 namespace Everest\Services\Plugins;
 
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use Everest\Models\Setting;
 use Everest\Models\Server;
+use Everest\Models\Setting;
 use Everest\Models\Billing\Product;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use Everest\Models\MarketplaceInstallLog;
 use Everest\Repositories\Wings\DaemonFileRepository;
+use Everest\Exceptions\Service\Mods\ModsServiceException;
 use Everest\Services\Plugins\Adapters\SpigetProviderAdapter;
 use Everest\Services\Plugins\Adapters\ModrinthProviderAdapter;
-use Everest\Exceptions\Service\Mods\ModsServiceException;
-use Everest\Models\MarketplaceInstallLog;
 
 class PluginInstallService
 {
@@ -28,7 +28,7 @@ class PluginInstallService
     public function __construct(
         ModrinthProviderAdapter $modrinthProviderAdapter,
         SpigetProviderAdapter $spigetProviderAdapter,
-        private DaemonFileRepository $fileRepository
+        private DaemonFileRepository $fileRepository,
     ) {
         $this->adapters = [
             'modrinth' => $modrinthProviderAdapter,
@@ -162,7 +162,7 @@ class PluginInstallService
                 'provider'        => $this->normalizeProviderForAnalytics($providerKey),
                 'type'            => $type,
                 'project_id'      => (string) $projectId,
-                'file_size_bytes' => $downloadedSize ?? 0,
+                'file_size_bytes' => $downloadedSize,
                 'status'          => MarketplaceInstallLog::STATUS_SUCCESS,
                 'server_id'       => $server->id,
                 'user_id'         => $userId ?? auth()->id(),
@@ -208,7 +208,7 @@ class PluginInstallService
         string|int $versionId,
         string $type,
         ?string $projectName = null,
-        ?string $versionName = null
+        ?string $versionName = null,
     ): string {
         $extension = 'jar';
         $base = null;
@@ -260,6 +260,7 @@ class PluginInstallService
         $value = str_replace(' ', '-', $value);
         $value = preg_replace('/[^a-z0-9._-]/', '', $value) ?? '';
         $value = preg_replace('/-{2,}/', '-', $value);
+
         return trim($value, '-');
     }
 
@@ -308,7 +309,7 @@ class PluginInstallService
         $suffix = 1;
         do {
             $candidate = $nameWithoutExt . '-' . $suffix . ($ext ? '.' . $ext : '');
-            $suffix++;
+            ++$suffix;
         } while (in_array($candidate, $existing, true) && $suffix < 50);
 
         return ($directory === '.' ? '' : $directory) . '/' . $candidate;

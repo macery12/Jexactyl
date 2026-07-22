@@ -44,7 +44,7 @@ class DiscordLoginController extends AbstractLoginController
     /**
      * Get the user's Discord token in order to access the account.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      * @throws \Illuminate\Validation\ValidationException
      */
     public function requestToken(Request $request): string

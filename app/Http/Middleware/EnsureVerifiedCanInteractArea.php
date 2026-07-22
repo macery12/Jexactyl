@@ -2,9 +2,8 @@
 
 namespace Everest\Http\Middleware;
 
-use Closure;
-use Everest\Services\Email\EmailVerificationGate;
 use Illuminate\Http\Request;
+use Everest\Services\Email\EmailVerificationGate;
 
 class EnsureVerifiedCanInteractArea
 {
@@ -12,7 +11,7 @@ class EnsureVerifiedCanInteractArea
     {
     }
 
-    public function handle(Request $request, Closure $next, string $area)
+    public function handle(Request $request, \Closure $next, string $area)
     {
         if ($this->gate->canInteractArea($request->user(), $area)) {
             return $next($request);

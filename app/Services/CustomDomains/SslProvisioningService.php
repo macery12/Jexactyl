@@ -2,7 +2,6 @@
 
 namespace Everest\Services\CustomDomains;
 
-use Exception;
 use Illuminate\Support\Facades\Process;
 
 class SslProvisioningService
@@ -10,12 +9,12 @@ class SslProvisioningService
     public function requestCertificate(string $fullDomain): void
     {
         if (!(bool) config('modules.custom_domains.ssl.enabled', false)) {
-            throw new Exception('SSL provisioning is disabled by configuration.');
+            throw new \Exception('SSL provisioning is disabled by configuration.');
         }
 
         $commandTemplate = trim((string) config('modules.custom_domains.ssl.command', ''));
         if ($commandTemplate === '') {
-            throw new Exception('SSL provisioning command is not configured.');
+            throw new \Exception('SSL provisioning command is not configured.');
         }
 
         $command = str_replace('{domain}', $fullDomain, $commandTemplate);
@@ -24,7 +23,7 @@ class SslProvisioningService
         $result = Process::timeout($timeout)->run($command);
 
         if (!$result->successful()) {
-            throw new Exception('SSL provisioning command failed: ' . $result->errorOutput());
+            throw new \Exception('SSL provisioning command failed: ' . $result->errorOutput());
         }
     }
 }

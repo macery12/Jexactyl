@@ -2,10 +2,10 @@
 
 namespace Everest\OpenApi\Extensions;
 
-use Dedoc\Scramble\Extensions\OperationExtension;
-use Dedoc\Scramble\Support\Generator\Operation;
-use Dedoc\Scramble\Support\RouteInfo;
 use Illuminate\Support\Str;
+use Dedoc\Scramble\Support\RouteInfo;
+use Dedoc\Scramble\Support\Generator\Operation;
+use Dedoc\Scramble\Extensions\OperationExtension;
 
 class RouteTagExtension extends OperationExtension
 {

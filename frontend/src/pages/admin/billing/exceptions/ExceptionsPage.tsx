@@ -63,6 +63,7 @@ export default function ExceptionsPage() {
         return () => clearTimeout(t);
     }, [searchInput]);
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
     useEffect(() => setPage(1), [search]);
 
     const { data, isLoading, isFetching } = useQuery({

@@ -1,17 +1,16 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Email notification toggles and quota tracking. Default notification-settings
  * rows are seeded by EmailNotificationSettingsSeeder (docs/database-rebuild/04
  * D4) — structure only here. email_quotas reset dates default to the migration
  * run date, same dynamic behavior as the historical chain.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('email_notification_settings', function (Blueprint $table) {

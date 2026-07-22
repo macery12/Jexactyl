@@ -2,8 +2,6 @@
 
 namespace Everest\Services\Migration;
 
-use Closure;
-use RuntimeException;
 use Illuminate\Database\Connection;
 
 /**
@@ -35,7 +33,8 @@ class PanelImportService
      * Verify the import can run, without writing anything.
      *
      * @param string[] $groups
-     * @throws RuntimeException if the import must not proceed
+     *
+     * @throws \RuntimeException if the import must not proceed
      */
     public function preflight(ImportProfile $profile, Connection $source, ImportContext $context, array $groups): ImportSummary
     {
@@ -52,9 +51,7 @@ class PanelImportService
             }
 
             if (!in_array($plan->table, $targetTables, true)) {
-                throw new RuntimeException(
-                    "Target table `{$plan->table}` does not exist. Run `php artisan migrate` before importing."
-                );
+                throw new \RuntimeException("Target table `{$plan->table}` does not exist. Run `php artisan migrate` before importing.");
             }
 
             if ($this->target->table($plan->table)->exists()) {
@@ -63,10 +60,7 @@ class PanelImportService
         }
 
         if ($nonEmpty !== []) {
-            throw new RuntimeException(
-                "Refusing to import: the following tables already contain data — " . implode(', ', $nonEmpty) . ".\n"
-                . "Imports preserve the source panel's IDs, so they can only run into a freshly migrated, empty database."
-            );
+            throw new \RuntimeException('Refusing to import: the following tables already contain data — ' . implode(', ', $nonEmpty) . ".\nImports preserve the source panel's IDs, so they can only run into a freshly migrated, empty database.");
         }
 
         $this->probeEncryption($profile, $source, $context, $sourceTables);
@@ -199,11 +193,7 @@ class PanelImportService
         }
 
         if ($violations !== []) {
-            throw new RuntimeException(
-                "The imported data does not hold together — it references rows that do not exist:\n  - "
-                . implode("\n  - ", $violations)
-                . "\nThis usually means the source database already had orphaned rows. Nothing was written."
-            );
+            throw new \RuntimeException("The imported data does not hold together — it references rows that do not exist:\n  - " . implode("\n  - ", $violations) . "\nThis usually means the source database already had orphaned rows. Nothing was written.");
         }
 
         $summary->note(sprintf('Verified %d foreign key relationships across the imported tables.', count($grouped)));
@@ -254,7 +244,11 @@ class PanelImportService
         $buffer = [];
 
         $this->eachSourceRow($source, $sourceTable, $sourceColumns, function (array $row) use (
-            $plan, $mapping, $context, &$buffer, &$written
+            $plan,
+            $mapping,
+            $context,
+            &$buffer,
+            &$written
         ) {
             if ($plan->filter !== null && !($plan->filter)($row)) {
                 return;
@@ -299,7 +293,7 @@ class PanelImportService
                 continue;
             }
 
-            $out[$targetColumn] = $default instanceof Closure ? $default($row, $context) : $default;
+            $out[$targetColumn] = $default instanceof \Closure ? $default($row, $context) : $default;
         }
 
         return $out;
@@ -329,11 +323,7 @@ class PanelImportService
         }
 
         if ($missing !== []) {
-            throw new RuntimeException(
-                "Cannot import `{$plan->table}`: this panel requires " . implode(', ', $missing)
-                . ", and the source schema provides no value for " . (count($missing) === 1 ? 'it' : 'them') . ".\n"
-                . 'This usually means the source panel is on a version this importer was not built against.'
-            );
+            throw new \RuntimeException("Cannot import `{$plan->table}`: this panel requires " . implode(', ', $missing) . ', and the source schema provides no value for ' . (count($missing) === 1 ? 'it' : 'them') . ".\n" . 'This usually means the source panel is on a version this importer was not built against.');
         }
     }
 
@@ -341,7 +331,7 @@ class PanelImportService
      * Stream a source table. Tables with a single-column primary key are read in
      * keyset chunks; the rest are pivot tables small enough to read whole.
      */
-    private function eachSourceRow(Connection $source, string $table, array $columns, Closure $callback): void
+    private function eachSourceRow(Connection $source, string $table, array $columns, \Closure $callback): void
     {
         $key = $this->singleColumnPrimaryKey($source, $table);
 
@@ -378,11 +368,7 @@ class PanelImportService
                 }
 
                 if (!$context->canDecrypt($sample)) {
-                    throw new RuntimeException(
-                        "Could not decrypt {$table}.{$column} with the supplied source APP_KEY.\n"
-                        . "Check the APP_KEY in the old panel's .env file — it must be the key that panel was\n"
-                        . 'using, or its node tokens and stored passwords cannot be re-encrypted for this panel.'
-                    );
+                    throw new \RuntimeException("Could not decrypt {$table}.{$column} with the supplied source APP_KEY.\nCheck the APP_KEY in the old panel's .env file — it must be the key that panel was\n" . 'using, or its node tokens and stored passwords cannot be re-encrypted for this panel.');
                 }
             }
         }

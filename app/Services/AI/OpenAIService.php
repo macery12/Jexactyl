@@ -3,12 +3,12 @@
 namespace Everest\Services\AI;
 
 use GuzzleHttp\Client;
+use Everest\Models\Setting;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 use Everest\Exceptions\Service\AI\AIServiceException;
-use Everest\Models\Setting;
 
 class OpenAIService
 {
@@ -30,7 +30,7 @@ class OpenAIService
 
     /**
      * Token/latency data from the last non-streamed query().
-     * Shape: ['model' => string, 'prompt_tokens' => int|null, 'completion_tokens' => int|null, 'total_tokens' => int|null]
+     * Shape: ['model' => string, 'prompt_tokens' => int|null, 'completion_tokens' => int|null, 'total_tokens' => int|null].
      */
     private array $lastUsage = [];
 
@@ -207,6 +207,7 @@ class OpenAIService
                     if (empty($options['no_cache']) && $result !== '') {
                         Cache::put($cacheKey, $result, self::RESPONSE_CACHE_TTL);
                     }
+
                     return $result;
                 }
             } else {
@@ -222,6 +223,7 @@ class OpenAIService
                     if (empty($options['no_cache']) && $result !== '') {
                         Cache::put($cacheKey, $result, self::RESPONSE_CACHE_TTL);
                     }
+
                     return $result;
                 }
             }

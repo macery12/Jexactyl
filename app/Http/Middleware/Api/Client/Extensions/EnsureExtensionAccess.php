@@ -2,11 +2,10 @@
 
 namespace Everest\Http\Middleware\Api\Client\Extensions;
 
-use Closure;
 use Everest\Models\Server;
 use Everest\Models\Subuser;
-use Everest\Models\ExtensionConfig;
 use Illuminate\Http\Request;
+use Everest\Models\ExtensionConfig;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureExtensionAccess
@@ -14,7 +13,7 @@ class EnsureExtensionAccess
     /**
      * Ensure the extension is enabled for the server and not disabled for the current subuser.
      */
-    public function handle(Request $request, Closure $next, string $extensionId): Response
+    public function handle(Request $request, \Closure $next, string $extensionId): Response
     {
         /** @var \Everest\Models\User $user */
         $user = $request->user();

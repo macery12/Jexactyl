@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Backups and per-server databases. The databases FKs are RESTRICT (no
  * onDelete) — deleting a server/host with rows here must fail, matching the
  * historical chain.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('backups', function (Blueprint $table) {

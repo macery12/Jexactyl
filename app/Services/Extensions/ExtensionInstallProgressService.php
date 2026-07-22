@@ -60,10 +60,11 @@ class ExtensionInstallProgressService
     /**
      * Record the current stage of an in-progress operation.
      *
-     * @param int|null    $batchTotal      Total number of extensions in a batch (null for single operations).
-     * @param int|null    $batchCurrent    1-based index of the extension currently being processed in a batch.
-     * @param string[]|null $batchExtensions Ordered list of all extension IDs in the batch.
-     * @throws \InvalidArgumentException if $action or $stage is not recognised.
+     * @param int|null $batchTotal total number of extensions in a batch (null for single operations)
+     * @param int|null $batchCurrent 1-based index of the extension currently being processed in a batch
+     * @param string[]|null $batchExtensions ordered list of all extension IDs in the batch
+     *
+     * @throws \InvalidArgumentException if $action or $stage is not recognised
      */
     public function report(string $action, string $extensionId, string $stage, ?int $batchTotal = null, ?int $batchCurrent = null, ?array $batchExtensions = null): void
     {
@@ -78,9 +79,7 @@ class ExtensionInstallProgressService
         };
 
         if (!in_array($stage, $validStages, true)) {
-            throw new \InvalidArgumentException(
-                sprintf('Invalid stage "%s" for action "%s".', $stage, $action)
-            );
+            throw new \InvalidArgumentException(sprintf('Invalid stage "%s" for action "%s".', $stage, $action));
         }
 
         $path = $this->progressFilePath();

@@ -2,8 +2,8 @@
 
 namespace Everest\Events\Email;
 
-use Everest\Events\Event;
 use Everest\Models\User;
+use Everest\Events\Event;
 use Illuminate\Queue\SerializesModels;
 
 class EmailVerificationRequested extends Event
@@ -13,7 +13,7 @@ class EmailVerificationRequested extends Event
     public function __construct(
         public User $user,
         public string $verificationUrl,
-        public string $correlationId
+        public string $correlationId,
     ) {
     }
 }

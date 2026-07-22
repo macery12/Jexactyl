@@ -2,8 +2,8 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
 use Illuminate\Support\Facades\Cache;
+use Everest\Exceptions\DisplayException;
 
 class ExtensionOperationLockService
 {

@@ -2,8 +2,6 @@
 
 namespace Everest\Services\Migration;
 
-use Closure;
-
 /**
  * Describes how one table is copied out of a source panel and into this one.
  *
@@ -25,12 +23,12 @@ class TablePlan
      * @param array<string, string> $renames source column => target column
      * @param array<string, string> $drops source column => reason it is not carried over
      * @param array<string, string> $converted source column => where its value ends up instead.
-     *        Like $drops in that no column copies it directly, but the value is not lost, so it is
-     *        reported separately from real data loss.
-     * @param array<string, mixed|Closure> $defaults target column => value, or fn (array $row) => value
-     * @param array<string, Closure> $transforms target column => fn (mixed $value, array $row, ImportContext $ctx) => mixed
+     *                                         Like $drops in that no column copies it directly, but the value is not lost, so it is
+     *                                         reported separately from real data loss.
+     * @param array<string, mixed|\Closure> $defaults target column => value, or fn (array $row) => value
+     * @param array<string, \Closure> $transforms target column => fn (mixed $value, array $row, ImportContext $ctx) => mixed
      * @param string $group core, logs or billing — selects which flags include this table
-     * @param Closure|null $filter fn (array $row) => bool, rows returning false are skipped
+     * @param \Closure|null $filter fn (array $row) => bool, rows returning false are skipped
      */
     public function __construct(
         public readonly string $table,
@@ -41,7 +39,7 @@ class TablePlan
         public readonly array $defaults = [],
         public readonly array $transforms = [],
         public readonly string $group = self::GROUP_CORE,
-        public readonly ?Closure $filter = null,
+        public readonly ?\Closure $filter = null,
     ) {
     }
 

@@ -2,10 +2,10 @@
 
 namespace Everest\Console\Commands\Extensions\Concerns;
 
-use Everest\Exceptions\DisplayException;
-use Everest\Models\ExtensionRepository;
-use Everest\Services\Extensions\ExtensionPackageArtifactService;
 use Illuminate\Support\Str;
+use Everest\Models\ExtensionRepository;
+use Everest\Exceptions\DisplayException;
+use Everest\Services\Extensions\ExtensionPackageArtifactService;
 
 /**
  * Shared helpers for the install and update Artisan commands.
@@ -99,9 +99,7 @@ trait HandlesExtensionPackages
             }
 
             if ($this->option('yes')) {
-                throw new DisplayException(sprintf(
-                    'Multiple local extension packages were found. Re-run without --yes to select one, or pass --path explicitly.'
-                ));
+                throw new DisplayException(sprintf('Multiple local extension packages were found. Re-run without --yes to select one, or pass --path explicitly.'));
             }
 
             return $this->selectDiscoveredArtifact($validArtifacts, $cwd, $discoveredArtifacts, null, $action);
@@ -122,6 +120,7 @@ trait HandlesExtensionPackages
     /**
      * @param array<int, array<string, mixed>> $discoveredArtifacts
      * @param array<int, array<string, mixed>> $validArtifacts
+     *
      * @return array<string, mixed>
      */
     private function resolveFileModeSelection(string $source, string $cwd, array $discoveredArtifacts, array $validArtifacts, string $action): array
@@ -148,6 +147,7 @@ trait HandlesExtensionPackages
     /**
      * @param array<int, array<string, mixed>> $validArtifacts
      * @param array<int, array<string, mixed>> $discoveredArtifacts
+     *
      * @return array<string, mixed>
      */
     private function selectDiscoveredArtifact(array $validArtifacts, string $cwd, array $discoveredArtifacts, ?string $requestedSource, string $action): array
@@ -187,6 +187,7 @@ trait HandlesExtensionPackages
 
     /**
      * @param array<int, array<string, mixed>> $discoveredArtifacts
+     *
      * @return array<string, mixed>
      */
     private function createFileResolution(string $path, string $cwd, array $discoveredArtifacts, ?string $requestedSource): array

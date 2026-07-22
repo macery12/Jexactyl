@@ -2,8 +2,8 @@
 
 namespace Everest\Models\Billing;
 
-use Everest\Casts\EncryptedJson;
 use Everest\Models\Model;
+use Everest\Casts\EncryptedJson;
 
 /**
  * Singleton settings row for invoice generation (id = 1 always).
@@ -19,12 +19,12 @@ use Everest\Models\Model;
  * @property string|null $company_tax_id
  * @property string $invoice_prefix
  * @property int $invoice_sequence
- * @property string $storage_driver  local|s3|r2
- * @property array|null $storage_config  Encrypted at rest via EncryptedJson cast
+ * @property string $storage_driver local|s3|r2
+ * @property array|null $storage_config Encrypted at rest via EncryptedJson cast
  * @property int $r2_bytes_used
  * @property int $r2_bytes_limit
- * @property bool $auto_cleanup_enabled  Whether to auto-delete invoice data after N years
- * @property int $auto_cleanup_after_years  Years after which data is deleted (default 3)
+ * @property bool $auto_cleanup_enabled Whether to auto-delete invoice data after N years
+ * @property int $auto_cleanup_after_years Years after which data is deleted (default 3)
  */
 class InvoiceSettings extends Model
 {

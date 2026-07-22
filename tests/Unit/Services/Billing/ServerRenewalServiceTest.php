@@ -65,7 +65,7 @@ class ServerRenewalServiceTest extends TestCase
         $expectedDays = 25;
         $server->shouldReceive('update')
             ->once()
-            ->with(\Mockery::on(function ($arg) use ($expectedDays) {
+            ->with(\Mockery::on(function ($arg) {
                 if (!isset($arg['renewal_date'], $arg['billing_days'], $arg['billing_amount'])) {
                     return false;
                 }
@@ -208,7 +208,7 @@ class ServerRenewalServiceTest extends TestCase
         $expectedDays = 4;
         $server->shouldReceive('update')
             ->once()
-            ->with(\Mockery::on(function ($arg) use ($expectedDays) {
+            ->with(\Mockery::on(function ($arg) {
                 if (!isset($arg['renewal_date'], $arg['billing_days'], $arg['billing_amount'])) {
                     return false;
                 }

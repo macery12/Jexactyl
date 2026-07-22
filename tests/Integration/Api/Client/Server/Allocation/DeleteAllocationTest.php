@@ -5,8 +5,8 @@ namespace Everest\Tests\Integration\Api\Client\Server\Allocation;
 use Illuminate\Http\Response;
 use Everest\Models\Allocation;
 use Everest\Models\Permission;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class DeleteAllocationTest extends ClientApiIntegrationTestCase
 {
@@ -21,7 +21,7 @@ class DeleteAllocationTest extends ClientApiIntegrationTestCase
         [$user, $server] = $this->generateTestAccount($permission);
         $server->update(['allocation_limit' => 2]);
 
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create([
             'server_id' => $server->id,
             'node_id' => $server->node_id,
@@ -41,7 +41,7 @@ class DeleteAllocationTest extends ClientApiIntegrationTestCase
         /** @var \Everest\Models\Server $server */
         [$user, $server] = $this->generateTestAccount([Permission::ACTION_ALLOCATION_CREATE]);
 
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create([
             'server_id' => $server->id,
             'node_id' => $server->node_id,
@@ -73,7 +73,7 @@ class DeleteAllocationTest extends ClientApiIntegrationTestCase
     {
         [$user, $server] = $this->generateTestAccount();
 
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->forServer($server)->create(['notes' => 'Test notes']);
 
         $this->actingAs($user)->deleteJson($this->link($allocation))

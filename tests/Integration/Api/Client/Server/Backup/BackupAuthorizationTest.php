@@ -5,13 +5,12 @@ namespace Everest\Tests\Integration\Api\Client\Server\Backup;
 use Everest\Models\Backup;
 use Carbon\CarbonImmutable;
 use Everest\Models\Subuser;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Services\Backups\DeleteBackupService;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class BackupAuthorizationTest extends ClientApiIntegrationTestCase
 {
-    /***/
     #[DataProvider('methodDataProvider')]
     public function testAccessToAServersBackupIsRestrictedProperly(string $method, string $endpoint)
     {

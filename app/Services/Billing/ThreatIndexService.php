@@ -3,10 +3,10 @@
 namespace Everest\Services\Billing;
 
 use Carbon\Carbon;
-use Everest\Models\Billing\Order;
 use Everest\Models\User;
-use Everest\Services\Email\EmailSettingsReader;
+use Everest\Models\Billing\Order;
 use Illuminate\Support\Facades\Log;
+use Everest\Services\Email\EmailSettingsReader;
 
 class ThreatIndexService
 {
@@ -327,7 +327,7 @@ class ThreatIndexService
 
     /**
      * Newer accounts carry higher risk.
-     * Max: 25 pts
+     * Max: 25 pts.
      */
     private function accountAgeRisk(User $user): int
     {
@@ -350,7 +350,7 @@ class ThreatIndexService
 
     /**
      * Accounts without basic security hardening carry higher risk.
-     * Max: 20 pts
+     * Max: 20 pts.
      *
      * Email verification penalty is skipped when email delivery is disabled
      * system-wide — users can never verify what was never sent.
@@ -373,7 +373,7 @@ class ThreatIndexService
 
     /**
      * Unknown email domains are higher risk than well-known providers.
-     * Max: 15 pts
+     * Max: 15 pts.
      */
     private function emailDomainRisk(User $user): int
     {
@@ -388,7 +388,7 @@ class ThreatIndexService
 
     /**
      * Prior payment failures and payer identity mismatches indicate risk.
-     * Max: 25 pts
+     * Max: 25 pts.
      */
     private function paymentHistoryRisk(Order $order, User $user): int
     {
@@ -426,7 +426,7 @@ class ThreatIndexService
 
     /**
      * New and high-value orders are inherently riskier than renewals.
-     * Max: 10 pts
+     * Max: 10 pts.
      */
     private function orderSignalRisk(Order $order): int
     {
@@ -446,7 +446,7 @@ class ThreatIndexService
 
     /**
      * Multiple distinct IP addresses in recent sessions suggest shared/compromised account.
-     * Max: 10 pts
+     * Max: 10 pts.
      */
     private function sessionIpRisk(User $user): int
     {
@@ -470,7 +470,7 @@ class ThreatIndexService
 
     /**
      * Multiple new/upgrade orders in a short window suggests abuse or bot activity.
-     * Max: 15 pts
+     * Max: 15 pts.
      */
     private function orderVelocityRisk(Order $order, User $user): int
     {

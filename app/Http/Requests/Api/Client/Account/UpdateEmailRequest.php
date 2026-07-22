@@ -4,16 +4,16 @@ namespace Everest\Http\Requests\Api\Client\Account;
 
 use Everest\Models\User;
 use Illuminate\Container\Container;
+use Everest\Rules\NotTestEmailDomain;
 use Illuminate\Contracts\Hashing\Hasher;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
 use Everest\Exceptions\Http\Base\InvalidPasswordProvidedException;
-use Everest\Rules\NotTestEmailDomain;
 
 class UpdateEmailRequest extends ClientApiRequest
 {
     /**
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
-     * @throws \Everest\Exceptions\Http\Base\InvalidPasswordProvidedException
+     * @throws InvalidPasswordProvidedException
      */
     public function authorize(): bool
     {

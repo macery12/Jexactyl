@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
-use Everest\Services\Email\EmailRedactor;
 use Everest\Tests\TestCase;
+use Everest\Services\Email\EmailRedactor;
 
 class EmailRedactorTest extends TestCase
 {

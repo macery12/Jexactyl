@@ -4,12 +4,9 @@ namespace Everest\Http\Controllers\Api\Application\Users;
 
 use Everest\Models\User;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
-use Everest\Events\Email\AccountLocked;
-use Everest\Events\Email\AccountUnsuspended;
 use Spatie\QueryBuilder\QueryBuilder;
 use Spatie\QueryBuilder\AllowedFilter;
 use Everest\Exceptions\DisplayException;
@@ -25,8 +22,8 @@ use Everest\Http\Requests\Api\Application\Users\StoreUserRequest;
 use Everest\Http\Requests\Api\Application\Users\DeleteUserRequest;
 use Everest\Http\Requests\Api\Application\Users\UpdateUserRequest;
 use Everest\Http\Requests\Api\Application\Users\SuspendUserRequest;
-use Everest\Http\Requests\Api\Application\Users\VerifyUserEmailRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Users\VerifyUserEmailRequest;
 
 class UserController extends ApplicationApiController
 {
@@ -42,7 +39,7 @@ class UserController extends ApplicationApiController
     public function __construct(
         private UserCreationService $creationService,
         private UserDeletionService $deletionService,
-        private UserUpdateService $updateService
+        private UserUpdateService $updateService,
     ) {
         parent::__construct();
     }
@@ -113,10 +110,10 @@ class UserController extends ApplicationApiController
     public function update(UpdateUserRequest $request, User $user): array
     {
         if (
-            !$request->user()->root_admin &&
-            (
-                $request->input('root_admin') ||
-                $request->input('admin_role_id') !== $user->admin_role_id
+            !$request->user()->root_admin
+            && (
+                $request->input('root_admin')
+                || $request->input('admin_role_id') !== $user->admin_role_id
             )
         ) {
             throw new DisplayException('You must be a root administrator to grant another user permissions.');
@@ -211,7 +208,7 @@ class UserController extends ApplicationApiController
      * Handle a request to delete a user from the Panel. Returns a HTTP/204 response
      * on successful deletion.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      */
     public function delete(DeleteUserRequest $request, User $user): Response
     {

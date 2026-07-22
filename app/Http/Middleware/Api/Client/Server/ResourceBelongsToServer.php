@@ -9,9 +9,9 @@ use Everest\Models\Server;
 use Everest\Models\Subuser;
 use Everest\Models\Database;
 use Everest\Models\Schedule;
-use Everest\Models\ServerCustomDomain;
 use Illuminate\Http\Request;
 use Everest\Models\Allocation;
+use Everest\Models\ServerCustomDomain;
 use Illuminate\Database\Eloquent\Model;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 

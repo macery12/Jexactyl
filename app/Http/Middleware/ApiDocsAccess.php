@@ -2,14 +2,13 @@
 
 namespace Everest\Http\Middleware;
 
-use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
+use Illuminate\Http\JsonResponse;
 
 class ApiDocsAccess
 {
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, \Closure $next)
     {
         if (!config('api-docs.enabled')) {
             return $this->errorResponse(

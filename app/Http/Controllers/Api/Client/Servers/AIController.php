@@ -4,12 +4,12 @@ namespace Everest\Http\Controllers\Api\Client\Servers;
 
 use Everest\Models\Server;
 use Everest\Models\Setting;
-use Everest\Models\AiUsageLog;
 use Illuminate\Http\Request;
+use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\RateLimiter;
 use Everest\Services\AI\OpenAIService;
+use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class AIController extends ClientApiController
@@ -55,11 +55,13 @@ class AIController extends ClientApiController
 
         if (count($signal) >= 3) {
             $out = implode("\n", array_slice($signal, -60));
+
             return substr($out, -3000);
         }
 
         // Fallback: raw tail (non-Java servers)
         $tail = implode("\n", array_slice($lines, -80));
+
         return substr($tail, -3000);
     }
 
@@ -76,6 +78,7 @@ class AIController extends ClientApiController
 
         if ($queryType === 'log_analysis') {
             $log = $this->filterLogLines($rawQuery);
+
             return "Server: {$ctx}\n\nLog (errors/exceptions):\n{$log}\n\nDiagnose: quote the exact failing line. State if crash, config issue, or first-run requirement (EULA etc). Format: Issue / Evidence / Fix.";
         }
 
@@ -126,6 +129,7 @@ class AIController extends ClientApiController
 
         if (RateLimiter::tooManyAttempts($rateLimitKey, $maxAttempts)) {
             $retryAfter = RateLimiter::availableIn($rateLimitKey);
+
             return response()->json([
                 'error' => 'Too many AI requests. Please try again in ' . $retryAfter . ' seconds.',
                 'retry_after' => $retryAfter,

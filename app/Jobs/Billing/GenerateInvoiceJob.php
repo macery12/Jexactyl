@@ -2,20 +2,22 @@
 
 namespace Everest\Jobs\Billing;
 
-use Everest\Events\Email\PaymentReceived;
 use Everest\Jobs\Job;
 use Everest\Models\Billing\Order;
-use Everest\Services\Billing\InvoiceGenerationService;
-use Everest\Services\Billing\InvoicePdfService;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
+use Everest\Events\Email\PaymentReceived;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
+use Everest\Services\Billing\InvoicePdfService;
+use Everest\Services\Billing\InvoiceGenerationService;
 
 class GenerateInvoiceJob extends Job implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, SerializesModels;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use SerializesModels;
 
     public $tries = 3;
     public $backoff = [30, 120, 300];
@@ -42,6 +44,7 @@ class GenerateInvoiceJob extends Job implements ShouldQueue
 
         if (!$order || !$order->user) {
             Log::warning("GenerateInvoiceJob: Order {$this->orderId} or its user not found.");
+
             return;
         }
 
@@ -97,5 +100,3 @@ class GenerateInvoiceJob extends Job implements ShouldQueue
         }
     }
 }
-
-

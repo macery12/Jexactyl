@@ -3,18 +3,18 @@
 namespace Everest\Http\Controllers\Auth;
 
 use Everest\Models\User;
-use Everest\Models\EmailNotificationSetting;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\RedirectResponse;
 use Everest\Exceptions\DisplayException;
+use Everest\Services\Email\EmailManager;
+use Illuminate\Validation\Rules\Password;
+use Everest\Models\EmailNotificationSetting;
 use Everest\Services\Users\UserUpdateService;
 use Everest\Services\Auth\PasswordResetService;
-use Everest\Services\Email\EmailManager;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rules\Password;
 
 class ForgotPasswordController extends AbstractLoginController
 {
@@ -23,9 +23,8 @@ class ForgotPasswordController extends AbstractLoginController
      */
     public function __construct(
         private UserUpdateService $updateService,
-        private PasswordResetService $passwordResetService
-    )
-    {
+        private PasswordResetService $passwordResetService,
+    ) {
         parent::__construct();
     }
 

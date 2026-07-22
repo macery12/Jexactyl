@@ -14,9 +14,6 @@ class TicketTransformer extends Transformer
      */
     protected array $availableIncludes = ['messages'];
 
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return Ticket::RESOURCE_NAME;

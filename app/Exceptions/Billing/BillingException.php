@@ -39,7 +39,7 @@ class BillingException extends DisplayException
         ?string $paymentProcessor = null,
         ?string $externalId = null,
         array $context = [],
-        ?\Throwable $previous = null
+        ?\Throwable $previous = null,
     ) {
         $this->orderId = $orderId;
         $this->exceptionType = $exceptionType;

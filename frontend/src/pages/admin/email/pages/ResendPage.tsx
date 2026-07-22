@@ -43,6 +43,7 @@ export default function ResendPage() {
 
     useEffect(() => {
         if (initial) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setPlan(initial.plan);
             setMonthly(initial.monthly);
             setDaily(initial.daily);

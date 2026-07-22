@@ -1,10 +1,10 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Framework tables: queue, sessions, notifications, password brokers, settings.
  *
  * Consolidated rebuild — reproduces the empirical fresh-install schema
@@ -12,8 +12,7 @@ use Illuminate\Support\Facades\Schema;
  * are kept deliberately: config/auth.php still points at password_resets while
  * the active flow uses password_reset_tokens (see docs/database-rebuild/04 D2).
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('jobs', function (Blueprint $table) {

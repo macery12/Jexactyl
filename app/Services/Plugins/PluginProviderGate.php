@@ -47,6 +47,7 @@ class PluginProviderGate
      * Remove duplicates and ensure integer values.
      *
      * @param array<int, mixed>|null $ids
+     *
      * @return array<int, int>
      */
     private function normalizeIds(?array $ids): array

@@ -3,7 +3,7 @@
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Refreshes the built-in theme presets for the redesigned, semantic V2 theme
  * model (full 10-color palette instead of the legacy 5 keys). User-created
  * presets (is_builtin = false) are left untouched.

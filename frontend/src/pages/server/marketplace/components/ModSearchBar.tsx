@@ -45,6 +45,7 @@ export function ModSearchBar({
 }) {
     // Local, debounced search text so keystrokes don't refetch on every char.
     const [text, setText] = useState(filters.search);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
     useEffect(() => setText(filters.search), [filters.search]);
     useEffect(() => {
         const t = setTimeout(() => {

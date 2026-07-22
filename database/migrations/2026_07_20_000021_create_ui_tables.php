@@ -1,15 +1,14 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * UI/customization tables. Built-in theme_presets rows are seeded by
  * ThemePresetSeeder (docs/database-rebuild/04 D4) — structure only here.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('custom_links', function (Blueprint $table) {

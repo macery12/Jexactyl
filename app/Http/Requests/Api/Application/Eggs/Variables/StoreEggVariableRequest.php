@@ -8,7 +8,7 @@ use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class StoreEggVariableRequest extends ApplicationApiRequest
 {
-    public function rules(array $rules = null): array
+    public function rules(?array $rules = null): array
     {
         return [
             'name' => 'required|string|min:1|max:191',

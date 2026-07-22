@@ -5,15 +5,14 @@ namespace Everest\Tests\Integration\Api\Client\Server\Database;
 use Everest\Models\Subuser;
 use Everest\Models\Database;
 use Everest\Models\DatabaseHost;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Contracts\Extensions\HashidsInterface;
 use Everest\Services\Databases\DatabasePasswordService;
 use Everest\Services\Databases\DatabaseManagementService;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class DatabaseAuthorizationTest extends ClientApiIntegrationTestCase
 {
-    /***/
     #[DataProvider('methodDataProvider')]
     public function testAccessToAServersDatabasesIsRestrictedProperly(string $method, string $endpoint)
     {

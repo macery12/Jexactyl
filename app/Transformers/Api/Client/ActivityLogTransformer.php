@@ -5,8 +5,8 @@ namespace Everest\Transformers\Api\Client;
 use Everest\Models\User;
 use Illuminate\Support\Str;
 use Everest\Models\ActivityLog;
-use Illuminate\Support\Facades\Log;
 use League\Fractal\Resource\Item;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Database\Eloquent\Model;
 use Everest\Transformers\Api\Transformer;
 use League\Fractal\Resource\NullResource;
@@ -129,7 +129,7 @@ class ActivityLogTransformer extends Transformer
      * Determines if the user can view the IP address in the output either because they are the
      * actor that performed the action, or because they are an administrator on the Panel.
      */
-    protected function canViewIP(Model $actor = null): bool
+    protected function canViewIP(?Model $actor = null): bool
     {
         return optional($actor)->is($this->request->user()) || $this->request->user()->root_admin;
     }

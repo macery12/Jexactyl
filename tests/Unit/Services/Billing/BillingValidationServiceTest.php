@@ -6,8 +6,8 @@ use Everest\Tests\TestCase;
 use Everest\Exceptions\DisplayException;
 use Everest\Services\Billing\BillingCycleService;
 use Everest\Services\Billing\NodeAvailabilityService;
-use Everest\Repositories\Wings\DaemonConfigurationRepository;
 use Everest\Services\Billing\BillingValidationService;
+use Everest\Repositories\Wings\DaemonConfigurationRepository;
 
 class BillingValidationServiceTest extends TestCase
 {

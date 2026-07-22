@@ -1,17 +1,16 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Database hosts, nodes and allocations. allocations.server_id is created here
  * WITHOUT its foreign key — servers doesn't exist yet and servers.allocation_id
  * points back at allocations (the schema's one deliberate circular FK). The FK
  * is added in 0001_01_01_000006_create_servers_tables.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('database_hosts', function (Blueprint $table) {

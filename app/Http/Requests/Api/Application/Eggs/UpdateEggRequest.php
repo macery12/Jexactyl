@@ -6,7 +6,7 @@ use Everest\Models\AdminRole;
 
 class UpdateEggRequest extends StoreEggRequest
 {
-    public function rules(array $rules = null): array
+    public function rules(?array $rules = null): array
     {
         return [
             'nest_id' => 'sometimes|numeric|exists:nests,id',

@@ -24,8 +24,8 @@ use Illuminate\Support\Str;
  * @property int|null $egg_id
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
- * @property \Everest\Models\Nest $nest
- * @property \Everest\Models\Egg $egg
+ * @property Nest $nest
+ * @property Egg $egg
  */
 class ServerPreset extends Model
 {

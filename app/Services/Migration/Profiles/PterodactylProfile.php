@@ -3,8 +3,8 @@
 namespace Everest\Services\Migration\Profiles;
 
 use Everest\Services\Migration\TablePlan;
-use Everest\Services\Migration\ImportProfile;
 use Everest\Services\Migration\ImportContext;
+use Everest\Services\Migration\ImportProfile;
 
 /**
  * Pterodactyl 1.11.x — the common ancestor of every panel this importer reads.

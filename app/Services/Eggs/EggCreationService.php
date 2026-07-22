@@ -22,7 +22,7 @@ class EggCreationService
      * Create a new service option and assign it to the given service.
      *
      * @throws \Everest\Exceptions\Model\DataValidationException
-     * @throws \Everest\Exceptions\Service\Egg\NoParentConfigurationFoundException
+     * @throws NoParentConfigurationFoundException
      */
     public function handle(array $data): Egg
     {

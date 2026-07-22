@@ -50,7 +50,7 @@ export default function LoginPage() {
                 navigate(`/auth/login/checkpoint?token=${encodeURIComponent(res.confirmationToken)}`);
                 return;
             }
-            window.location.href = res.intended || abs();
+            window.location.assign(res.intended || abs());
         } catch (err: unknown) {
             const message =
                 (typeof err === 'object' && err && 'response' in err

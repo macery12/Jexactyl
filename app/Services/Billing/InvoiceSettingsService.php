@@ -2,8 +2,8 @@
 
 namespace Everest\Services\Billing;
 
-use Everest\Models\Billing\InvoiceSettings;
 use Illuminate\Support\Facades\DB;
+use Everest\Models\Billing\InvoiceSettings;
 
 class InvoiceSettingsService
 {
@@ -34,6 +34,7 @@ class InvoiceSettingsService
     {
         $settings = $this->get();
         $settings->update($attributes);
+
         return $settings->fresh();
     }
 

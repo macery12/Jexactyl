@@ -16,7 +16,9 @@ class ModpackPreviewService
     /** CurseForge encodes loaders as gameVersions strings alongside MC versions. */
     private const LOADER_NAMES = ['forge', 'neoforge', 'fabric', 'quilt'];
 
-    public function __construct(private CurseForgeService $curseForge) {}
+    public function __construct(private CurseForgeService $curseForge)
+    {
+    }
 
     /**
      * @throws ModsServiceException
@@ -55,6 +57,7 @@ class ModpackPreviewService
      * Split a CurseForge gameVersions array into [loaderSlug, minecraftVersion].
      *
      * @param string[] $gameVersions
+     *
      * @return array{0: ?string, 1: ?string}
      */
     private function parseGameVersions(array $gameVersions): array

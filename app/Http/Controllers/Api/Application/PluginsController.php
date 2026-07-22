@@ -5,10 +5,10 @@ namespace Everest\Http\Controllers\Api\Application;
 use Everest\Models\Setting;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
+use Everest\Models\DownloadQueue;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Everest\Models\MarketplaceInstallLog;
-use Everest\Models\DownloadQueue;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\Mods\ModrinthService;
 use Everest\Http\Requests\Api\Application\Mods\GetModsAnalyticsRequest;
@@ -17,7 +17,7 @@ use Everest\Http\Requests\Api\Application\Mods\UpdateModsSettingsRequest;
 class PluginsController extends ApplicationApiController
 {
     public function __construct(
-        private ModrinthService $modrinthService
+        private ModrinthService $modrinthService,
     ) {
         parent::__construct();
     }
@@ -122,7 +122,7 @@ class PluginsController extends ApplicationApiController
                     'denied_by_policy' => 0,
                 ],
                 'curseforge' => [
-                    'enabled' => (bool) \Everest\Models\Setting::get('settings::modules:mods:curseforge_enabled', config('modules.mods.curseforge_enabled', false)),
+                    'enabled' => (bool) Setting::get('settings::modules:mods:curseforge_enabled', config('modules.mods.curseforge_enabled', false)),
                     'rate_limit' => null,
                     'denied_by_policy' => 0,
                 ],

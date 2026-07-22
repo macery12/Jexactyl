@@ -2,16 +2,17 @@
 
 namespace Everest\Console\Commands\Extensions;
 
+use Illuminate\Console\Command;
+use Everest\Models\ExtensionRepository;
+use Everest\Services\Extensions\ExtensionPackageInstallService;
+use Everest\Services\Extensions\ExtensionFilesystemOwnershipService;
 use Everest\Console\Commands\Extensions\Concerns\HandlesExtensionPackages;
 use Everest\Console\Commands\Extensions\Concerns\InteractsWithExtensionRepositories;
-use Everest\Models\ExtensionRepository;
-use Everest\Services\Extensions\ExtensionFilesystemOwnershipService;
-use Everest\Services\Extensions\ExtensionPackageInstallService;
-use Illuminate\Console\Command;
 
 class InstallExtensionCommand extends Command
 {
-    use HandlesExtensionPackages, InteractsWithExtensionRepositories;
+    use HandlesExtensionPackages;
+    use InteractsWithExtensionRepositories;
 
     protected $signature = 'p:extensions:install
                             {source? : Extension id from a configured repository, or a local package file path}
@@ -27,7 +28,7 @@ class InstallExtensionCommand extends Command
 
     public function __construct(
         private ExtensionPackageInstallService $installService,
-        private ExtensionFilesystemOwnershipService $ownershipService
+        private ExtensionFilesystemOwnershipService $ownershipService,
     ) {
         parent::__construct();
     }

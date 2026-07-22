@@ -4,14 +4,14 @@ namespace Everest\Http\Controllers\Webhooks;
 
 use Illuminate\Http\Request;
 use Everest\Models\Billing\Order;
-use Everest\Models\Billing\PaymentTransaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Everest\Services\Security\LogSanitizer;
-use Everest\Services\Billing\PayPalWebhookVerificationService;
+use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\PayPalPaymentService;
 use Everest\Services\Billing\BillingValidationService;
 use Everest\Services\Billing\ServerFulfillmentService;
+use Everest\Services\Billing\PayPalWebhookVerificationService;
 
 class PayPalWebhookController
 {

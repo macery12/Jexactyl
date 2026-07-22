@@ -2,15 +2,16 @@
 
 namespace Everest\Console\Commands\Extensions;
 
+use Illuminate\Console\Command;
+use Everest\Services\Extensions\ExtensionPackageUninstallService;
+use Everest\Services\Extensions\ExtensionFilesystemOwnershipService;
 use Everest\Console\Commands\Extensions\Concerns\HandlesExtensionPackages;
 use Everest\Console\Commands\Extensions\Concerns\InteractsWithExtensionRepositories;
-use Everest\Services\Extensions\ExtensionFilesystemOwnershipService;
-use Everest\Services\Extensions\ExtensionPackageUninstallService;
-use Illuminate\Console\Command;
 
 class UninstallExtensionCommand extends Command
 {
-    use HandlesExtensionPackages, InteractsWithExtensionRepositories;
+    use HandlesExtensionPackages;
+    use InteractsWithExtensionRepositories;
 
     protected $signature = 'p:extensions:uninstall
                             {extensionId : Installed extension id to remove}
@@ -22,7 +23,7 @@ class UninstallExtensionCommand extends Command
 
     public function __construct(
         private ExtensionPackageUninstallService $uninstallService,
-        private ExtensionFilesystemOwnershipService $ownershipService
+        private ExtensionFilesystemOwnershipService $ownershipService,
     ) {
         parent::__construct();
     }

@@ -6,8 +6,8 @@ use Everest\Models\User;
 use Illuminate\Http\Response;
 use Everest\Models\Allocation;
 use Everest\Models\Permission;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class NetworkAllocationControllerTest extends ClientApiIntegrationTestCase
 {
@@ -96,7 +96,7 @@ class NetworkAllocationControllerTest extends ClientApiIntegrationTestCase
         $this->actingAs($user)->postJson($this->link($server->allocation))->assertForbidden();
     }
 
-    /***/
+
     #[DataProvider('updatePermissionsDataProvider')]
     public function testPrimaryAllocationCanBeModified(array $permissions)
     {

@@ -2,12 +2,11 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
-use ZipArchive;
+use Everest\Exceptions\DisplayException;
 
 class ExtensionPackageArtifactService
 {
@@ -15,7 +14,7 @@ class ExtensionPackageArtifactService
     public const PACKAGE_ARTIFACT_FILENAME = 'package.M12LabsExtension';
 
     public function __construct(
-        private PanelVersionCompatibilityService $panelVersionCompatibility
+        private PanelVersionCompatibilityService $panelVersionCompatibility,
     ) {
     }
 
@@ -26,7 +25,7 @@ class ExtensionPackageArtifactService
     {
         $resolvedPath = $this->resolveArchivePath($archivePath, $workingDirectory);
 
-        $zip = new ZipArchive();
+        $zip = new \ZipArchive();
         if ($zip->open($resolvedPath) !== true) {
             throw new DisplayException(sprintf('The extension package file "%s" could not be opened.', $resolvedPath));
         }
@@ -121,7 +120,7 @@ class ExtensionPackageArtifactService
             return true;
         }
 
-        if (Str::contains($value, ['/','\\'])) {
+        if (Str::contains($value, ['/', '\\'])) {
             return true;
         }
 
@@ -197,7 +196,7 @@ class ExtensionPackageArtifactService
 
     public function extractArchive(string $archivePath, string $extractPath): void
     {
-        $zip = new ZipArchive();
+        $zip = new \ZipArchive();
         if ($zip->open($archivePath) !== true) {
             throw new DisplayException('The downloaded extension archive could not be opened.');
         }
@@ -240,6 +239,7 @@ class ExtensionPackageArtifactService
      * Validate the manifest's extension id / version against expected values and return it unchanged.
      *
      * @param array<string, mixed> $manifest
+     *
      * @return array<string, mixed>
      */
     public function normalizeManifest(array $manifest, ?string $expectedExtensionId = null, ?string $expectedVersion = null): array
@@ -274,10 +274,7 @@ class ExtensionPackageArtifactService
     {
         $manifestVersion = (int) Arr::get($manifest, 'manifestVersion', 1);
         if ($manifestVersion > self::SUPPORTED_MANIFEST_VERSION) {
-            throw new DisplayException(sprintf(
-                'This extension package uses manifest version %d, which was built for a newer panel. Update the panel before installing it.',
-                $manifestVersion
-            ));
+            throw new DisplayException(sprintf('This extension package uses manifest version %d, which was built for a newer panel. Update the panel before installing it.', $manifestVersion));
         }
 
         $filePaths = array_map(
@@ -321,16 +318,12 @@ class ExtensionPackageArtifactService
 
         $declaresMigrations = (bool) Arr::get($backend, 'migrations', false);
         if ($declaresMigrations !== $hasMigrationFiles) {
-            throw new DisplayException($declaresMigrations
-                ? 'The extension manifest declares database migrations but ships no migration files.'
-                : 'The extension package ships migration files but does not declare "backend": {"migrations": true} in its manifest.');
+            throw new DisplayException($declaresMigrations ? 'The extension manifest declares database migrations but ships no migration files.' : 'The extension package ships migration files but does not declare "backend": {"migrations": true} in its manifest.');
         }
 
         $declaresSchedule = (bool) Arr::get($backend, 'schedule', false);
         if ($declaresSchedule !== $hasScheduleFile) {
-            throw new DisplayException($declaresSchedule
-                ? 'The extension manifest declares scheduled tasks but ships no schedule.php.'
-                : 'The extension package ships a schedule.php but does not declare "backend": {"schedule": true} in its manifest.');
+            throw new DisplayException($declaresSchedule ? 'The extension manifest declares scheduled tasks but ships no schedule.php.' : 'The extension package ships a schedule.php but does not declare "backend": {"schedule": true} in its manifest.');
         }
     }
 
@@ -359,11 +352,7 @@ class ExtensionPackageArtifactService
             return;
         }
 
-        throw new DisplayException(sprintf(
-            'This extension package supports M12Labs panel versions %s (exact versions or semver ranges). The current panel version is %s.',
-            implode(', ', array_values(array_filter($versions, 'is_string'))),
-            (string) config('app.version')
-        ));
+        throw new DisplayException(sprintf('This extension package supports M12Labs panel versions %s (exact versions or semver ranges). The current panel version is %s.', implode(', ', array_values(array_filter($versions, 'is_string'))), (string) config('app.version')));
     }
 
     public function normalizeTargetPath(string $path, string $extensionId): string

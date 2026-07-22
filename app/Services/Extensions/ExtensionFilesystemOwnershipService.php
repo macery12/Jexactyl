@@ -3,10 +3,6 @@
 namespace Everest\Services\Extensions;
 
 use Everest\Exceptions\DisplayException;
-use Illuminate\Support\Str;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
-use SplFileInfo;
 
 class ExtensionFilesystemOwnershipService
 {
@@ -61,10 +57,7 @@ class ExtensionFilesystemOwnershipService
             return;
         }
 
-        throw new DisplayException(sprintf(
-            'M12Labs cannot write to "%s". Repair the panel file ownership and permissions, then try again. Files created by a root-run extension install or uninstall should belong to the panel user (for example www-data).',
-            $label
-        ));
+        throw new DisplayException(sprintf('M12Labs cannot write to "%s". Repair the panel file ownership and permissions, then try again. Files created by a root-run extension install or uninstall should belong to the panel user (for example www-data).', $label));
     }
 
     public function ensureRemovablePath(string $path, string $label): void
@@ -74,10 +67,7 @@ class ExtensionFilesystemOwnershipService
             return;
         }
 
-        throw new DisplayException(sprintf(
-            'M12Labs cannot remove "%s". Repair the panel file ownership and permissions, then try again. Files created by a root-run extension install or uninstall should belong to the panel user (for example www-data).',
-            $label
-        ));
+        throw new DisplayException(sprintf('M12Labs cannot remove "%s". Repair the panel file ownership and permissions, then try again. Files created by a root-run extension install or uninstall should belong to the panel user (for example www-data).', $label));
     }
 
     public function isRunningAsRoot(): bool
@@ -94,7 +84,7 @@ class ExtensionFilesystemOwnershipService
      * so that bad permissions — including root-owned files left by a previous
      * root-run build — are caught before pnpm/npm starts.
      *
-     * @throws DisplayException if any path is not writable and cannot be repaired automatically.
+     * @throws DisplayException if any path is not writable and cannot be repaired automatically
      */
     public function validateBuildWorkspaceOwnership(): void
     {
@@ -145,14 +135,7 @@ class ExtensionFilesystemOwnershipService
         $user  = $ownership['user'] ?? 'the panel user';
         $group = $ownership['group'] ?? 'the panel group';
 
-        throw new DisplayException(sprintf(
-            'M12Labs cannot start the build because %d path(s) are not writable: %s. '
-            . 'Run "sudo chown -R %s:%s <path>" for each path listed to repair ownership, then try again.',
-            count($mismatched),
-            implode(', ', $mismatched),
-            $user,
-            $group
-        ));
+        throw new DisplayException(sprintf('M12Labs cannot start the build because %d path(s) are not writable: %s. Run "sudo chown -R %s:%s <path>" for each path listed to repair ownership, then try again.', count($mismatched), implode(', ', $mismatched), $user, $group));
     }
 
     /**
@@ -257,12 +240,12 @@ class ExtensionFilesystemOwnershipService
             return;
         }
 
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::SELF_FIRST
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
         );
 
-        /** @var SplFileInfo $item */
+        /** @var \SplFileInfo $item */
         foreach ($iterator as $item) {
             $this->chownPath($item->getPathname(), $uid, $gid);
         }

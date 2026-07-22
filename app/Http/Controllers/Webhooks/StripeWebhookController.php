@@ -2,13 +2,11 @@
 
 namespace Everest\Http\Controllers\Webhooks;
 
-use Stripe\StripeClient;
-use Stripe\Webhook as StripeWebhook;
+use Everest\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
-use Everest\Models\User;
-use Everest\Models\Setting;
+use Stripe\Webhook as StripeWebhook;
 use Everest\Services\Billing\StripeCustomerService;
 
 /**

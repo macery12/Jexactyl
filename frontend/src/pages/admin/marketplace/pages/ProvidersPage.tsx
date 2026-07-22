@@ -27,6 +27,7 @@ export default function ProvidersPage() {
     useEffect(() => {
         if (!rulesQ.data) return;
         const existing = rulesQ.data.rules[provider];
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setDraft(
             existing
                 ? { ...existing, allowed_egg_ids: [...(existing.allowed_egg_ids ?? [])] }

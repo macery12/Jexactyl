@@ -60,7 +60,7 @@ export async function getCoupons(): Promise<Coupon[]> {
     const perPage = 100;
     let page = 1;
     const all: Coupon[] = [];
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
         const { data } = await http.get('/api/application/billing/coupons', { params: { page, per_page: perPage } });
         all.push(...(data.data ?? []).map(toCoupon));

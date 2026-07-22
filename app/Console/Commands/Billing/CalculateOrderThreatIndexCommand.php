@@ -2,10 +2,10 @@
 
 namespace Everest\Console\Commands\Billing;
 
-use Everest\Models\Billing\Order;
-use Everest\Services\Billing\ThreatIndexService;
 use Illuminate\Console\Command;
+use Everest\Models\Billing\Order;
 use Illuminate\Support\Facades\Log;
+use Everest\Services\Billing\ThreatIndexService;
 
 class CalculateOrderThreatIndexCommand extends Command
 {
@@ -46,12 +46,12 @@ class CalculateOrderThreatIndexCommand extends Command
                             'order_id' => $order->id,
                             'user_id' => $order->user_id,
                         ]);
-                        $skipped++;
+                        ++$skipped;
                         continue;
                     }
 
                     $this->threatIndexService->recalculate($order);
-                    $processed++;
+                    ++$processed;
                 }
             });
 

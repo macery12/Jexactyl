@@ -4,7 +4,7 @@ namespace Everest\Services\Extensions\MinecraftPlayerManager;
 
 class MinecraftPing
 {
-    /** @var ?resource $Socket */
+    /** @var ?resource */
     private $Socket;
     private string $ServerAddress;
     private int $ServerPort;
@@ -83,7 +83,7 @@ class MinecraftPing
             return false;
         }
 
-        $Data = "";
+        $Data = '';
         while (\strlen($Data) < $Length) {
             if (\microtime(true) - $TimeStart > $this->Timeout) {
                 throw new MinecraftPingException('Server read timed out');

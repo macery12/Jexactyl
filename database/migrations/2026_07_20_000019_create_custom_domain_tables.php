@@ -1,17 +1,16 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Custom (sub)domain system: Cloudflare API keys, admin-managed base domains,
  * per-server subdomain claims and DNS operation logs. The unique key on
  * server_custom_domains keeps its historical custom name
  * (server_custom_domains_unique_target).
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('custom_domain_api_keys', function (Blueprint $table) {

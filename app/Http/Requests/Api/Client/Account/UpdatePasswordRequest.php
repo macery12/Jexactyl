@@ -11,7 +11,7 @@ use Everest\Exceptions\Http\Base\InvalidPasswordProvidedException;
 class UpdatePasswordRequest extends ClientApiRequest
 {
     /**
-     * @throws \Everest\Exceptions\Http\Base\InvalidPasswordProvidedException
+     * @throws InvalidPasswordProvidedException
      */
     public function authorize(): bool
     {

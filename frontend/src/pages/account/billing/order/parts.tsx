@@ -242,6 +242,15 @@ function CouponBox({ checkout }: { checkout: CheckoutController }) {
 
 // ---- Live summary "cart" ----------------------------------------------------
 
+function Row({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="flex items-center justify-between text-sm">
+            <span className="text-[var(--color-ink-muted)]">{label}</span>
+            <span className="font-medium text-[var(--color-ink)]">{value}</span>
+        </div>
+    );
+}
+
 export function SummaryCart({
     checkout,
     cta,
@@ -258,13 +267,6 @@ export function SummaryCart({
     const node = checkout.nodes.find(n => n.id === checkout.nodeId);
     const egg = checkout.eggs.find(e => e.id === checkout.eggId);
     const couponSavings = checkout.couponData?.discount ?? 0;
-
-    const Row = ({ label, value }: { label: string; value: string }) => (
-        <div className="flex items-center justify-between text-sm">
-            <span className="text-[var(--color-ink-muted)]">{label}</span>
-            <span className="font-medium text-[var(--color-ink)]">{value}</span>
-        </div>
-    );
 
     return (
         <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/80 p-5">

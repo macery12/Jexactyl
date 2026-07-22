@@ -2,10 +2,10 @@
 
 namespace Everest\Services\Billing;
 
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Everest\Models\Node;
+use Illuminate\Support\Collection;
 use Everest\Models\Billing\Product;
+use Illuminate\Support\Facades\Cache;
 use Everest\Repositories\Wings\DaemonConfigurationRepository;
 
 class NodeAvailabilityService

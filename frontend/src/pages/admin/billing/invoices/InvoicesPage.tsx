@@ -80,6 +80,7 @@ export default function InvoicesPage() {
 
     const filters = useMemo(() => ({ search: search || undefined, status: status || undefined }), [search, status]);
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
     useEffect(() => setPage(1), [filters]);
 
     const { data, isLoading, isFetching } = useQuery({

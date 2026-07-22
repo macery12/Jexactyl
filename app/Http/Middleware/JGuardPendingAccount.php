@@ -14,7 +14,7 @@ class JGuardPendingAccount
      * For accounts registered under 'delayed' mode, the entry is automatically
      * approved once the configured delay period has elapsed.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException
+     * @throws AccessDeniedHttpException
      */
     public function handle(Request $request, \Closure $next): mixed
     {

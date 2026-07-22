@@ -2,7 +2,6 @@
 
 namespace Everest\Services\Servers;
 
-use Exception;
 use Everest\Models\Server;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
@@ -94,7 +93,7 @@ class StartupVariableVersionService
             $this->cache->put($staleCacheKey, $payload, now()->addSeconds((int) config('minecraft_versions.stale_cache_ttl', 86400)));
 
             return $payload;
-        } catch (Exception $exception) {
+        } catch (\Exception $exception) {
             $stalePayload = $this->cache->get($staleCacheKey);
             if (is_array($stalePayload)) {
                 return $stalePayload + ['stale' => true, 'error' => null];

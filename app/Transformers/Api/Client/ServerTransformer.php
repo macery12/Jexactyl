@@ -6,8 +6,8 @@ use Everest\Models\Egg;
 use Everest\Models\Server;
 use Everest\Models\Allocation;
 use Everest\Models\Permission;
-use Everest\Models\ExtensionConfig;
 use League\Fractal\Resource\Item;
+use Everest\Models\ExtensionConfig;
 use Illuminate\Container\Container;
 use League\Fractal\Resource\Collection;
 use Everest\Transformers\Api\Transformer;
@@ -31,7 +31,7 @@ class ServerTransformer extends Transformer
      */
     public function transform(Server $server): array
     {
-        /** @var \Everest\Services\Servers\StartupCommandService $service */
+        /** @var StartupCommandService $service */
         $service = Container::getInstance()->make(StartupCommandService::class);
 
         $user = $this->request->user();
@@ -59,8 +59,8 @@ class ServerTransformer extends Transformer
         }
 
         // Check if any extensions are enabled for this server
-        $extensionsEnabled = config('modules.extensions.enabled', false) && 
-            !empty(ExtensionConfig::getEnabledForServer($server));
+        $extensionsEnabled = config('modules.extensions.enabled', false)
+            && !empty(ExtensionConfig::getEnabledForServer($server));
 
         return [
             'server_owner' => $user->id === $server->owner_id,

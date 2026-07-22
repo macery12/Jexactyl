@@ -6,9 +6,9 @@ use Illuminate\Support\Arr;
 use Psr\Log\LoggerInterface as Log;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\ServiceProvider;
+use Everest\Services\Security\SecretEncryptionService;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
-use Everest\Services\Security\SecretEncryptionService;
 
 class SettingsServiceProvider extends ServiceProvider
 {
@@ -140,7 +140,7 @@ class SettingsServiceProvider extends ServiceProvider
     public function boot(
         ConfigRepository $config,
         Log $log,
-        SettingsRepositoryInterface $settings
+        SettingsRepositoryInterface $settings,
     ): void {
         $secrets = app(SecretEncryptionService::class);
 

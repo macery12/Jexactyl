@@ -3,25 +3,25 @@
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
 use Illuminate\Http\Request;
-use Everest\Http\Requests\Api\Client\Billing\UpdateCheckoutRequest;
 use Illuminate\Http\Response;
-use Illuminate\Http\RedirectResponse;
 use Everest\Models\Billing\Order;
-use Everest\Models\Billing\PaymentTransaction;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\RedirectResponse;
 use Everest\Exceptions\DisplayException;
-use Everest\Models\Billing\BillingException;
+use Everest\Traits\ValidatesRedirectUrl;
 use Everest\Services\Security\LogSanitizer;
+use Everest\Models\Billing\BillingException;
+use Everest\Services\Billing\BillingDefaults;
+use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\PayPalPaymentService;
 use Everest\Services\Billing\BillingValidationService;
-use Everest\Services\Billing\BillingDefaults;
 use Everest\Services\Billing\ServerFulfillmentService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Http\Requests\Api\Client\Billing\UpdateCheckoutRequest;
 use Everest\Exceptions\Billing\BillingException as BillingExceptionClass;
-use Everest\Traits\ValidatesRedirectUrl;
 
 class PayPalCheckoutController extends ClientApiController
 {
@@ -301,10 +301,7 @@ class PayPalCheckoutController extends ClientApiController
                 ]);
                 // Dispatch PaymentFailed email
                 $this->fulfillmentService->dispatchPaymentFailedEmail($order, 'PayPal capture failed. Status: ' . $captureStatus, 'paypal');
-                throw new BillingExceptionClass('PayPal capture failed', 'Failed to capture PayPal payment. Status: ' . $captureStatus . '. Please try again or contact support.', BillingException::TYPE_PAYMENT, $order->id, 'paypal', $paypalOrderId, [
-                    'capture_status' => $captureStatus,
-                    'capture_summary' => LogSanitizer::summarizeProviderPayload($captureResult),
-                ]);
+                throw new BillingExceptionClass('PayPal capture failed', 'Failed to capture PayPal payment. Status: ' . $captureStatus . '. Please try again or contact support.', BillingException::TYPE_PAYMENT, $order->id, 'paypal', $paypalOrderId, ['capture_status' => $captureStatus, 'capture_summary' => LogSanitizer::summarizeProviderPayload($captureResult)]);
             }
 
             // Extract and save PayPal transaction details

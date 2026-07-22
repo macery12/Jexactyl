@@ -2,15 +2,14 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Client\Billing;
 
-use Mockery;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Http\Request;
+use Everest\Models\User;
 use Everest\Tests\TestCase;
+use Illuminate\Http\Request;
+use Everest\Models\Billing\Order;
+use Illuminate\Support\Facades\DB;
+use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
-use Everest\Models\Billing\Order;
-use Everest\Models\Billing\Product;
-use Everest\Models\User;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\PayPalPaymentService;
 use Everest\Services\Billing\BillingValidationService;
@@ -51,7 +50,7 @@ class PayPalCheckoutControllerTest extends TestCase
 
     protected function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
         @unlink($this->dbPath);
 
         parent::tearDown();
@@ -61,11 +60,11 @@ class PayPalCheckoutControllerTest extends TestCase
     {
         $product = Product::findOrFail(123);
 
-        $validation = Mockery::mock(BillingValidationService::class);
+        $validation = \Mockery::mock(BillingValidationService::class);
         $validation->shouldReceive('calculatePriceWithCoupon')
             ->once()
             ->with(
-                Mockery::on(fn (Product $candidate) => $candidate->id === 123),
+                \Mockery::on(fn (Product $candidate) => $candidate->id === 123),
                 77,
                 'new',
                 10,
@@ -81,15 +80,15 @@ class PayPalCheckoutControllerTest extends TestCase
             ->once()
             ->with(19.99, false);
 
-        $paypalService = Mockery::mock(PayPalPaymentService::class);
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldReceive('createOrder')
             ->once()
             ->with(
-                Mockery::on(fn (Product $candidate) => $candidate->id === 123),
+                \Mockery::on(fn (Product $candidate) => $candidate->id === 123),
                 19.99,
                 77,
-                Mockery::type('string'),
-                Mockery::type('string')
+                \Mockery::type('string'),
+                \Mockery::type('string')
             )
             ->andReturn([
                 'id' => 'PAYPAL-ORDER-123',
@@ -101,18 +100,18 @@ class PayPalCheckoutControllerTest extends TestCase
             ->once()
             ->andReturn('https://www.paypal.com/checkoutnow?token=PAYPAL-ORDER-123');
 
-        $orderService = Mockery::mock(CreateOrderService::class);
+        $orderService = \Mockery::mock(CreateOrderService::class);
         $orderService->shouldReceive('create')
             ->once()
             ->with(
                 null,
-                Mockery::on(fn ($user) => $user->id === 42),
-                Mockery::on(fn (Product $candidate) => $candidate->id === 123),
+                \Mockery::on(fn ($user) => $user->id === 42),
+                \Mockery::on(fn (Product $candidate) => $candidate->id === 123),
                 Order::STATUS_PENDING,
                 Order::TYPE_NEW,
                 77,
                 null,
-                Mockery::on(fn (array $data) => ($data['billing_days'] ?? null) === 10),
+                \Mockery::on(fn (array $data) => ($data['billing_days'] ?? null) === 10),
                 19.99,
                 19.99,
                 0
@@ -122,7 +121,7 @@ class PayPalCheckoutControllerTest extends TestCase
             $paypalService,
             $validation,
             $orderService,
-            Mockery::mock(ServerFulfillmentService::class)
+            \Mockery::mock(ServerFulfillmentService::class)
         );
 
         $user = new User();

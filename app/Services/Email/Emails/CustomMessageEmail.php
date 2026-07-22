@@ -8,7 +8,7 @@ class CustomMessageEmail extends BaseEmail
         private string $subject,
         private string $html,
         private ?string $text = null,
-        private ?array $tags = null
+        private ?array $tags = null,
     ) {
     }
 

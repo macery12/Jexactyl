@@ -94,7 +94,7 @@ class EmailQuota extends Model
     public function checkAndResetQuota(): void
     {
         $now = now();
-        
+
         // Reset monthly if needed
         if ($this->month_reset_at->lt($now->copy()->startOfMonth())) {
             $this->monthly_sent = 0;
@@ -118,7 +118,7 @@ class EmailQuota extends Model
     public function reserveQuota(int $count = 1): bool
     {
         $this->checkAndResetQuota();
-        
+
         $planConfig = self::PLANS[$this->plan] ?? self::PLANS['free'];
 
         // Check daily limit (if applicable)
@@ -146,6 +146,7 @@ class EmailQuota extends Model
         }
 
         $this->save();
+
         return true;
     }
 
@@ -155,7 +156,7 @@ class EmailQuota extends Model
     public function getNextAvailableTime(): \Carbon\Carbon
     {
         $this->checkAndResetQuota();
-        
+
         $planConfig = self::PLANS[$this->plan] ?? self::PLANS['free'];
 
         // If daily limit hit, return next day
@@ -178,16 +179,16 @@ class EmailQuota extends Model
     public function getRemainingQuota(): array
     {
         $this->checkAndResetQuota();
-        
+
         $planConfig = self::PLANS[$this->plan] ?? self::PLANS['free'];
 
         return [
-            'daily_remaining' => $planConfig['daily_limit'] !== null 
+            'daily_remaining' => $planConfig['daily_limit'] !== null
                 ? max(0, $planConfig['daily_limit'] - $this->daily_sent)
                 : null,
             'monthly_remaining' => max(0, $this->monthly_limit - $this->monthly_sent),
             'overage' => $this->monthly_overage,
-            'overage_cost' => $this->monthly_overage > 0 
+            'overage_cost' => $this->monthly_overage > 0
                 ? round(($this->monthly_overage / 1000) * self::OVERAGE_COST_PER_1000, 2)
                 : 0,
         ];

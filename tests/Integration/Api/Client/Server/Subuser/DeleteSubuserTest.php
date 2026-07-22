@@ -30,14 +30,14 @@ class DeleteSubuserTest extends ClientApiIntegrationTestCase
     {
         [$user, $server] = $this->generateTestAccount();
 
-        /** @var \Everest\Models\User $differentUser */
+        /** @var User $differentUser */
         $differentUser = User::factory()->create();
 
         $real = Uuid::uuid4()->toString();
         // Generate a UUID that lines up with a user in the database if it were to be cast to an int.
         $uuid = ($prefix ?: $differentUser->id) . substr($real, strlen($prefix ?: (string) $differentUser->id));
 
-        /** @var \Everest\Models\User $subuser */
+        /** @var User $subuser */
         $subuser = User::factory()->create(['uuid' => $uuid]);
 
         Subuser::query()->forceCreate([

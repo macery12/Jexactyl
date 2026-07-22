@@ -3,12 +3,12 @@
 namespace Everest\Jobs;
 
 use Everest\Models\DownloadQueue;
-use Everest\Services\Plugins\PluginInstallService;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Everest\Services\Plugins\PluginInstallService;
 
 class DownloadModJob extends Job implements ShouldQueue
 {
@@ -59,7 +59,9 @@ class DownloadModJob extends Job implements ShouldQueue
 
             // Invalidate the installed addons cache so the file list refreshes.
             $type = $item->source === 'plugin' ? 'plugins' : 'mods';
-            Cache::forget("server:{$item->server->uuid}:installed:{$type}");
+            /** @var \Everest\Models\Server $server */
+            $server = $item->server;
+            Cache::forget("server:{$server->uuid}:installed:{$type}");
         } catch (\Exception $e) {
             $item->update([
                 'status'        => DownloadQueue::STATUS_FAILED,

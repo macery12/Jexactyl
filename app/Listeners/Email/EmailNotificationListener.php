@@ -2,10 +2,10 @@
 
 namespace Everest\Listeners\Email;
 
-use Everest\Jobs\Email\SendEmailJob;
-use Everest\Services\Email\EmailSettingsReader;
-use Everest\Services\Email\EmailTypeRegistry;
 use Illuminate\Support\Facades\Log;
+use Everest\Jobs\Email\SendEmailJob;
+use Everest\Services\Email\EmailTypeRegistry;
+use Everest\Services\Email\EmailSettingsReader;
 
 class EmailNotificationListener
 {
@@ -22,37 +22,40 @@ class EmailNotificationListener
             Log::info('EmailNotificationListener: Skipping dispatch because email delivery is disabled', [
                 'event' => get_class($event),
             ]);
+
             return;
         }
 
         // Get template key for this event
         $templateKey = EmailTypeRegistry::getTemplateKey($event);
-        
+
         if (!$templateKey) {
             Log::debug('EmailNotificationListener: No template mapping for event', [
                 'event' => get_class($event),
             ]);
+
             return;
         }
 
         // Extract recipient
         $recipient = EmailTypeRegistry::getRecipient($event);
-        
+
         if (!$recipient) {
             Log::warning('EmailNotificationListener: No recipient found for event', [
                 'event' => get_class($event),
                 'template_key' => $templateKey,
             ]);
+
             return;
         }
 
         // Extract data
         $data = EmailTypeRegistry::extractDataFromEvent($event);
-        
+
         // Generate or get correlation ID (ONLY generate here, never in EmailManager)
-        $correlationId = EmailTypeRegistry::getCorrelationId($event) 
+        $correlationId = EmailTypeRegistry::getCorrelationId($event)
             ?? \Illuminate\Support\Str::uuid()->toString();
-        
+
         // Get user ID if available
         $userId = property_exists($event, 'user') && $event->user ? $event->user->id : null;
 

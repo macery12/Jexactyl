@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Users and account-security tables. admin_roles first (users.admin_role_id FK).
  * users keeps the historical Cashier-style columns (stripe_id, pm_*) — still
  * read by billing code (see docs/database-rebuild/04 D3).
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('admin_roles', function (Blueprint $table) {

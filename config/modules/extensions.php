@@ -10,93 +10,93 @@ return [
     /*
      * Available extensions configuration.
      * Each extension can be enabled/disabled independently.
-        *
-        * ---------------------------
-        * Extension Settings (Admin UI)
-        * ---------------------------
-        * Extensions may define arbitrary admin-configurable settings using a `settings_schema`.
-        *
-        * - The admin panel renders the schema into a form automatically.
-        * - Saved values are persisted in the database table `extension_configs.settings` (JSON), per extension id.
-        * - These settings are GLOBAL for the extension (not per-server).
-        * - The client extension endpoints can then read those saved values and apply them as defaults.
-        *
-        * Schema format (array of fields):
-        *  - key: string (required)
-        *  - label: string (required)
-        *  - type: one of: text | password | textarea | select | boolean | number
-        *  - help: string (optional)
-        *  - placeholder: string (optional)
-        *  - options: array<{ label: string, value: string|number|boolean }> (select only)
-        *
-        * Where the schema is used:
-        *  - Admin API returns `settingsSchema` from this config file.
-        *  - Admin UI reads that schema and shows a "Settings" section in the Configure modal.
-        *  - When you click Save, it sends a `settings` object back to the API which is stored in `extension_configs.settings`.
-        *
-        * Reading settings later (backend / extensions):
-        *  - Read from the DB via `ExtensionConfig`:
-        *      $config = \Everest\Models\ExtensionConfig::getByExtensionId('your_extension_id');
-        *      $settings = is_array($config?->settings) ? $config->settings : [];
-        *      $value = $settings['your_key'] ?? null;
-        *
-        * Concrete examples:
-        *
-        * 1) URL string setting (text)
-        *    Schema:
-        *      'settings_schema' => [
-        *          ['key' => 'jar_url', 'label' => 'Jar URL', 'type' => 'text'],
-        *      ]
-        *    Read + apply precedence (request override -> admin setting -> fallback):
-        *      $jarUrl = $request->input('jar_url');
-        *      if (!$jarUrl) $jarUrl = $settings['jar_url'] ?? null;
-        *      if (!$jarUrl) $jarUrl = $fallbackUrl;
-        *
-        * 2) Feature toggle (boolean)
-        *    Schema:
-        *      'settings_schema' => [
-        *          ['key' => 'enable_fast_mode', 'label' => 'Enable Fast Mode', 'type' => 'boolean'],
-        *      ]
-        *    Stored value is `true`/`false` JSON in the DB.
-        *    Read (PHP):
-        *      $fastMode = (bool) ($settings['enable_fast_mode'] ?? false);
-        *
-        *    If you ever integrate with systems that represent booleans as 1/0,
-        *    treat them as truthy/falsey on read:
-        *      $raw = $settings['enable_fast_mode'] ?? 0;
-        *      $fastMode = (int) $raw === 1 || $raw === true;
-        *
-        * 3) Select / enum-like setting (select)
-        *    Schema:
-        *      'settings_schema' => [
-        *          [
-        *              'key' => 'log_level',
-        *              'label' => 'Log Level',
-        *              'type' => 'select',
-        *              'options' => [
-        *                  ['label' => 'Info', 'value' => 'info'],
-        *                  ['label' => 'Debug', 'value' => 'debug'],
-        *              ],
-        *          ],
-        *      ]
-        *    Note: the browser will submit select values as strings; validate/cast if needed.
-        *    Read (PHP):
-        *      $level = (string) ($settings['log_level'] ?? 'info');
-        *      if (!in_array($level, ['info', 'debug'], true)) $level = 'info';
-        *
-        * 4) Number setting (number)
-        *    Schema:
-        *      'settings_schema' => [
-        *          ['key' => 'timeout_seconds', 'label' => 'Timeout (seconds)', 'type' => 'number'],
-        *      ]
-        *    Read (PHP):
-        *      $timeout = (int) ($settings['timeout_seconds'] ?? 15);
-        *
-        * Notes:
-        *  - These settings are not automatically validated server-side beyond "must be an array".
-        *    If a setting is security-sensitive, validate it in your request/controller.
-        *  - If you need PER-SERVER settings, do not use this store; create a server-scoped table or use a server metadata mechanism.
-        *
+     *
+     * ---------------------------
+     * Extension Settings (Admin UI)
+     * ---------------------------
+     * Extensions may define arbitrary admin-configurable settings using a `settings_schema`.
+     *
+     * - The admin panel renders the schema into a form automatically.
+     * - Saved values are persisted in the database table `extension_configs.settings` (JSON), per extension id.
+     * - These settings are GLOBAL for the extension (not per-server).
+     * - The client extension endpoints can then read those saved values and apply them as defaults.
+     *
+     * Schema format (array of fields):
+     *  - key: string (required)
+     *  - label: string (required)
+     *  - type: one of: text | password | textarea | select | boolean | number
+     *  - help: string (optional)
+     *  - placeholder: string (optional)
+     *  - options: array<{ label: string, value: string|number|boolean }> (select only)
+     *
+     * Where the schema is used:
+     *  - Admin API returns `settingsSchema` from this config file.
+     *  - Admin UI reads that schema and shows a "Settings" section in the Configure modal.
+     *  - When you click Save, it sends a `settings` object back to the API which is stored in `extension_configs.settings`.
+     *
+     * Reading settings later (backend / extensions):
+     *  - Read from the DB via `ExtensionConfig`:
+     *      $config = \Everest\Models\ExtensionConfig::getByExtensionId('your_extension_id');
+     *      $settings = is_array($config?->settings) ? $config->settings : [];
+     *      $value = $settings['your_key'] ?? null;
+     *
+     * Concrete examples:
+     *
+     * 1) URL string setting (text)
+     *    Schema:
+     *      'settings_schema' => [
+     *          ['key' => 'jar_url', 'label' => 'Jar URL', 'type' => 'text'],
+     *      ]
+     *    Read + apply precedence (request override -> admin setting -> fallback):
+     *      $jarUrl = $request->input('jar_url');
+     *      if (!$jarUrl) $jarUrl = $settings['jar_url'] ?? null;
+     *      if (!$jarUrl) $jarUrl = $fallbackUrl;
+     *
+     * 2) Feature toggle (boolean)
+     *    Schema:
+     *      'settings_schema' => [
+     *          ['key' => 'enable_fast_mode', 'label' => 'Enable Fast Mode', 'type' => 'boolean'],
+     *      ]
+     *    Stored value is `true`/`false` JSON in the DB.
+     *    Read (PHP):
+     *      $fastMode = (bool) ($settings['enable_fast_mode'] ?? false);
+     *
+     *    If you ever integrate with systems that represent booleans as 1/0,
+     *    treat them as truthy/falsey on read:
+     *      $raw = $settings['enable_fast_mode'] ?? 0;
+     *      $fastMode = (int) $raw === 1 || $raw === true;
+     *
+     * 3) Select / enum-like setting (select)
+     *    Schema:
+     *      'settings_schema' => [
+     *          [
+     *              'key' => 'log_level',
+     *              'label' => 'Log Level',
+     *              'type' => 'select',
+     *              'options' => [
+     *                  ['label' => 'Info', 'value' => 'info'],
+     *                  ['label' => 'Debug', 'value' => 'debug'],
+     *              ],
+     *          ],
+     *      ]
+     *    Note: the browser will submit select values as strings; validate/cast if needed.
+     *    Read (PHP):
+     *      $level = (string) ($settings['log_level'] ?? 'info');
+     *      if (!in_array($level, ['info', 'debug'], true)) $level = 'info';
+     *
+     * 4) Number setting (number)
+     *    Schema:
+     *      'settings_schema' => [
+     *          ['key' => 'timeout_seconds', 'label' => 'Timeout (seconds)', 'type' => 'number'],
+     *      ]
+     *    Read (PHP):
+     *      $timeout = (int) ($settings['timeout_seconds'] ?? 15);
+     *
+     * Notes:
+     *  - These settings are not automatically validated server-side beyond "must be an array".
+     *    If a setting is security-sensitive, validate it in your request/controller.
+     *  - If you need PER-SERVER settings, do not use this store; create a server-scoped table or use a server metadata mechanism.
+     *
      */
     'available' => [
         /*

@@ -33,7 +33,9 @@ export function useChatStream(
     const pendingRef = useRef<{ user: string; assistant: string } | null>(null);
     // Kept in a ref so the completion callback persists against the latest handler.
     const onCompleteRef = useRef(opts?.onExchangeComplete);
-    onCompleteRef.current = opts?.onExchangeComplete;
+    useEffect(() => {
+        onCompleteRef.current = opts?.onExchangeComplete;
+    });
     const cancelledSuffix = opts?.cancelledSuffix;
 
     useEffect(() => {

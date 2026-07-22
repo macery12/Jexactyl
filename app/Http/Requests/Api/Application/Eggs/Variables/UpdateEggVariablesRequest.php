@@ -8,7 +8,7 @@ use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class UpdateEggVariablesRequest extends ApplicationApiRequest
 {
-    public function rules(array $rules = null): array
+    public function rules(?array $rules = null): array
     {
         return [
             '*' => 'array',

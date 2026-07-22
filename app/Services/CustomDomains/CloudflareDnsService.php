@@ -2,12 +2,11 @@
 
 namespace Everest\Services\CustomDomains;
 
-use Exception;
 use Everest\Models\Setting;
-use Illuminate\Http\Client\RequestException;
-use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 
 class CloudflareDnsService
 {
@@ -24,7 +23,7 @@ class CloudflareDnsService
         $token = $this->normalizeToken($token);
 
         if ($token === '') {
-            throw new Exception('Cloudflare API token is not configured for custom domains.');
+            throw new \Exception('Cloudflare API token is not configured for custom domains.');
         }
 
         $retries = (int) config('modules.custom_domains.cloudflare.retries', 3);
@@ -71,7 +70,7 @@ class CloudflareDnsService
                 'match' => 'all',
             ])->throw();
         } catch (RequestException $exception) {
-            throw new Exception($this->formatCloudflareError('Cloudflare zone lookup failed.', $exception));
+            throw new \Exception($this->formatCloudflareError('Cloudflare zone lookup failed.', $exception));
         }
 
         $json = $response->json();
@@ -89,22 +88,21 @@ class CloudflareDnsService
         string $target,
         ?string $tokenOverride = null,
         ?string $forcedType = null,
-    ): array
-    {
+    ): array {
         $type = $forcedType !== null
             ? strtoupper(trim($forcedType))
             : (filter_var($target, FILTER_VALIDATE_IP) ? 'A' : 'CNAME');
 
         if (!in_array($type, ['A', 'CNAME'], true)) {
-            throw new Exception('Invalid DNS record type for host record.');
+            throw new \Exception('Invalid DNS record type for host record.');
         }
 
         if ($type === 'A' && !filter_var($target, FILTER_VALIDATE_IP)) {
-            throw new Exception('A record content must be a valid IP address.');
+            throw new \Exception('A record content must be a valid IP address.');
         }
 
         if ($type === 'CNAME' && filter_var($target, FILTER_VALIDATE_IP)) {
-            throw new Exception('CNAME record content must be a hostname, not an IP address.');
+            throw new \Exception('CNAME record content must be a hostname, not an IP address.');
         }
 
         $proxied = (bool) config('modules.custom_domains.cloudflare.proxied', false);
@@ -162,7 +160,7 @@ class CloudflareDnsService
                 'match' => 'all',
             ])->throw();
         } catch (RequestException $exception) {
-            throw new Exception($this->formatCloudflareError('Cloudflare DNS lookup request failed.', $exception));
+            throw new \Exception($this->formatCloudflareError('Cloudflare DNS lookup request failed.', $exception));
         }
 
         $json = $response->json();
@@ -219,7 +217,7 @@ class CloudflareDnsService
             return '_' . $matches[1] . '._';
         }
 
-        throw new Exception('Invalid SRV service prefix. Use format like _minecraft._');
+        throw new \Exception('Invalid SRV service prefix. Use format like _minecraft._');
     }
 
     public function deleteRecord(string $zoneId, string $recordId, ?string $tokenOverride = null): void
@@ -227,7 +225,7 @@ class CloudflareDnsService
         try {
             $this->client($tokenOverride)->delete($this->baseUrl() . '/zones/' . $zoneId . '/dns_records/' . $recordId)->throw();
         } catch (RequestException $exception) {
-            throw new Exception($this->formatCloudflareError('Cloudflare DNS delete request failed.', $exception));
+            throw new \Exception($this->formatCloudflareError('Cloudflare DNS delete request failed.', $exception));
         }
     }
 
@@ -242,7 +240,7 @@ class CloudflareDnsService
                 'match' => 'all',
             ])->throw();
         } catch (RequestException $exception) {
-            throw new Exception($this->formatCloudflareError('Cloudflare DNS lookup request failed.', $exception));
+            throw new \Exception($this->formatCloudflareError('Cloudflare DNS lookup request failed.', $exception));
         }
 
         $json = $response->json();
@@ -261,13 +259,13 @@ class CloudflareDnsService
                 ->post($this->baseUrl() . '/zones/' . $zoneId . '/dns_records', $payload)
                 ->throw();
         } catch (RequestException $exception) {
-            throw new Exception($this->formatCloudflareError('Cloudflare DNS create request failed.', $exception));
+            throw new \Exception($this->formatCloudflareError('Cloudflare DNS create request failed.', $exception));
         }
 
         $json = $response->json();
 
         if (!($json['success'] ?? false)) {
-            throw new Exception('Cloudflare DNS create request failed.');
+            throw new \Exception('Cloudflare DNS create request failed.');
         }
 
         return $json['result'];
@@ -280,13 +278,13 @@ class CloudflareDnsService
                 ->put($this->baseUrl() . '/zones/' . $zoneId . '/dns_records/' . $recordId, $payload)
                 ->throw();
         } catch (RequestException $exception) {
-            throw new Exception($this->formatCloudflareError('Cloudflare DNS update request failed.', $exception));
+            throw new \Exception($this->formatCloudflareError('Cloudflare DNS update request failed.', $exception));
         }
 
         $json = $response->json();
 
         if (!($json['success'] ?? false)) {
-            throw new Exception('Cloudflare DNS update request failed.');
+            throw new \Exception('Cloudflare DNS update request failed.');
         }
 
         return $json['result'];

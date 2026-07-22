@@ -45,7 +45,7 @@ abstract class ApplicationApiController extends Controller
     public function loadDependencies(
         Fractal $fractal,
         Request $request,
-        AdminPermissionService $permissionService
+        AdminPermissionService $permissionService,
     ) {
         $this->fractal = $fractal;
         $this->request = $request;

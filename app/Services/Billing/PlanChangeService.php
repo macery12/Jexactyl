@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Log;
 use Everest\Exceptions\DisplayException;
-use Everest\Services\Servers\BuildModificationService;
 use Everest\Repositories\Wings\DaemonServerRepository;
+use Everest\Services\Servers\BuildModificationService;
 
 /**
  * Service to handle plan upgrades and downgrades for servers.
@@ -135,12 +135,12 @@ class PlanChangeService
      */
     private function isDowngrade(Server $server, Product $newProduct): bool
     {
-        return $newProduct->memory_limit < $server->memory ||
-               $newProduct->disk_limit < $server->disk ||
-               $newProduct->cpu_limit < $server->cpu ||
-               $newProduct->database_limit < $server->database_limit ||
-               $newProduct->backup_limit < $server->backup_limit ||
-             $newProduct->allocation_limit < $server->allocation_limit;
+        return $newProduct->memory_limit < $server->memory
+               || $newProduct->disk_limit < $server->disk
+               || $newProduct->cpu_limit < $server->cpu
+               || $newProduct->database_limit < $server->database_limit
+               || $newProduct->backup_limit < $server->backup_limit
+             || $newProduct->allocation_limit < $server->allocation_limit;
     }
 
     /**
@@ -164,10 +164,7 @@ class PlanChangeService
             // Wings is unreachable — reject the downgrade conservatively.
             // Allowing a downgrade without confirming current resource usage risks data loss
             // (e.g. truncating disk beyond what the container is actually using).
-            throw new DisplayException(
-                'Unable to validate resource usage: the game server is currently unreachable. ' .
-                'Please try again in a moment or contact support if the issue persists.'
-            );
+            throw new DisplayException('Unable to validate resource usage: the game server is currently unreachable. Please try again in a moment or contact support if the issue persists.');
         }
 
         if (isset($currentUsage['disk_bytes'])) {

@@ -3,15 +3,15 @@
 namespace Everest\Http\Controllers\Api\Client\Servers;
 
 use Everest\Models\Server;
-use Everest\Models\ServerCustomDomain;
 use Illuminate\Http\JsonResponse;
-use Everest\Jobs\CustomDomains\ProvisionServerCustomDomainsJob;
-use Everest\Jobs\CustomDomains\ProvisionCustomDomainRecordJob;
-use Everest\Services\CustomDomains\CustomDomainProvisioningService;
+use Everest\Models\ServerCustomDomain;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Jobs\CustomDomains\ProvisionCustomDomainRecordJob;
+use Everest\Jobs\CustomDomains\ProvisionServerCustomDomainsJob;
+use Everest\Services\CustomDomains\CustomDomainProvisioningService;
 use Everest\Http\Requests\Api\Client\Servers\CustomDomains\GetCustomDomainsRequest;
-use Everest\Http\Requests\Api\Client\Servers\CustomDomains\SyncCustomDomainsRequest;
 use Everest\Http\Requests\Api\Client\Servers\CustomDomains\StoreCustomDomainRequest;
+use Everest\Http\Requests\Api\Client\Servers\CustomDomains\SyncCustomDomainsRequest;
 use Everest\Http\Requests\Api\Client\Servers\CustomDomains\DeleteCustomDomainRequest;
 
 class CustomDomainController extends ClientApiController

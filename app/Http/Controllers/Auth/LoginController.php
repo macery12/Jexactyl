@@ -10,8 +10,8 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Exceptions\DisplayException;
-use Everest\Services\Users\UserCreationService;
 use Everest\Http\Requests\Auth\RegisterRequest;
+use Everest\Services\Users\UserCreationService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
@@ -30,7 +30,7 @@ class LoginController extends AbstractLoginController
     /**
      * Handle a login request to the application.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      * @throws \Illuminate\Validation\ValidationException
      */
     public function login(Request $request): JsonResponse
@@ -43,7 +43,7 @@ class LoginController extends AbstractLoginController
         try {
             $username = $request->input('user');
 
-            /** @var \Everest\Models\User $user */
+            /** @var User $user */
             $user = User::query()->where($this->getField($username), $username)->firstOrFail();
         } catch (ModelNotFoundException) {
             $this->sendFailedLoginResponse($request);
@@ -95,7 +95,7 @@ class LoginController extends AbstractLoginController
 
     /**
      * Check if a username is available.
-     * 
+     *
      * SECURITY: This endpoint can be used for account enumeration.
      * Consider rate limiting or removing it if not essential.
      */

@@ -57,7 +57,7 @@ class UpdateSubuserTest extends ClientApiIntegrationTestCase
     {
         [$user, $server] = $this->generateTestAccount();
 
-        /** @var \Everest\Models\Subuser $subuser */
+        /** @var Subuser $subuser */
         $subuser = Subuser::factory()
             ->for(User::factory()->create())
             ->for($server)

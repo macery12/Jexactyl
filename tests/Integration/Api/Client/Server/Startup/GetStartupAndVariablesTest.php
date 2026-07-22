@@ -5,8 +5,8 @@ namespace Everest\Tests\Integration\Api\Client\Server\Startup;
 use Everest\Models\User;
 use Everest\Models\Permission;
 use Everest\Models\EggVariable;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class GetStartupAndVariablesTest extends ClientApiIntegrationTestCase
 {

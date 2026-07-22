@@ -4,7 +4,6 @@ namespace Everest\Models;
 
 use Carbon\Carbon;
 use Everest\Models\Billing\Product;
-use Everest\Models\ServerGroup;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Query\JoinClause;
 use Znck\Eloquent\Traits\BelongsToThrough;
@@ -53,30 +52,30 @@ use Everest\Exceptions\Http\Server\ServerStateConflictException;
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property \Illuminate\Support\Carbon|null $installed_at
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\ActivityLog[] $activity
+ * @property \Illuminate\Database\Eloquent\Collection|ActivityLog[] $activity
  * @property int|null $activity_count
- * @property \Everest\Models\Allocation|null $allocation
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Allocation[] $allocations
+ * @property Allocation|null $allocation
+ * @property \Illuminate\Database\Eloquent\Collection|Allocation[] $allocations
  * @property int|null $allocations_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Backup[] $backups
+ * @property \Illuminate\Database\Eloquent\Collection|Backup[] $backups
  * @property int|null $backups_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Database[] $databases
+ * @property \Illuminate\Database\Eloquent\Collection|Database[] $databases
  * @property int|null $databases_count
- * @property \Everest\Models\Egg|null $egg
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Mount[] $mounts
+ * @property Egg|null $egg
+ * @property \Illuminate\Database\Eloquent\Collection|Mount[] $mounts
  * @property int|null $mounts_count
- * @property \Everest\Models\Nest $nest
- * @property \Everest\Models\Node $node
+ * @property Nest $nest
+ * @property Node $node
  * @property \Illuminate\Notifications\DatabaseNotificationCollection|\Illuminate\Notifications\DatabaseNotification[] $notifications
  * @property int|null $notifications_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Schedule[] $schedules
+ * @property \Illuminate\Database\Eloquent\Collection|Schedule[] $schedules
  * @property int|null $schedules_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Subuser[] $subusers
+ * @property \Illuminate\Database\Eloquent\Collection|Subuser[] $subusers
  * @property int|null $subusers_count
- * @property \Everest\Models\ServerTransfer|null $transfer
- * @property \Everest\Models\User $user
- * @property \Everest\Models\Billing\Product|null $product
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\EggVariable[] $variables
+ * @property ServerTransfer|null $transfer
+ * @property User $user
+ * @property Product|null $product
+ * @property \Illuminate\Database\Eloquent\Collection|EggVariable[] $variables
  * @property int|null $variables_count
  *
  * @method static \Database\Factories\ServerFactory factory(...$parameters)
@@ -435,16 +434,16 @@ class Server extends Model
      * exception is raised. This should be called whenever something needs to make
      * sure the server is not in a weird state that should block user access.
      *
-     * @throws \Everest\Exceptions\Http\Server\ServerStateConflictException
+     * @throws ServerStateConflictException
      */
     public function validateCurrentState()
     {
         if (
-            $this->isSuspended() ||
-            $this->node->isUnderMaintenance() ||
-            !$this->isInstalled() ||
-            $this->status === self::STATUS_RESTORING_BACKUP ||
-            !is_null($this->transfer)
+            $this->isSuspended()
+            || $this->node->isUnderMaintenance()
+            || !$this->isInstalled()
+            || $this->status === self::STATUS_RESTORING_BACKUP
+            || !is_null($this->transfer)
         ) {
             throw new ServerStateConflictException($this);
         }
@@ -459,9 +458,9 @@ class Server extends Model
     public function validateTransferState()
     {
         if (
-            !$this->isInstalled() ||
-            $this->status === self::STATUS_RESTORING_BACKUP ||
-            !is_null($this->transfer)
+            !$this->isInstalled()
+            || $this->status === self::STATUS_RESTORING_BACKUP
+            || !is_null($this->transfer)
         ) {
             throw new ServerStateConflictException($this);
         }

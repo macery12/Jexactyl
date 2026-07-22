@@ -3,9 +3,9 @@
 namespace Everest\Http\Controllers\Api\Pub;
 
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Cache;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
+use Illuminate\Support\Facades\Cache;
 use Everest\Http\Controllers\Controller;
 use Everest\Services\Landing\LandingConfigService;
 use Everest\Transformers\Api\Pub\PublicProductTransformer;

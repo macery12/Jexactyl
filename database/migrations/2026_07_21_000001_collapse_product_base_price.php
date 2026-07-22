@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Collapse `products.base_price` into `products.price`.
  *
  * The two columns were doing contradictory jobs. The admin UI described
@@ -17,8 +17,7 @@ use Illuminate\Database\Migrations\Migration;
  * The collapse preserves what customers were ACTUALLY charged (the effective
  * base price), not the advertised number, so nobody's bill changes on deploy.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         DB::table('products')

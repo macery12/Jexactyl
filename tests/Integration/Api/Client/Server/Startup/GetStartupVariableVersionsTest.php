@@ -3,8 +3,8 @@
 namespace Everest\Tests\Integration\Api\Client\Server\Startup;
 
 use Everest\Models\User;
-use Everest\Models\Permission;
 use Illuminate\Http\Response;
+use Everest\Models\Permission;
 use Illuminate\Support\Facades\Http;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 

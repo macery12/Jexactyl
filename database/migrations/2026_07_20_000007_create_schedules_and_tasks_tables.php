@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Scheduler subsystem (2017 refactor's final shape). tasks_log is the orphaned
  * pre-refactor log table — vestigial but kept per docs/database-rebuild/04 D2;
  * its task_id deliberately has no FK (it referenced the long-dropped tasks_old).
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('schedules', function (Blueprint $table) {

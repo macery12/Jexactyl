@@ -40,6 +40,7 @@ export default function OverviewPage() {
 
     useEffect(() => {
         if (initial) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setTransport(initial.transport);
             setSender(initial.sender);
         }

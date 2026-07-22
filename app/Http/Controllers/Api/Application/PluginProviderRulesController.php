@@ -4,10 +4,10 @@ namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Models\Nest;
 use Illuminate\Http\JsonResponse;
-use Everest\Models\PluginProviderRule;
 use Illuminate\Support\Facades\Cache;
-use Everest\Http\Requests\Api\Application\Plugins\UpdatePluginProviderRulesRequest;
+use Everest\Models\PluginProviderRule;
 use Everest\Http\Requests\Api\Application\Mods\GetModsAnalyticsRequest;
+use Everest\Http\Requests\Api\Application\Plugins\UpdatePluginProviderRulesRequest;
 
 class PluginProviderRulesController extends ApplicationApiController
 {

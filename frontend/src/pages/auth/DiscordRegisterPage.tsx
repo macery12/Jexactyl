@@ -47,6 +47,7 @@ export default function DiscordRegisterPage() {
         formState: { errors, isSubmitting },
     } = useForm<FormValues>({ defaultValues: { username: '', password: '', passwordConfirmation: '' } });
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() opts out of the react compiler
     const password = watch('password') ?? '';
     const username = watch('username') ?? '';
 

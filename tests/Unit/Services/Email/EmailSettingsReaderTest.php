@@ -2,17 +2,16 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
-use Everest\Services\Email\EmailSettingsReader;
+use Everest\Tests\TestCase;
 use Everest\Services\Email\ResendPlanResolver;
 use Everest\Services\Email\ResendQuotaService;
-use Everest\Tests\TestCase;
-use Mockery;
+use Everest\Services\Email\EmailSettingsReader;
 
 class EmailSettingsReaderTest extends TestCase
 {
     public function testItNormalizesDeliveryEnabledAndTransportValues(): void
     {
-        $reader = Mockery::mock(EmailSettingsReader::class)->makePartial();
+        $reader = \Mockery::mock(EmailSettingsReader::class)->makePartial();
         $reader->shouldReceive('get')->with('settings::modules:email:resend:enabled', false)->andReturn(false);
         $reader->shouldReceive('get')->with('settings::modules:email:enabled', false)->andReturn('true');
         $reader->shouldReceive('get')->with('settings::modules:email:transport', null)->andReturn('resend');
@@ -35,12 +34,12 @@ class EmailSettingsReaderTest extends TestCase
             'custom_monthly_limit' => null,
         ];
 
-        $planResolver = Mockery::mock(ResendPlanResolver::class);
+        $planResolver = \Mockery::mock(ResendPlanResolver::class);
         $planResolver->shouldReceive('all')->andReturn([$plan]);
         $planResolver->shouldReceive('activePlan')->andReturn($plan);
         app()->instance(ResendPlanResolver::class, $planResolver);
 
-        $quotaService = Mockery::mock(ResendQuotaService::class);
+        $quotaService = \Mockery::mock(ResendQuotaService::class);
         $quotaService->shouldReceive('usage')->andReturn([
             'plan' => $plan,
             'usage' => [
@@ -65,7 +64,7 @@ class EmailSettingsReaderTest extends TestCase
         ]);
         app()->instance(ResendQuotaService::class, $quotaService);
 
-        $reader = Mockery::mock(EmailSettingsReader::class)->makePartial();
+        $reader = \Mockery::mock(EmailSettingsReader::class)->makePartial();
         $reader->shouldReceive('transport')->andReturn('smtp');
         $reader->shouldReceive('deliveryEnabled')->andReturn(true);
         $reader->shouldReceive('get')->with('settings::modules:email:resend:api_key', '')->andReturn('secret');

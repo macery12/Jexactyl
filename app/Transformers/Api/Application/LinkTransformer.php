@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class LinkTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return CustomLink::RESOURCE_NAME;

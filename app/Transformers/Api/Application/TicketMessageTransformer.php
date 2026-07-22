@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class TicketMessageTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return TicketMessage::RESOURCE_NAME;

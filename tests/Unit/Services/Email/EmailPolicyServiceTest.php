@@ -2,10 +2,9 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
-use Everest\Services\Email\EmailSettingsReader;
-use Everest\Services\Email\EmailPolicyService;
 use Everest\Tests\TestCase;
-use Mockery;
+use Everest\Services\Email\EmailPolicyService;
+use Everest\Services\Email\EmailSettingsReader;
 
 class EmailPolicyServiceTest extends TestCase
 {
@@ -13,7 +12,7 @@ class EmailPolicyServiceTest extends TestCase
     {
         config(['email.domain_blacklist' => []]);
 
-        $settings = Mockery::mock(EmailSettingsReader::class);
+        $settings = \Mockery::mock(EmailSettingsReader::class);
         $settings->shouldReceive('deliveryEnabled')->once()->andReturn(true);
         $policy = new EmailPolicyService($settings);
 

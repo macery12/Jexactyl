@@ -57,6 +57,7 @@ export default function VersionPickerModal({
     ];
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setSelected(variable.serverValue ?? variable.defaultValue ?? '');
     }, [variable.serverValue, variable.defaultValue]);
 

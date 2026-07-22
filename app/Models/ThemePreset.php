@@ -5,10 +5,10 @@ namespace Everest\Models;
 /**
  * Everest\Models\ThemePreset.
  *
- * @property int    $id
+ * @property int $id
  * @property string $name
- * @property array  $colors
- * @property bool   $is_builtin
+ * @property array $colors
+ * @property bool $is_builtin
  */
 class ThemePreset extends Model
 {

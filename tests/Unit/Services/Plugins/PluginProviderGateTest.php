@@ -2,11 +2,11 @@
 
 namespace Everest\Tests\Unit\Services\Plugins;
 
-use Everest\Models\PluginProviderRule;
-use Everest\Services\Plugins\PluginProviderGate;
 use Everest\Tests\TestCase;
+use Everest\Models\PluginProviderRule;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
+use Everest\Services\Plugins\PluginProviderGate;
 
 class PluginProviderGateTest extends TestCase
 {

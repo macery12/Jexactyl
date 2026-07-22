@@ -66,6 +66,7 @@ export default function PaymentPage() {
     );
     const [method, setMethod] = useState<Method | undefined>(undefined);
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (!method && availableMethods.length > 0) setMethod(availableMethods[0]);
     }, [availableMethods, method]);
 
@@ -84,6 +85,7 @@ export default function PaymentPage() {
     // Create / refresh the Stripe intent when paying by card.
     useEffect(() => {
         if (!product || isFree || method !== 'stripe' || !stripeEnabled) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setIntent(null);
             setStripe(null);
             return;

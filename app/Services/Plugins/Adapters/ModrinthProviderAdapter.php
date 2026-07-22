@@ -4,7 +4,6 @@ namespace Everest\Services\Plugins\Adapters;
 
 use Everest\Services\Mods\ModrinthService;
 use Everest\Services\Plugins\ProviderAdapterInterface;
-use Everest\Exceptions\Service\Mods\ModsServiceException;
 
 class ModrinthProviderAdapter implements ProviderAdapterInterface
 {
@@ -12,33 +11,21 @@ class ModrinthProviderAdapter implements ProviderAdapterInterface
     {
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function search(array $params = []): array
     {
         return $this->modrinthService->searchMods($params);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getProject(string|int $projectId): array
     {
         return $this->modrinthService->getMod((string) $projectId);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function listVersions(string|int $projectId, array $params = []): array
     {
         return $this->modrinthService->getModFiles((string) $projectId, $params);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getDownloadUrl(string|int $projectId, string|int $versionId): array
     {
         $downloadUrl = $this->modrinthService->getDownloadUrl((string) $versionId);

@@ -2,13 +2,13 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
-use Everest\Models\ExtensionPackage;
-use Everest\Models\ExtensionPackageFile;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Everest\Models\ExtensionPackage;
+use Illuminate\Support\Facades\File;
+use Everest\Exceptions\DisplayException;
+use Everest\Models\ExtensionPackageFile;
 
 class ExtensionPackageUpdateService
 {
@@ -20,7 +20,7 @@ class ExtensionPackageUpdateService
         private ExtensionInstallProgressService $progressService,
         private ExtensionPackageArtifactService $artifactService,
         private ExtensionPackageFileService $fileService,
-        private ExtensionMigrationService $migrationService
+        private ExtensionMigrationService $migrationService,
     ) {
     }
 
@@ -140,7 +140,7 @@ class ExtensionPackageUpdateService
      * After calling this for each extension, call ExtensionPanelRebuildService::rebuild()
      * once, then finalizeUpdate() for each prepared result.
      *
-     * @return array<string, mixed> Opaque prepared state; pass to finalizeUpdate() and rollbackUpdate().
+     * @return array<string, mixed> opaque prepared state; pass to finalizeUpdate() and rollbackUpdate()
      */
     public function prepareUpdate(string $extensionId, int $repositoryId, ?string $version = null): array
     {
@@ -290,6 +290,7 @@ class ExtensionPackageUpdateService
      *
      * @param array<string, mixed> $fallbackPackageMetadata
      * @param array<int, string> $compatiblePanelVersions
+     *
      * @return array<string, mixed>
      */
     private function performUpdateFileOps(
@@ -302,7 +303,7 @@ class ExtensionPackageUpdateService
         ?string $sourceRepositoryName,
         ?string $sourceRegistryUrl,
         string $sourceArchiveUrl,
-        array $fallbackPackageMetadata
+        array $fallbackPackageMetadata,
     ): array {
         $tempRoot = storage_path('app/extensions/tmp/' . Str::uuid()->toString());
         $archivePath = $tempRoot . '/' . ExtensionPackageArtifactService::PACKAGE_ARTIFACT_FILENAME;
@@ -426,6 +427,7 @@ class ExtensionPackageUpdateService
      * from the current install for any paths that were already tracked.
      *
      * @param array<string, mixed> $manifest
+     *
      * @return array<int, array<string, mixed>>
      */
     private function prepareUpdateFilePlans(
@@ -433,7 +435,7 @@ class ExtensionPackageUpdateService
         array $manifest,
         string $newBackupRoot,
         string $extensionId,
-        ExtensionPackage $existingPackage
+        ExtensionPackage $existingPackage,
     ): array {
         $plans = [];
         $files = Arr::get($manifest, 'files', []);
@@ -521,6 +523,7 @@ class ExtensionPackageUpdateService
      * back, writes a migration error log, and aborts the update.
      *
      * @param array<int, array<string, mixed>> $newFilePlans
+     *
      * @return array<int, string> the migration files applied by this update
      */
     private function runNewMigrations(string $extensionId, array $newFilePlans): array
@@ -556,11 +559,7 @@ class ExtensionPackageUpdateService
                 $exception
             );
 
-            throw new DisplayException(sprintf(
-                'A migration shipped by the "%s" update failed and was rolled back. Details were written to %s.',
-                $extensionId,
-                $logPath
-            ), $exception);
+            throw new DisplayException(sprintf('A migration shipped by the "%s" update failed and was rolled back. Details were written to %s.', $extensionId, $logPath), $exception);
         }
 
         return array_map('basename', $result['files']);

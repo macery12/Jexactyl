@@ -19,8 +19,19 @@ parameters:
         # Ignore magic spatie calls
         - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder::allowed(\w+)\(\)#'
 
+        # Optional extension package (minecraft_startup_editor) — the class is only
+        # present when that extension is installed; core code references it lazily.
+        - '#unknown class Everest\\Extensions\\Packages\\minecraft_startup_editor\\MinecraftStartupOptions#'
+
+        # scopedMigrator() returns an anonymous Migrator subclass that defines
+        # rollbackOnly(); PHPStan only sees the parent Migrator type.
+        - '#Call to an undefined method Illuminate\\Database\\Migrations\\Migrator::rollbackOnly\(\)#'
+
     excludePaths:
         - app/Repositories
+
+        # Optional, runtime-installed extension packages (gitignored plugin code).
+        - app/Extensions/Packages
 
         # More magic spatie to be replaced
         - app/Extensions/Spatie/Fractalistic/Fractal.php

@@ -4,21 +4,21 @@ namespace Everest\Http\Controllers\Api\Client\Extensions;
 
 use Everest\Models\Server;
 use Everest\Models\Subuser;
-use Everest\Models\ExtensionConfig;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Arr;
+use Symfony\Component\Yaml\Yaml;
+use Illuminate\Http\JsonResponse;
+use Everest\Models\ExtensionConfig;
 use Illuminate\Support\Facades\Http;
 use Psr\Http\Message\ResponseInterface;
-use Symfony\Component\Yaml\Yaml;
 use Everest\Models\ExtensionFileSnapshot;
 use Everest\Repositories\Wings\DaemonFileRepository;
-use Everest\Services\Extensions\ExtensionFileSnapshotService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
-use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperStatusRequest;
-use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperInstallRequest;
-use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperTokenRequest;
-use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperChannelRequest;
+use Everest\Services\Extensions\ExtensionFileSnapshotService;
 use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperOwnerRequest;
+use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperTokenRequest;
+use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperStatusRequest;
+use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperChannelRequest;
+use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperInstallRequest;
 use Everest\Http\Requests\Api\Client\Extensions\DiscordSrvHelper\DiscordSrvHelperSubuserAccessRequest;
 
 class DiscordSrvHelperController extends ClientApiController

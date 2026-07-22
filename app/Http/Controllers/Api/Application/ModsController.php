@@ -17,7 +17,7 @@ class ModsController extends ApplicationApiController
      * ModsController constructor.
      */
     public function __construct(
-        private ModrinthService $modrinthService
+        private ModrinthService $modrinthService,
     ) {
         parent::__construct();
     }

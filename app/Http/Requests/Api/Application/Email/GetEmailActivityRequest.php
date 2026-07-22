@@ -2,9 +2,9 @@
 
 namespace Everest\Http\Requests\Api\Application\Email;
 
-use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 use Everest\Models\AdminRole;
 use Everest\Models\EmailDelivery;
+use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class GetEmailActivityRequest extends ApplicationApiRequest
 {

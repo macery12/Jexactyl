@@ -25,7 +25,7 @@ class LoginCheckpointController extends AbstractLoginController
     public function __construct(
         private Encrypter $encrypter,
         private Google2FA $google2FA,
-        private ValidationFactory $validation
+        private ValidationFactory $validation,
     ) {
         parent::__construct();
     }
@@ -57,7 +57,7 @@ class LoginCheckpointController extends AbstractLoginController
         }
 
         try {
-            /** @var \Everest\Models\User $user */
+            /** @var User $user */
             $user = User::query()->findOrFail($details['user_id']);
         } catch (ModelNotFoundException) {
             $this->sendFailedLoginResponse($request, null, self::TOKEN_EXPIRED_MESSAGE);

@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class ProductTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return Product::RESOURCE_NAME;

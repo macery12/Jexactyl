@@ -2,11 +2,11 @@
 
 namespace Everest\Services\Email\Transports;
 
-use Everest\Services\Email\EmailMessage;
-use Everest\Services\Email\EmailResult;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Mail\Message;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Everest\Services\Email\EmailResult;
+use Everest\Services\Email\EmailMessage;
 
 class SmtpTransport implements EmailTransport
 {
@@ -85,10 +85,10 @@ class SmtpTransport implements EmailTransport
         } catch (\Throwable $e) {
             $errorMessage = $e->getMessage();
             $retryable = !(
-                stripos($errorMessage, 'authentication') !== false ||
-                stripos($errorMessage, 'username and password not accepted') !== false ||
-                stripos($errorMessage, 'invalid credentials') !== false ||
-                stripos($errorMessage, 'missing credentials') !== false
+                stripos($errorMessage, 'authentication') !== false
+                || stripos($errorMessage, 'username and password not accepted') !== false
+                || stripos($errorMessage, 'invalid credentials') !== false
+                || stripos($errorMessage, 'missing credentials') !== false
             );
 
             Log::error('SMTP send failed', [

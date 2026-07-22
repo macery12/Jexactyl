@@ -1,3 +1,4 @@
+import { createElement } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Puzzle } from 'lucide-react';
@@ -45,7 +46,7 @@ export default function ExtensionsGallery() {
 }
 
 function ExtensionCard({ extension, serverId }: { extension: ServerExtension; serverId: string }) {
-    const Icon = extensionIcon(extension.icon);
+    const iconEl = createElement(extensionIcon(extension.icon), { className: 'h-4.5 w-4.5' });
 
     return (
         <Link
@@ -54,7 +55,7 @@ function ExtensionCard({ extension, serverId }: { extension: ServerExtension; se
         >
             <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--brand-soft)] text-[var(--brand)]">
-                    <Icon className="h-4.5 w-4.5" />
+                    {iconEl}
                 </div>
                 <div className="min-w-0 flex-1">
                     {/* Manifest copy — rendered verbatim, not catalogued. */}

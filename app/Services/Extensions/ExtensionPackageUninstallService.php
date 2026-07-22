@@ -2,13 +2,13 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\ExtensionConfig;
 use Everest\Models\ExtensionPackage;
-use Everest\Models\ExtensionPackageFile;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
+use Everest\Exceptions\DisplayException;
+use Everest\Models\ExtensionPackageFile;
 
 class ExtensionPackageUninstallService
 {
@@ -18,7 +18,7 @@ class ExtensionPackageUninstallService
         private ExtensionFilesystemOwnershipService $ownershipService,
         private ExtensionInstallProgressService $progressService,
         private ExtensionPackageFileService $fileService,
-        private ExtensionMigrationService $migrationService
+        private ExtensionMigrationService $migrationService,
     ) {
     }
 
@@ -86,7 +86,7 @@ class ExtensionPackageUninstallService
      * After calling this for each extension, call ExtensionPanelRebuildService::rebuild()
      * once, then finalizeUninstall() for each prepared result.
      *
-     * @return array<string, mixed> Opaque prepared state; pass to finalizeUninstall() and rollbackUninstall().
+     * @return array<string, mixed> opaque prepared state; pass to finalizeUninstall() and rollbackUninstall()
      */
     public function prepareUninstall(string $extensionId, bool $dropData = false, ?string $initiator = null): array
     {
@@ -246,11 +246,7 @@ class ExtensionPackageUninstallService
         } catch (\Throwable $exception) {
             $logPath = $this->migrationService->writeMigrationLog($extensionId, 'uninstall-drop-data', $auditContext, $exception);
 
-            throw new DisplayException(sprintf(
-                "Dropping the extension's database tables failed, so the uninstall was aborted. Details: %s. Manual cleanup, if you still want the data removed:\n%s",
-                $logPath,
-                implode("\n", $manualCleanup)
-            ), $exception);
+            throw new DisplayException(sprintf("Dropping the extension's database tables failed, so the uninstall was aborted. Details: %s. Manual cleanup, if you still want the data removed:\n%s", $logPath, implode("\n", $manualCleanup)), $exception);
         }
 
         return [

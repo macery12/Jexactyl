@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class CategoryTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return Category::RESOURCE_NAME;

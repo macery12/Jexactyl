@@ -2,8 +2,6 @@
 
 namespace Everest\Services\Migration;
 
-use RuntimeException;
-
 /**
  * The shipped target schema, parsed out of database/schema/fresh-schema.sql.
  *
@@ -18,7 +16,7 @@ class SchemaBaseline
 
     public const LEGACY_CHAIN_PATH = 'database/schema/legacy-migrations.txt';
 
-    /** @var array<string, array{columns: array<string, array>, indexes: array, foreignKeys: array, collation: string}> */
+    /** @var array<string, array{columns: array<string, array>, indexes: array, foreignKeys: array, collation: string, primaryKey: string[]}> */
     private array $tables = [];
 
     private function __construct()
@@ -28,14 +26,14 @@ class SchemaBaseline
     public static function load(string $path): self
     {
         if (!is_readable($path)) {
-            throw new RuntimeException("The schema baseline is missing or unreadable: {$path}");
+            throw new \RuntimeException("The schema baseline is missing or unreadable: {$path}");
         }
 
         $baseline = new self();
         $baseline->parse((string) file_get_contents($path));
 
         if ($baseline->tables === []) {
-            throw new RuntimeException("No CREATE TABLE statements found in {$path} — the baseline looks truncated.");
+            throw new \RuntimeException("No CREATE TABLE statements found in {$path} — the baseline looks truncated.");
         }
 
         return $baseline;
@@ -69,7 +67,7 @@ class SchemaBaseline
     public static function legacyChain(string $path): array
     {
         if (!is_readable($path)) {
-            throw new RuntimeException("The legacy migration manifest is missing: {$path}");
+            throw new \RuntimeException("The legacy migration manifest is missing: {$path}");
         }
 
         $names = array_values(array_filter(array_map(
@@ -277,5 +275,4 @@ class SchemaBaseline
 
         return null;
     }
-
 }

@@ -4,10 +4,10 @@ namespace Everest\Services\Extensions\MinecraftPlayerManager;
 
 class MinecraftQuery
 {
-    const STATISTIC = 0x00;
-    const HANDSHAKE = 0x09;
+    public const STATISTIC = 0x00;
+    public const HANDSHAKE = 0x09;
 
-    /** @var ?resource $Socket */
+    /** @var ?resource */
     private $Socket;
     private ?array $Players = null;
     private ?array $Info = null;
@@ -44,13 +44,13 @@ class MinecraftQuery
     /** @return array|false */
     public function GetInfo(): array|bool
     {
-        return isset($this->Info) ? $this->Info : false;
+        return $this->Info ?? false;
     }
 
     /** @return array|false */
     public function GetPlayers(): array|bool
     {
-        return isset($this->Players) ? $this->Players : false;
+        return $this->Players ?? false;
     }
 
     private function GetChallenge(): string
@@ -94,7 +94,7 @@ class MinecraftQuery
             'maxplayers' => 'MaxPlayers',
             'hostport' => 'HostPort',
             'hostip' => 'HostIp',
-            'game_id' => 'GameName'
+            'game_id' => 'GameName',
         ];
 
         $Last = '';
@@ -117,13 +117,13 @@ class MinecraftQuery
         $Info['HostPort'] = (int) ($Info['HostPort'] ?? 0);
 
         if (isset($Info['Plugins'])) {
-            $Data = \explode(": ", $Info['Plugins'], 2);
+            $Data = \explode(': ', $Info['Plugins'], 2);
 
             $Info['RawPlugins'] = $Info['Plugins'];
             $Info['Software'] = $Data[0];
 
             if (\count($Data) == 2) {
-                $Info['Plugins'] = \explode("; ", $Data[1]);
+                $Info['Plugins'] = \explode('; ', $Data[1]);
             }
         } else {
             $Info['Software'] = 'Vanilla';
@@ -138,7 +138,7 @@ class MinecraftQuery
         }
     }
 
-    private function WriteData(int $Command, string $Append = ""): mixed
+    private function WriteData(int $Command, string $Append = ''): mixed
     {
         if ($this->Socket === null) {
             throw new MinecraftQueryException('Socket is not open.');
@@ -148,13 +148,13 @@ class MinecraftQuery
         $Length = \strlen($Command);
 
         if ($Length !== \fwrite($this->Socket, $Command, $Length)) {
-            throw new MinecraftQueryException("Failed to write on socket.");
+            throw new MinecraftQueryException('Failed to write on socket.');
         }
 
         $Data = \fread($this->Socket, 4096);
 
         if (empty($Data)) {
-            throw new MinecraftQueryException("Failed to read from socket.");
+            throw new MinecraftQueryException('Failed to read from socket.');
         }
 
         if (\strlen($Data) < 5 || $Data[0] != $Command[2]) {

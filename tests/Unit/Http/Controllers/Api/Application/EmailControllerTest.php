@@ -2,21 +2,20 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Application;
 
-use Everest\Http\Controllers\Api\Application\EmailController;
-use Everest\Services\Email\EmailManager;
-use Everest\Services\Email\EmailPolicyService;
-use Everest\Services\Email\EmailResult;
-use Everest\Services\Email\EmailSettingsReader;
-use Everest\Services\Email\EmailVerificationGate;
 use Everest\Tests\TestCase;
 use Illuminate\Http\JsonResponse;
-use Mockery;
+use Everest\Services\Email\EmailResult;
+use Everest\Services\Email\EmailManager;
+use Everest\Services\Email\EmailPolicyService;
+use Everest\Services\Email\EmailSettingsReader;
+use Everest\Services\Email\EmailVerificationGate;
+use Everest\Http\Controllers\Api\Application\EmailController;
 
 class EmailControllerTest extends TestCase
 {
     protected function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
 
         parent::tearDown();
     }
@@ -83,10 +82,10 @@ class EmailControllerTest extends TestCase
     private function invokeControllerMethod(string $method, mixed ...$arguments): JsonResponse
     {
         $controller = new EmailController(
-            Mockery::mock(EmailManager::class),
-            Mockery::mock(EmailVerificationGate::class),
-            Mockery::mock(EmailSettingsReader::class),
-            Mockery::mock(EmailPolicyService::class)
+            \Mockery::mock(EmailManager::class),
+            \Mockery::mock(EmailVerificationGate::class),
+            \Mockery::mock(EmailSettingsReader::class),
+            \Mockery::mock(EmailPolicyService::class)
         );
 
         $reflection = new \ReflectionMethod($controller, $method);

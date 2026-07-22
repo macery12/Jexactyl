@@ -4,11 +4,11 @@ namespace Database\Seeders;
 
 use Everest\Models\Egg;
 use Everest\Models\Nest;
+use Illuminate\Support\Str;
 use Illuminate\Database\Seeder;
 use Illuminate\Http\UploadedFile;
 use Everest\Services\Eggs\Sharing\EggImporterService;
 use Everest\Services\Eggs\Sharing\EggUpdateImporterService;
-use Illuminate\Support\Str;
 
 class EggSeeder extends Seeder
 {
@@ -27,7 +27,7 @@ class EggSeeder extends Seeder
      */
     public function __construct(
         private EggImporterService $importerService,
-        private EggUpdateImporterService $updateImporterService
+        private EggUpdateImporterService $updateImporterService,
     ) {
     }
 

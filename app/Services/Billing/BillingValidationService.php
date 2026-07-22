@@ -7,6 +7,7 @@ use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Models\Billing\Product;
 use Everest\Exceptions\DisplayException;
+
 /**
  * Centralized validation service for billing operations.
  *
@@ -136,7 +137,12 @@ class BillingValidationService
     {
         // Delegate to BillingCycleService — pricing logic lives there now.
         return $this->billingCycleService->calculatePriceWithCoupon(
-            $product, $couponId, $orderType, $billingDays, $nodeId, $userId
+            $product,
+            $couponId,
+            $orderType,
+            $billingDays,
+            $nodeId,
+            $userId
         );
     }
 
@@ -185,5 +191,4 @@ class BillingValidationService
             }
         }
     }
-
 }

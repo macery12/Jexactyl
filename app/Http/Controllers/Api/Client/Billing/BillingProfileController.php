@@ -2,12 +2,12 @@
 
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Everest\Models\Billing\UserBillingProfile;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Billing\StoreBillingProfileRequest;
 use Everest\Http\Requests\Api\Client\Billing\UpdateBillingProfileRequest;
-use Everest\Models\Billing\UserBillingProfile;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class BillingProfileController extends ClientApiController
 {

@@ -13,33 +13,21 @@ class SpigetProviderAdapter implements ProviderAdapterInterface
     {
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function search(array $params = []): array
     {
         return $this->spigetService->searchMods($params);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getProject(string|int $projectId): array
     {
         return $this->spigetService->getMod($projectId);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function listVersions(string|int $projectId, array $params = []): array
     {
         return $this->spigetService->getModFiles($projectId, $params);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getDownloadUrl(string|int $projectId, string|int $versionId): array
     {
         $project = $this->spigetService->getMod($projectId);

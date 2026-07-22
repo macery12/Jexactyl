@@ -13,7 +13,6 @@ use Everest\Http\Requests\Api\Application\Alerts\DeleteAlertRequest;
 use Everest\Http\Requests\Api\Application\Alerts\UpdateAlertRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 
-
 class AlertController extends ApplicationApiController
 {
     /**

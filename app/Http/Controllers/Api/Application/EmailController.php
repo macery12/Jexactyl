@@ -2,29 +2,29 @@
 
 namespace Everest\Http\Controllers\Api\Application;
 
-use Everest\Models\Setting;
-use Everest\Models\EmailNotificationSetting;
-use Everest\Models\EmailQuota;
 use Everest\Models\User;
-use Everest\Models\EmailDelivery;
+use Everest\Models\Setting;
 use Everest\Facades\Activity;
+use Everest\Models\EmailQuota;
+use Everest\Models\EmailDelivery;
 use Illuminate\Http\JsonResponse;
+use Everest\Services\Email\EmailResult;
 use Everest\Services\Email\EmailManager;
-use Everest\Services\Email\EmailPolicyService;
 use Everest\Services\Email\EmailRedactor;
+use Everest\Models\EmailNotificationSetting;
+use Everest\Services\Email\EmailPolicyService;
 use Everest\Services\Email\EmailSettingsReader;
 use Everest\Services\Email\EmailVerificationGate;
-use Everest\Services\Email\EmailResult;
 use Everest\Exceptions\Service\Email\ResendException;
-use Everest\Http\Requests\Api\Application\Email\GetEmailNotificationSettingsRequest;
+use Everest\Http\Requests\Api\Application\Email\SendTestEmailRequest;
 use Everest\Http\Requests\Api\Application\Email\GetEmailQuotaInfoRequest;
 use Everest\Http\Requests\Api\Application\Email\GetUserEmailQuotaRequest;
+use Everest\Http\Requests\Api\Application\Email\TestEmailConnectionRequest;
 use Everest\Http\Requests\Api\Application\Email\UpdateEmailSettingsRequest;
-use Everest\Http\Requests\Api\Application\Email\UpdateEmailNotificationSettingRequest;
 use Everest\Http\Requests\Api\Application\Email\UpdateUserEmailQuotaRequest;
 use Everest\Http\Requests\Api\Application\Email\UpdateVerificationRulesRequest;
-use Everest\Http\Requests\Api\Application\Email\SendTestEmailRequest;
-use Everest\Http\Requests\Api\Application\Email\TestEmailConnectionRequest;
+use Everest\Http\Requests\Api\Application\Email\GetEmailNotificationSettingsRequest;
+use Everest\Http\Requests\Api\Application\Email\UpdateEmailNotificationSettingRequest;
 
 class EmailController extends ApplicationApiController
 {
@@ -38,9 +38,8 @@ class EmailController extends ApplicationApiController
         private EmailManager $emailManager,
         private EmailVerificationGate $verificationGate,
         private EmailSettingsReader $settings,
-        private EmailPolicyService $policy
-    )
-    {
+        private EmailPolicyService $policy,
+    ) {
         parent::__construct();
     }
 
@@ -280,7 +279,7 @@ class EmailController extends ApplicationApiController
         $plan = $request->input('plan', 'free');
 
         $quota = EmailQuota::getOrCreateForUser($userId, $plan);
-        
+
         $planConfig = EmailQuota::PLANS[$plan];
         $quota->plan = $plan;
         $quota->monthly_limit = $planConfig['monthly_limit'];
@@ -352,9 +351,8 @@ class EmailController extends ApplicationApiController
         \Throwable $e,
         string $transport,
         string $context = self::ACTION_SEND_TEST,
-        ?string $recipient = null
-    ): JsonResponse
-    {
+        ?string $recipient = null,
+    ): JsonResponse {
         report($e);
 
         $message = $context === self::ACTION_CONNECTION_TEST

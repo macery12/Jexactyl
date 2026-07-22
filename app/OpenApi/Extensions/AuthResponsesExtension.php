@@ -2,15 +2,15 @@
 
 namespace Everest\OpenApi\Extensions;
 
-use Dedoc\Scramble\Extensions\OperationExtension;
-use Dedoc\Scramble\Support\Generator\Operation;
-use Dedoc\Scramble\Support\Generator\Response;
-use Dedoc\Scramble\Support\Generator\Schema;
-use Dedoc\Scramble\Support\Generator\Types as OpenApiTypes;
-use Dedoc\Scramble\Support\RouteInfo;
-use Everest\Http\Middleware\AdminAuthenticate;
-use Everest\Http\Middleware\RequireTwoFactorAuthentication;
 use Illuminate\Support\Str;
+use Dedoc\Scramble\Support\RouteInfo;
+use Dedoc\Scramble\Support\Generator\Schema;
+use Dedoc\Scramble\Support\Generator\Response;
+use Everest\Http\Middleware\AdminAuthenticate;
+use Dedoc\Scramble\Support\Generator\Operation;
+use Dedoc\Scramble\Extensions\OperationExtension;
+use Dedoc\Scramble\Support\Generator\Types as OpenApiTypes;
+use Everest\Http\Middleware\RequireTwoFactorAuthentication;
 
 class AuthResponsesExtension extends OperationExtension
 {

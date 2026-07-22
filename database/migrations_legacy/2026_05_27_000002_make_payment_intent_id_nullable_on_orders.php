@@ -1,12 +1,11 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-return new class extends Migration
-{
+return new class () extends Migration {
     /**
      * Phase 5.5 — Remove the synthetic "free-{uuid}" value from payment_intent_id
      * for free orders and make the column nullable.
@@ -36,7 +35,7 @@ return new class extends Migration
             ->chunkById(500, function ($orders) {
                 foreach ($orders as $order) {
                     DB::table('orders')->where('id', $order->id)->update([
-                        'payment_intent_id' => 'free-' . substr((string) \Illuminate\Support\Str::uuid(), 0, 16),
+                        'payment_intent_id' => 'free-' . substr((string) Illuminate\Support\Str::uuid(), 0, 16),
                     ]);
                 }
             });

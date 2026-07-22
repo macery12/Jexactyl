@@ -7,10 +7,10 @@ use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\BillingCycle;
 use Everest\Services\Billing\BillingCycleService;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Billing\BillingCycles\GetBillingCyclesRequest;
 use Everest\Http\Requests\Api\Application\Billing\BillingCycles\SyncBillingCyclesRequest;
 use Everest\Http\Requests\Api\Application\Billing\BillingCycles\DeleteBillingCycleRequest;
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 
 class BillingCycleController extends ApplicationApiController
 {

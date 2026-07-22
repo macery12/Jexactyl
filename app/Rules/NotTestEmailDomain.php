@@ -10,7 +10,6 @@ class NotTestEmailDomain implements Rule
      * Determine if the email does not belong to a configured test domain.
      *
      * @param string $attribute
-     * @param mixed $value
      */
     public function passes($attribute, $value): bool
     {

@@ -2,9 +2,9 @@
 
 namespace Everest\Http\Controllers\Api\Application\Landing;
 
+use Everest\Models\Setting;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
-use Everest\Models\Setting;
 use Everest\Services\Landing\LandingConfigService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Landing\UpdateLandingConfigRequest;

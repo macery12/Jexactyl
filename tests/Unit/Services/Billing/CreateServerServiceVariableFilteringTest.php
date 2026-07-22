@@ -2,7 +2,6 @@
 
 namespace Everest\Tests\Unit\Services\Billing;
 
-use Mockery;
 use Everest\Models\User;
 use Everest\Tests\TestCase;
 use Everest\Services\Billing\CreateServerService;
@@ -13,14 +12,14 @@ class CreateServerServiceVariableFilteringTest extends TestCase
 {
     protected function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
 
         parent::tearDown();
     }
 
     public function testFilterUserEditableVariablesDropsHiddenInput(): void
     {
-        $validator = Mockery::mock(VariableValidatorService::class);
+        $validator = \Mockery::mock(VariableValidatorService::class);
         $validator->shouldReceive('setUserLevel')->once()->with(User::USER_LEVEL_USER)->andReturnSelf();
         $validator->shouldReceive('handle')
             ->once()
@@ -33,7 +32,7 @@ class CreateServerServiceVariableFilteringTest extends TestCase
             ]));
 
         $service = new CreateServerService(
-            Mockery::mock(ServerCreationService::class),
+            \Mockery::mock(ServerCreationService::class),
             $validator
         );
 

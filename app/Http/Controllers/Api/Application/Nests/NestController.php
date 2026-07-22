@@ -30,7 +30,7 @@ class NestController extends ApplicationApiController
         private NestCreationService $nestCreationService,
         private NestDeletionService $nestDeletionService,
         private NestUpdateService $nestUpdateService,
-        private EggImporterService $eggImporterService
+        private EggImporterService $eggImporterService,
     ) {
         parent::__construct();
     }

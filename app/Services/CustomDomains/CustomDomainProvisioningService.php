@@ -2,15 +2,14 @@
 
 namespace Everest\Services\CustomDomains;
 
-use Exception;
 use Everest\Models\Server;
 use Everest\Models\Allocation;
 use Everest\Models\CustomDomain;
-use Everest\Models\ServerCustomDomain;
 use Everest\Models\Billing\Order;
-use Everest\Models\CustomDomainDnsLog;
-use Everest\Exceptions\DisplayException;
 use Illuminate\Support\Facades\DB;
+use Everest\Models\CustomDomainDnsLog;
+use Everest\Models\ServerCustomDomain;
+use Everest\Exceptions\DisplayException;
 
 class CustomDomainProvisioningService
 {
@@ -167,7 +166,7 @@ class CustomDomainProvisioningService
             if (empty($zoneId)) {
                 $zone = $this->cloudflare->getZoneByName($mapping->customDomain->domain, $token);
                 if (!$zone) {
-                    throw new Exception('Cloudflare zone could not be resolved for domain: ' . $mapping->customDomain->domain);
+                    throw new \Exception('Cloudflare zone could not be resolved for domain: ' . $mapping->customDomain->domain);
                 }
 
                 $zoneId = $zone['id'];
@@ -341,7 +340,7 @@ class CustomDomainProvisioningService
             return null;
         }
 
-        $value = trim($value, " .-");
+        $value = trim($value, ' .-');
         if ($value === '') {
             return null;
         }

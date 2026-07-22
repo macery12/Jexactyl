@@ -215,6 +215,7 @@ export default function ServerActivityPage() {
     // A deep link drives the event dropdown so the rail reflects what's applied.
     useEffect(() => {
         if (hashFilters.event) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setEvent(hashFilters.event);
             setPage(1);
         }

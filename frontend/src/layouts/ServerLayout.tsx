@@ -26,10 +26,9 @@ export default function ServerLayout() {
     useServerSocketConnection(server?.uuid);
 
     // Sidebar permissions come from the real subuser permission set once loaded.
-    const held = server?.permissions ?? [];
     const groups = useMemo(
-        () => buildNav(serverRoutes, { flags, held, basePath: `/server/${id}` }),
-        [flags, held, id],
+        () => buildNav(serverRoutes, { flags, held: server?.permissions ?? [], basePath: `/server/${id}` }),
+        [flags, server?.permissions, id],
     );
 
     return (

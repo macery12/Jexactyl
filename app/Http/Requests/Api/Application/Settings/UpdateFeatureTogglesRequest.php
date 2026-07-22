@@ -3,8 +3,8 @@
 namespace Everest\Http\Requests\Api\Application\Settings;
 
 use Everest\Models\AdminRole;
-use Everest\Http\Controllers\Api\Application\Settings\FeaturesController;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
+use Everest\Http\Controllers\Api\Application\Settings\FeaturesController;
 
 class UpdateFeatureTogglesRequest extends ApplicationApiRequest
 {

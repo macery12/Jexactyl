@@ -3,17 +3,17 @@
 namespace Everest\Providers;
 
 use Carbon\Carbon;
-use Dedoc\Scramble\Scramble;
-use Dedoc\Scramble\Support\Generator\OpenApi;
-use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Everest\Models;
 use Everest\Models\User;
-use Illuminate\Support\Facades\View;
 use Illuminate\Support\Str;
+use Dedoc\Scramble\Scramble;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
+use Dedoc\Scramble\Support\Generator\OpenApi;
+use Dedoc\Scramble\Support\Generator\SecurityScheme;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 class AppServiceProvider extends ServiceProvider
@@ -49,7 +49,7 @@ class AppServiceProvider extends ServiceProvider
             'ticket' => Models\Ticket::class,
             'task' => Models\Task::class,
             'link' => Models\CustomLink::class,
-            'user' => Models\User::class,
+            'user' => User::class,
         ]);
 
         Carbon::serializeUsing(fn ($carbon) => $carbon->utc()->toIso8601ZuluString());
@@ -104,7 +104,7 @@ class AppServiceProvider extends ServiceProvider
         // like key:generate can still execute without crashing during boot.
         if (blank(config('app.key')) && $this->app->runningInConsole()) {
             $this->app->singleton('encrypter', function () {
-                return new class implements \Illuminate\Contracts\Encryption\Encrypter {
+                return new class () implements \Illuminate\Contracts\Encryption\Encrypter {
                     public function encrypt($value, $serialize = true)
                     {
                         return $value;
@@ -127,7 +127,7 @@ class AppServiceProvider extends ServiceProvider
 
                     public function getKey()
                     {
-                        return null;
+                        return '';
                     }
 
                     public function getAllKeys(): array

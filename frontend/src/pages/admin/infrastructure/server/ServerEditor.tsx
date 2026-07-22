@@ -118,6 +118,7 @@ export function ServerEditor() {
         defaultValues: formFrom(s),
     });
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() opts out of the react compiler
     const nestId = watch('nestId');
     const eggId = watch('eggId');
     const eggsQ = useQuery({ queryKey: ['admin', 'nest-eggs', nestId], queryFn: () => getNestEggs(Number(nestId)), enabled: !!nestId });

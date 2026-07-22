@@ -182,6 +182,7 @@ export default function ServerEditorPage() {
         if (preset.nestId) setNestId(String(preset.nestId));
         if (preset.eggId) setEggId(String(preset.eggId));
         // Name is a reasonable seed, but never clobber one the user typed.
+        // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() opts out of the react compiler
         if (!watch('name')) setValue('name', preset.name, opts);
     };
 

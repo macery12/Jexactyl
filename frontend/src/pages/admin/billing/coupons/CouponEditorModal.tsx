@@ -64,6 +64,7 @@ export default function CouponEditorModal({
     const [form, setForm] = useState<CouponValues>(toForm(coupon));
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (open) setForm(toForm(coupon));
     }, [open, coupon]);
 

@@ -14,9 +14,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  * @property string $target
  * @property bool $read_only
  * @property bool $user_mountable
- * @property \Everest\Models\Egg[]|\Illuminate\Database\Eloquent\Collection $eggs
- * @property \Everest\Models\Node[]|\Illuminate\Database\Eloquent\Collection $nodes
- * @property \Everest\Models\Server[]|\Illuminate\Database\Eloquent\Collection $servers
+ * @property Egg[]|\Illuminate\Database\Eloquent\Collection $eggs
+ * @property Node[]|\Illuminate\Database\Eloquent\Collection $nodes
+ * @property Server[]|\Illuminate\Database\Eloquent\Collection $servers
  */
 class Mount extends Model
 {

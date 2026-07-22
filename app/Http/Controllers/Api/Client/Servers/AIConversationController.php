@@ -3,10 +3,10 @@
 namespace Everest\Http\Controllers\Api\Client\Servers;
 
 use Everest\Models\Server;
-use Everest\Models\AiConversation;
-use Everest\Models\AiMessage;
 use Illuminate\Http\Request;
+use Everest\Models\AiMessage;
 use Illuminate\Http\JsonResponse;
+use Everest\Models\AiConversation;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class AIConversationController extends ClientApiController

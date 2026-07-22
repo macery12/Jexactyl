@@ -2,7 +2,6 @@
 
 namespace Everest\Services\Helpers;
 
-use Exception;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
@@ -155,7 +154,7 @@ class SoftwareVersionService
                 if ($response->status() === 200 && is_string($response->json('tag_name'))) {
                     return ['tag_name' => $response->json('tag_name')];
                 }
-            } catch (Exception) {
+            } catch (\Exception) {
                 // fall through to the quiet empty payload
             }
 

@@ -101,6 +101,7 @@ class InvoicePdfService
         }
 
         $path = storage_path('app/' . $invoice->pdf_cached_path);
+
         return file_exists($path) ? $path : null;
     }
 
@@ -142,9 +143,9 @@ class InvoicePdfService
                             'pdf_expires_at' => null,
                         ]);
 
-                        $evicted++;
+                        ++$evicted;
                     } catch (\Throwable $e) {
-                        $errors++;
+                        ++$errors;
                         Log::error("InvoicePdfService: Failed to evict cached PDF for invoice {$invoice->uuid}: " . $e->getMessage());
                     }
                 }

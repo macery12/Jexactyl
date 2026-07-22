@@ -4,12 +4,13 @@ namespace Everest\Events\Email;
 
 use Everest\Models\User;
 use Everest\Models\Server;
-use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Foundation\Events\Dispatchable;
 
 class ServerRenewalNotice
 {
-    use Dispatchable, SerializesModels;
+    use Dispatchable;
+    use SerializesModels;
 
     public function __construct(
         public User $user,

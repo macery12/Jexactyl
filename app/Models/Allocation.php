@@ -18,8 +18,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Carbon\Carbon|null $updated_at
  * @property string $alias
  * @property bool $has_alias
- * @property \Everest\Models\Server|null $server
- * @property \Everest\Models\Node $node
+ * @property Server|null $server
+ * @property Node $node
  * @property string $hashid
  *
  * @method static \Database\Factories\AllocationFactory factory(...$parameters)
@@ -74,9 +74,6 @@ class Allocation extends Model
         'notes' => 'nullable|string|max:256',
     ];
 
-    /**
-     * {@inheritDoc}
-     */
     public function getRouteKeyName(): string
     {
         return $this->getKeyName();

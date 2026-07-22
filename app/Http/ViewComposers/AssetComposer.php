@@ -2,8 +2,8 @@
 
 namespace Everest\Http\ViewComposers;
 
-use Everest\Models\Setting;
 use Illuminate\View\View;
+use Everest\Models\Setting;
 
 class AssetComposer
 {

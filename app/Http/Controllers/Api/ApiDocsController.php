@@ -2,12 +2,12 @@
 
 namespace Everest\Http\Controllers\Api;
 
-use Dedoc\Scramble\Generator;
-use Everest\Http\Controllers\Controller;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
+use Illuminate\Http\Request;
+use Dedoc\Scramble\Generator;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
+use Everest\Http\Controllers\Controller;
 
 class ApiDocsController extends Controller
 {
