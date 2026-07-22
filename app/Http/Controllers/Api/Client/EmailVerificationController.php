@@ -3,8 +3,8 @@
 namespace Everest\Http\Controllers\Api\Client;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
+use Illuminate\Http\JsonResponse;
 use Everest\Models\EmailNotificationSetting;
 use Everest\Services\Auth\EmailVerificationService;
 

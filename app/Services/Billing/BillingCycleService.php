@@ -7,7 +7,6 @@ use Everest\Models\Billing\Coupon;
 use Everest\Models\Billing\Product;
 use Everest\Exceptions\DisplayException;
 use Everest\Models\Billing\BillingCycle;
-use Everest\Services\Billing\BillingDefaults;
 
 class BillingCycleService
 {
@@ -324,7 +323,7 @@ class BillingCycleService
         string $orderType = 'new',
         ?int $billingDays = null,
         ?int $nodeId = null,
-        ?int $userId = null
+        ?int $userId = null,
     ): array {
         $days = $billingDays ?? BillingDefaults::defaultBillingDays();
 

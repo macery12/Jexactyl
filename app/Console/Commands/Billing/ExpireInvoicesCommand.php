@@ -2,12 +2,12 @@
 
 namespace Everest\Console\Commands\Billing;
 
-use Everest\Models\Billing\Invoice;
-use Everest\Services\Billing\InvoicePdfService;
-use Everest\Services\Billing\InvoiceSettingsService;
-use Everest\Services\Billing\InvoiceStorageService;
 use Illuminate\Console\Command;
+use Everest\Models\Billing\Invoice;
 use Illuminate\Support\Facades\Log;
+use Everest\Services\Billing\InvoicePdfService;
+use Everest\Services\Billing\InvoiceStorageService;
+use Everest\Services\Billing\InvoiceSettingsService;
 
 class ExpireInvoicesCommand extends Command
 {
@@ -31,6 +31,7 @@ class ExpireInvoicesCommand extends Command
 
         if (!$settings->auto_cleanup_enabled) {
             $this->info('Invoice auto-cleanup is disabled. Enable it in Admin → Billing → Invoice Settings → Retention.');
+
             return 0;
         }
 
@@ -44,6 +45,7 @@ class ExpireInvoicesCommand extends Command
         if ($dryRun) {
             $count = $query->count();
             $this->info("[DRY RUN] {$count} invoice(s) older than {$settings->auto_cleanup_after_years} year(s) would be deleted.");
+
             return 0;
         }
 
@@ -69,9 +71,9 @@ class ExpireInvoicesCommand extends Command
                         'data_size_bytes' => null,
                     ]);
 
-                    $expired++;
+                    ++$expired;
                 } catch (\Throwable $e) {
-                    $errors++;
+                    ++$errors;
                     Log::error("ExpireInvoicesCommand: Failed to expire invoice {$invoice->uuid}: " . $e->getMessage());
                 }
             }
@@ -83,5 +85,3 @@ class ExpireInvoicesCommand extends Command
         return $errors > 0 ? 1 : 0;
     }
 }
-
-

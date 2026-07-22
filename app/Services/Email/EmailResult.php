@@ -14,7 +14,7 @@ class EmailResult
         public ?string $status = null,
         public ?string $reason = null,
         public ?bool $retryable = null,
-        public array $meta = []
+        public array $meta = [],
     ) {
     }
 

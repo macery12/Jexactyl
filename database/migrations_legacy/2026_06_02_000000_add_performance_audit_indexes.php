@@ -1,16 +1,16 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Performance indexes identified during the June 2026 audit.
  *
  * Each index is guarded by column- and index-existence checks so the migration is
  * idempotent and safe on installs that already added one of these indexes by hand.
  */
-return new class extends Migration {
+return new class () extends Migration {
     public function up(): void
     {
         // Ordered/ranged on the activity feed (ActivityLogController).
@@ -58,7 +58,7 @@ return new class extends Migration {
             }
 
             Schema::table($table, fn (Blueprint $t) => $t->index($columns));
-        } catch (\Throwable $ignored) {
+        } catch (Throwable $ignored) {
             // Be resilient on drivers without full schema introspection (e.g. sqlite in CI).
         }
     }
@@ -69,8 +69,8 @@ return new class extends Migration {
             if (Schema::hasIndex($table, $this->indexName($table, $columns))) {
                 Schema::table($table, fn (Blueprint $t) => $t->dropIndex($this->indexName($table, $columns)));
             }
-        } catch (\Throwable $ignored) {
-            //
+        } catch (Throwable $ignored) {
+
         }
     }
 };

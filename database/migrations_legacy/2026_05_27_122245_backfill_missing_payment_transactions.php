@@ -1,9 +1,9 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Backfill payment_transactions rows that were missed during the dual-write
  * transition window (Phase 5, Step 1).
  *
@@ -19,8 +19,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Zero-total stripe orders (no PaymentIntent created) are intentionally skipped.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         $currency = strtolower(config('modules.billing.currency.code', 'usd'));
@@ -107,4 +106,3 @@ return new class extends Migration
         // removing data that may have been updated by production traffic.
     }
 };
-

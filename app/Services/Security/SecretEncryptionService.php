@@ -3,10 +3,10 @@
 namespace Everest\Services\Security;
 
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Encryption\MissingAppKeyException;
+use Illuminate\Contracts\Encryption\DecryptException;
 
 class SecretEncryptionService
 {
@@ -76,7 +76,7 @@ class SecretEncryptionService
             $attempts < self::MAX_DECRYPTION_ATTEMPTS
             && $this->looksLikeEncryptedPayload($value)
         ) {
-            $attempts++;
+            ++$attempts;
 
             // Safety valve: refuse to repeatedly decrypt extremely large payloads.
             if (strlen($value) > self::MAX_ENCRYPTED_BYTES) {

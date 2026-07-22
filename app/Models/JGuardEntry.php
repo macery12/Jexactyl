@@ -9,11 +9,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * @property int $id
  * @property int $user_id
- * @property string $status   pending|approved|rejected
- * @property string $approval_mode   manual|delayed|immediate
- * @property \Carbon\Carbon|null $expires_at
- * @property \Carbon\Carbon|null $created_at
- * @property \Carbon\Carbon|null $updated_at
+ * @property string $status pending|approved|rejected
+ * @property string $approval_mode manual|delayed|immediate
+ * @property Carbon|null $expires_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class JGuardEntry extends Model
 {

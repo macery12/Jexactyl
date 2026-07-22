@@ -50,7 +50,7 @@ class CleanupOrdersCommand extends Command
                             }
                         });
 
-                        $expiredCount++;
+                        ++$expiredCount;
                     } catch (\Exception $ex) {
                         Log::warning('CleanupOrdersCommand: failed to expire order', [
                             'order_id' => $order->id,
@@ -67,7 +67,7 @@ class CleanupOrdersCommand extends Command
             ->each(function (Order $order) use (&$deleteCount) {
                 try {
                     $order->delete();
-                    $deleteCount++;
+                    ++$deleteCount;
                 } catch (\Exception $ex) {
                     Log::warning('CleanupOrdersCommand: failed to delete expired order', [
                         'order_id' => $order->id,

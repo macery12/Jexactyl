@@ -13,7 +13,7 @@ class DaemonPowerRepository extends DaemonRepository
     /**
      * Sends a power action to the server instance.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     public function send(string $action): ResponseInterface
     {

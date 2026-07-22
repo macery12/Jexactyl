@@ -1,8 +1,8 @@
 <?php
 
 use Everest\Http\Middleware\ApiDocsAccess;
-use Everest\OpenApi\Extensions\AuthResponsesExtension;
 use Everest\OpenApi\Extensions\RouteTagExtension;
+use Everest\OpenApi\Extensions\AuthResponsesExtension;
 
 $appUrl = rtrim((string) env('APP_URL', config('app.url', '')), '/');
 

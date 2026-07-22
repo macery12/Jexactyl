@@ -2,8 +2,8 @@
 
 namespace Everest\Events\Email;
 
-use Everest\Events\Event;
 use Everest\Models\User;
+use Everest\Events\Event;
 use Illuminate\Queue\SerializesModels;
 
 class AccountCreated extends Event
@@ -15,7 +15,7 @@ class AccountCreated extends Event
      */
     public function __construct(
         public User $user,
-        public string $correlationId
+        public string $correlationId,
     ) {
     }
 }

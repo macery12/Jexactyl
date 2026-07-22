@@ -2,13 +2,13 @@
 
 namespace Everest\Http\Controllers\Api\Client\Extensions;
 
-use Everest\Models\ExtensionConfig;
 use Everest\Models\Server;
+use Everest\Models\Subuser;
+use Illuminate\Http\JsonResponse;
+use Everest\Models\ExtensionConfig;
+use Everest\Services\Extensions\ExtensionCatalogService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Extensions\GetServerExtensionsRequest;
-use Everest\Models\Subuser;
-use Everest\Services\Extensions\ExtensionCatalogService;
-use Illuminate\Http\JsonResponse;
 
 class ExtensionsController extends ClientApiController
 {

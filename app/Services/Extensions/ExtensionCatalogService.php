@@ -2,25 +2,24 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
-use Everest\Models\ExtensionConfig;
-use Everest\Models\ExtensionPackage;
-use Everest\Models\ExtensionRepository;
-use GuzzleHttp\Psr7\UriResolver;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
+use GuzzleHttp\Psr7\UriResolver;
+use Everest\Models\ExtensionConfig;
+use Everest\Models\ExtensionPackage;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
-use Throwable;
+use Illuminate\Support\Facades\Cache;
+use Everest\Models\ExtensionRepository;
+use Everest\Exceptions\DisplayException;
 
 class ExtensionCatalogService
 {
     public function __construct(
         private ExtensionRepositoryBootstrapService $bootstrapService,
         private ExtensionMigrationService $migrationService,
-        private ExtensionPackageArtifactService $artifactService
+        private ExtensionPackageArtifactService $artifactService,
     ) {
     }
 
@@ -247,7 +246,7 @@ class ExtensionCatalogService
                         ],
                     ];
                 }
-            } catch (Throwable $exception) {
+            } catch (\Throwable $exception) {
                 report($exception);
 
                 $repositorySummary['status'] = 'error';
@@ -357,6 +356,7 @@ class ExtensionCatalogService
 
     /**
      * @param array<string, mixed> $payload
+     *
      * @return array<string, mixed>
      */
     private function normalizeRepositoryManifest(array $payload, ExtensionRepository $repository): array
@@ -450,6 +450,7 @@ class ExtensionCatalogService
      * listing that release's requirements.
      *
      * @param array<int, array<string, mixed>> $versions newest-first
+     *
      * @return array<string, mixed>
      */
     private function selectInstallableRelease(array $versions): array
@@ -484,7 +485,6 @@ class ExtensionCatalogService
     }
 
     /**
-     * @param mixed $schema
      * @return array<int, array<string, mixed>>
      */
     private function normalizeSettingsSchema(mixed $schema): array
@@ -529,6 +529,7 @@ class ExtensionCatalogService
 
     /**
      * @param array<string, mixed> $extension
+     *
      * @return array<string, mixed>
      */
     private function mirrorCoreExtensionFromRepository(array $extension, ExtensionRepository $repository): array

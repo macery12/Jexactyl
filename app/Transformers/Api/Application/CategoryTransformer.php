@@ -16,9 +16,6 @@ class CategoryTransformer extends Transformer
         'products',
     ];
 
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return Category::RESOURCE_NAME;

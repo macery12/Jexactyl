@@ -2,11 +2,11 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
-use Illuminate\Console\OutputStyle;
-use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Console\OutputStyle;
 use Illuminate\Support\Facades\File;
+use Everest\Exceptions\DisplayException;
+use Illuminate\Database\Migrations\Migrator;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 
@@ -95,6 +95,7 @@ class ExtensionMigrationService
      * the log to the extension's own migrations.
      *
      * @param array<int, string> $migrationNames
+     *
      * @return array{rolledBack: array<int, string>, output: string}
      */
     private function rollbackMigrations(string $extensionId, array $migrationNames): array
@@ -168,6 +169,7 @@ class ExtensionMigrationService
      * output, the migration log, and the API error payload.
      *
      * @param array<int, string>|null $migrationNames
+     *
      * @return array<int, string>
      */
     public function manualCleanupStatements(string $extensionId, ?array $migrationNames = null): array
@@ -180,7 +182,7 @@ class ExtensionMigrationService
         $migrationNames ??= $this->ranMigrationNames($extensionId);
         if ($migrationNames !== []) {
             $statements[] = sprintf(
-                "DELETE FROM `migrations` WHERE `migration` IN (%s);",
+                'DELETE FROM `migrations` WHERE `migration` IN (%s);',
                 implode(', ', array_map(fn (string $name) => "'" . $name . "'", $migrationNames))
             );
         }
@@ -197,6 +199,7 @@ class ExtensionMigrationService
      * extension) or freshly extracted from an archive (a not-yet-installed one).
      *
      * @param array<int, string> $migrationFilePaths absolute paths
+     *
      * @return array<int, string> distinct created table names, in file order
      */
     public function parseCreatedTables(array $migrationFilePaths): array
@@ -243,12 +246,7 @@ class ExtensionMigrationService
 
             foreach ($matches[1] as $table) {
                 if (!str_starts_with($table, $prefix)) {
-                    throw new DisplayException(sprintf(
-                        'The migration "%s" creates the table "%s", which is outside the extension\'s allowed "%s" table namespace.',
-                        basename($filePath),
-                        $table,
-                        $prefix
-                    ));
+                    throw new DisplayException(sprintf('The migration "%s" creates the table "%s", which is outside the extension\'s allowed "%s" table namespace.', basename($filePath), $table, $prefix));
                 }
             }
         }
@@ -265,6 +263,7 @@ class ExtensionMigrationService
      * failure) and for any migration error during install/update.
      *
      * @param array<string, mixed> $context
+     *
      * @return string the log file path
      */
     public function writeMigrationLog(string $extensionId, string $operation, array $context, ?\Throwable $exception = null): string
@@ -320,10 +319,11 @@ class ExtensionMigrationService
      */
     private function scopedMigrator(): Migrator
     {
-        $migrator = new class(app('migration.repository'), app('db'), app('files'), app('events')) extends Migrator {
+        $migrator = new class (app('migration.repository'), app('db'), app('files'), app('events')) extends Migrator {
             /**
              * @param array<int, string> $migrationNames in the order to run down
              * @param array<int, string> $paths
+             *
              * @return array<int, string> the migration files rolled back
              */
             public function rollbackOnly(array $migrationNames, array $paths): array

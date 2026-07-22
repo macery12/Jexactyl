@@ -8,8 +8,8 @@ use Illuminate\Http\JsonResponse;
 use Everest\Services\Nodes\WingsDetectionService;
 use Everest\Repositories\Wings\DaemonWingsRsRepository;
 use Everest\Repositories\Wings\DaemonConfigurationRepository;
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Nodes\GetNodeInformationRequest;
 
 class NodeInformationController extends ApplicationApiController
@@ -20,16 +20,15 @@ class NodeInformationController extends ApplicationApiController
     public function __construct(
         private DaemonConfigurationRepository $repository,
         private DaemonWingsRsRepository $wingsRsRepository,
-        private WingsDetectionService $detectionService
-    )
-    {
+        private WingsDetectionService $detectionService,
+    ) {
         parent::__construct();
     }
 
     /**
      * Returns system information from the node.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     public function information(GetNodeInformationRequest $request, Node $node): JsonResponse
     {
@@ -57,7 +56,7 @@ class NodeInformationController extends ApplicationApiController
     /**
      * Returns system utilization from the node.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     public function utilization(GetNodeInformationRequest $request, Node $node): JsonResponse
     {
@@ -100,7 +99,7 @@ class NodeInformationController extends ApplicationApiController
     /**
      * Utilization figures from a classic (Go) wings daemon.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     private function classicUtilization(Node $node): array
     {
@@ -127,7 +126,7 @@ class NodeInformationController extends ApplicationApiController
      * The same figures pulled from Wings-RS, which nests them one level deeper and
      * reports no swap. Accepts both the nested and flat spellings for safety.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     private function wingsRsStats(Node $node): array
     {

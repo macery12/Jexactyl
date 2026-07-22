@@ -2,8 +2,8 @@
 
 namespace Everest\Models\Billing;
 
-use Everest\Models\Model;
 use Everest\Models\Egg;
+use Everest\Models\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**

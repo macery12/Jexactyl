@@ -30,8 +30,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $r_eggs
  * @property int $r_database_hosts
  * @property int $r_server_databases
- * @property \Everest\Models\User $tokenable
- * @property \Everest\Models\User $user
+ * @property User $tokenable
+ * @property User $user
  *
  * @method static \Database\Factories\ApiKeyFactory factory(...$parameters)
  * @method static \Illuminate\Database\Eloquent\Builder|ApiKey newModelQuery()

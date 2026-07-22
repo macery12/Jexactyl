@@ -2,18 +2,18 @@
 
 namespace Everest\Tests\Unit\Jobs\Email;
 
-use Everest\Jobs\Email\ProcessDeferredEmailsJob;
-use Everest\Jobs\Email\SendEmailJob;
+use Everest\Tests\TestCase;
+use Illuminate\Support\Str;
+use Everest\Models\EmailQuota;
 use Everest\Models\DeferredEmail;
 use Everest\Models\EmailDelivery;
-use Everest\Models\EmailQuota;
-use Everest\Services\Email\EmailDeliveryTracker;
-use Everest\Tests\TestCase;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
+use Everest\Jobs\Email\SendEmailJob;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Everest\Jobs\Email\ProcessDeferredEmailsJob;
+use Everest\Services\Email\EmailDeliveryTracker;
 
 class ProcessDeferredEmailsJobTest extends TestCase
 {

@@ -20,7 +20,7 @@ class TaskRepository extends EloquentRepository implements TaskRepositoryInterfa
     /**
      * Get a task and the server relationship for that task.
      *
-     * @throws \Everest\Exceptions\Repository\RecordNotFoundException
+     * @throws RecordNotFoundException
      */
     public function getTaskForJobProcess(int $id): Task
     {

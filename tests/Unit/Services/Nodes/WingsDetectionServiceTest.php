@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Services\Nodes;
 
-use Everest\Tests\TestCase;
 use Everest\Models\Node;
+use Everest\Tests\TestCase;
 
 class WingsDetectionServiceTest extends TestCase
 {

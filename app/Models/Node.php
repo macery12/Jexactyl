@@ -47,7 +47,7 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
  * @property Allocation[]|Collection $allocations
- * @property \Everest\Models\DatabaseHost|null $databaseHost
+ * @property DatabaseHost|null $databaseHost
  * @property Mount[]|Collection $mounts
  * @property int[]|\Illuminate\Support\Collection $ports
  * @property Server[]|Collection $servers

@@ -3,9 +3,9 @@
 namespace Everest\Tests\Unit\Exceptions\Billing;
 
 use Everest\Tests\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Exceptions\Billing\BillingException;
 use Everest\Models\Billing\BillingException as BillingExceptionModel;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class BillingExceptionTest extends TestCase
 {

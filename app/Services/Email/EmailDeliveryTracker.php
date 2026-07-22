@@ -3,8 +3,8 @@
 namespace Everest\Services\Email;
 
 use Everest\Models\EmailDelivery;
-use Everest\Models\EmailDeliveryAttempt;
 use Illuminate\Support\Facades\Log;
+use Everest\Models\EmailDeliveryAttempt;
 
 /**
  * Central coordinator for email delivery tracking.
@@ -31,7 +31,7 @@ class EmailDeliveryTracker
         ?string $templateKey = null,
         ?int $userId = null,
         ?array $tags = null,
-        string $provider = 'resend'
+        string $provider = 'resend',
     ): EmailDelivery {
         Log::debug('EmailDeliveryTracker: Starting delivery', [
             'correlation_id' => $correlationId,
@@ -60,7 +60,7 @@ class EmailDeliveryTracker
     public function markDeferred(
         EmailDelivery $delivery,
         string $reason,
-        \Carbon\Carbon $nextAvailableTime
+        \Carbon\Carbon $nextAvailableTime,
     ): void {
         Log::info('EmailDeliveryTracker: Marking as deferred', [
             'delivery_id' => $delivery->id,
@@ -115,7 +115,7 @@ class EmailDeliveryTracker
     public function startAttempt(
         EmailDelivery $delivery,
         int $attemptNumber,
-        ?array $requestPayloadMeta = null
+        ?array $requestPayloadMeta = null,
     ): EmailDeliveryAttempt {
         Log::debug('EmailDeliveryTracker: Starting attempt', [
             'delivery_id' => $delivery->id,
@@ -153,7 +153,7 @@ class EmailDeliveryTracker
         EmailDeliveryAttempt $attempt,
         string $providerMessageId,
         ?int $statusCode = null,
-        ?array $responsePayload = null
+        ?array $responsePayload = null,
     ): void {
         Log::info('EmailDeliveryTracker: Attempt succeeded', [
             'attempt_id' => $attempt->id,
@@ -188,7 +188,7 @@ class EmailDeliveryTracker
         ?int $statusCode = null,
         ?\Throwable $exception = null,
         ?array $responsePayload = null,
-        ?bool $retryable = null
+        ?bool $retryable = null,
     ): void {
         Log::warning('EmailDeliveryTracker: Attempt failed', [
             'attempt_id' => $attempt->id,

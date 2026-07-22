@@ -2,8 +2,8 @@
 
 namespace Everest\Events\Email;
 
-use Everest\Events\Event;
 use Everest\Models\User;
+use Everest\Events\Event;
 use Illuminate\Queue\SerializesModels;
 
 class AccountLocked extends Event
@@ -16,7 +16,7 @@ class AccountLocked extends Event
     public function __construct(
         public User $user,
         public string $reason,
-        public string $correlationId
+        public string $correlationId,
     ) {
     }
 }

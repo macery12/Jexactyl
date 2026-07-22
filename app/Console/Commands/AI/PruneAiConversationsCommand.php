@@ -2,8 +2,8 @@
 
 namespace Everest\Console\Commands\AI;
 
-use Everest\Models\AiConversation;
 use Illuminate\Console\Command;
+use Everest\Models\AiConversation;
 
 class PruneAiConversationsCommand extends Command
 {

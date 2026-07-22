@@ -18,9 +18,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property bool $archived
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
- * @property \Everest\Models\Server $server
- * @property \Everest\Models\Node $oldNode
- * @property \Everest\Models\Node $newNode
+ * @property Server $server
+ * @property Node $oldNode
+ * @property Node $newNode
  */
 class ServerTransfer extends Model
 {

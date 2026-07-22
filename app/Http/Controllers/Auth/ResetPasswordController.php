@@ -32,14 +32,14 @@ class ResetPasswordController extends Controller
     public function __construct(
         private Dispatcher $dispatcher,
         private Hasher $hasher,
-        private UserRepositoryInterface $userRepository
+        private UserRepositoryInterface $userRepository,
     ) {
     }
 
     /**
      * Reset the given user's password.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      */
     public function __invoke(ResetPasswordRequest $request): JsonResponse
     {

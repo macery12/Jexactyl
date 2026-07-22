@@ -3,14 +3,14 @@
 namespace Everest\Http\Controllers\Auth\Modules;
 
 use Everest\Models\User;
-use Illuminate\Support\Str;
 use Carbon\CarbonImmutable;
+use Everest\Models\Setting;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Laravel\Socialite\Facades\Socialite;
 use Everest\Services\Users\UserCreationService;
 use Everest\Http\Controllers\Auth\AbstractLoginController;
-use Everest\Models\Setting;
 
 class GoogleLoginController extends AbstractLoginController
 {
@@ -70,18 +70,18 @@ class GoogleLoginController extends AbstractLoginController
             }
 
             return $redirect;
-        } else {
-            $user = $this->createAccount(['email' => $response->email, 'username' => 'null_user_' . $this->randStr(16)]);
-
-            $loginResponse = $this->sendLoginResponse($user, $request);
-            $redirect = redirect('/settings');
-
-            foreach ($loginResponse->headers->getCookies() as $cookie) {
-                $redirect->headers->setCookie($cookie);
-            }
-
-            return $redirect;
         }
+        $user = $this->createAccount(['email' => $response->email, 'username' => 'null_user_' . $this->randStr(16)]);
+
+        $loginResponse = $this->sendLoginResponse($user, $request);
+        $redirect = redirect('/settings');
+
+        foreach ($loginResponse->headers->getCookies() as $cookie) {
+            $redirect->headers->setCookie($cookie);
+        }
+
+        return $redirect;
+
 
         return redirect()->route('auth.login');
     }

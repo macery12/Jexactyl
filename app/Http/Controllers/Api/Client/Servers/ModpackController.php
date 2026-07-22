@@ -2,18 +2,18 @@
 
 namespace Everest\Http\Controllers\Api\Client\Servers;
 
-use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
+use Everest\Models\Server;
+use Illuminate\Support\Str;
+use Everest\Models\DownloadQueue;
+use Illuminate\Http\JsonResponse;
+use Everest\Jobs\InstallModpackJob;
+use Everest\Services\Mods\CurseForgeService;
+use Everest\Services\Mods\ModpackPreviewService;
+use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetModpackRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\InstallModpackRequest;
-use Everest\Jobs\InstallModpackJob;
-use Everest\Models\DownloadQueue;
-use Everest\Models\Server;
-use Everest\Repositories\Wings\DaemonFileRepository;
-use Everest\Services\Mods\CurseForgeService;
-use Everest\Services\Mods\ModpackPreviewService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Str;
+use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
 
 /**
  * Modpack browsing + install. Modpacks are served exclusively by CurseForge and
@@ -26,9 +26,9 @@ class ModpackController extends ClientApiController
     private const MODPACK_LOADERS = ['forge', 'neoforge', 'fabric', 'quilt'];
 
     public function __construct(
-        private CurseForgeService     $curseForge,
+        private CurseForgeService $curseForge,
         private ModpackPreviewService $previewService,
-        private DaemonFileRepository  $fileRepository,
+        private DaemonFileRepository $fileRepository,
     ) {
         parent::__construct();
     }

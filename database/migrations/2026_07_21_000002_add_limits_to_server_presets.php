@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Widen `server_presets` to cover the rest of a server's limits.
  *
  * A preset carried only cpu/memory/disk/nest/egg, which left the settings most
@@ -12,8 +12,7 @@ use Illuminate\Database\Migrations\Migration;
  * grants — to fall back on the create form's defaults every time. Defaults here
  * mirror the create-server form so existing presets keep behaving as they did.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::table('server_presets', function (Blueprint $table) {

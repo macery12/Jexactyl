@@ -7,7 +7,7 @@ class AccountCreatedEmail extends BaseEmail
     public function __construct(
         private string $userName,
         private string $email,
-        private string $loginUrl
+        private string $loginUrl,
     ) {
     }
 

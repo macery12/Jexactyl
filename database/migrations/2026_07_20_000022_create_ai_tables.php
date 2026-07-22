@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * AI assistant tables. Conversations/logs reference servers by uuid (char 36),
  * not id. Includes the post-audit ai_usage_logs.cached column
  * (docs/database-rebuild/04 D11).
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('ai_conversations', function (Blueprint $table) {

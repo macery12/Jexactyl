@@ -2,22 +2,21 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Client\Billing;
 
-use Mockery;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Everest\Models\User;
 use Everest\Tests\TestCase;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Everest\Models\Billing\Order;
-use Everest\Models\Billing\InvoiceSettings;
-use Everest\Models\User;
-use Everest\Contracts\Repository\SettingsRepositoryInterface;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
+use Everest\Models\Billing\InvoiceSettings;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\CreateServerService;
 use Everest\Services\Billing\OrderProcessorService;
 use Everest\Services\Billing\BillingValidationService;
 use Everest\Services\Billing\ServerFulfillmentService;
+use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
 class CheckoutControllerTest extends TestCase
 {
@@ -57,7 +56,7 @@ class CheckoutControllerTest extends TestCase
 
     public function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
         @unlink($this->dbPath);
 
         parent::tearDown();
@@ -94,44 +93,44 @@ class CheckoutControllerTest extends TestCase
             'updated_at' => $now,
         ]);
 
-        $validation = Mockery::mock(BillingValidationService::class);
+        $validation = \Mockery::mock(BillingValidationService::class);
         $validation->shouldReceive('validateBillingEnabled')->once();
 
-        $fulfillment = Mockery::mock(ServerFulfillmentService::class);
+        $fulfillment = \Mockery::mock(ServerFulfillmentService::class);
         $fulfillment->shouldReceive('fulfillOrder')
             ->once()
             ->with(
-                Mockery::type(Request::class),
-                Mockery::on(function (Order $order) {
+                \Mockery::type(Request::class),
+                \Mockery::on(function (Order $order) {
                     return $order->id === 11 && $order->payment_intent_id === 'pi-match';
                 }),
-                Mockery::type('object')
+                \Mockery::type('object')
             )
-            ->andReturn(Mockery::mock(\Everest\Models\Server::class));
+            ->andReturn(\Mockery::mock(\Everest\Models\Server::class));
 
-        $settings = Mockery::mock(SettingsRepositoryInterface::class);
+        $settings = \Mockery::mock(SettingsRepositoryInterface::class);
         $settings->shouldReceive('get')
             ->once()
-            ->with('settings::modules:billing:keys:secret', Mockery::any())
+            ->with('settings::modules:billing:keys:secret', \Mockery::any())
             ->andReturn(null);
         $this->app->instance(SettingsRepositoryInterface::class, $settings);
 
-        $invoiceSettings = Mockery::mock(\Everest\Services\Billing\InvoiceSettingsService::class);
+        $invoiceSettings = \Mockery::mock(\Everest\Services\Billing\InvoiceSettingsService::class);
         $invoiceSettings->shouldReceive('get')
             ->once()
             ->andReturn(new InvoiceSettings(['require_billing_address' => false]));
 
         $controller = new \Everest\Http\Controllers\Api\Client\Billing\CheckoutController(
             $validation,
-            Mockery::mock(OrderProcessorService::class),
-            Mockery::mock(CreateOrderService::class),
-            Mockery::mock(CreateServerService::class),
+            \Mockery::mock(OrderProcessorService::class),
+            \Mockery::mock(CreateOrderService::class),
+            \Mockery::mock(CreateServerService::class),
             $fulfillment,
-            Mockery::mock(\Everest\Services\Billing\StripeCustomerService::class),
+            \Mockery::mock(\Everest\Services\Billing\StripeCustomerService::class),
             $invoiceSettings
         );
 
-        $intent = new class() {
+        $intent = new class () {
             public string $id = 'pi-match';
             public string $status = 'requires_capture';
             public object $metadata;
@@ -146,8 +145,8 @@ class CheckoutControllerTest extends TestCase
             }
         };
 
-        $stripe = Mockery::mock(\Stripe\StripeClient::class);
-        $stripe->paymentIntents = new class($intent) {
+        $stripe = \Mockery::mock(\Stripe\StripeClient::class);
+        $stripe->paymentIntents = new class ($intent) {
             public function __construct(private object $intent)
             {
             }

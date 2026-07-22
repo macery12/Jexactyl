@@ -2,12 +2,12 @@
 
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
-use Everest\Http\Controllers\Api\Client\ClientApiController;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
+use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class AddressAutocompleteController extends ClientApiController
 {
@@ -64,6 +64,7 @@ class AddressAutocompleteController extends ClientApiController
                     'status' => $response->status(),
                     'query'  => $query,
                 ]);
+
                 return [];
             }
 
@@ -73,6 +74,7 @@ class AddressAutocompleteController extends ClientApiController
             );
         } catch (\Throwable $e) {
             Log::warning('Nominatim address lookup failed', ['error' => $e->getMessage()]);
+
             return [];
         }
     }

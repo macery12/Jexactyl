@@ -6,7 +6,7 @@ class PasswordResetEmail extends BaseEmail
 {
     public function __construct(
         private string $resetUrl,
-        private string $userName
+        private string $userName,
     ) {
     }
 

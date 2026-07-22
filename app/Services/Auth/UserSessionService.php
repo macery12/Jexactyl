@@ -2,14 +2,14 @@
 
 namespace Everest\Services\Auth;
 
-use Carbon\CarbonImmutable;
-use Everest\Events\Email\NewLoginDetected;
 use Everest\Models\User;
-use Everest\Models\UserSession;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Session as SessionFacade;
-use Illuminate\Support\Facades\Log;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Everest\Models\UserSession;
+use Illuminate\Support\Facades\Log;
+use Everest\Events\Email\NewLoginDetected;
+use Illuminate\Support\Facades\Session as SessionFacade;
 
 class UserSessionService
 {
@@ -20,8 +20,8 @@ class UserSessionService
     }
 
     /**
-    * Record or update a user session on login and trigger notification if needed.
-    */
+     * Record or update a user session on login and trigger notification if needed.
+     */
     public function recordLogin(User $user, string $sessionId, ?string &$deviceId): UserSession
     {
         $deviceId = $deviceId ?: Str::uuid()->toString();
@@ -106,6 +106,7 @@ class UserSessionService
                 'session_user_id' => $session->user_id,
                 'session_id' => $session->id,
             ]);
+
             return;
         }
 
@@ -182,6 +183,7 @@ class UserSessionService
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
             return substr($ip, 0, 19);
         }
+
         return $ip;
     }
 
@@ -243,6 +245,7 @@ class UserSessionService
                 'location' => $this->location(),
                 'last_activity_at' => $now,
             ])->save();
+
             return $existingSession;
         }
 

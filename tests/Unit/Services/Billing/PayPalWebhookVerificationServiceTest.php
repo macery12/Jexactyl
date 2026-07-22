@@ -2,7 +2,6 @@
 
 namespace Everest\Tests\Unit\Services\Billing;
 
-use Mockery;
 use Everest\Tests\TestCase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -14,14 +13,14 @@ class PayPalWebhookVerificationServiceTest extends TestCase
     protected function tearDown(): void
     {
         Cache::flush();
-        Mockery::close();
+        \Mockery::close();
 
         parent::tearDown();
     }
 
     public function testRejectsWebhookWhenRequiredHeadersAreMissing(): void
     {
-        $paypalService = Mockery::mock(PayPalPaymentService::class);
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldNotReceive('verifyWebhookSignature');
 
         $service = new PayPalWebhookVerificationService($paypalService);
@@ -39,7 +38,7 @@ class PayPalWebhookVerificationServiceTest extends TestCase
 
     public function testRejectsWebhookWhenTimestampIsStale(): void
     {
-        $paypalService = Mockery::mock(PayPalPaymentService::class);
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldNotReceive('verifyWebhookSignature');
 
         $service = new PayPalWebhookVerificationService($paypalService);
@@ -62,7 +61,7 @@ class PayPalWebhookVerificationServiceTest extends TestCase
 
     public function testRejectsWebhookWhenSignatureIsInvalid(): void
     {
-        $paypalService = Mockery::mock(PayPalPaymentService::class);
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldReceive('verifyWebhookSignature')->once()->andReturnFalse();
 
         $service = new PayPalWebhookVerificationService($paypalService);
@@ -85,7 +84,7 @@ class PayPalWebhookVerificationServiceTest extends TestCase
 
     public function testRejectsReplayOfVerifiedWebhookTransmission(): void
     {
-        $paypalService = Mockery::mock(PayPalPaymentService::class);
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldReceive('verifyWebhookSignature')->twice()->andReturnTrue();
 
         $service = new PayPalWebhookVerificationService($paypalService);

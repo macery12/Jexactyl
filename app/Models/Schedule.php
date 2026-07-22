@@ -26,8 +26,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
  * @property string $hashid
- * @property \Everest\Models\Server $server
- * @property \Everest\Models\Task[]|\Illuminate\Support\Collection $tasks
+ * @property Server $server
+ * @property Task[]|\Illuminate\Support\Collection $tasks
  */
 class Schedule extends Model
 {
@@ -102,9 +102,6 @@ class Schedule extends Model
         'next_run_at' => 'nullable|date',
     ];
 
-    /**
-     * {@inheritDoc}
-     */
     public function getRouteKeyName(): string
     {
         return $this->getKeyName();

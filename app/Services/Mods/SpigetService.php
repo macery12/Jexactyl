@@ -2,9 +2,9 @@
 
 namespace Everest\Services\Mods;
 
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Cache;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
 
 class SpigetService
@@ -67,6 +67,7 @@ class SpigetService
             if (!is_null($minRating)) {
                 $data = array_values(array_filter($data, function ($item) use ($minRating) {
                     $rating = $item['rating']['average'] ?? null;
+
                     return $rating === null ? false : $rating >= (float) $minRating;
                 }));
             }
@@ -209,8 +210,8 @@ class SpigetService
                 'minRating' => true,
             ],
             'unsupported' => [
-            'minecraftVersion' => 'Spiget does not provide reliable per-version filtering.',
-            'modLoader' => 'Not applicable for Spigot plugins.',
+                'minecraftVersion' => 'Spiget does not provide reliable per-version filtering.',
+                'modLoader' => 'Not applicable for Spigot plugins.',
             ],
             'options' => [
                 'categories' => $this->getCategories(),
@@ -521,13 +522,7 @@ class SpigetService
                 'error' => $exception->getMessage(),
             ]);
 
-            throw new ModsServiceException(
-                sprintf(
-                    'Unable to load data from the Spigot provider for "%s". Please try again later.',
-                    $path
-                ),
-                previous: $exception
-            );
+            throw new ModsServiceException(sprintf('Unable to load data from the Spigot provider for "%s". Please try again later.', $path), previous: $exception);
         }
     }
 

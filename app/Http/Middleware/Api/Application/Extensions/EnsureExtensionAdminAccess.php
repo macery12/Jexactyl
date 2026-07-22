@@ -2,10 +2,9 @@
 
 namespace Everest\Http\Middleware\Api\Application\Extensions;
 
-use Closure;
+use Illuminate\Http\Request;
 use Everest\Models\ExtensionConfig;
 use Everest\Models\ExtensionPackage;
-use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -16,7 +15,7 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EnsureExtensionAdminAccess
 {
-    public function handle(Request $request, Closure $next, string $extensionId): Response
+    public function handle(Request $request, \Closure $next, string $extensionId): Response
     {
         if (!config('modules.extensions.enabled')) {
             return response('', 404);

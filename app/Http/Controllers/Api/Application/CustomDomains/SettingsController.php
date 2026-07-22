@@ -3,9 +3,9 @@
 namespace Everest\Http\Controllers\Api\Application\CustomDomains;
 
 use Everest\Models\Setting;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
 use Everest\Facades\Activity;
+use Illuminate\Http\Response;
+use Illuminate\Http\JsonResponse;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\CustomDomains\GetCustomDomainSettingsRequest;
 use Everest\Http\Requests\Api\Application\CustomDomains\UpdateCustomDomainSettingsRequest;

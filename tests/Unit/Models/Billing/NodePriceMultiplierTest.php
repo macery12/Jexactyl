@@ -2,11 +2,11 @@
 
 namespace Everest\Tests\Unit\Models\Billing;
 
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Everest\Models\Node;
 use Everest\Models\Setting;
 use Everest\Tests\TestCase;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 

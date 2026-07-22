@@ -3,12 +3,12 @@
 namespace Everest\Http\Controllers\Api\Client;
 
 use Everest\Facades\Activity;
-use Everest\Http\Requests\Api\Client\ClientApiRequest;
-use Everest\Models\UserSession;
-use Everest\Services\Auth\UserSessionService;
-use Everest\Transformers\Api\Client\UserSessionTransformer;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
+use Everest\Models\UserSession;
+use Illuminate\Http\JsonResponse;
+use Everest\Services\Auth\UserSessionService;
+use Everest\Http\Requests\Api\Client\ClientApiRequest;
+use Everest\Transformers\Api\Client\UserSessionTransformer;
 
 class SessionController extends ClientApiController
 {

@@ -3,27 +3,27 @@
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
 use Stripe\StripeClient;
+use Everest\Models\Setting;
 use Illuminate\Http\Request;
-use Everest\Http\Requests\Api\Client\Billing\UpdateCheckoutRequest;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Order;
-use Everest\Models\Billing\PaymentTransaction;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
 use Everest\Exceptions\DisplayException;
 use Everest\Models\Billing\BillingException;
+use Everest\Services\Billing\BillingDefaults;
+use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\CreateServerService;
 use Everest\Services\Billing\OrderProcessorService;
-use Everest\Services\Billing\BillingValidationService;
-use Everest\Services\Billing\BillingDefaults;
-use Everest\Services\Billing\ServerFulfillmentService;
 use Everest\Services\Billing\StripeCustomerService;
 use Everest\Services\Billing\InvoiceSettingsService;
-use Everest\Models\Setting;
+use Everest\Services\Billing\BillingValidationService;
+use Everest\Services\Billing\ServerFulfillmentService;
 use Everest\Transformers\Api\Client\ServerTransformer;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Http\Requests\Api\Client\Billing\UpdateCheckoutRequest;
 use Everest\Exceptions\Billing\BillingException as BillingExceptionClass;
 
 /**
@@ -555,6 +555,7 @@ class CheckoutController extends ClientApiController
 
         $isComplete = $profile !== null && collect($required)->every(function (string $field) use ($data): bool {
             $value = $data[$field] ?? null;
+
             return is_string($value) && trim($value) !== '';
         });
 
@@ -577,5 +578,4 @@ class CheckoutController extends ClientApiController
             throw new BillingExceptionClass('Stripe is not configured', 'Stripe payment processing is not configured. Please contact support or try a different payment method.', BillingException::TYPE_STOREFRONT, null, 'stripe', null, ['configured' => false]);
         }
     }
-
 }

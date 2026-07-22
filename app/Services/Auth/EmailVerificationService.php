@@ -5,8 +5,8 @@ namespace Everest\Services\Auth;
 use Everest\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\URL;
-use Everest\Events\Email\EmailVerificationRequested;
 use Everest\Services\Email\EmailManager;
+use Everest\Events\Email\EmailVerificationRequested;
 
 class EmailVerificationService
 {

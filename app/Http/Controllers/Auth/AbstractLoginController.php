@@ -65,7 +65,7 @@ abstract class AbstractLoginController extends Controller
      *
      * @throws DisplayException
      */
-    protected function sendFailedLoginResponse(Request $request, Authenticatable $user = null, string $message = null)
+    protected function sendFailedLoginResponse(Request $request, ?Authenticatable $user = null, ?string $message = null)
     {
         $this->incrementLoginAttempts($request);
 
@@ -195,7 +195,7 @@ abstract class AbstractLoginController extends Controller
     /**
      * Determine if the user is logging in using an email or username.
      */
-    protected function getField(string $input = null): string
+    protected function getField(?string $input = null): string
     {
         return ($input && str_contains($input, '@')) ? 'email' : 'username';
     }
@@ -203,7 +203,7 @@ abstract class AbstractLoginController extends Controller
     /**
      * Fire a failed login event.
      */
-    protected function fireFailedLoginEvent(Authenticatable $user = null, array $credentials = [])
+    protected function fireFailedLoginEvent(?Authenticatable $user = null, array $credentials = [])
     {
         Event::dispatch(new Failed('auth', $user, $credentials));
     }

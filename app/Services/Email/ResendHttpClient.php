@@ -3,14 +3,13 @@
 namespace Everest\Services\Email;
 
 use GuzzleHttp\Client;
+use Illuminate\Support\Facades\Log;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 use Everest\Exceptions\Service\Email\ResendException;
+use Everest\Exceptions\Service\Email\ResendServerException;
 use Everest\Exceptions\Service\Email\ResendValidationException;
 use Everest\Exceptions\Service\Email\ResendAuthenticationException;
-use Everest\Exceptions\Service\Email\ResendRateLimitException;
-use Everest\Exceptions\Service\Email\ResendServerException;
-use Illuminate\Support\Facades\Log;
 
 class ResendHttpClient
 {
@@ -77,10 +76,7 @@ class ResendHttpClient
                 if ($statusCode === 400) {
                     // Check if it's a domain-related error
                     if (stripos($errorMessage, 'domain') !== false || stripos($errorMessage, 'from') !== false) {
-                        throw new ResendValidationException(
-                            $errorMessage . ' - Make sure the domain in your "From Email" is verified in your Resend account at https://resend.com/domains',
-                            $statusCode
-                        );
+                        throw new ResendValidationException($errorMessage . ' - Make sure the domain in your "From Email" is verified in your Resend account at https://resend.com/domains', $statusCode);
                     }
                     throw new ResendValidationException($errorMessage, $statusCode);
                 }
@@ -100,8 +96,8 @@ class ResendHttpClient
 
                 // Handle 5xx errors with exponential backoff
                 if ($statusCode >= 500 && $statusCode < 600) {
-                    $attempt++;
-                    
+                    ++$attempt;
+
                     if ($attempt < self::MAX_RETRIES) {
                         $delay = self::INITIAL_RETRY_DELAY * pow(2, $attempt - 1);
                         usleep($delay * 1000); // Convert to microseconds
@@ -126,8 +122,8 @@ class ResendHttpClient
     }
 
     /**
-    * Parse usage and rate-limit headers from the response.
-    */
+     * Parse usage and rate-limit headers from the response.
+     */
     private function parseHeaders(array $headers): array
     {
         $getHeader = function (string $key) use ($headers): ?string {

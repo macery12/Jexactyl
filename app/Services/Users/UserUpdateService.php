@@ -2,10 +2,10 @@
 
 namespace Everest\Services\Users;
 
-use Everest\Events\Email\PasswordChanged;
 use Everest\Models\User;
-use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Str;
+use Illuminate\Contracts\Hashing\Hasher;
+use Everest\Events\Email\PasswordChanged;
 use Everest\Traits\Services\HasUserLevels;
 
 class UserUpdateService

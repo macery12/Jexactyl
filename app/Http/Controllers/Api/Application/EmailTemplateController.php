@@ -2,13 +2,13 @@
 
 namespace Everest\Http\Controllers\Api\Application;
 
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Blade;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Blade;
+use Everest\Http\Requests\Api\Application\Email\RevertEmailTemplateRequest;
 use Everest\Http\Requests\Api\Application\Email\GetEmailTemplateKeysRequest;
 use Everest\Http\Requests\Api\Application\Email\PreviewEmailTemplateRequest;
-use Everest\Http\Requests\Api\Application\Email\RevertEmailTemplateRequest;
 use Everest\Http\Requests\Api\Application\Email\UpdateEmailTemplateSourceRequest;
 
 class EmailTemplateController extends ApplicationApiController

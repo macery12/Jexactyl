@@ -37,7 +37,7 @@ class ThemeController extends ApplicationApiController
      * ThemeController constructor.
      */
     public function __construct(
-        private ThemeRepositoryInterface $theme
+        private ThemeRepositoryInterface $theme,
     ) {
         parent::__construct();
     }

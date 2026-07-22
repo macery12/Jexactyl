@@ -2,8 +2,8 @@
 
 namespace Everest\Models\Billing;
 
-use Everest\Models\Model;
 use Everest\Models\User;
+use Everest\Models\Model;
 use Illuminate\Http\Request;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -42,11 +42,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Carbon\Carbon|null $paypal_captured_at
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
- * @property-read \Everest\Models\Server|null $server
- * @property-read \Everest\Models\Billing\Product|null $product
- * @property-read \Everest\Models\User|null $user
- * @property-read \Everest\Models\Billing\Coupon|null $coupon
- * @property-read \Everest\Models\Billing\PaymentTransaction|null $transaction
+ * @property \Everest\Models\Server|null $server
+ * @property Product|null $product
+ * @property User|null $user
+ * @property Coupon|null $coupon
+ * @property PaymentTransaction|null $transaction
  */
 class Order extends Model
 {

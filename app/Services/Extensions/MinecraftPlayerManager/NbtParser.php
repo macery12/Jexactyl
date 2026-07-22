@@ -36,12 +36,12 @@ class NbtParser
         }
 
         $compressed = file_get_contents($filePath);
-        
+
         // Check for gzip magic number
         if (substr($compressed, 0, 2) === "\x1f\x8b") {
             $decoded = gzdecode($compressed);
             if ($decoded === false) {
-                throw new \Exception("Failed to decompress NBT file");
+                throw new \Exception('Failed to decompress NBT file');
             }
 
             $this->data = $decoded;
@@ -50,6 +50,7 @@ class NbtParser
         }
 
         $this->offset = 0;
+
         return $this->readTag();
     }
 
@@ -60,13 +61,14 @@ class NbtParser
     {
         $this->data = $data;
         $this->offset = 0;
+
         return $this->readTag();
     }
 
     private function readTag(): array
     {
         $type = $this->readByte();
-        
+
         if ($type === self::TAG_END) {
             return ['type' => 'end'];
         }
@@ -103,7 +105,8 @@ class NbtParser
     private function readByte(): int
     {
         $value = ord($this->data[$this->offset]);
-        $this->offset++;
+        ++$this->offset;
+
         // Convert to signed byte
         return $value > 127 ? $value - 256 : $value;
     }
@@ -111,7 +114,8 @@ class NbtParser
     private function readUnsignedByte(): int
     {
         $value = ord($this->data[$this->offset]);
-        $this->offset++;
+        ++$this->offset;
+
         return $value;
     }
 
@@ -120,6 +124,7 @@ class NbtParser
         $bytes = substr($this->data, $this->offset, 2);
         $this->offset += 2;
         $value = unpack('n', $bytes)[1];
+
         // Convert to signed short
         return $value > 32767 ? $value - 65536 : $value;
     }
@@ -133,6 +138,7 @@ class NbtParser
         if ($value > 2147483647) {
             $value -= 4294967296;
         }
+
         return $value;
     }
 
@@ -141,6 +147,7 @@ class NbtParser
         $bytes = substr($this->data, $this->offset, 8);
         $this->offset += 8;
         $value = unpack('J', $bytes)[1];
+
         return $value;
     }
 
@@ -150,6 +157,7 @@ class NbtParser
         $this->offset += 4;
         // Reverse bytes for big-endian
         $bytes = strrev($bytes);
+
         return unpack('f', $bytes)[1];
     }
 
@@ -159,6 +167,7 @@ class NbtParser
         $this->offset += 8;
         // Reverse bytes for big-endian
         $bytes = strrev($bytes);
+
         return unpack('d', $bytes)[1];
     }
 
@@ -170,6 +179,7 @@ class NbtParser
         }
         $value = substr($this->data, $this->offset, $length);
         $this->offset += $length;
+
         return $value;
     }
 
@@ -177,9 +187,10 @@ class NbtParser
     {
         $length = $this->readInt();
         $values = [];
-        for ($i = 0; $i < $length; $i++) {
+        for ($i = 0; $i < $length; ++$i) {
             $values[] = $this->readByte();
         }
+
         return $values;
     }
 
@@ -187,9 +198,10 @@ class NbtParser
     {
         $length = $this->readInt();
         $values = [];
-        for ($i = 0; $i < $length; $i++) {
+        for ($i = 0; $i < $length; ++$i) {
             $values[] = $this->readInt();
         }
+
         return $values;
     }
 
@@ -197,9 +209,10 @@ class NbtParser
     {
         $length = $this->readInt();
         $values = [];
-        for ($i = 0; $i < $length; $i++) {
+        for ($i = 0; $i < $length; ++$i) {
             $values[] = $this->readLong();
         }
+
         return $values;
     }
 
@@ -207,21 +220,22 @@ class NbtParser
     {
         $itemType = $this->readUnsignedByte();
         $length = $this->readInt();
-        
+
         $values = [];
-        for ($i = 0; $i < $length; $i++) {
+        for ($i = 0; $i < $length; ++$i) {
             $values[] = $this->readPayload($itemType);
         }
+
         return $values;
     }
 
     private function readCompound(): array
     {
         $values = [];
-        
+
         while (true) {
             $type = $this->readUnsignedByte();
-            
+
             if ($type === self::TAG_END) {
                 break;
             }
@@ -240,7 +254,7 @@ class NbtParser
     {
         $data = $nbt['value'] ?? $nbt;
         $inventory = [];
-        
+
         // Main inventory (slots 0-35)
         if (isset($data['Inventory']) && is_array($data['Inventory'])) {
             foreach ($data['Inventory'] as $item) {
@@ -269,7 +283,7 @@ class NbtParser
         // Or as a list: [{slot: "head", item: {}}, ...]
         if (isset($data['equipment']) && is_array($data['equipment'])) {
             $equipment = $data['equipment'];
-            
+
             // Check for named keys format (1.21+)
             if (isset($equipment['head']) && is_array($equipment['head']) && !empty($equipment['head'])) {
                 $armor['helmet'] = self::parseItem($equipment['head']);
@@ -283,16 +297,20 @@ class NbtParser
             if (isset($equipment['feet']) && is_array($equipment['feet']) && !empty($equipment['feet'])) {
                 $armor['boots'] = self::parseItem($equipment['feet']);
             }
-            
+
             // Check for list format with slot names
             if (isset($equipment[0])) {
                 foreach ($equipment as $slot) {
-                    if (!is_array($slot)) continue;
+                    if (!is_array($slot)) {
+                        continue;
+                    }
                     $slotName = $slot['slot'] ?? '';
                     $item = $slot['item'] ?? $slot;
-                    
-                    if (empty($item) || !isset($item['id'])) continue;
-                    
+
+                    if (empty($item) || !isset($item['id'])) {
+                        continue;
+                    }
+
                     switch ($slotName) {
                         case 'head':
                         case 'minecraft:head':
@@ -319,20 +337,20 @@ class NbtParser
         if (isset($data['Inventory']) && is_array($data['Inventory'])) {
             foreach ($data['Inventory'] as $item) {
                 $slot = $item['Slot'] ?? -1;
-                
+
                 // Handle if slot is wrapped in an array or value key
                 if (is_array($slot)) {
                     $slot = $slot['value'] ?? $slot[0] ?? -1;
                 }
-                
+
                 // Convert to int
                 $slot = (int) $slot;
-                
+
                 // Handle negative values (signed byte interpretation)
                 if ($slot < 0) {
                     $slot = $slot + 256;
                 }
-                
+
                 switch ($slot) {
                     case 100:
                         if ($armor['boots'] === null) {
@@ -384,7 +402,7 @@ class NbtParser
     public static function extractLocation(array $nbt): array
     {
         $data = $nbt['value'] ?? $nbt;
-        
+
         $pos = $data['Pos'] ?? [0, 0, 0];
         $rotation = $data['Rotation'] ?? [0, 0];
         $dimension = $data['Dimension'] ?? 'minecraft:overworld';
@@ -444,7 +462,7 @@ class NbtParser
     private static function parseItem(array $item): array
     {
         $id = $item['id'] ?? $item['Id'] ?? 'minecraft:air';
-        
+
         // Handle numeric IDs (legacy)
         if (is_int($id)) {
             $id = "minecraft:legacy_$id";
@@ -470,7 +488,7 @@ class NbtParser
 
         // Parse tag data (contains enchantments, custom name, etc.)
         $tag = $item['tag'] ?? $item['components'] ?? [];
-        
+
         if (!empty($tag)) {
             // Custom name
             if (isset($tag['display']['Name'])) {
@@ -509,7 +527,7 @@ class NbtParser
             // Pre-1.20.5: tag.Enchantments or tag.ench (array of {id, lvl})
             // 1.20.5+: tag.minecraft:enchantments (object {minecraft:enchant_id: level})
             $enchants = $tag['Enchantments'] ?? $tag['ench'] ?? [];
-            
+
             // Handle 1.20.5+ format: minecraft:enchantments is an object directly
             if (empty($enchants) && isset($tag['minecraft:enchantments'])) {
                 $enchantsData = $tag['minecraft:enchantments'];
@@ -520,7 +538,7 @@ class NbtParser
                     $enchants = $enchantsData;
                 }
             }
-            
+
             if (is_array($enchants)) {
                 foreach ($enchants as $key => $enchant) {
                     if (is_array($enchant)) {
@@ -532,10 +550,10 @@ class NbtParser
                         $enchId = $key;
                         $level = (int) $enchant;
                     }
-                    
+
                     // Remove minecraft: prefix
                     $enchId = str_replace('minecraft:', '', $enchId);
-                    
+
                     if (!empty($enchId)) {
                         $parsed['enchantments'][] = [
                             'id' => $enchId,
@@ -551,7 +569,7 @@ class NbtParser
             // Pre-1.20.5: tag.StoredEnchantments (array of {id, lvl})
             // 1.20.5+: tag.minecraft:stored_enchantments (object {minecraft:enchant_id: level})
             $storedEnchants = $tag['StoredEnchantments'] ?? [];
-            
+
             // Handle 1.20.5+ format
             if (empty($storedEnchants) && isset($tag['minecraft:stored_enchantments'])) {
                 $storedData = $tag['minecraft:stored_enchantments'];
@@ -561,7 +579,7 @@ class NbtParser
                     $storedEnchants = $storedData;
                 }
             }
-            
+
             if (is_array($storedEnchants)) {
                 foreach ($storedEnchants as $key => $enchant) {
                     if (is_array($enchant)) {
@@ -572,9 +590,9 @@ class NbtParser
                         $enchId = $key;
                         $level = (int) $enchant;
                     }
-                    
+
                     $enchId = str_replace('minecraft:', '', $enchId);
-                    
+
                     if (!empty($enchId)) {
                         $parsed['storedEnchantments'][] = [
                             'id' => $enchId,
@@ -604,7 +622,7 @@ class NbtParser
             // 1.20.5+: components.minecraft:container (array of {slot, item})
             $blockEntityTag = $tag['BlockEntityTag'] ?? null;
             $containerComponent = $tag['minecraft:container'] ?? null;
-            
+
             // Handle pre-1.20.5 format (BlockEntityTag.Items)
             if ($blockEntityTag !== null && is_array($blockEntityTag)) {
                 $containerItems = $blockEntityTag['Items'] ?? [];
@@ -616,7 +634,7 @@ class NbtParser
                     }
                 }
             }
-            
+
             // Handle 1.20.5+ format (minecraft:container array of {slot, item})
             if ($containerComponent !== null && is_array($containerComponent)) {
                 foreach ($containerComponent as $slotData) {
@@ -686,6 +704,7 @@ class NbtParser
     {
         // Convert snake_case to Title Case
         $name = str_replace('_', ' ', $id);
+
         return ucwords($name);
     }
 
@@ -750,7 +769,7 @@ class NbtParser
     {
         $durabilities = [
             // Tools - Wood
-            'wooden_sword' => 59, 'wooden_pickaxe' => 59, 'wooden_axe' => 59, 
+            'wooden_sword' => 59, 'wooden_pickaxe' => 59, 'wooden_axe' => 59,
             'wooden_shovel' => 59, 'wooden_hoe' => 59,
             // Tools - Stone
             'stone_sword' => 131, 'stone_pickaxe' => 131, 'stone_axe' => 131,
@@ -817,6 +836,7 @@ class NbtParser
                 $num -= $value;
             }
         }
+
         return $result;
     }
 }

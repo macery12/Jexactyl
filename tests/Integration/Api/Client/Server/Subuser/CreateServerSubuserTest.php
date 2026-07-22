@@ -7,8 +7,8 @@ use Everest\Models\Subuser;
 use Illuminate\Support\Str;
 use Illuminate\Http\Response;
 use Everest\Models\Permission;
-use PHPUnit\Framework\Attributes\DataProvider;
 use Illuminate\Foundation\Testing\WithFaker;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class CreateServerSubuserTest extends ClientApiIntegrationTestCase
@@ -32,7 +32,7 @@ class CreateServerSubuserTest extends ClientApiIntegrationTestCase
 
         $response->assertOk();
 
-        /** @var \Everest\Models\User $subuser */
+        /** @var User $subuser */
         $subuser = User::query()->where('email', $email)->firstOrFail();
 
         $response->assertJsonPath('object', Subuser::RESOURCE_NAME);
@@ -111,7 +111,7 @@ class CreateServerSubuserTest extends ClientApiIntegrationTestCase
     {
         [$user, $server] = $this->generateTestAccount();
 
-        /** @var \Everest\Models\User $existing */
+        /** @var User $existing */
         $existing = User::factory()->create(['email' => $this->faker->email]);
 
         $response = $this->actingAs($user)->postJson($this->link($server) . '/users', [

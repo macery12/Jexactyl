@@ -2,14 +2,14 @@
 
 namespace Everest\Http\Controllers\Api\Client;
 
-use Illuminate\Http\JsonResponse;
 use Everest\Models\ServerGroup;
+use Illuminate\Http\JsonResponse;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
+use Everest\Transformers\Api\Client\ServerGroupTransformer;
 use Everest\Http\Requests\Api\Client\ServerGroups\StoreServerGroupRequest;
 use Everest\Http\Requests\Api\Client\ServerGroups\UpdateServerGroupRequest;
 use Everest\Http\Requests\Api\Client\ServerGroups\AssignServerToGroupRequest;
 use Everest\Http\Requests\Api\Client\ServerGroups\RemoveServerFromGroupRequest;
-use Everest\Transformers\Api\Client\ServerGroupTransformer;
 
 class ServerGroupController extends ClientApiController
 {

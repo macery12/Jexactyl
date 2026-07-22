@@ -2,21 +2,21 @@
 
 namespace Everest\Http\Controllers\Api\Application\Billing;
 
-use Everest\Events\Email\PaymentReceived;
-use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
-use Everest\Models\Billing\Invoice;
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
 use Everest\Models\Billing\Order;
-use Everest\Services\Billing\InvoiceGenerationService;
+use Illuminate\Http\JsonResponse;
+use Everest\Models\Billing\Invoice;
+use Illuminate\Support\Facades\Log;
+use Spatie\QueryBuilder\QueryBuilder;
+use Spatie\QueryBuilder\AllowedFilter;
+use Everest\Events\Email\PaymentReceived;
+use Illuminate\Database\Eloquent\Builder;
 use Everest\Services\Billing\InvoicePdfService;
 use Everest\Services\Billing\InvoiceStorageService;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use Spatie\QueryBuilder\AllowedFilter;
-use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Services\Billing\InvoiceGenerationService;
+use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 
 class InvoiceController extends ApplicationApiController
 {
@@ -77,6 +77,7 @@ class InvoiceController extends ApplicationApiController
     public function show(Request $request, string $uuid): JsonResponse
     {
         $invoice = Invoice::with(['user', 'order'])->where('uuid', $uuid)->firstOrFail();
+
         return response()->json($this->transformInvoice($invoice));
     }
 
@@ -98,10 +99,12 @@ class InvoiceController extends ApplicationApiController
             $invoice->refresh();
         } catch (\Throwable $e) {
             Log::error("InvoiceController: PDF generation failed for {$uuid}: " . $e->getMessage());
+
             return response()->json(['error' => 'Failed to generate PDF: ' . $e->getMessage()], 500);
         }
 
         $url = url("/api/application/billing/invoices/{$uuid}/serve");
+
         return response()->json(['url' => $url, 'expires_in' => 86400]);
     }
 
@@ -200,6 +203,7 @@ class InvoiceController extends ApplicationApiController
             $newInvoice->delete();
         } catch (\Throwable $e) {
             Log::error("Failed to regenerate invoice {$invoice->uuid}: " . $e->getMessage());
+
             return response()->json(['error' => 'Failed to regenerate invoice: ' . $e->getMessage()], 500);
         }
 
@@ -254,6 +258,7 @@ class InvoiceController extends ApplicationApiController
             Log::info("Invoice {$invoice->uuid} email resent by admin {$request->user()->id}");
         } catch (\Throwable $e) {
             Log::error("Failed to resend invoice email {$invoice->uuid}: " . $e->getMessage());
+
             return response()->json(['error' => 'Failed to resend email: ' . $e->getMessage()], 500);
         }
 
@@ -288,6 +293,6 @@ class InvoiceController extends ApplicationApiController
 
     private function buildTransformer(): \Closure
     {
-        return fn(Invoice $invoice) => $this->transformInvoice($invoice);
+        return fn (Invoice $invoice) => $this->transformInvoice($invoice);
     }
 }

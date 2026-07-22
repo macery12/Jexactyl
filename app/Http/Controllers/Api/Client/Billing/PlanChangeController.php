@@ -17,7 +17,7 @@ class PlanChangeController extends ClientApiController
 {
     public function __construct(
         private PlanChangeService $planChangeService,
-        private BillingValidationService $validationService
+        private BillingValidationService $validationService,
     ) {
         parent::__construct();
     }
@@ -153,7 +153,7 @@ class PlanChangeController extends ClientApiController
                         'database' => $updatedServer->database_limit,
                         'backup' => $updatedServer->backup_limit,
                         'allocation' => $updatedServer->allocation_limit,
-                            'subdomain' => $updatedServer->subdomain_limit ?? $updatedServer->product?->subdomain_limit,
+                        'subdomain' => $updatedServer->subdomain_limit ?? $updatedServer->product?->subdomain_limit,
                     ],
                 ],
             ]);

@@ -22,7 +22,7 @@ class EmailMessage
         public ?string $from = null,
         public ?string $fromName = null,
         public ?string $replyTo = null,
-        ?array $attachments = null
+        ?array $attachments = null,
     ) {
         $this->attachments = $attachments;
     }
@@ -73,8 +73,8 @@ class EmailMessage
         // From field is REQUIRED by Resend API
         // Format: "Name <email@domain.com>" or "email@domain.com"
         if ($this->from !== null && $this->from !== '') {
-            $data['from'] = $this->fromName 
-                ? "{$this->fromName} <{$this->from}>" 
+            $data['from'] = $this->fromName
+                ? "{$this->fromName} <{$this->from}>"
                 : $this->from;
         } else {
             // This should never happen if EmailManager validates correctly

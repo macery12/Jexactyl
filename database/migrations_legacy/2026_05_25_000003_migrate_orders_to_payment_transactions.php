@@ -1,10 +1,9 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Migrations\Migration;
 
-return new class extends Migration
-{
+return new class () extends Migration {
     /**
      * Migrate existing processor-specific data from the orders table into
      * payment_transactions. This migration is additive — it does NOT drop any
@@ -22,7 +21,7 @@ return new class extends Migration
                 ->where('payment_processor', 'stripe')
                 ->whereNotNull('payment_intent_id')
                 ->chunkById(500, function ($orders) use ($now) {
-                    $rows = $orders->map(fn($o) => [
+                    $rows = $orders->map(fn ($o) => [
                         'order_id'    => $o->id,
                         'processor'   => 'stripe',
                         'external_id' => $o->payment_intent_id,
@@ -39,7 +38,7 @@ return new class extends Migration
                 ->where('payment_processor', 'paypal')
                 ->whereNotNull('paypal_order_id')
                 ->chunkById(500, function ($orders) use ($now) {
-                    $rows = $orders->map(fn($o) => [
+                    $rows = $orders->map(fn ($o) => [
                         'order_id'      => $o->id,
                         'processor'     => 'paypal',
                         'external_id'   => $o->paypal_order_id,

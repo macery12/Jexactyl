@@ -8,8 +8,8 @@ use Everest\Models\Server;
 use Everest\Models\Ticket;
 use Everest\Models\ActivityLog;
 use Everest\Models\DeferredEmail;
-use Everest\Models\Billing\BillingException;
 use Illuminate\Http\JsonResponse;
+use Everest\Models\Billing\BillingException;
 use Everest\Services\Helpers\SoftwareVersionService;
 use Everest\Http\Requests\Api\Application\OverviewRequest;
 
@@ -19,7 +19,7 @@ class OverviewController extends ApplicationApiController
      * OverviewController constructor.
      */
     public function __construct(
-        private SoftwareVersionService $softwareVersionService
+        private SoftwareVersionService $softwareVersionService,
     ) {
         parent::__construct();
     }

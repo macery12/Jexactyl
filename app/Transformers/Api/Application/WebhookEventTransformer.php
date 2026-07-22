@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class WebhookEventTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return 'webhook_event';

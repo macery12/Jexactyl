@@ -3,17 +3,17 @@
 namespace Everest\Services\Email;
 
 use Everest\Models\EmailDelivery;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\View;
+use Illuminate\Support\Facades\Blade;
 use Everest\Services\Email\Emails\BaseEmail;
-use Everest\Services\Email\Emails\CustomMessageEmail;
+use Everest\Services\Email\Transports\SmtpTransport;
 use Everest\Exceptions\Service\Email\ResendException;
-use Everest\Exceptions\Service\Email\ResendAuthenticationException;
-use Everest\Exceptions\Service\Email\ResendValidationException;
+use Everest\Services\Email\Emails\CustomMessageEmail;
 use Everest\Services\Email\Transports\EmailTransport;
 use Everest\Services\Email\Transports\ResendTransport;
-use Everest\Services\Email\Transports\SmtpTransport;
-use Illuminate\Support\Facades\Blade;
-use Illuminate\Support\Facades\View;
-use Illuminate\Support\Facades\Log;
+use Everest\Exceptions\Service\Email\ResendValidationException;
+use Everest\Exceptions\Service\Email\ResendAuthenticationException;
 
 class EmailManager
 {
@@ -39,7 +39,7 @@ class EmailManager
 
         // Render HTML content
         $html = $this->renderHtml($email, ['replyTo' => $replyTo]);
-        
+
         // Get or generate text content
         $text = $email->text() ?? $this->htmlToText($html);
 
@@ -65,7 +65,7 @@ class EmailManager
         string $to,
         string $subject,
         string $html,
-        ?string $text = null
+        ?string $text = null,
     ): EmailResult {
         $customEmail = new CustomMessageEmail(
             subject: $subject,
@@ -85,7 +85,7 @@ class EmailManager
     /**
      * Send an email from a template key.
      * This is the main method used by the event-driven email system.
-     * 
+     *
      * @param EmailDelivery|null $delivery Pre-created delivery record from SendEmailJob
      * @param int $attemptNumber Current attempt number (1-based, from job retry count)
      */
@@ -97,7 +97,7 @@ class EmailManager
         ?int $userId = null,
         ?EmailDelivery $delivery = null,
         int $attemptNumber = 1,
-        ?array $attachments = null
+        ?array $attachments = null,
     ): EmailResult {
         $tracker = app(EmailDeliveryTracker::class);
         $transportName = self::getTransport();
@@ -136,7 +136,7 @@ class EmailManager
                     'correlation_id' => $correlationId,
                     'hint' => 'Run "php artisan migrate" to create email_deliveries and email_delivery_attempts tables',
                 ]);
-                
+
                 // Continue sending email even if logging fails
                 // Create a temporary delivery object to avoid null reference errors
                 $delivery = new EmailDelivery([
@@ -358,6 +358,7 @@ class EmailManager
             $resolvedFile = realpath($customFile);
             if ($resolvedFile !== false && str_starts_with($resolvedFile, $viewsDir . DIRECTORY_SEPARATOR)) {
                 $source = file_get_contents($resolvedFile);
+
                 return Blade::render($source, $data, deleteCachedView: true);
             }
         }
@@ -408,7 +409,7 @@ class EmailManager
         $rate = $meta['rate_limit'] ?? [];
 
         try {
-            app(\Everest\Services\Email\ResendQuotaService::class)->syncFromProvider(
+            app(ResendQuotaService::class)->syncFromProvider(
                 $usage['daily_used'] ?? null,
                 $usage['monthly_used'] ?? null,
                 $rate
@@ -482,7 +483,7 @@ class EmailManager
         ?EmailDeliveryTracker $tracker = null,
         ?EmailDelivery $delivery = null,
         int $attemptNumber = 1,
-        ?string $forcedTransport = null
+        ?string $forcedTransport = null,
     ): EmailResult|array {
         $settings = app(EmailSettingsReader::class);
         $transportName = $forcedTransport ?? self::getTransport();
@@ -598,7 +599,7 @@ class EmailManager
         ?EmailDeliveryTracker $tracker,
         ?EmailDelivery $delivery,
         int $attemptNumber,
-        string $message
+        string $message,
     ): EmailResult {
         Log::error($message);
 
@@ -617,5 +618,4 @@ class EmailManager
     {
         return EmailSubjectResolver::forDelivery($templateKey);
     }
-
 }

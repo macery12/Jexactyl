@@ -4,10 +4,10 @@ namespace Everest\Tests\Unit\Console\Commands\User;
 
 use Everest\Models\User;
 use Everest\Tests\TestCase;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Services\Users\UserDeletionService;
 use Everest\Console\Commands\User\DeleteUserCommand;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Test that LIKE wildcard characters are properly escaped in DeleteUserCommand.

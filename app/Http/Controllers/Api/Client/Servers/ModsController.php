@@ -5,29 +5,29 @@ namespace Everest\Http\Controllers\Api\Client\Servers;
 use Carbon\Carbon;
 use Everest\Models\Server;
 use Everest\Models\Setting;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
-use Everest\Services\Mods\ModrinthService;
-use Everest\Services\Mods\SpigetService;
-use Everest\Services\Plugins\ProviderAccessService;
-use Everest\Repositories\Wings\DaemonFileRepository;
-use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
-use Everest\Services\Plugins\PluginInstallService;
-use Everest\Exceptions\Service\Mods\ModsServiceException;
 use Everest\Jobs\DownloadModJob;
 use Everest\Models\DownloadQueue;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Everest\Services\Mods\SpigetService;
+use Everest\Services\Mods\ModrinthService;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Everest\Services\Plugins\PluginInstallService;
+use Everest\Services\Plugins\ProviderAccessService;
+use Everest\Repositories\Wings\DaemonFileRepository;
+use Everest\Exceptions\Service\Mods\ModsServiceException;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetModRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\SearchModsRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\DownloadModRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetModFilesRequest;
+use Everest\Http\Requests\Api\Client\Servers\Mods\GetInstalledAddonsRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetMinecraftVersionsRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\ToggleInstalledAddonRequest;
-use Everest\Http\Requests\Api\Client\Servers\Mods\GetInstalledAddonsRequest;
+use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
 
 class ModsController extends ClientApiController
 {
@@ -53,7 +53,7 @@ class ModsController extends ClientApiController
         private SpigetService $spigetService,
         private PluginInstallService $pluginInstallService,
         private DaemonFileRepository $fileRepository,
-        private ProviderAccessService $providerAccessService
+        private ProviderAccessService $providerAccessService,
     ) {
         parent::__construct();
     }
@@ -61,7 +61,7 @@ class ModsController extends ClientApiController
     /**
      * Get the mod service based on the request source parameter.
      */
-    private function getModService(string $source = null): ModrinthService|SpigetService
+    private function getModService(?string $source = null): ModrinthService|SpigetService
     {
         $source = $source ?? Setting::get('settings::modules:mods:default_source', config('modules.mods.default_source', 'modrinth'));
 
@@ -92,7 +92,7 @@ class ModsController extends ClientApiController
     {
         return response()->json([
             'error' => 'Provider disabled',
-            'reason' => "This provider is not enabled for this server (egg/nest policy).",
+            'reason' => 'This provider is not enabled for this server (egg/nest policy).',
         ], 403);
     }
 

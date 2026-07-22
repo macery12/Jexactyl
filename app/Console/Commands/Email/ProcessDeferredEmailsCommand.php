@@ -2,8 +2,8 @@
 
 namespace Everest\Console\Commands\Email;
 
-use Everest\Jobs\Email\ProcessDeferredEmailsJob;
 use Illuminate\Console\Command;
+use Everest\Jobs\Email\ProcessDeferredEmailsJob;
 
 class ProcessDeferredEmailsCommand extends Command
 {

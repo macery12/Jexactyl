@@ -2,10 +2,9 @@
 
 namespace Everest\Http\Middleware;
 
-use Closure;
-use Everest\Services\Email\EmailVerificationGate;
-use Everest\Services\Email\EmailManager;
 use Illuminate\Http\Request;
+use Everest\Services\Email\EmailManager;
+use Everest\Services\Email\EmailVerificationGate;
 
 class EnsureEmailIsVerified
 {
@@ -16,7 +15,7 @@ class EnsureEmailIsVerified
     /**
      * Ensure the authenticated user's email is verified.
      */
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, \Closure $next)
     {
         if (!$this->emailSendingEnabled()) {
             return $next($request);

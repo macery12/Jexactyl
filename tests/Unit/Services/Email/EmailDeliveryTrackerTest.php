@@ -2,12 +2,12 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
-use Everest\Models\EmailDelivery;
-use Everest\Models\EmailDeliveryAttempt;
-use Everest\Services\Email\EmailDeliveryTracker;
 use Everest\Tests\TestCase;
-use Illuminate\Database\Schema\Blueprint;
+use Everest\Models\EmailDelivery;
 use Illuminate\Support\Facades\Schema;
+use Everest\Models\EmailDeliveryAttempt;
+use Illuminate\Database\Schema\Blueprint;
+use Everest\Services\Email\EmailDeliveryTracker;
 
 class EmailDeliveryTrackerTest extends TestCase
 {
@@ -31,7 +31,7 @@ class EmailDeliveryTrackerTest extends TestCase
     public function testStartDeliveryCreatesRecord(): void
     {
         $correlationId = 'test-correlation-' . uniqid();
-        
+
         $delivery = $this->tracker->startDelivery(
             correlationId: $correlationId,
             recipient: 'test@example.com',

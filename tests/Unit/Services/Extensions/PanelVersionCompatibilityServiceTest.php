@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Services\Extensions;
 
-use Everest\Services\Extensions\PanelVersionCompatibilityService;
 use Everest\Tests\TestCase;
+use Everest\Services\Extensions\PanelVersionCompatibilityService;
 
 class PanelVersionCompatibilityServiceTest extends TestCase
 {

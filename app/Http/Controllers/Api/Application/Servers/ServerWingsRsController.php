@@ -12,7 +12,7 @@ use Everest\Http\Requests\Api\Application\Servers\WingsRsServerReadRequest;
 class ServerWingsRsController extends ApplicationApiController
 {
     public function __construct(
-        private DaemonWingsRsRepository $wingsRsRepository
+        private DaemonWingsRsRepository $wingsRsRepository,
     ) {
         parent::__construct();
     }

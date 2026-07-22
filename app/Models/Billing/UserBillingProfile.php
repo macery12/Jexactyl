@@ -2,9 +2,9 @@
 
 namespace Everest\Models\Billing;
 
-use Everest\Casts\EncryptedJson;
-use Everest\Models\Model;
 use Everest\Models\User;
+use Everest\Models\Model;
+use Everest\Casts\EncryptedJson;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property int $id
  * @property int $user_id
- * @property array|null $encrypted_data  Keys: first_name, last_name, address_line1, address_line2, city, state, postal_code, country, phone
+ * @property array|null $encrypted_data Keys: first_name, last_name, address_line1, address_line2, city, state, postal_code, country, phone
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */

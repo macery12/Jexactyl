@@ -8,14 +8,14 @@ use Everest\Tests\TestCase;
 
 class ServerDeletionScheduleTest extends TestCase
 {
-    public function test_is_not_scheduled_when_no_timestamp(): void
+    public function testIsNotScheduledWhenNoTimestamp(): void
     {
         $server = new Server();
 
         $this->assertFalse($server->isDeletionScheduled());
     }
 
-    public function test_is_scheduled_when_set_without_cancellation(): void
+    public function testIsScheduledWhenSetWithoutCancellation(): void
     {
         $server = new Server();
         $server->deletion_scheduled_at = Carbon::now();
@@ -23,7 +23,7 @@ class ServerDeletionScheduleTest extends TestCase
         $this->assertTrue($server->isDeletionScheduled());
     }
 
-    public function test_is_not_scheduled_when_canceled_after_schedule(): void
+    public function testIsNotScheduledWhenCanceledAfterSchedule(): void
     {
         $server = new Server();
         $server->deletion_scheduled_at = Carbon::now()->subDay();
@@ -32,7 +32,7 @@ class ServerDeletionScheduleTest extends TestCase
         $this->assertFalse($server->isDeletionScheduled());
     }
 
-    public function test_is_scheduled_when_cancellation_is_before_schedule(): void
+    public function testIsScheduledWhenCancellationIsBeforeSchedule(): void
     {
         $server = new Server();
         $server->deletion_canceled_at = Carbon::now()->subDay();

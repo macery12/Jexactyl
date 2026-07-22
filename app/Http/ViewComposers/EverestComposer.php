@@ -3,19 +3,19 @@
 namespace Everest\Http\ViewComposers;
 
 use Illuminate\View\View;
-use Everest\Models\ExtensionConfig;
 use Everest\Models\Setting;
+use Everest\Models\ExtensionConfig;
+use Everest\Services\Email\EmailManager;
+use Everest\Services\Email\EmailVerificationGate;
 use Everest\Services\Billing\InvoiceSettingsService;
 use Everest\Services\Billing\PaymentProcessorConfigService;
-use Everest\Services\Email\EmailVerificationGate;
-use Everest\Services\Email\EmailManager;
 
 class EverestComposer
 {
     public function __construct(
         private PaymentProcessorConfigService $processorConfigService,
         private EmailVerificationGate $emailVerificationGate,
-        private InvoiceSettingsService $invoiceSettingsService
+        private InvoiceSettingsService $invoiceSettingsService,
     ) {
     }
 
@@ -25,7 +25,7 @@ class EverestComposer
     public function compose(View $view): void
     {
         $processorConfig = $this->processorConfigService->getProcessorConfig();
-        
+
         // Build public configuration (slim, essential fields only)
         $configuration = [
             'auth' => [
@@ -135,16 +135,16 @@ class EverestComposer
                 'enabled' => boolval(config('modules.custom_domains.enabled', false)),
             ],
         ];
-        
+
         // Merge admin-only configuration if user is authenticated admin
         $user = auth()->user();
         if ($user && ($user->root_admin || $user->admin_role_id)) {
             $configuration = array_merge_recursive($configuration, $this->getAdminConfiguration());
         }
-        
+
         $view->with('everestConfiguration', $configuration);
     }
-    
+
     /**
      * Get admin-only configuration with sensitive/admin-specific fields.
      * This is only exposed to admin users.

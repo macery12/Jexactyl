@@ -1,18 +1,17 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Orders, coupon usage and the normalized payment ledger. orders keeps its
  * legacy checkout columns (payment_intent_id, paypal_*) alongside
  * payment_transactions — still actively used (docs/database-rebuild/04 D3).
  * orders.total is double for legacy reasons (D6). billing_exceptions.order_id
  * is int unsigned with no FK, matching the historical chain.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('orders', function (Blueprint $table) {

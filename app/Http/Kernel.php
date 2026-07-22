@@ -60,7 +60,7 @@ class Kernel extends HttpKernel
             VerifyCsrfToken::class,
             SubstituteBindings::class,
             LanguageMiddleware::class,
-            \Everest\Http\Middleware\UpdateUserSessionActivity::class,
+            Middleware\UpdateUserSessionActivity::class,
         ],
         'api' => [
             EnsureStatefulRequests::class,
@@ -69,7 +69,7 @@ class Kernel extends HttpKernel
             TrackAPIKey::class,
             RequireTwoFactorAuthentication::class,
             AuthenticateIPAccess::class,
-            \Everest\Http\Middleware\UpdateUserSessionActivity::class,
+            Middleware\UpdateUserSessionActivity::class,
         ],
         'application-api' => [
             SubstituteBindings::class,
@@ -95,15 +95,15 @@ class Kernel extends HttpKernel
         'guest' => RedirectIfAuthenticated::class,
         'csrf' => VerifyCsrfToken::class,
         'throttle' => ThrottleRequests::class,
-        'verified.email' => \Everest\Http\Middleware\EnsureEmailIsVerified::class,
-        'verified.view' => \Everest\Http\Middleware\EnsureVerifiedCanViewArea::class,
-        'verified.interact' => \Everest\Http\Middleware\EnsureVerifiedCanInteractArea::class,
+        'verified.email' => Middleware\EnsureEmailIsVerified::class,
+        'verified.view' => Middleware\EnsureVerifiedCanViewArea::class,
+        'verified.interact' => Middleware\EnsureVerifiedCanInteractArea::class,
         'signed' => \Illuminate\Routing\Middleware\ValidateSignature::class,
         'can' => Authorize::class,
         'bindings' => SubstituteBindings::class,
         'captcha' => VerifyTurnstile::class,
         'node.maintenance' => MaintenanceMiddleware::class,
-        'extensions.access' => \Everest\Http\Middleware\Api\Client\Extensions\EnsureExtensionAccess::class,
-        'extensions.admin' => \Everest\Http\Middleware\Api\Application\Extensions\EnsureExtensionAdminAccess::class,
+        'extensions.access' => Middleware\Api\Client\Extensions\EnsureExtensionAccess::class,
+        'extensions.admin' => Middleware\Api\Application\Extensions\EnsureExtensionAdminAccess::class,
     ];
 }

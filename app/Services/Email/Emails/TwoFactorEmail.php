@@ -6,7 +6,7 @@ class TwoFactorEmail extends BaseEmail
 {
     public function __construct(
         private string $userName,
-        private string $code
+        private string $code,
     ) {
     }
 

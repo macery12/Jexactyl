@@ -2,12 +2,11 @@
 
 namespace Everest\Http\Controllers\Api\Client\Servers;
 
-use Everest\Jobs\DownloadModJob;
-use Everest\Jobs\InstallModpackJob;
-use Everest\Models\DownloadQueue;
 use Everest\Models\Server;
+use Everest\Jobs\DownloadModJob;
+use Everest\Models\DownloadQueue;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
+use Everest\Jobs\InstallModpackJob;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\Mods\DownloadModRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetDownloadQueueRequest;

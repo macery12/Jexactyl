@@ -4,9 +4,9 @@ namespace Everest\Tests\Unit\Services\Billing;
 
 use Everest\Tests\TestCase;
 use Everest\Models\Billing\Product;
+use Illuminate\Support\Facades\Log;
 use Everest\Models\Billing\Category;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Everest\Exceptions\Billing\BillingException;
 use Everest\Services\Billing\PayPalPaymentService;
 use Everest\Models\Billing\BillingException as BillingExceptionModel;

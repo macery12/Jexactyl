@@ -13,7 +13,7 @@ class DaemonCommandRepository extends DaemonRepository
     /**
      * Sends a command or multiple commands to a running server instance.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     public function send(array|string $command): ResponseInterface
     {

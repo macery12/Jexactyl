@@ -56,7 +56,7 @@ class ActivityLogController extends ClientApiController
                 AllowedFilter::partial('event'),
                 AllowedFilter::callback('scope', function (Builder $query, string $value) use ($user, $ownedServerIds) {
                     if ($value === 'account') {
-                        $query->where(function (Builder $q) use ($user) {
+                        $query->where(function (Builder $q) {
                             $q->where('scope', 'account')
                                 ->orWhere(fn (Builder $s) => $s->whereNull('scope')->whereNull('server_id'));
                         })
@@ -78,6 +78,7 @@ class ActivityLogController extends ClientApiController
                     // Return no results if the requested server is not owned by this user
                     if (!$serverId) {
                         $query->whereRaw('1 = 0');
+
                         return;
                     }
 

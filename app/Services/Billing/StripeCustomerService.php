@@ -2,8 +2,8 @@
 
 namespace Everest\Services\Billing;
 
-use Stripe\StripeClient;
 use Everest\Models\User;
+use Stripe\StripeClient;
 use Everest\Models\Setting;
 use Illuminate\Support\Facades\Log;
 use Everest\Models\Billing\BillingException;
@@ -115,32 +115,14 @@ class StripeCustomerService
                 'stripe_code' => $e->getStripeCode(),
             ]);
 
-            throw new BillingExceptionClass(
-                'Stripe Customer creation failed',
-                'Failed to create Stripe Customer: ' . $e->getMessage(),
-                BillingException::TYPE_PAYMENT,
-                null,
-                'stripe',
-                null,
-                ['user_id' => $user->id, 'stripe_error' => $e->getStripeCode()],
-                $e
-            );
+            throw new BillingExceptionClass('Stripe Customer creation failed', 'Failed to create Stripe Customer: ' . $e->getMessage(), BillingException::TYPE_PAYMENT, null, 'stripe', null, ['user_id' => $user->id, 'stripe_error' => $e->getStripeCode()], $e);
         } catch (\Exception $e) {
             Log::error('Unexpected error creating Stripe Customer', [
                 'user_id' => $user->id,
                 'error'   => $e->getMessage(),
             ]);
 
-            throw new BillingExceptionClass(
-                'Stripe Customer creation error',
-                'An unexpected error occurred while creating Stripe Customer: ' . $e->getMessage(),
-                BillingException::TYPE_PAYMENT,
-                null,
-                'stripe',
-                null,
-                ['user_id' => $user->id, 'error' => $e->getMessage()],
-                $e
-            );
+            throw new BillingExceptionClass('Stripe Customer creation error', 'An unexpected error occurred while creating Stripe Customer: ' . $e->getMessage(), BillingException::TYPE_PAYMENT, null, 'stripe', null, ['user_id' => $user->id, 'error' => $e->getMessage()], $e);
         }
     }
 
@@ -162,15 +144,7 @@ class StripeCustomerService
     private function ensureInitialized(): void
     {
         if (!$this->stripe) {
-            throw new BillingExceptionClass(
-                'Stripe is not configured',
-                'Stripe payment processing is not configured. Please contact support.',
-                BillingException::TYPE_STOREFRONT,
-                null,
-                'stripe',
-                null,
-                ['configured' => false]
-            );
+            throw new BillingExceptionClass('Stripe is not configured', 'Stripe payment processing is not configured. Please contact support.', BillingException::TYPE_STOREFRONT, null, 'stripe', null, ['configured' => false]);
         }
     }
 }

@@ -8,9 +8,9 @@ use Everest\Models\TicketMessage;
 use Illuminate\Http\JsonResponse;
 use Everest\Exceptions\DisplayException;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
+use Everest\Transformers\Api\Client\TicketTransformer;
 use Everest\Http\Requests\Api\Client\Tickets\StoreTicketRequest;
 use Everest\Http\Requests\Api\Client\Tickets\StoreTicketMessageRequest;
-use Everest\Transformers\Api\Client\TicketTransformer;
 
 class TicketController extends ClientApiController
 {

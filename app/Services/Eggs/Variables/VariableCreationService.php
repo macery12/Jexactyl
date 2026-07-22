@@ -33,7 +33,7 @@ class VariableCreationService
      *
      * @throws \Everest\Exceptions\Model\DataValidationException
      * @throws \Everest\Exceptions\Service\Egg\Variable\BadValidationRuleException
-     * @throws \Everest\Exceptions\Service\Egg\Variable\ReservedVariableNameException
+     * @throws ReservedVariableNameException
      */
     public function handle(int $egg, array $data): EggVariable
     {

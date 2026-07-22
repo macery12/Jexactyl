@@ -2,17 +2,14 @@
 
 namespace Everest\Tests\Integration\Api\Remote;
 
-use Carbon\Carbon;
+use Everest\Models\User;
+use Everest\Models\Server;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Schema;
+use Everest\Models\ActivityLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
-use Everest\Models\ActivityLog;
-use Everest\Models\ActivityLogSubject;
-use Everest\Models\Node;
-use Everest\Models\Server;
-use Everest\Models\User;
 
 class SshActivityProcessingTest extends ClientApiIntegrationTestCase
 {

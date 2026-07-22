@@ -6,6 +6,7 @@ use Mockery as m;
 use Everest\Models\Node;
 use Mockery\MockInterface;
 use Illuminate\Contracts\Encryption\Encrypter;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Repositories\Eloquent\NodeRepository;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Everest\Exceptions\Repository\RecordNotFoundException;
@@ -13,7 +14,6 @@ use Everest\Http\Middleware\Api\Daemon\DaemonAuthenticate;
 use Everest\Tests\Unit\Http\Middleware\MiddlewareTestCase;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class DaemonAuthenticateTest extends MiddlewareTestCase
 {
@@ -85,7 +85,7 @@ class DaemonAuthenticateTest extends MiddlewareTestCase
     {
         $this->expectException(AccessDeniedHttpException::class);
 
-        /** @var \Everest\Models\Node $model */
+        /** @var Node $model */
         $model = Node::factory()->make();
 
         $this->request->expects('route->getName')->withNoArgs()->andReturn('random.route');
@@ -118,7 +118,7 @@ class DaemonAuthenticateTest extends MiddlewareTestCase
      */
     public function testSuccessfulMiddlewareProcess()
     {
-        /** @var \Everest\Models\Node $model */
+        /** @var Node $model */
         $model = Node::factory()->make();
 
         $this->request->expects('route->getName')->withNoArgs()->andReturn('random.route');
@@ -136,7 +136,7 @@ class DaemonAuthenticateTest extends MiddlewareTestCase
      * Provides different tokens that should trigger a bad request exception due to
      * their formatting.
      *
-     * @return array|\string[][]
+     * @return array|string[][]
      */
     public static function badTokenDataProvider(): array
     {

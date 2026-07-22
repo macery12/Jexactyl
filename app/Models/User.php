@@ -48,18 +48,18 @@ use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
  * @property string|null $admin_role_name
  * @property bool $email_verified
  * @property string $md5
- * @property \Everest\Models\AdminRole|null $adminRole
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\ApiKey[] $apiKeys
+ * @property AdminRole|null $adminRole
+ * @property \Illuminate\Database\Eloquent\Collection|ApiKey[] $apiKeys
  * @property int|null $api_keys_count
  * @property \Illuminate\Notifications\DatabaseNotificationCollection|\Illuminate\Notifications\DatabaseNotification[] $notifications
  * @property int|null $notifications_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\RecoveryToken[] $recoveryTokens
+ * @property \Illuminate\Database\Eloquent\Collection|RecoveryToken[] $recoveryTokens
  * @property int|null $recovery_tokens_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Server[] $servers
+ * @property \Illuminate\Database\Eloquent\Collection|Server[] $servers
  * @property int|null $servers_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\UserSSHKey[] $sshKeys
+ * @property \Illuminate\Database\Eloquent\Collection|UserSSHKey[] $sshKeys
  * @property int|null $ssh_keys_count
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\ApiKey[] $tokens
+ * @property \Illuminate\Database\Eloquent\Collection|ApiKey[] $tokens
  * @property int|null $tokens_count
  *
  * @method static \Database\Factories\UserFactory factory(...$parameters)
@@ -339,7 +339,7 @@ class User extends Model implements
 
     public function billingProfile(): HasOne
     {
-        return $this->hasOne(\Everest\Models\Billing\UserBillingProfile::class);
+        return $this->hasOne(Billing\UserBillingProfile::class);
     }
 
     /**

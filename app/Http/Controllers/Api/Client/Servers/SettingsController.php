@@ -23,7 +23,7 @@ class SettingsController extends ClientApiController
     public function __construct(
         private ServerRepository $repository,
         private ReinstallServerService $reinstallServerService,
-        private ChangeServerEggService $changeServerEggService
+        private ChangeServerEggService $changeServerEggService,
     ) {
         parent::__construct();
     }

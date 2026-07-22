@@ -2,8 +2,8 @@
 
 namespace Everest\Services\Email;
 
-use Everest\Models\EmailNotificationSetting;
 use Illuminate\Support\Str;
+use Everest\Models\EmailNotificationSetting;
 
 class EmailPolicyService
 {

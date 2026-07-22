@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class OrderTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return Order::RESOURCE_NAME;

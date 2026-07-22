@@ -59,10 +59,7 @@ abstract class Transformer extends TransformerAbstract
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * @param mixed $data
-     * @param callable|\League\Fractal\TransformerAbstract $transformer
+     * @param callable|TransformerAbstract $transformer
      */
     protected function item($data, $transformer, ?string $resourceKey = null): Item
     {
@@ -80,10 +77,7 @@ abstract class Transformer extends TransformerAbstract
     }
 
     /**
-     * {@inheritDoc}
-     *
-     * @param mixed $data
-     * @param callable|\League\Fractal\TransformerAbstract $transformer
+     * @param callable|TransformerAbstract $transformer
      */
     protected function collection($data, $transformer, ?string $resourceKey = null): Collection
     {
@@ -104,7 +98,7 @@ abstract class Transformer extends TransformerAbstract
      * Sets the default timezone to use for transformed responses. Pass a null value
      * to return back to the default timezone (UTC).
      */
-    public static function setTimezone(string $tz = null)
+    public static function setTimezone(?string $tz = null)
     {
         static::$timezone = $tz ?? 'UTC';
     }
@@ -114,7 +108,7 @@ abstract class Transformer extends TransformerAbstract
      * implements this abstract transformer class. This prevents a client or application
      * transformer from unintentionally transforming a resource using an unexpected type.
      *
-     * @param callable|\League\Fractal\TransformerAbstract $transformer
+     * @param callable|TransformerAbstract $transformer
      */
     protected static function assertSameNamespace($transformer)
     {

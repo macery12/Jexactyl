@@ -2,11 +2,9 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Application\Billing;
 
-use Mockery;
-use ReflectionMethod;
+use Everest\Tests\TestCase;
 use Illuminate\Http\Request;
 use Everest\Http\Controllers\Api\Application\Billing\ProductController;
-use Everest\Tests\TestCase;
 
 /**
  * Covers the attribute derivation behind product create/update.
@@ -24,7 +22,7 @@ class ProductAttributesTest extends TestCase
 {
     public function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
         parent::tearDown();
     }
 
@@ -32,7 +30,7 @@ class ProductAttributesTest extends TestCase
     {
         $controller = $this->app->make(ProductController::class);
 
-        $method = new ReflectionMethod($controller, 'attributesFrom');
+        $method = new \ReflectionMethod($controller, 'attributesFrom');
         $method->setAccessible(true);
 
         return $method->invoke($controller, new Request($payload), $visibleDefault);

@@ -1,10 +1,9 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Migrations\Migration;
 
-return new class extends Migration
-{
+return new class () extends Migration {
     /**
      * Remove any payment_transactions rows that were incorrectly inserted for
      * free orders. These rows have an external_id beginning with 'free-', which

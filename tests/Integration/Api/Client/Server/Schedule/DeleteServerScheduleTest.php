@@ -6,8 +6,8 @@ use Everest\Models\Task;
 use Everest\Models\Schedule;
 use Illuminate\Http\Response;
 use Everest\Models\Permission;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class DeleteServerScheduleTest extends ClientApiIntegrationTestCase
 {

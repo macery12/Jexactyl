@@ -3,13 +3,13 @@
 namespace Everest\Console\Commands\Email;
 
 use Carbon\Carbon;
-use Everest\Models\EmailDelivery;
+use Ramsey\Uuid\Uuid;
 use Everest\Models\Server;
 use Illuminate\Console\Command;
+use Everest\Models\EmailDelivery;
+use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Log;
 use Everest\Events\Email\ServerRenewalNotice;
-use Ramsey\Uuid\Uuid;
-use Everest\Models\Billing\Product;
 
 class SendServerRenewalNoticesCommand extends Command
 {
@@ -67,6 +67,7 @@ class SendServerRenewalNoticesCommand extends Command
 
         if ($servers->isEmpty()) {
             $this->info("No servers found with renewal exactly {$daysAhead} day(s) away.");
+
             return Command::SUCCESS;
         }
 
@@ -86,7 +87,7 @@ class SendServerRenewalNoticesCommand extends Command
         foreach ($servers as $server) {
             if (!$server->user) {
                 $this->warn("Skipping server {$server->id}: no user associated");
-                $skippedCount++;
+                ++$skippedCount;
                 continue;
             }
 
@@ -95,7 +96,7 @@ class SendServerRenewalNoticesCommand extends Command
 
             if (isset($existingCorrelationIds[$correlationId])) {
                 $this->line("Skipping server {$server->id}: renewal notice for {$daysAhead} day(s) already sent or pending");
-                $skippedCount++;
+                ++$skippedCount;
                 continue;
             }
 
@@ -106,7 +107,7 @@ class SendServerRenewalNoticesCommand extends Command
 
             try {
                 $this->sendRenewalNotice($server, $daysAhead, $correlationId, $daysUntilRenewal);
-                $sentCount++;
+                ++$sentCount;
                 $this->info("✓ Sent renewal notice for server: {$server->name} (ID: {$server->id})");
             } catch (\Exception $e) {
                 $this->error("✗ Failed to send renewal notice for server {$server->id}: " . $e->getMessage());
@@ -115,7 +116,7 @@ class SendServerRenewalNoticesCommand extends Command
                     'server_id' => $server->id,
                     'user_id' => $server->user_id,
                 ]);
-                $skippedCount++;
+                ++$skippedCount;
             }
         }
 
@@ -137,7 +138,7 @@ class SendServerRenewalNoticesCommand extends Command
     private function sendRenewalNotice(Server $server, int $targetDaysAhead, string $correlationId, int $daysUntilRenewal): void
     {
         $currency = config('modules.billing.currency.code', 'USD');
-        
+
         // Get renewal amount from server's billing amount or default to 0
         $renewalAmount = $server->billing_amount;
         if ($renewalAmount === null && $server->billing_product_id) {

@@ -416,7 +416,7 @@ class DaemonWingsRsRepository extends DaemonRepository
         ?string $compressionLevel = null,
         array $backups = [],
         bool $deleteBackups = false,
-        int $multiplexStreams = 0
+        int $multiplexStreams = 0,
     ): void {
         $this->assertSupercharged();
         Assert::isInstanceOf($this->server, Server::class);
@@ -466,7 +466,7 @@ class DaemonWingsRsRepository extends DaemonRepository
         ?string $root = null,
         ?string $archiveFormat = null,
         ?string $compressionLevel = null,
-        bool $foreground = true
+        bool $foreground = true,
     ): array {
         $this->assertSupercharged();
         Assert::isInstanceOf($this->server, Server::class);

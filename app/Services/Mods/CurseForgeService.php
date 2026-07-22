@@ -2,12 +2,12 @@
 
 namespace Everest\Services\Mods;
 
-use Everest\Models\Setting;
 use GuzzleHttp\Client;
+use Everest\Models\Setting;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
 
 /**
@@ -50,7 +50,7 @@ class CurseForgeService
         $this->requestsPerMinute = (int) config('modules.mods.rate_limit.requests_per_minute', 30);
         $this->requestsPerHour = (int) config('modules.mods.rate_limit.requests_per_hour', 1800);
         $this->cacheEnabled = (bool) config('modules.mods.cache.enabled', true);
-        $this->cdnFallbackEnabled = (bool) \Everest\Models\Setting::get(
+        $this->cdnFallbackEnabled = (bool) Setting::get(
             'settings::modules:mods:curseforge_cdn_fallback',
             config('modules.mods.curseforge_cdn_fallback', true)
         );
@@ -252,6 +252,7 @@ class CurseForgeService
      * cached — the version list rarely changes.
      *
      * @return string[]
+     *
      * @throws ModsServiceException
      */
     public function getMinecraftVersions(): array
@@ -300,7 +301,9 @@ class CurseForgeService
      * Missing IDs default to 0 (Unknown) at the call-site.
      *
      * @param int[] $projectIds
+     *
      * @return array<int, int>
+     *
      * @throws ModsServiceException
      */
     public function getModsServerSide(array $projectIds): array
@@ -329,7 +332,9 @@ class CurseForgeService
      * Returns a map: fileId => [modId, file_name, file_length, download_url|null, sha1].
      *
      * @param int[] $fileIds
+     *
      * @return array<int, array>
+     *
      * @throws ModsServiceException
      */
     public function resolveFiles(array $fileIds): array

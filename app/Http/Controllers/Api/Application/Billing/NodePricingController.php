@@ -5,12 +5,12 @@ namespace Everest\Http\Controllers\Api\Application\Billing;
 use Everest\Models\Node;
 use Everest\Facades\Activity;
 use Illuminate\Http\JsonResponse;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\GetNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\ResetNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\UpdateNodePricingRequest;
-use Everest\Http\Requests\Api\Application\Billing\NodePricing\BatchUpdateNodePricingRequest;
 use Everest\Http\Requests\Api\Application\Billing\NodePricing\ResetAllNodePricingRequest;
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Billing\NodePricing\BatchUpdateNodePricingRequest;
 
 class NodePricingController extends ApplicationApiController
 {

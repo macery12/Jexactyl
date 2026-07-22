@@ -14,7 +14,7 @@ class NodeWingsRsController extends ApplicationApiController
 {
     public function __construct(
         private WingsDetectionService $detectionService,
-        private DaemonWingsRsRepository $wingsRsRepository
+        private DaemonWingsRsRepository $wingsRsRepository,
     ) {
         parent::__construct();
     }

@@ -2,12 +2,12 @@
 
 namespace Everest\Http\Controllers\Api\Client\Servers;
 
-use Everest\Exceptions\DisplayException;
 use Everest\Models\Server;
 use Carbon\CarbonImmutable;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
+use Everest\Exceptions\DisplayException;
 use Everest\Services\Nodes\NodeJWTService;
 use Everest\Services\Files\FileDiffService;
 use Everest\Repositories\Wings\DaemonFileRepository;
@@ -79,7 +79,7 @@ class FileController extends ClientApiController
     }
 
     /**
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      */
     private function guardArchiveWritePath(string $path): void
     {
@@ -94,7 +94,7 @@ class FileController extends ClientApiController
     public function __construct(
         private NodeJWTService $jwtService,
         private DaemonFileRepository $fileRepository,
-        private FileDiffService $diffService
+        private FileDiffService $diffService,
     ) {
         parent::__construct();
     }

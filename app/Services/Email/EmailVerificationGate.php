@@ -4,11 +4,11 @@ namespace Everest\Services\Email;
 
 use Everest\Models\User;
 use Everest\Models\Setting;
-use Illuminate\Http\Exceptions\HttpResponseException;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Exceptions\HttpResponseException;
 
 class EmailVerificationGate
 {

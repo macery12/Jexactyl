@@ -4,9 +4,9 @@ namespace Everest\Http\Controllers\Api\Client\Billing;
 
 use Everest\Models\Egg;
 use Everest\Models\EggVariable;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Everest\Transformers\Api\Client\EggVariableTransformer;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class EggController extends ClientApiController

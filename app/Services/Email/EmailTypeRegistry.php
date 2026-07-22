@@ -2,21 +2,21 @@
 
 namespace Everest\Services\Email;
 
-use Everest\Events\Email\AccountCreated;
 use Everest\Events\Email\AccountLocked;
-use Everest\Events\Email\AccountUnsuspended;
-use Everest\Events\Email\EmailVerificationRequested;
-use Everest\Events\Email\PasswordResetRequested;
-use Everest\Events\Email\PasswordChanged;
-use Everest\Events\Email\NewLoginDetected;
-use Everest\Events\Email\ServerCreatedEmail;
-use Everest\Events\Email\ServerSuspended;
-use Everest\Events\Email\ServerUnsuspended;
-use Everest\Events\Email\TwoFactorEnabled;
-use Everest\Events\Email\TwoFactorDisabled;
-use Everest\Events\Email\PaymentReceived;
 use Everest\Events\Email\PaymentFailed;
+use Everest\Events\Email\AccountCreated;
+use Everest\Events\Email\PasswordChanged;
+use Everest\Events\Email\PaymentReceived;
+use Everest\Events\Email\ServerSuspended;
+use Everest\Events\Email\NewLoginDetected;
+use Everest\Events\Email\TwoFactorEnabled;
+use Everest\Events\Email\ServerUnsuspended;
+use Everest\Events\Email\TwoFactorDisabled;
+use Everest\Events\Email\AccountUnsuspended;
+use Everest\Events\Email\ServerCreatedEmail;
 use Everest\Events\Email\ServerRenewalNotice;
+use Everest\Events\Email\PasswordResetRequested;
+use Everest\Events\Email\EmailVerificationRequested;
 
 class EmailTypeRegistry
 {
@@ -81,7 +81,7 @@ class EmailTypeRegistry
                 return $template;
             }
         }
-        
+
         return null;
     }
 
@@ -310,10 +310,11 @@ class EmailTypeRegistry
             return 'Semi-annually';
         } elseif ($days === 365) {
             return 'Annually';
-        } else {
-            // For custom periods, return as "{X} days"
-            return $days . ' days';
         }
+
+        // For custom periods, return as "{X} days"
+        return $days . ' days';
+
     }
 
     /**

@@ -2,38 +2,37 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Application;
 
-use Mockery;
 use Everest\Tests\TestCase;
-use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Artisan;
 use Everest\Facades\Activity;
+use Illuminate\Http\Response;
 use Everest\Services\AI\OpenAIService;
-use Everest\Services\Mods\ModrinthService;
+use Illuminate\Support\Facades\Artisan;
 use Everest\Services\Email\EmailRedactor;
-use Everest\Contracts\Repository\SettingsRepositoryInterface;
+use Everest\Services\Mods\ModrinthService;
 use Everest\Http\Controllers\Api\Application\ModsController;
+use Everest\Contracts\Repository\SettingsRepositoryInterface;
 use Everest\Http\Controllers\Api\Application\PluginsController;
 use Everest\Http\Controllers\Api\Application\IntelligenceController;
-use Everest\Http\Requests\Api\Application\Intelligence\UpdateIntelligenceSettingsRequest;
 use Everest\Http\Requests\Api\Application\Mods\UpdateModsSettingsRequest;
+use Everest\Http\Requests\Api\Application\Intelligence\UpdateIntelligenceSettingsRequest;
 
 class SensitiveSettingsLoggingTest extends TestCase
 {
     protected function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
 
         parent::tearDown();
     }
 
     public function testIntelligenceSettingsActivityRedactsSensitiveValues(): void
     {
-        $repository = Mockery::mock(SettingsRepositoryInterface::class);
+        $repository = \Mockery::mock(SettingsRepositoryInterface::class);
         $repository->shouldReceive('set')->twice();
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
 
-        $controller = new IntelligenceController(Mockery::mock(OpenAIService::class));
-        $request = Mockery::mock(UpdateIntelligenceSettingsRequest::class);
+        $controller = new IntelligenceController(\Mockery::mock(OpenAIService::class));
+        $request = \Mockery::mock(UpdateIntelligenceSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([
             'key' => 'super-secret-ai-key',
             'mode' => 'openai',
@@ -46,7 +45,7 @@ class SensitiveSettingsLoggingTest extends TestCase
         Activity::shouldReceive('event')->once()->with('admin:ai:update')->andReturnSelf();
         Activity::shouldReceive('property')
             ->once()
-            ->with('settings', Mockery::on(function (array $payload) {
+            ->with('settings', \Mockery::on(function (array $payload) {
                 return $payload['key'] === EmailRedactor::REDACTED_VALUE
                     && $payload['mode'] === 'openai';
             }))
@@ -61,16 +60,16 @@ class SensitiveSettingsLoggingTest extends TestCase
 
     public function testPluginsSettingsActivityLogsUpdate(): void
     {
-        $repository = Mockery::mock(SettingsRepositoryInterface::class);
+        $repository = \Mockery::mock(SettingsRepositoryInterface::class);
         $repository->shouldReceive('set')->once();
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
         Artisan::shouldReceive('call')->once()->with('config:clear');
 
         $controller = new PluginsController(
-            Mockery::mock(ModrinthService::class)
+            \Mockery::mock(ModrinthService::class)
         );
 
-        $request = Mockery::mock(UpdateModsSettingsRequest::class);
+        $request = \Mockery::mock(UpdateModsSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([
             'enabled' => true,
         ]);
@@ -81,7 +80,7 @@ class SensitiveSettingsLoggingTest extends TestCase
         Activity::shouldReceive('event')->once()->with('admin:plugins:update')->andReturnSelf();
         Activity::shouldReceive('property')
             ->once()
-            ->with('settings', Mockery::on(function (array $payload) {
+            ->with('settings', \Mockery::on(function (array $payload) {
                 return $payload['enabled'] === true;
             }))
             ->andReturnSelf();
@@ -95,16 +94,16 @@ class SensitiveSettingsLoggingTest extends TestCase
 
     public function testModsSettingsActivityLogsUpdate(): void
     {
-        $repository = Mockery::mock(SettingsRepositoryInterface::class);
+        $repository = \Mockery::mock(SettingsRepositoryInterface::class);
         $repository->shouldReceive('set')->once();
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
         Artisan::shouldReceive('call')->once()->with('config:clear');
 
         $controller = new ModsController(
-            Mockery::mock(ModrinthService::class)
+            \Mockery::mock(ModrinthService::class)
         );
 
-        $request = Mockery::mock(UpdateModsSettingsRequest::class);
+        $request = \Mockery::mock(UpdateModsSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([
             'enabled' => true,
         ]);
@@ -115,7 +114,7 @@ class SensitiveSettingsLoggingTest extends TestCase
         Activity::shouldReceive('event')->once()->with('admin:mods:update')->andReturnSelf();
         Activity::shouldReceive('property')
             ->once()
-            ->with('settings', Mockery::on(function (array $payload) {
+            ->with('settings', \Mockery::on(function (array $payload) {
                 return $payload['enabled'] === true;
             }))
             ->andReturnSelf();

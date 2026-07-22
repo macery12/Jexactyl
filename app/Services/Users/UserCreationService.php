@@ -19,7 +19,7 @@ class UserCreationService
         private ConnectionInterface $connection,
         private Hasher $hasher,
         private PasswordBroker $passwordBroker,
-        private UserRepositoryInterface $repository
+        private UserRepositoryInterface $repository,
     ) {
     }
 
@@ -48,7 +48,7 @@ class UserCreationService
         $data['recovery_code'] = $this->hasher->make($recoveryPlain);
         $data['recovery_code_seen'] = false;
 
-        /** @var \Everest\Models\User $user */
+        /** @var User $user */
         $user = $this->repository->create(array_merge($data, [
             'uuid' => Uuid::uuid4()->toString(),
         ]), true, true);

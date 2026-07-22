@@ -2,15 +2,15 @@
 
 namespace Everest\Http\Controllers\Api\Application;
 
+use Everest\Facades\Activity;
+use Everest\Models\DeferredEmail;
+use Everest\Models\EmailDelivery;
+use Illuminate\Http\JsonResponse;
 use Everest\Http\Requests\Api\Application\Email\GetDeferredQueueRequest;
 use Everest\Http\Requests\Api\Application\Email\GetEmailActivityRequest;
-use Everest\Http\Requests\Api\Application\Email\GetEmailTemplateKeysRequest;
-use Everest\Http\Requests\Api\Application\Email\ManageDeferredEmailRequest;
 use Everest\Http\Requests\Api\Application\Email\ViewEmailActivityRequest;
-use Everest\Models\EmailDelivery;
-use Everest\Models\DeferredEmail;
-use Everest\Facades\Activity;
-use Illuminate\Http\JsonResponse;
+use Everest\Http\Requests\Api\Application\Email\ManageDeferredEmailRequest;
+use Everest\Http\Requests\Api\Application\Email\GetEmailTemplateKeysRequest;
 
 class EmailActivityController extends ApplicationApiController
 {
@@ -25,7 +25,7 @@ class EmailActivityController extends ApplicationApiController
     public function index(GetEmailActivityRequest $request): JsonResponse
     {
         $perPage = min((int) $request->input('per_page', 25), 100);
-        
+
         $query = EmailDelivery::query()->with('user:id,email,username');
 
         if ($request->filled('status')) {
@@ -65,7 +65,7 @@ class EmailActivityController extends ApplicationApiController
         // Sorting
         $sortBy = $request->input('sort_by', 'created_at');
         $sortDir = $request->input('sort_dir', 'desc');
-        
+
         if (in_array($sortBy, ['created_at', 'status', 'template_key', 'recipient', 'sent_at'])) {
             $query->orderBy($sortBy, $sortDir === 'asc' ? 'asc' : 'desc');
         }
@@ -87,11 +87,11 @@ class EmailActivityController extends ApplicationApiController
     {
         $delivery = EmailDelivery::with([
             'user:id,email,username',
-            'deliveryAttempts'
+            'deliveryAttempts',
         ])->findOrFail($id);
 
         $log = $this->transformDeliveryToLegacyFormat($delivery->toArray());
-        
+
         // Add attempt information
         $retryHistory = [];
         foreach ($delivery->deliveryAttempts as $attempt) {

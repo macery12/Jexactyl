@@ -7,9 +7,6 @@ use Everest\Models\Billing\BillingException;
 
 class BillingExceptionTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return 'billing_exceptions';

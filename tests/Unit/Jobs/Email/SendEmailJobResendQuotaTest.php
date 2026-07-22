@@ -2,20 +2,19 @@
 
 namespace Everest\Tests\Unit\Jobs\Email;
 
-use Everest\Jobs\Email\SendEmailJob;
-use Everest\Models\DeferredEmail;
+use Everest\Tests\TestCase;
 use Everest\Models\ResendQuota;
-use Everest\Services\Email\EmailDeliveryTracker;
+use Everest\Models\DeferredEmail;
+use Everest\Jobs\Email\SendEmailJob;
+use Illuminate\Support\Facades\Schema;
 use Everest\Services\Email\EmailManager;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Services\Email\EmailPolicyService;
-use Everest\Services\Email\EmailSettingsReader;
-use Everest\Services\Email\ResendQuotaReservation;
 use Everest\Services\Email\ResendPlanResolver;
 use Everest\Services\Email\ResendQuotaService;
-use Everest\Tests\TestCase;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-use Mockery;
+use Everest\Services\Email\EmailSettingsReader;
+use Everest\Services\Email\EmailDeliveryTracker;
+use Everest\Services\Email\ResendQuotaReservation;
 
 class SendEmailJobResendQuotaTest extends TestCase
 {
@@ -25,7 +24,7 @@ class SendEmailJobResendQuotaTest extends TestCase
 
         $this->setUpEmailTables();
 
-        $settingsReader = Mockery::mock(EmailSettingsReader::class);
+        $settingsReader = \Mockery::mock(EmailSettingsReader::class);
         $settingsReader->shouldReceive('transport')->andReturn('resend');
         $settingsReader->shouldReceive('deliveryEnabled')->andReturn(true);
         app()->instance(EmailSettingsReader::class, $settingsReader);
@@ -42,7 +41,7 @@ class SendEmailJobResendQuotaTest extends TestCase
             'custom_monthly_limit' => null,
         ];
 
-        $resolver = Mockery::mock(ResendPlanResolver::class);
+        $resolver = \Mockery::mock(ResendPlanResolver::class);
         $resolver->shouldReceive('activePlan')->andReturn($plan);
         $resolver->shouldReceive('all')->andReturn([$plan]);
         app()->instance(ResendPlanResolver::class, $resolver);
@@ -61,17 +60,17 @@ class SendEmailJobResendQuotaTest extends TestCase
         Schema::dropIfExists('email_deliveries');
         Schema::dropIfExists('resend_quotas');
 
-        Mockery::close();
+        \Mockery::close();
         parent::tearDown();
     }
 
     public function testResendPlanQuotaDefersEmail(): void
     {
-        $emailManager = Mockery::mock(EmailManager::class);
+        $emailManager = \Mockery::mock(EmailManager::class);
         $emailManager->shouldReceive('sendFromTemplate')->never();
         app()->instance(EmailManager::class, $emailManager);
 
-        $policy = Mockery::mock(EmailPolicyService::class);
+        $policy = \Mockery::mock(EmailPolicyService::class);
         $policy->shouldReceive('isDeliveryEnabled')->andReturn(true);
         $policy->shouldReceive('isBlockedRecipient')->andReturn(false);
         $policy->shouldReceive('isTemplateEnabled')->andReturn(true);
@@ -79,7 +78,7 @@ class SendEmailJobResendQuotaTest extends TestCase
         app()->instance(EmailPolicyService::class, $policy);
 
         $tracker = app(EmailDeliveryTracker::class);
-        $quotaService = Mockery::mock(ResendQuotaService::class);
+        $quotaService = \Mockery::mock(ResendQuotaService::class);
         $quotaService->shouldReceive('reserve')
             ->once()
             ->andReturn(new ResendQuotaReservation(

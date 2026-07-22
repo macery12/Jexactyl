@@ -5,8 +5,8 @@ namespace Everest\Http\Controllers\Api\Client\Servers;
 use Everest\Models\Server;
 use Everest\Models\Setting;
 use Illuminate\Http\JsonResponse;
-use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Services\Plugins\ProviderAccessService;
+use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class PluginProviderController extends ClientApiController
 {

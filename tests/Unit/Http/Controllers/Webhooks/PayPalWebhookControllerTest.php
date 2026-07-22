@@ -2,30 +2,29 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Webhooks;
 
-use Mockery;
 use Everest\Tests\TestCase;
 use Illuminate\Http\Request;
-use Everest\Http\Controllers\Webhooks\PayPalWebhookController;
 use Everest\Services\Billing\PayPalPaymentService;
 use Everest\Services\Billing\BillingValidationService;
 use Everest\Services\Billing\ServerFulfillmentService;
+use Everest\Http\Controllers\Webhooks\PayPalWebhookController;
 use Everest\Services\Billing\PayPalWebhookVerificationService;
 
 class PayPalWebhookControllerTest extends TestCase
 {
     protected function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
 
         parent::tearDown();
     }
 
     public function testRejectsInvalidWebhookBeforeProviderLookup(): void
     {
-        $paypalService = Mockery::mock(PayPalPaymentService::class);
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldNotReceive('getOrder');
 
-        $verificationService = Mockery::mock(PayPalWebhookVerificationService::class);
+        $verificationService = \Mockery::mock(PayPalWebhookVerificationService::class);
         $verificationService->shouldReceive('validate')->once()->andReturn([
             'valid' => false,
             'status' => 401,
@@ -33,10 +32,10 @@ class PayPalWebhookControllerTest extends TestCase
             'context' => [],
         ]);
 
-        $validationService = Mockery::mock(BillingValidationService::class);
+        $validationService = \Mockery::mock(BillingValidationService::class);
         $validationService->shouldNotReceive('validateBillingEnabled');
 
-        $fulfillmentService = Mockery::mock(ServerFulfillmentService::class);
+        $fulfillmentService = \Mockery::mock(ServerFulfillmentService::class);
         $fulfillmentService->shouldNotReceive('fulfillOrder');
 
         $controller = new PayPalWebhookController(
@@ -52,5 +51,4 @@ class PayPalWebhookControllerTest extends TestCase
 
         $this->assertSame(401, $response->getStatusCode());
     }
-
 }

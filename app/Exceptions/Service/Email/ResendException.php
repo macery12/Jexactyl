@@ -2,9 +2,6 @@
 
 namespace Everest\Exceptions\Service\Email;
 
-use Exception;
-
-class ResendException extends Exception
+class ResendException extends \Exception
 {
-    //
 }

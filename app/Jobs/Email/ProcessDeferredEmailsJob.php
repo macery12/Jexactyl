@@ -3,18 +3,21 @@
 namespace Everest\Jobs\Email;
 
 use Everest\Jobs\Job;
-use Everest\Models\DeferredEmail;
-use Everest\Services\Email\EmailDeliveryTracker;
 use Illuminate\Bus\Queueable;
+use Everest\Models\DeferredEmail;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
+use Everest\Services\Email\EmailDeliveryTracker;
 
 class ProcessDeferredEmailsJob extends Job implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
 
     /**
      * Execute the job.

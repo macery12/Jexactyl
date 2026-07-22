@@ -10,11 +10,9 @@ use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Log;
 use Everest\Models\Billing\CouponUsage;
 use Everest\Exceptions\DisplayException;
-use Everest\Services\Billing\BillingDefaults;
+use Everest\Jobs\Billing\GenerateInvoiceJob;
 use Everest\Jobs\CustomDomains\ProvisionServerCustomDomainsJob;
 use Everest\Services\CustomDomains\CustomDomainProvisioningService;
-use Everest\Jobs\Billing\GenerateInvoiceJob;
-use Everest\Services\Billing\CreateOrderService;
 
 /**
  * Central server fulfillment service for paid orders.
@@ -98,6 +96,7 @@ class ServerFulfillmentService
                 if ($currentOrder->status === Order::STATUS_PROCESSED) {
                     DB::rollBack();
                     Log::info("Order {$currentOrder->id} was processed by another request during fulfillment");
+
                     // Server is created, order is marked processed - this is OK
                     return $server;
                 }
@@ -284,7 +283,7 @@ class ServerFulfillmentService
         ?string $paymentIntentId = null,
         ?string $serverName = null,
         int $billingDays = 0,
-        array $domainPayload = []
+        array $domainPayload = [],
     ): array {
         if ($billingDays <= 0) {
             $billingDays = BillingDefaults::defaultBillingDays();
@@ -334,37 +333,37 @@ class ServerFulfillmentService
 
     /**
      * Dispatch a PaymentFailed email event.
-    {
-        try {
-            $user = $order->user;
-            if (!$user) {
-                Log::warning("Cannot dispatch PaymentFailed email for order {$order->id}: user not found");
-                return;
-            }
-
-            $currency = config('modules.billing.currency.code', 'USD');
-            $product = Product::find($order->product_id);
-            $amount = $order->amount ?? ($product ? $product->price : 0);
-            $isRenewal = $order->type === Order::TYPE_REN;
-
-            event(new \Everest\Events\Email\PaymentFailed(
-                user: $user,
-                amount: $amount,
-                currency: $currency,
-                reason: $reason,
-                invoiceId: (string) $order->id,
-                correlationId: \Illuminate\Support\Str::uuid()->toString(),
-                paymentMethod: ucfirst($processor),
-                isRenewal: $isRenewal,
-            ));
-
-            Log::info("Dispatched PaymentFailed email for order {$order->id}");
-        } catch (\Exception $e) {
-            Log::error("Failed to dispatch PaymentFailed email for order {$order->id}: " . $e->getMessage());
-        }
-    }
-
-    /**
+     * {
+     * try {
+     * $user = $order->user;
+     * if (!$user) {
+     * Log::warning("Cannot dispatch PaymentFailed email for order {$order->id}: user not found");
+     * return;
+     * }.
+     *
+     * $currency = config('modules.billing.currency.code', 'USD');
+     * $product = Product::find($order->product_id);
+     * $amount = $order->amount ?? ($product ? $product->price : 0);
+     * $isRenewal = $order->type === Order::TYPE_REN;
+     *
+     * event(new \Everest\Events\Email\PaymentFailed(
+     * user: $user,
+     * amount: $amount,
+     * currency: $currency,
+     * reason: $reason,
+     * invoiceId: (string) $order->id,
+     * correlationId: \Illuminate\Support\Str::uuid()->toString(),
+     * paymentMethod: ucfirst($processor),
+     * isRenewal: $isRenewal,
+     * ));
+     *
+     * Log::info("Dispatched PaymentFailed email for order {$order->id}");
+     * } catch (\Exception $e) {
+     * Log::error("Failed to dispatch PaymentFailed email for order {$order->id}: " . $e->getMessage());
+     * }
+     * }
+     *
+     * /**
      * Dispatch PaymentReceived email event after successful order fulfillment.
      *
      * @param Order $order The completed order
@@ -376,6 +375,7 @@ class ServerFulfillmentService
             $user = $order->user;
             if (!$user) {
                 Log::warning("Cannot dispatch PaymentReceived email for order {$order->id}: user not found");
+
                 return;
             }
 

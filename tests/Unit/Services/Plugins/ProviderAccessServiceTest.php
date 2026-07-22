@@ -2,14 +2,13 @@
 
 namespace Everest\Tests\Unit\Services\Plugins;
 
+use Everest\Tests\TestCase;
 use Everest\Models\PluginProviderRule;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Services\Plugins\PluginProviderGate;
 use Everest\Services\Plugins\ProviderAccessService;
-use Everest\Tests\TestCase;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
-use Mockery;
 
 class ProviderAccessServiceTest extends TestCase
 {
@@ -22,7 +21,7 @@ class ProviderAccessServiceTest extends TestCase
 
         $this->app->instance(
             SettingsRepositoryInterface::class,
-            Mockery::mock(SettingsRepositoryInterface::class)->shouldReceive('get')->andReturnUsing(
+            \Mockery::mock(SettingsRepositoryInterface::class)->shouldReceive('get')->andReturnUsing(
                 function (string $key, $default) {
                     if ($key === 'settings::modules:mods:spiget_enabled') {
                         return $this->spigetEnabled;
@@ -50,7 +49,7 @@ class ProviderAccessServiceTest extends TestCase
     protected function tearDown(): void
     {
         Schema::dropIfExists('plugin_provider_rules');
-        Mockery::close();
+        \Mockery::close();
         parent::tearDown();
     }
 

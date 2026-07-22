@@ -11,15 +11,15 @@ use Everest\Services\Eggs\Variables\VariableCreationService;
 use Everest\Transformers\Api\Application\EggVariableTransformer;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Eggs\Variables\StoreEggVariableRequest;
-use Everest\Http\Requests\Api\Application\Eggs\Variables\UpdateEggVariablesRequest;
 use Everest\Http\Requests\Api\Application\Eggs\Variables\DeleteEggVariableRequest;
+use Everest\Http\Requests\Api\Application\Eggs\Variables\UpdateEggVariablesRequest;
 
 class EggVariableController extends ApplicationApiController
 {
     public function __construct(
         private ConnectionInterface $connection,
         private VariableCreationService $variableCreationService,
-        private VariableUpdateService $variableUpdateService
+        private VariableUpdateService $variableUpdateService,
     ) {
         parent::__construct();
     }

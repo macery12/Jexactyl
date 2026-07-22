@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * API keys/logs and the JGuard registration-delay table. api_logs is vestigial
  * but kept per docs/database-rebuild/04 D2. The r_* permission columns sit
  * after the timestamps because that is the empirical fresh-install column order.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('api_keys', function (Blueprint $table) {

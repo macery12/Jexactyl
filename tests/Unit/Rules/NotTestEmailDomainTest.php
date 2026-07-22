@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Rules;
 
-use Everest\Rules\NotTestEmailDomain;
 use Everest\Tests\TestCase;
+use Everest\Rules\NotTestEmailDomain;
 
 class NotTestEmailDomainTest extends TestCase
 {

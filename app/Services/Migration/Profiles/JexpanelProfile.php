@@ -4,8 +4,8 @@ namespace Everest\Services\Migration\Profiles;
 
 use Illuminate\Database\Connection;
 use Everest\Services\Migration\TablePlan;
-use Everest\Services\Migration\ImportSummary;
 use Everest\Services\Migration\ImportContext;
+use Everest\Services\Migration\ImportSummary;
 
 /**
  * JexPanel v4.x — the closest relative of this panel's schema.

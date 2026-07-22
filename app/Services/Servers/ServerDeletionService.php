@@ -6,9 +6,9 @@ use Everest\Models\Server;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Database\ConnectionInterface;
-use Everest\Jobs\CustomDomains\CleanupServerCustomDomainsJob;
 use Everest\Repositories\Wings\DaemonServerRepository;
 use Everest\Services\Databases\DatabaseManagementService;
+use Everest\Jobs\CustomDomains\CleanupServerCustomDomainsJob;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 
 class ServerDeletionService
@@ -21,7 +21,7 @@ class ServerDeletionService
     public function __construct(
         private ConnectionInterface $connection,
         private DaemonServerRepository $daemonServerRepository,
-        private DatabaseManagementService $databaseManagementService
+        private DatabaseManagementService $databaseManagementService,
     ) {
     }
 

@@ -2,34 +2,34 @@
 
 namespace Everest\Http\Controllers\Api\Application\Extensions;
 
-use Everest\Facades\Activity;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Response;
-use Illuminate\Support\Str;
 use Everest\Models\Nest;
 use Everest\Models\Setting;
+use Illuminate\Support\Str;
+use Everest\Facades\Activity;
+use Illuminate\Http\Response;
+use Illuminate\Http\JsonResponse;
 use Everest\Models\ExtensionConfig;
 use Everest\Models\ExtensionRepository;
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
-use Everest\Traits\Controllers\RespondsWithExtensionEnvelope;
-use Everest\Http\Requests\Api\Application\Extensions\BatchInstallExtensionRequest;
-use Everest\Http\Requests\Api\Application\Extensions\BatchUninstallExtensionRequest;
-use Everest\Http\Requests\Api\Application\Extensions\BatchUpdateExtensionRequest;
-use Everest\Http\Requests\Api\Application\Extensions\DatabasePlanRequest;
-use Everest\Http\Requests\Api\Application\Extensions\GetExtensionsRequest;
-use Everest\Http\Requests\Api\Application\Extensions\InstallExtensionRequest;
-use Everest\Http\Requests\Api\Application\Extensions\StoreExtensionRepositoryRequest;
-use Everest\Http\Requests\Api\Application\Extensions\UninstallExtensionRequest;
-use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRequest;
-use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRepositoryRequest;
-use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionSettingsRequest;
 use Everest\Services\Extensions\ExtensionCatalogService;
 use Everest\Services\Extensions\ExtensionDatabasePlanService;
-use Everest\Services\Extensions\ExtensionInstallProgressService;
 use Everest\Services\Extensions\ExtensionPackageBatchService;
-use Everest\Services\Extensions\ExtensionPackageInstallService;
-use Everest\Services\Extensions\ExtensionPackageUninstallService;
+use Everest\Traits\Controllers\RespondsWithExtensionEnvelope;
 use Everest\Services\Extensions\ExtensionPackageUpdateService;
+use Everest\Services\Extensions\ExtensionPackageInstallService;
+use Everest\Services\Extensions\ExtensionInstallProgressService;
+use Everest\Services\Extensions\ExtensionPackageUninstallService;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Extensions\DatabasePlanRequest;
+use Everest\Http\Requests\Api\Application\Extensions\GetExtensionsRequest;
+use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\InstallExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\UninstallExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\BatchUpdateExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\BatchInstallExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\BatchUninstallExtensionRequest;
+use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionSettingsRequest;
+use Everest\Http\Requests\Api\Application\Extensions\StoreExtensionRepositoryRequest;
+use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRepositoryRequest;
 
 class ExtensionsController extends ApplicationApiController
 {
@@ -42,9 +42,8 @@ class ExtensionsController extends ApplicationApiController
         private ExtensionPackageUpdateService $updateService,
         private ExtensionPackageBatchService $batchService,
         private ExtensionInstallProgressService $progressService,
-        private ExtensionDatabasePlanService $databasePlanService
-    )
-    {
+        private ExtensionDatabasePlanService $databasePlanService,
+    ) {
         parent::__construct();
     }
 
@@ -579,8 +578,6 @@ class ExtensionsController extends ApplicationApiController
         ]);
     }
 
-    /**
-     */
     private function getManageableExtension(string $extensionId): ?array
     {
         foreach ($this->catalogService->getLocalExtensions() as $extension) {

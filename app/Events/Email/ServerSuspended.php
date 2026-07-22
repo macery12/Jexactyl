@@ -2,9 +2,9 @@
 
 namespace Everest\Events\Email;
 
+use Everest\Models\User;
 use Everest\Events\Event;
 use Everest\Models\Server;
-use Everest\Models\User;
 use Illuminate\Queue\SerializesModels;
 
 class ServerSuspended extends Event
@@ -18,7 +18,7 @@ class ServerSuspended extends Event
         public Server $server,
         public User $user,
         public string $reason,
-        public string $correlationId
+        public string $correlationId,
     ) {
     }
 }

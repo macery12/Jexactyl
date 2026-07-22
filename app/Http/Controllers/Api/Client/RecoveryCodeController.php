@@ -2,10 +2,10 @@
 
 namespace Everest\Http\Controllers\Api\Client;
 
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;

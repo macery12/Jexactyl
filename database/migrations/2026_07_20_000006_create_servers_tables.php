@@ -1,17 +1,16 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Core server tables, plus the deferred allocations.server_id FK that closes
  * the schema's one circular dependency (servers.allocation_id ↔
  * allocations.server_id). The servers core FKs (node, owner, allocation, nest,
  * egg) are intentionally RESTRICT (no onDelete), matching the historical chain.
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('servers', function (Blueprint $table) {

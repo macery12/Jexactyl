@@ -12,7 +12,7 @@ class EggParserService
     /**
      * Takes an uploaded file and parses out the egg configuration from within.
      *
-     * @throws \Everest\Exceptions\Service\InvalidFileUploadException
+     * @throws InvalidFileUploadException
      */
     public function handle(array $parsed): array
     {

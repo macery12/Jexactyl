@@ -2,17 +2,17 @@
 
 namespace Everest\Tests\Unit\Services\Billing;
 
-use Everest\Models\Server;
 use Everest\Models\User;
+use Everest\Models\Server;
 use Everest\Tests\TestCase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Everest\Models\Billing\Order;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
+use Illuminate\Support\Facades\Schema;
 use Everest\Exceptions\DisplayException;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Exceptions\Billing\BillingException;
 use Everest\Services\Billing\CreateServerService;
 use Everest\Services\Servers\ServerCreationService;

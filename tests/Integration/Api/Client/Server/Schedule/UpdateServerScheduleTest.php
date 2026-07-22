@@ -5,8 +5,8 @@ namespace Everest\Tests\Integration\Api\Client\Server\Schedule;
 use Everest\Models\Schedule;
 use Everest\Helpers\Utilities;
 use Everest\Models\Permission;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class UpdateServerScheduleTest extends ClientApiIntegrationTestCase
 {
@@ -32,7 +32,7 @@ class UpdateServerScheduleTest extends ClientApiIntegrationTestCase
     {
         [$user, $server] = $this->generateTestAccount($permissions);
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create(['server_id' => $server->id]);
         $expected = Utilities::getScheduleNextRunDate('5', '*', '*', '*', '*');
 
@@ -91,7 +91,7 @@ class UpdateServerScheduleTest extends ClientApiIntegrationTestCase
     {
         [$user, $server] = $this->generateTestAccount();
 
-        /** @var \Everest\Models\Schedule $schedule */
+        /** @var Schedule $schedule */
         $schedule = Schedule::factory()->create([
             'server_id' => $server->id,
             'is_active' => true,

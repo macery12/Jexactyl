@@ -3,15 +3,15 @@
 namespace Everest\Jobs;
 
 use Everest\Models\DownloadQueue;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
 use Everest\Models\MarketplaceInstallLog;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Everest\Services\Mods\CurseForgeService;
 use Everest\Repositories\Wings\DaemonScriptRepository;
 use Everest\Repositories\Wings\DaemonServerRepository;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Installs a CurseForge modpack with a "resolve on panel, download on node" model,
@@ -407,6 +407,7 @@ class InstallModpackJob extends Job implements ShouldQueue
 
         try {
             $data = Http::timeout(20)->get($endpoint)->json();
+
             return $data[0]['url'] ?? null;
         } catch (\Throwable) {
             return null;

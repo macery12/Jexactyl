@@ -68,7 +68,7 @@ class DeferredEmail extends Model
      */
     public function incrementAttempts(): void
     {
-        $this->attempts++;
+        ++$this->attempts;
         $this->save();
     }
 

@@ -2,14 +2,14 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\ExtensionConfig;
 use Everest\Models\ExtensionPackage;
-use Everest\Models\ExtensionPackageFile;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Str;
+use Everest\Exceptions\DisplayException;
+use Everest\Models\ExtensionPackageFile;
 
 class ExtensionPackageInstallService
 {
@@ -20,7 +20,7 @@ class ExtensionPackageInstallService
         private ExtensionFilesystemOwnershipService $ownershipService,
         private ExtensionInstallProgressService $progressService,
         private ExtensionPackageArtifactService $artifactService,
-        private ExtensionMigrationService $migrationService
+        private ExtensionMigrationService $migrationService,
     ) {
     }
 
@@ -132,7 +132,7 @@ class ExtensionPackageInstallService
      * After calling this for each extension, call ExtensionPanelRebuildService::rebuild()
      * once, then finalizeInstall() for each prepared result.
      *
-     * @return array<string, mixed> Opaque prepared state; pass to finalizeInstall() and rollbackInstall().
+     * @return array<string, mixed> opaque prepared state; pass to finalizeInstall() and rollbackInstall()
      */
     public function prepareInstall(string $extensionId, int $repositoryId, ?string $version = null): array
     {
@@ -221,6 +221,7 @@ class ExtensionPackageInstallService
      *
      * @param array<string, mixed> $fallbackPackageMetadata
      * @param array<int, string> $compatiblePanelVersions
+     *
      * @return array<string, mixed>
      */
     private function performInstallFileOps(
@@ -233,7 +234,7 @@ class ExtensionPackageInstallService
         ?string $sourceRepositoryName,
         ?string $sourceRegistryUrl,
         string $sourceArchiveUrl,
-        array $fallbackPackageMetadata
+        array $fallbackPackageMetadata,
     ): array {
         $tempRoot = storage_path('app/extensions/tmp/' . Str::uuid()->toString());
         $archivePath = $tempRoot . '/' . ExtensionPackageArtifactService::PACKAGE_ARTIFACT_FILENAME;
@@ -326,7 +327,7 @@ class ExtensionPackageInstallService
         ?string $sourceRepositoryName,
         ?string $sourceRegistryUrl,
         ?string $sourceArchiveUrl,
-        ?string $archiveChecksum
+        ?string $archiveChecksum,
     ): ExtensionPackage {
         $packageModel = ExtensionPackage::query()->create([
             'extension_id' => $extensionId,
@@ -376,6 +377,7 @@ class ExtensionPackageInstallService
      * writes a migration error log, and aborts the operation.
      *
      * @param array<int, array<string, mixed>> $filePlans
+     *
      * @return array<int, string> the migration files applied (empty when the package ships none)
      */
     private function runPackageMigrations(string $extensionId, array $filePlans, string $action): array
@@ -411,11 +413,7 @@ class ExtensionPackageInstallService
                 $exception
             );
 
-            throw new DisplayException(sprintf(
-                'A migration shipped by "%s" failed and was rolled back. Details were written to %s.',
-                $extensionId,
-                $logPath
-            ), $exception);
+            throw new DisplayException(sprintf('A migration shipped by "%s" failed and was rolled back. Details were written to %s.', $extensionId, $logPath), $exception);
         }
 
         return array_map('basename', $result['files']);
@@ -437,6 +435,7 @@ class ExtensionPackageInstallService
 
     /**
      * @param array<string, mixed> $manifest
+     *
      * @return array<int, array<string, mixed>>
      */
     private function prepareFilePlans(string $extractPath, array $manifest, string $backupRoot, string $extensionId): array

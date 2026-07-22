@@ -19,6 +19,7 @@ class DiscordSrvHelperStatusRequest extends ClientApiRequest
         }
 
         $server = $this->route()->parameter('server');
+
         return $this->user()->can(Permission::ACTION_FILE_READ, $server);
     }
 

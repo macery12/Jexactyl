@@ -2,8 +2,8 @@
 
 namespace Everest\Console\Commands\Extensions\Concerns;
 
-use Everest\Exceptions\DisplayException;
 use Everest\Models\ExtensionRepository;
+use Everest\Exceptions\DisplayException;
 use Everest\Services\Extensions\ExtensionRepositoryBootstrapService;
 
 trait InteractsWithExtensionRepositories

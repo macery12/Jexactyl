@@ -20,7 +20,7 @@ class EggUpdateService
      *
      * @throws \Everest\Exceptions\Model\DataValidationException
      * @throws \Everest\Exceptions\Repository\RecordNotFoundException
-     * @throws \Everest\Exceptions\Service\Egg\NoParentConfigurationFoundException
+     * @throws NoParentConfigurationFoundException
      */
     public function handle(Egg $egg, array $data): void
     {

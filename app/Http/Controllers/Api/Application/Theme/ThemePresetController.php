@@ -2,10 +2,9 @@
 
 namespace Everest\Http\Controllers\Api\Application\Theme;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Http\JsonResponse;
 use Everest\Models\ThemePreset;
+use Illuminate\Http\JsonResponse;
 use Everest\Contracts\Repository\ThemeRepositoryInterface;
 use Everest\Http\Requests\Api\Application\Theme\UpdateThemeRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
@@ -13,7 +12,7 @@ use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 class ThemePresetController extends ApplicationApiController
 {
     public function __construct(
-        private ThemeRepositoryInterface $theme
+        private ThemeRepositoryInterface $theme,
     ) {
         parent::__construct();
     }

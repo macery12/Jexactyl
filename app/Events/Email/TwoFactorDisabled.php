@@ -2,8 +2,8 @@
 
 namespace Everest\Events\Email;
 
-use Everest\Events\Event;
 use Everest\Models\User;
+use Everest\Events\Event;
 use Illuminate\Queue\SerializesModels;
 
 class TwoFactorDisabled extends Event
@@ -15,7 +15,7 @@ class TwoFactorDisabled extends Event
      */
     public function __construct(
         public User $user,
-        public string $correlationId
+        public string $correlationId,
     ) {
     }
 }

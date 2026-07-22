@@ -2,9 +2,9 @@
 
 namespace Everest\Casts;
 
+use Illuminate\Database\Eloquent\Model;
 use Everest\Services\Billing\InvoiceEncryptionService;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
-use Illuminate\Database\Eloquent\Model;
 
 /**
  * Eloquent cast that transparently encrypts/decrypts a JSON column using
@@ -30,6 +30,7 @@ class EncryptedJson implements CastsAttributes
         } catch (\Throwable) {
             // Fallback: plain JSON stored before encryption was enabled
             $decoded = json_decode($value, associative: true);
+
             return is_array($decoded) ? $decoded : null;
         }
     }

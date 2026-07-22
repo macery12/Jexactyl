@@ -2,14 +2,14 @@
 
 namespace Everest\Tests\Integration\Api\Client\Server;
 
+use Everest\Models\User;
+use Everest\Models\Server;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Schema;
+use Everest\Models\ActivityLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
-use Everest\Models\ActivityLog;
-use Everest\Models\Server;
-use Everest\Models\User;
 
 class ActivityLogControllerTest extends ClientApiIntegrationTestCase
 {

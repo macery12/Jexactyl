@@ -2,12 +2,12 @@
 
 namespace Everest\Tests\Unit\Models;
 
-use Everest\Models\ExtensionRepository;
 use Everest\Tests\TestCase;
+use Everest\Models\ExtensionRepository;
 
 class ExtensionRepositoryRouteBindingTest extends TestCase
 {
-    public function test_uses_primary_key_for_route_binding(): void
+    public function testUsesPrimaryKeyForRouteBinding(): void
     {
         $repository = new ExtensionRepository();
 

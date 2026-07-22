@@ -2,8 +2,8 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
 use Everest\Models\ExtensionPackage;
+use Everest\Exceptions\DisplayException;
 
 /**
  * Orchestrates batch install, uninstall, and update operations for multiple extensions.
@@ -26,7 +26,7 @@ class ExtensionPackageBatchService
         private ExtensionPanelRebuildService $rebuildService,
         private ExtensionOperationLockService $operationLockService,
         private ExtensionFilesystemOwnershipService $ownershipService,
-        private ExtensionInstallProgressService $progressService
+        private ExtensionInstallProgressService $progressService,
     ) {
     }
 
@@ -35,6 +35,7 @@ class ExtensionPackageBatchService
      * the panel only once after every extension's files have been copied into place.
      *
      * @param array<int, array{extensionId: string, repositoryId: int, version?: string|null}> $items
+     *
      * @return array<int, ExtensionPackage>
      */
     public function batchInstall(array $items): array
@@ -119,6 +120,7 @@ class ExtensionPackageBatchService
      * trail stays per-extension.
      *
      * @param array<int, array{extensionId: string, dropData?: bool}> $items
+     *
      * @return array<int, array{extensionId: string, dataDropped: bool, migrationLog: ?string}>
      */
     public function batchUninstall(array $items, ?string $initiator = null): array
@@ -201,6 +203,7 @@ class ExtensionPackageBatchService
      * the panel only once after every extension's files have been swapped into place.
      *
      * @param array<int, array{extensionId: string, repositoryId: int, version?: string|null}> $items
+     *
      * @return array<int, ExtensionPackage>
      */
     public function batchUpdate(array $items): array

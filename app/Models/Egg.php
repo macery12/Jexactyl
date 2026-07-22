@@ -38,11 +38,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $inherit_config_stop
  * @property string $inherit_file_denylist
  * @property array|null $inherit_features
- * @property \Everest\Models\Nest $nest
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\Server[] $servers
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\EggVariable[] $variables
- * @property \Everest\Models\Egg|null $scriptFrom
- * @property \Everest\Models\Egg|null $configFrom
+ * @property Nest $nest
+ * @property \Illuminate\Database\Eloquent\Collection|Server[] $servers
+ * @property \Illuminate\Database\Eloquent\Collection|EggVariable[] $variables
+ * @property Egg|null $scriptFrom
+ * @property Egg|null $configFrom
  */
 class Egg extends Model
 {

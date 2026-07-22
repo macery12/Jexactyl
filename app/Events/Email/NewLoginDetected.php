@@ -2,8 +2,8 @@
 
 namespace Everest\Events\Email;
 
-use Everest\Events\Event;
 use Everest\Models\User;
+use Everest\Events\Event;
 use Illuminate\Queue\SerializesModels;
 
 class NewLoginDetected extends Event
@@ -19,7 +19,7 @@ class NewLoginDetected extends Event
         public string $userAgent,
         public string $correlationId,
         public \DateTimeInterface $loginAt,
-        public ?string $location = null
+        public ?string $location = null,
     ) {
     }
 }

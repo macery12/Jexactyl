@@ -2,11 +2,11 @@
 
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
+use Illuminate\Http\Request;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\BillingException;
-use Illuminate\Http\Request;
-use Everest\Services\Billing\NodeAvailabilityService;
 use Everest\Transformers\Api\Client\NodeTransformer;
+use Everest\Services\Billing\NodeAvailabilityService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class NodesController extends ClientApiController

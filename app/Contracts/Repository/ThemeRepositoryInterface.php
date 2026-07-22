@@ -10,7 +10,7 @@ interface ThemeRepositoryInterface extends RepositoryInterface
      * @throws \Everest\Exceptions\Model\DataValidationException
      * @throws \Everest\Exceptions\Repository\RecordNotFoundException
      */
-    public function set(string $key, string $value = null);
+    public function set(string $key, ?string $value = null);
 
     /**
      * Retrieve a persistent setting from the database.

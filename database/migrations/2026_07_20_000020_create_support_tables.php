@@ -1,16 +1,15 @@
 <?php
 
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
 
-/**
+/*
  * Support tickets and panel alerts. ticket_messages has no FKs (historical
  * shape). alerts.position is a varchar whose allowed values live in its column
  * comment, matching the chain (docs/database-rebuild/04 D6).
  */
-return new class extends Migration
-{
+return new class () extends Migration {
     public function up(): void
     {
         Schema::create('tickets', function (Blueprint $table) {

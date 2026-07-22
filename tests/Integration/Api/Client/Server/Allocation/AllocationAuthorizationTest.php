@@ -4,12 +4,11 @@ namespace Everest\Tests\Integration\Api\Client\Server\Allocation;
 
 use Everest\Models\Subuser;
 use Everest\Models\Allocation;
-use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 class AllocationAuthorizationTest extends ClientApiIntegrationTestCase
 {
-    /***/
     #[DataProvider('methodDataProvider')]
     public function testAccessToAServersAllocationsIsRestrictedProperly(string $method, string $endpoint)
     {

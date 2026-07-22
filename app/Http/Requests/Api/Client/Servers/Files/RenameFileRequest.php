@@ -40,6 +40,7 @@ class RenameFileRequest extends ClientApiRequest implements ClientPermissionsReq
                 $normalizedRoot = $this->normalizeRelativePath($root);
             } catch (\InvalidArgumentException $ex) {
                 $validator->errors()->add('root', $ex->getMessage());
+
                 return;
             }
             $sanitizedFiles = [];

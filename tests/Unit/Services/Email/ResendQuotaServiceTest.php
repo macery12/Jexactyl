@@ -2,13 +2,12 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
+use Everest\Tests\TestCase;
 use Everest\Models\ResendQuota;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Services\Email\ResendPlanResolver;
 use Everest\Services\Email\ResendQuotaService;
-use Everest\Tests\TestCase;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-use Mockery;
 
 class ResendQuotaServiceTest extends TestCase
 {
@@ -38,7 +37,7 @@ class ResendQuotaServiceTest extends TestCase
             $table->timestamps();
         });
 
-        $resolver = Mockery::mock(ResendPlanResolver::class);
+        $resolver = \Mockery::mock(ResendPlanResolver::class);
         $resolver->shouldReceive('activePlan')->andReturn($this->plan);
         $resolver->shouldReceive('all')->andReturn([$this->plan]);
         app()->instance(ResendPlanResolver::class, $resolver);
@@ -64,7 +63,7 @@ class ResendQuotaServiceTest extends TestCase
 
     public function testReserveBlocksWhenMonthlyLimitExceeded(): void
     {
-        $resolver = Mockery::mock(ResendPlanResolver::class);
+        $resolver = \Mockery::mock(ResendPlanResolver::class);
         $resolver->shouldReceive('activePlan')->andReturn([
             'key' => 'free',
             'name' => 'Free',

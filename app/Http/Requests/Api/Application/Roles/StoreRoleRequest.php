@@ -7,7 +7,7 @@ use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class StoreRoleRequest extends ApplicationApiRequest
 {
-    public function rules(array $rules = null): array
+    public function rules(?array $rules = null): array
     {
         return $rules ?? AdminRole::getRules();
     }

@@ -26,7 +26,7 @@ class CommandController extends ClientApiController
     /**
      * Send a command to a running server.
      *
-     * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException
+     * @throws DaemonConnectionException
      */
     public function index(SendCommandRequest $request, Server $server): Response
     {

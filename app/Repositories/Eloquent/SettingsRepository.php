@@ -3,9 +3,9 @@
 namespace Everest\Repositories\Eloquent;
 
 use Everest\Models\Setting;
-use Everest\Contracts\Repository\SettingsRepositoryInterface;
-use Everest\Services\Security\SecretEncryptionService;
 use Illuminate\Foundation\Application;
+use Everest\Services\Security\SecretEncryptionService;
+use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
 class SettingsRepository extends EloquentRepository implements SettingsRepositoryInterface
 {
@@ -31,7 +31,7 @@ class SettingsRepository extends EloquentRepository implements SettingsRepositor
      *
      * @throws \Everest\Exceptions\Model\DataValidationException
      */
-    public function set(string $key, string $value = null)
+    public function set(string $key, ?string $value = null)
     {
         $normalizedKey = $this->secrets->normalizeKey($key);
 

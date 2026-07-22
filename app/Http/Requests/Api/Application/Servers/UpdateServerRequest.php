@@ -58,8 +58,6 @@ class UpdateServerRequest extends ApplicationApiRequest
     /**
      * @param string|null $key
      * @param string|array|null $default
-     *
-     * @return mixed
      */
     public function validated($key = null, $default = null)
     {

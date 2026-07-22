@@ -2,11 +2,10 @@
 
 namespace Everest\Http\Middleware;
 
-use Closure;
-use Everest\Services\Auth\UserSessionService;
-use Everest\Models\UserSession;
 use Illuminate\Http\Request;
+use Everest\Models\UserSession;
 use Illuminate\Support\Facades\Log;
+use Everest\Services\Auth\UserSessionService;
 use Illuminate\Support\Facades\Session as SessionFacade;
 
 class UpdateUserSessionActivity
@@ -14,7 +13,7 @@ class UpdateUserSessionActivity
     /**
      * Update the last activity timestamp for the authenticated user's session.
      */
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, \Closure $next)
     {
         $user = $request->user();
         if ($user && $request->hasSession()) {

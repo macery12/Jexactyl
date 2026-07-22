@@ -2,13 +2,13 @@
 
 namespace Everest\Services\Billing;
 
+use Everest\Models\Setting;
 use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\Security\LogSanitizer;
 use Everest\Models\Billing\BillingException;
 use Everest\Exceptions\Billing\BillingException as BillingExceptionClass;
-use Everest\Models\Setting;
 
 class PayPalPaymentService
 {
@@ -70,10 +70,7 @@ class PayPalPaymentService
                     'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
                 ]);
 
-                throw new BillingExceptionClass('PayPal authentication failed', 'Failed to authenticate with PayPal. Please check your credentials.', BillingException::TYPE_PAYMENT, null, 'paypal', null, [
-                    'status' => $response->status(),
-                    'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
-                ]);
+                throw new BillingExceptionClass('PayPal authentication failed', 'Failed to authenticate with PayPal. Please check your credentials.', BillingException::TYPE_PAYMENT, null, 'paypal', null, ['status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
             }
 
             $data = $response->json();
@@ -143,12 +140,7 @@ class PayPalPaymentService
                     'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
                 ]);
 
-                throw new BillingExceptionClass('PayPal order creation failed', 'Failed to create PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', null, [
-                    'product_id' => $product->id,
-                    'amount' => $amount,
-                    'status' => $response->status(),
-                    'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
-                ]);
+                throw new BillingExceptionClass('PayPal order creation failed', 'Failed to create PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', null, ['product_id' => $product->id, 'amount' => $amount, 'status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
             }
 
             return $response->json();
@@ -192,10 +184,7 @@ class PayPalPaymentService
                     'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
                 ]);
 
-                throw new BillingExceptionClass('PayPal order fetch failed', 'Failed to fetch PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', $orderId, [
-                    'status' => $response->status(),
-                    'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
-                ]);
+                throw new BillingExceptionClass('PayPal order fetch failed', 'Failed to fetch PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', $orderId, ['status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
             }
 
             return $response->json();
@@ -235,10 +224,7 @@ class PayPalPaymentService
                     'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
                 ]);
 
-                throw new BillingExceptionClass('PayPal order capture failed', 'Failed to capture PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', $orderId, [
-                    'status' => $response->status(),
-                    'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
-                ]);
+                throw new BillingExceptionClass('PayPal order capture failed', 'Failed to capture PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', $orderId, ['status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
             }
 
             return $response->json();

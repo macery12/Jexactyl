@@ -2,11 +2,10 @@
 
 namespace Everest\Console\Commands\Migration;
 
-use RuntimeException;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\DB;
 use Everest\Services\Migration\TablePlan;
 use Everest\Services\Migration\ImportContext;
 use Everest\Services\Migration\ImportProfile;
@@ -53,7 +52,7 @@ class ImportPanelCommand extends Command
             $groups = $this->resolveGroups($profile);
             $context = $this->makeContext();
             $source = $this->connectToSource();
-        } catch (RuntimeException $e) {
+        } catch (\RuntimeException $e) {
             $this->error($e->getMessage());
 
             return 1;
@@ -69,7 +68,7 @@ class ImportPanelCommand extends Command
 
         try {
             $preflight = $service->preflight($profile, $source, $context, $groups);
-        } catch (RuntimeException $e) {
+        } catch (\RuntimeException $e) {
             $this->error($e->getMessage());
 
             return 1;
@@ -146,7 +145,7 @@ class ImportPanelCommand extends Command
         }
 
         if (!isset($profiles[$from])) {
-            throw new RuntimeException('--from must be one of: ' . implode(', ', array_keys($profiles)));
+            throw new \RuntimeException('--from must be one of: ' . implode(', ', array_keys($profiles)));
         }
 
         return $profiles[$from];
@@ -165,9 +164,7 @@ class ImportPanelCommand extends Command
 
         if ($this->option('with-billing')) {
             if (!$profile instanceof JexpanelProfile) {
-                throw new RuntimeException(
-                    "--with-billing is only supported for JexPanel. {$profile->name()}'s billing data has no equivalent in this panel."
-                );
+                throw new \RuntimeException("--with-billing is only supported for JexPanel. {$profile->name()}'s billing data has no equivalent in this panel.");
             }
 
             $groups[] = TablePlan::GROUP_BILLING;
@@ -200,7 +197,7 @@ class ImportPanelCommand extends Command
         try {
             $connection->getPdo();
         } catch (\Throwable $e) {
-            throw new RuntimeException('Could not connect to the source database: ' . $e->getMessage());
+            throw new \RuntimeException('Could not connect to the source database: ' . $e->getMessage());
         }
 
         return $connection;
@@ -211,9 +208,7 @@ class ImportPanelCommand extends Command
         $key = $this->secretOption('source-key', self::APP_KEY_ENV, 'Source panel APP_KEY (from its .env)');
 
         if (!$key) {
-            throw new RuntimeException(
-                'The source panel APP_KEY is required — node tokens and stored passwords are encrypted with it.'
-            );
+            throw new \RuntimeException('The source panel APP_KEY is required — node tokens and stored passwords are encrypted with it.');
         }
 
         return new ImportContext($this->makeEncrypter($key), app('encrypter'));
@@ -230,9 +225,7 @@ class ImportPanelCommand extends Command
         $cipher = match (strlen($appKey)) {
             32 => 'AES-256-CBC',
             16 => 'AES-128-CBC',
-            default => throw new RuntimeException(
-                'The source APP_KEY is not a valid Laravel key — expected a 16 or 32 byte key, usually written as base64:…'
-            ),
+            default => throw new \RuntimeException('The source APP_KEY is not a valid Laravel key — expected a 16 or 32 byte key, usually written as base64:…'),
         };
 
         return new Encrypter($appKey, $cipher);
@@ -358,13 +351,13 @@ class ImportPanelCommand extends Command
     private function askRequired(string $question): string
     {
         if (!$this->input->isInteractive()) {
-            throw new RuntimeException("Missing required option for: {$question}");
+            throw new \RuntimeException("Missing required option for: {$question}");
         }
 
         $value = $this->ask($question);
 
         if (!$value) {
-            throw new RuntimeException("{$question} is required.");
+            throw new \RuntimeException("{$question} is required.");
         }
 
         return $value;
@@ -391,6 +384,6 @@ class ImportPanelCommand extends Command
             return $this->secret($question);
         }
 
-        throw new RuntimeException("{$question} is required. Set {$env} for unattended runs.");
+        throw new \RuntimeException("{$question} is required. Set {$env} for unattended runs.");
     }
 }

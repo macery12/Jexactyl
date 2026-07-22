@@ -8,8 +8,8 @@ use Everest\Models\Server;
 use Everest\Models\Permission;
 use Everest\Models\UserSSHKey;
 use phpseclib3\Crypt\EC\PrivateKey;
-use Everest\Tests\Integration\IntegrationTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Everest\Tests\Integration\IntegrationTestCase;
 
 class SftpAuthenticationControllerTest extends IntegrationTestCase
 {
@@ -164,7 +164,7 @@ class SftpAuthenticationControllerTest extends IntegrationTestCase
             ->assertJsonPath('errors.0.detail', 'You do not have permission to access SFTP for this server.');
     }
 
-    /***/
+
     #[DataProvider('serverStateDataProvider')]
     public function testInvalidServerStateReturnsConflictError(string $status)
     {
@@ -239,7 +239,7 @@ class SftpAuthenticationControllerTest extends IntegrationTestCase
     /**
      * Sets the authorization header for the rest of the test.
      */
-    protected function setAuthorization(Node $node = null): void
+    protected function setAuthorization(?Node $node = null): void
     {
         $node = $node ?? $this->server->node;
 

@@ -3,25 +3,27 @@
 namespace Everest\Jobs\Email;
 
 use Everest\Jobs\Job;
-use Everest\Models\EmailDelivery;
+use Illuminate\Bus\Queueable;
 use Everest\Models\EmailQuota;
 use Everest\Models\DeferredEmail;
-use Everest\Models\EmailNotificationSetting;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Queue\SerializesModels;
 use Everest\Services\Email\EmailManager;
-use Everest\Services\Email\EmailPolicyService;
-use Everest\Services\Email\EmailDeliveryTracker;
-use Everest\Services\Email\EmailSubjectResolver;
-use Everest\Services\Email\ResendQuotaService;
-use Illuminate\Bus\Queueable;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
+use Everest\Models\EmailNotificationSetting;
+use Everest\Services\Email\EmailPolicyService;
+use Everest\Services\Email\ResendQuotaService;
+use Everest\Services\Email\EmailDeliveryTracker;
+use Everest\Services\Email\EmailSubjectResolver;
 
 class SendEmailJob extends Job implements ShouldQueue
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable;
+    use InteractsWithQueue;
+    use Queueable;
+    use SerializesModels;
 
     /**
      * The number of times the job may be attempted.
@@ -45,7 +47,7 @@ class SendEmailJob extends Job implements ShouldQueue
         public array $data,
         public ?int $userId = null,
         public ?string $correlationId = null,
-        public ?array $invoiceAttachment = null
+        public ?array $invoiceAttachment = null,
     ) {
         // Ensure we have correlation_id (fallback only for direct job dispatch)
         $this->correlationId = $correlationId ?? \Illuminate\Support\Str::uuid()->toString();
@@ -62,6 +64,7 @@ class SendEmailJob extends Job implements ShouldQueue
                 'recipient' => $this->recipient,
                 'correlation_id' => $this->correlationId,
             ]);
+
             return;
         }
 
@@ -102,7 +105,7 @@ class SendEmailJob extends Job implements ShouldQueue
 
         // Check for existing delivery or create new one
         $delivery = $tracker->findByCorrelationId($this->correlationId);
-        
+
         if (!$delivery) {
             // First attempt - create delivery record
             $delivery = $tracker->startDelivery(
@@ -125,15 +128,16 @@ class SendEmailJob extends Job implements ShouldQueue
                 'correlation_id' => $this->correlationId,
                 'reason' => $reason,
             ]);
-            
+
             $tracker->markSkipped($delivery, $reason);
+
             return;
         }
 
         // Check rate limiting (if user ID provided and not exempt)
         if ($this->userId && !EmailNotificationSetting::isRateLimitExempt($this->templateKey)) {
             $quota = EmailQuota::getOrCreateForUser($this->userId);
-            
+
             if (!$quota->reserveQuota(1)) {
                 // Quota exceeded - defer the email
                 $nextAvailable = $quota->getNextAvailableTime();
@@ -167,7 +171,7 @@ class SendEmailJob extends Job implements ShouldQueue
 
         // Validate variables
         [$validData, $errors] = $policy->validateTemplateData($this->templateKey, $this->data);
-        
+
         if (!empty($errors)) {
             Log::error('SendEmailJob: Variable validation failed', [
                 'template_key' => $this->templateKey,

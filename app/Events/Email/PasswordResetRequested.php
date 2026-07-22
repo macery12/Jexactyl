@@ -2,8 +2,8 @@
 
 namespace Everest\Events\Email;
 
-use Everest\Events\Event;
 use Everest\Models\User;
+use Everest\Events\Event;
 use Illuminate\Queue\SerializesModels;
 
 class PasswordResetRequested extends Event
@@ -16,7 +16,7 @@ class PasswordResetRequested extends Event
     public function __construct(
         public User $user,
         public string $resetUrl,
-        public string $correlationId
+        public string $correlationId,
     ) {
     }
 }

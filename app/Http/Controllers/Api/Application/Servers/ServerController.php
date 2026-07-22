@@ -32,7 +32,7 @@ class ServerController extends ApplicationApiController
         private DetailsModificationService $detailsModificationService,
         private ServerCreationService $creationService,
         private ServerPresetCreationService $presetCreationService,
-        private ServerDeletionService $deletionService
+        private ServerDeletionService $deletionService,
     ) {
         parent::__construct();
     }

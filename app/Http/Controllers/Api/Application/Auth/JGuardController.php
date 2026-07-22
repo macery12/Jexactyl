@@ -8,8 +8,8 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\JGuardEntry;
 use Illuminate\Http\JsonResponse;
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Auth\GetJGuardRequest;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Auth\UpdateAuthModuleRequest;
 
 class JGuardController extends ApplicationApiController

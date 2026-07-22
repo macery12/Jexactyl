@@ -5,13 +5,13 @@ namespace Everest\Tests\Integration\Services\Databases;
 use Mockery\MockInterface;
 use Everest\Models\Database;
 use Everest\Models\DatabaseHost;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Repositories\Eloquent\DatabaseRepository;
 use Everest\Services\Databases\DatabaseManagementService;
 use Everest\Exceptions\Repository\DuplicateDatabaseNameException;
 use Everest\Exceptions\Service\Database\TooManyDatabasesException;
 use Everest\Exceptions\Service\Database\DatabaseClientFeatureNotEnabledException;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class DatabaseManagementServiceTest extends IntegrationTestCase
 {

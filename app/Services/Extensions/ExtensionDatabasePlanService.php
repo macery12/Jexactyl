@@ -2,9 +2,9 @@
 
 namespace Everest\Services\Extensions;
 
-use Everest\Exceptions\DisplayException;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\File;
+use Everest\Exceptions\DisplayException;
 
 /**
  * Computes a read-only preview of the database changes an install, update, or
@@ -24,7 +24,7 @@ class ExtensionDatabasePlanService
     public function __construct(
         private ExtensionCatalogService $catalogService,
         private ExtensionPackageArtifactService $artifactService,
-        private ExtensionMigrationService $migrationService
+        private ExtensionMigrationService $migrationService,
     ) {
     }
 

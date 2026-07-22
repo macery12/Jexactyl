@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Client\Servers;
 
-use Everest\Tests\TestCase;
 use Everest\Models\Node;
+use Everest\Tests\TestCase;
 use Everest\Models\Permission;
 
 /**

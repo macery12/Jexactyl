@@ -2,8 +2,8 @@
 
 namespace Everest\Http\Requests\Api\Client\Billing;
 
-use Everest\Http\Requests\Api\Client\ClientApiRequest;
 use Everest\Services\Billing\BillingDefaults;
+use Everest\Http\Requests\Api\Client\ClientApiRequest;
 
 class UpdateCheckoutRequest extends ClientApiRequest
 {

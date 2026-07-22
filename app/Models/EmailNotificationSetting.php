@@ -57,7 +57,7 @@ class EmailNotificationSetting extends Model
     public static function isRateLimitExempt(string $templateKey): bool
     {
         $setting = static::where('template_key', $templateKey)->first();
-        
+
         return $setting ? $setting->rate_limit_exempt : false;
     }
 
@@ -70,5 +70,4 @@ class EmailNotificationSetting extends Model
             ->where('enabled', true)
             ->get();
     }
-
 }

@@ -3,10 +3,10 @@
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
 use Everest\Models\Egg;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Services\CustomDomains\CustomDomainProvisioningService;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 
 class CustomDomainOptionsController extends ClientApiController
 {

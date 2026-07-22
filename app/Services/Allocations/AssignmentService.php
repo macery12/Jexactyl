@@ -31,11 +31,11 @@ class AssignmentService
     /**
      * Insert allocations into the database and link them to a specific node.
      *
-     * @throws \Everest\Exceptions\DisplayException
-     * @throws \Everest\Exceptions\Service\Allocation\CidrOutOfRangeException
-     * @throws \Everest\Exceptions\Service\Allocation\InvalidPortMappingException
-     * @throws \Everest\Exceptions\Service\Allocation\PortOutOfRangeException
-     * @throws \Everest\Exceptions\Service\Allocation\TooManyPortsInRangeException
+     * @throws DisplayException
+     * @throws CidrOutOfRangeException
+     * @throws InvalidPortMappingException
+     * @throws PortOutOfRangeException
+     * @throws TooManyPortsInRangeException
      */
     public function handle(Node $node, array $data): void
     {

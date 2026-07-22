@@ -3,8 +3,8 @@
 namespace Everest\Extensions\Laravel\Sanctum;
 
 use Everest\Models\ApiKey;
-use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Jsonable;
+use Illuminate\Contracts\Support\Arrayable;
 
 class NewAccessToken implements Arrayable, Jsonable
 {

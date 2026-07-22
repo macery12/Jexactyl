@@ -2,16 +2,15 @@
 
 namespace Everest\Tests\Unit\Http\Controllers\Api\Application\Billing;
 
-use Mockery;
+use Everest\Tests\TestCase;
+use Everest\Facades\Activity;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Everest\Models\Billing\Category;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Http\Response;
-use Everest\Facades\Activity;
-use Everest\Models\Billing\Category;
 use Everest\Http\Controllers\Api\Application\Billing\CategoryController;
 use Everest\Http\Requests\Api\Application\Billing\Categories\UpdateBillingCategoryRequest;
-use Everest\Tests\TestCase;
 
 class CategoryControllerTest extends TestCase
 {
@@ -40,7 +39,7 @@ class CategoryControllerTest extends TestCase
 
     public function tearDown(): void
     {
-        Mockery::close();
+        \Mockery::close();
         parent::tearDown();
     }
 
@@ -48,7 +47,7 @@ class CategoryControllerTest extends TestCase
     {
         $controller = $this->app->make(CategoryController::class);
 
-        $request = Mockery::mock(UpdateBillingCategoryRequest::class);
+        $request = \Mockery::mock(UpdateBillingCategoryRequest::class);
         $request->shouldReceive('input')->with('eggId')->andReturn(5);
         $request->shouldReceive('input')->with('allowedEggs', [5])->andReturn([999]);
         $request->shouldReceive('input')->with('name')->andReturn('Example');
@@ -59,11 +58,12 @@ class CategoryControllerTest extends TestCase
         $request->shouldReceive('input')->with('allowPlanChanges', true)->andReturn(true);
         $request->shouldReceive('all')->andReturn(['allowedEggs' => [999]]);
 
-        $category = Mockery::mock(Category::class);
+        $category = \Mockery::mock(Category::class);
         $category->shouldReceive('updateOrFail')
             ->once()
-            ->with(Mockery::on(function (array $data) {
+            ->with(\Mockery::on(function (array $data) {
                 $this->assertSame([5], $data['allowed_eggs']);
+
                 return true;
             }))
             ->andReturnTrue();
@@ -83,7 +83,7 @@ class CategoryControllerTest extends TestCase
     {
         $controller = $this->app->make(CategoryController::class);
 
-        $request = Mockery::mock(UpdateBillingCategoryRequest::class);
+        $request = \Mockery::mock(UpdateBillingCategoryRequest::class);
         $request->shouldReceive('input')->with('eggId')->andReturn(5);
         $request->shouldReceive('input')->with('allowedEggs', [5])->andReturn([5, 6]);
         $request->shouldReceive('input')->with('name')->andReturn('Example');
@@ -94,11 +94,12 @@ class CategoryControllerTest extends TestCase
         $request->shouldReceive('input')->with('allowPlanChanges', true)->andReturn(true);
         $request->shouldReceive('all')->andReturn(['allowedEggs' => [6]]);
 
-        $category = Mockery::mock(Category::class);
+        $category = \Mockery::mock(Category::class);
         $category->shouldReceive('updateOrFail')
             ->once()
-            ->with(Mockery::on(function (array $data) {
+            ->with(\Mockery::on(function (array $data) {
                 $this->assertSame([5], $data['allowed_eggs']);
+
                 return true;
             }))
             ->andReturnTrue();

@@ -4,10 +4,10 @@ namespace Everest\Jobs\CustomDomains;
 
 use Everest\Models\Server;
 use Illuminate\Bus\Queueable;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
 use Everest\Services\CustomDomains\CustomDomainProvisioningService;
 
 class ProvisionServerCustomDomainsJob implements ShouldQueue

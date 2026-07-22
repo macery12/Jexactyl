@@ -5,32 +5,32 @@ namespace Everest\Http\Controllers\Api\Client\Extensions;
 use Everest\Models\Server;
 use Everest\Facades\Activity;
 use Illuminate\Http\JsonResponse;
+use Everest\Models\ExtensionConfig;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
-use Everest\Models\ExtensionConfig;
 use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Repositories\Wings\DaemonCommandRepository;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Services\Extensions\MinecraftPlayerManager\NbtParser;
 use Everest\Services\Extensions\MinecraftPlayerManager\MinecraftPing;
 use Everest\Services\Extensions\MinecraftPlayerManager\MinecraftQuery;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\GetStatusRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\IpRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\BanRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\KickRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\BanIpRequest;
 use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\PlayerRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\WhisperRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\AttributeRequest;
+use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\GetStatusRequest;
 use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\PlayerReadRequest;
 use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\PlayerNamedRequest;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\BanRequest;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\BanIpRequest;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\IpRequest;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\KickRequest;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\WhisperRequest;
 use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\SetWhitelistRequest;
-use Everest\Http\Requests\Api\Client\Extensions\PlayerManager\AttributeRequest;
-use Everest\Services\Extensions\MinecraftPlayerManager\NbtParser;
 
 class PlayerManagerController extends ClientApiController
 {
     public function __construct(
         private DaemonFileRepository $fileRepository,
-        private DaemonCommandRepository $commandRepository
+        private DaemonCommandRepository $commandRepository,
     ) {
         parent::__construct();
     }
@@ -43,12 +43,12 @@ class PlayerManagerController extends ClientApiController
     {
         // Remove any characters that aren't alphanumeric or underscore
         $sanitized = preg_replace('/[^a-zA-Z0-9_]/', '', $name);
-        
+
         // Ensure length is between 3 and 16 characters
         if (strlen($sanitized) < 3 || strlen($sanitized) > 16) {
             throw new \InvalidArgumentException('Invalid player name format');
         }
-        
+
         return $sanitized;
     }
 
@@ -61,7 +61,7 @@ class PlayerManagerController extends ClientApiController
         if (!filter_var($ip, FILTER_VALIDATE_IP)) {
             throw new \InvalidArgumentException('Invalid IP address format');
         }
-        
+
         return $ip;
     }
 
@@ -72,6 +72,7 @@ class PlayerManagerController extends ClientApiController
     {
         // Remove newlines and limit length
         $sanitized = str_replace(["\r", "\n", "\t"], ' ', $message);
+
         return substr(trim($sanitized), 0, 255);
     }
 
@@ -81,7 +82,7 @@ class PlayerManagerController extends ClientApiController
     private function checkExtensionEnabled(Server $server): void
     {
         $config = ExtensionConfig::getByExtensionId('minecraft_player_manager');
-        
+
         if (!$config || !$config->isServerEligible($server)) {
             throw new \Exception('Minecraft Player Manager is not enabled for this server.');
         }
@@ -128,24 +129,24 @@ class PlayerManagerController extends ClientApiController
                         'list' => $players,
                     ],
                 ];
-            } else {
-                $query = new MinecraftPing($server->allocation->alias ?? $server->allocation->ip, $server->allocation->port, 2, false);
-                $query->Connect();
-
-                $data = $query->Query();
-
-                if (!$data) {
-                    throw new \Exception('Failed to query server');
-                }
-
-                return [
-                    'players' => [
-                        'online' => $data['players']['online'],
-                        'max' => $data['players']['max'],
-                        'list' => $data['players']['sample'] ?? [],
-                    ],
-                ];
             }
+            $query = new MinecraftPing($server->allocation->alias ?? $server->allocation->ip, $server->allocation->port, 2, false);
+            $query->Connect();
+
+            $data = $query->Query();
+
+            if (!$data) {
+                throw new \Exception('Failed to query server');
+            }
+
+            return [
+                'players' => [
+                    'online' => $data['players']['online'],
+                    'max' => $data['players']['max'],
+                    'list' => $data['players']['sample'] ?? [],
+                ],
+            ];
+
         });
     }
 
@@ -154,6 +155,7 @@ class PlayerManagerController extends ClientApiController
         return Cache::remember("minecraftserver:username-cache:{$server->id}", 30, function () use ($server) {
             try {
                 $cache = $this->fileRepository->setServer($server)->getContent('/usercache.json');
+
                 return json_decode($cache, true) ?? [];
             } catch (\Throwable $e) {
                 return [];
@@ -164,10 +166,11 @@ class PlayerManagerController extends ClientApiController
     private function formatUuid(string $uuid): string
     {
         $uuid = str_replace('-', '', $uuid);
+
         return substr($uuid, 0, 8) . '-' . substr($uuid, 8, 4) . '-' . substr($uuid, 12, 4) . '-' . substr($uuid, 16, 4) . '-' . substr($uuid, 20);
     }
 
-    private function lookupUser(string $uuid, Server $server): array|null
+    private function lookupUser(string $uuid, Server $server): ?array
     {
         $name = config('app.name', 'M12Labs');
         $uuid = str_replace('-', '', $uuid);
@@ -205,7 +208,7 @@ class PlayerManagerController extends ClientApiController
         ];
     }
 
-    private function lookupUserName(string $name, Server $server): array|null
+    private function lookupUserName(string $name, Server $server): ?array
     {
         $app = config('app.name', 'M12Labs');
         $offline = $this->isOfflineMode($server);
@@ -222,6 +225,7 @@ class PlayerManagerController extends ClientApiController
 
         if ($offline) {
             $uuid = $this->formatUuid(md5("OfflinePlayer:$name"));
+
             return [
                 'uuid' => $uuid,
                 'name' => $name,
@@ -311,7 +315,8 @@ class PlayerManagerController extends ClientApiController
         return Cache::remember("minecraftserver:bukkit:{$server->id}", 30, function () use ($server) {
             try {
                 $bukkitYml = $this->fileRepository->setServer($server)->getContent('/bukkit.yml');
-                return !!$bukkitYml;
+
+                return (bool) $bukkitYml;
             } catch (\Throwable $e) {
                 return false;
             }
@@ -324,7 +329,7 @@ class PlayerManagerController extends ClientApiController
     public function index(GetStatusRequest $request, Server $server): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         $properties = $this->getServerProperties($server);
 
         $onlineMode = !$this->isOfflineMode($server);
@@ -470,7 +475,7 @@ class PlayerManagerController extends ClientApiController
     public function op(PlayerNamedRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -479,7 +484,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         try {
             $ops = $this->fileRepository->setServer($server)->getContent('/ops.json');
             $data = json_decode($ops, true);
@@ -532,7 +537,7 @@ class PlayerManagerController extends ClientApiController
     public function deop(PlayerRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -541,7 +546,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         try {
             $ops = $this->fileRepository->setServer($server)->getContent('/ops.json');
             $data = json_decode($ops, true);
@@ -583,7 +588,7 @@ class PlayerManagerController extends ClientApiController
     public function setWhitelist(SetWhitelistRequest $request, Server $server): array
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $properties = $this->fileRepository->setServer($server)->getContent('/server.properties');
             $data = explode("\n", $properties);
@@ -597,6 +602,7 @@ class PlayerManagerController extends ClientApiController
             if (str_starts_with($line, 'white-list=')) {
                 return 'white-list=' . ($whitelist ? 'true' : 'false');
             }
+
             return $line;
         }, $data);
 
@@ -625,7 +631,7 @@ class PlayerManagerController extends ClientApiController
     public function addWhitelist(PlayerNamedRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -634,7 +640,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         try {
             $whitelist = $this->fileRepository->setServer($server)->getContent('/whitelist.json');
             $data = json_decode($whitelist, true);
@@ -685,7 +691,7 @@ class PlayerManagerController extends ClientApiController
     public function removeWhitelist(PlayerRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -694,7 +700,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         try {
             $whitelist = $this->fileRepository->setServer($server)->getContent('/whitelist.json');
             $data = json_decode($whitelist, true);
@@ -735,7 +741,7 @@ class PlayerManagerController extends ClientApiController
     public function ban(BanRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -744,9 +750,9 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         $reason = $this->sanitizeMessage($request->input('reason', 'Banned by panel'));
-        
+
         try {
             $bans = $this->fileRepository->setServer($server)->getContent('/banned-players.json');
             $data = json_decode($bans, true);
@@ -801,7 +807,7 @@ class PlayerManagerController extends ClientApiController
     public function unban(PlayerRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -810,7 +816,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         try {
             $bans = $this->fileRepository->setServer($server)->getContent('/banned-players.json');
             $data = json_decode($bans, true);
@@ -851,7 +857,7 @@ class PlayerManagerController extends ClientApiController
     public function banIp(BanIpRequest $request, Server $server, string $ip): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $ip = $this->sanitizeIpAddress($ip);
         } catch (\InvalidArgumentException $e) {
@@ -860,7 +866,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         $reason = $this->sanitizeMessage($request->input('reason', 'Banned by panel'));
 
         try {
@@ -948,7 +954,7 @@ class PlayerManagerController extends ClientApiController
     public function kick(KickRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -957,7 +963,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         $reason = $this->sanitizeMessage($request->input('reason', 'Kicked by panel'));
 
         try {
@@ -980,7 +986,7 @@ class PlayerManagerController extends ClientApiController
     public function whisper(WhisperRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -989,7 +995,7 @@ class PlayerManagerController extends ClientApiController
                 'error' => $e->getMessage(),
             ], 400);
         }
-        
+
         $message = $this->sanitizeMessage($request->input('message'));
 
         try {
@@ -1012,7 +1018,7 @@ class PlayerManagerController extends ClientApiController
     public function kill(PlayerRequest $request, Server $server, string $player): JsonResponse
     {
         $this->checkExtensionEnabled($server);
-        
+
         try {
             $name = $this->sanitizePlayerName($player);
         } catch (\InvalidArgumentException $e) {
@@ -1057,10 +1063,10 @@ class PlayerManagerController extends ClientApiController
                 }
 
                 $versionString = $data['version']['name'];
-                
+
                 // Parse version number from string (e.g., "1.20.4", "Paper 1.20.4", "Spigot 1.19.2")
                 preg_match('/(\d+)\.(\d+)(?:\.(\d+))?/', $versionString, $matches);
-                
+
                 if (empty($matches)) {
                     return null;
                 }
@@ -1151,7 +1157,7 @@ class PlayerManagerController extends ClientApiController
 
             $parser = new NbtParser();
             $nbt = $parser->parseFile($tempFile);
-            
+
             unlink($tempFile);
 
             // Extract data
@@ -1162,21 +1168,21 @@ class PlayerManagerController extends ClientApiController
             $stats = NbtParser::extractStats($nbt);
 
             // Debug: collect all slot numbers for troubleshooting
-            $allSlots = array_map(fn($item) => ['slot' => $item['slot'], 'id' => $item['id']], $inventory);
-            
+            $allSlots = array_map(fn ($item) => ['slot' => $item['slot'], 'id' => $item['id']], $inventory);
+
             // Debug: Get raw NBT keys to understand structure
             $nbtData = $nbt['value'] ?? $nbt;
             $nbtKeys = is_array($nbtData) ? array_keys($nbtData) : [];
-            
+
             // Debug: Get equipment structure
-            $equipmentDebug = isset($nbtData['equipment']) ? $nbtData['equipment'] : null;
+            $equipmentDebug = $nbtData['equipment'] ?? null;
 
             // Sort inventory by slot
-            usort($inventory, fn($a, $b) => $a['slot'] <=> $b['slot']);
+            usort($inventory, fn ($a, $b) => $a['slot'] <=> $b['slot']);
 
             // Filter out armor slots from main inventory (100-103) and offhand (-106, 45)
-            $mainInventory = array_values(array_filter($inventory, fn($item) => $item['slot'] >= 0 && $item['slot'] < 100));
-            
+            $mainInventory = array_values(array_filter($inventory, fn ($item) => $item['slot'] >= 0 && $item['slot'] < 100));
+
             // Offhand: check equipment field first (1.20.5+), then inventory slot
             $offhand = null;
             if (isset($nbtData['equipment']['offhand']) && is_array($nbtData['equipment']['offhand']) && !empty($nbtData['equipment']['offhand'])) {
@@ -1228,6 +1234,7 @@ class PlayerManagerController extends ClientApiController
             // Check if the directory exists
             try {
                 $this->fileRepository->setServer($server)->getDirectory("/{$levelName}");
+
                 return $levelName;
             } catch (\Throwable $e) {
                 // Try common alternatives
@@ -1235,6 +1242,7 @@ class PlayerManagerController extends ClientApiController
                 foreach ($alternatives as $alt) {
                     try {
                         $this->fileRepository->setServer($server)->getDirectory("/{$alt}");
+
                         return $alt;
                     } catch (\Throwable $e) {
                         continue;

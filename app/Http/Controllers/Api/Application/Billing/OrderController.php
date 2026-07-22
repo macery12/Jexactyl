@@ -3,11 +3,11 @@
 namespace Everest\Http\Controllers\Api\Application\Billing;
 
 use Everest\Models\Billing\Order;
-use Everest\Services\Billing\ThreatIndexService;
+use Illuminate\Http\JsonResponse;
 use Spatie\QueryBuilder\QueryBuilder;
 use Spatie\QueryBuilder\AllowedFilter;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\JsonResponse;
+use Everest\Services\Billing\ThreatIndexService;
 use Everest\Transformers\Api\Application\OrderTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;

@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property \Illuminate\Support\Carbon|null $deleted_at
- * @property \Everest\Models\User $user
+ * @property User $user
  *
  * @method static \Illuminate\Database\Eloquent\Builder|UserSSHKey newModelQuery()
  * @method static \Illuminate\Database\Eloquent\Builder|UserSSHKey newQuery()

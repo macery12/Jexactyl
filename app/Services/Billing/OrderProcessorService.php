@@ -5,7 +5,6 @@ namespace Everest\Services\Billing;
 use Everest\Models\Server;
 use Everest\Models\Billing\Order;
 use Everest\Models\Billing\CouponUsage;
-use Everest\Services\Billing\BillingDefaults;
 
 /**
  * Handles server renewal and coupon recording.
@@ -35,7 +34,7 @@ class OrderProcessorService
         Server $server,
         Product $product,
         ?int $couponId = null,
-        int $billingDays = 0
+        int $billingDays = 0,
     ): array {
         if ($billingDays <= 0) {
             $billingDays = BillingDefaults::defaultBillingDays();

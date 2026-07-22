@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Http\Requests\Api\Application\Email;
 
-use Everest\Http\Requests\Api\Application\Email\UpdateVerificationRulesRequest;
 use Everest\Tests\TestCase;
+use Everest\Http\Requests\Api\Application\Email\UpdateVerificationRulesRequest;
 
 class UpdateVerificationRulesRequestTest extends TestCase
 {

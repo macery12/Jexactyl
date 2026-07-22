@@ -13,7 +13,7 @@ class UserSessionTransformer extends Transformer
     }
 
     /**
-     * @param \Everest\Models\UserSession $model
+     * @param UserSession $model
      */
     public function transform($model): array
     {

@@ -2,9 +2,9 @@
 
 namespace Everest\Traits\Helpers;
 
+use Illuminate\Support\Str;
 use Matriphe\ISO639\ISO639;
 use Illuminate\Filesystem\Filesystem;
-use Illuminate\Support\Str;
 
 trait AvailableLanguages
 {

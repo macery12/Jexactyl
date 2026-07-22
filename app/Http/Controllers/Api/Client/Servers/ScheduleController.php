@@ -47,12 +47,12 @@ class ScheduleController extends ClientApiController
     /**
      * Store a new schedule for a server.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      * @throws \Everest\Exceptions\Model\DataValidationException
      */
     public function store(StoreScheduleRequest $request, Server $server): array
     {
-        /** @var \Everest\Models\Schedule $model */
+        /** @var Schedule $model */
         $model = $this->repository->create([
             'server_id' => $server->id,
             'name' => $request->input('name'),
@@ -95,7 +95,7 @@ class ScheduleController extends ClientApiController
     /**
      * Updates a given schedule with the new data provided.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      * @throws \Everest\Exceptions\Model\DataValidationException
      * @throws \Everest\Exceptions\Repository\RecordNotFoundException
      */
@@ -165,7 +165,7 @@ class ScheduleController extends ClientApiController
     /**
      * Get the next run timestamp based on the cron data provided.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      */
     protected function getNextRunAt(Request $request): Carbon
     {

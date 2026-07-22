@@ -53,13 +53,13 @@ class ServerCreationServiceTest extends IntegrationTestCase
      */
     public function testServerIsCreatedWithDeploymentObject()
     {
-        /** @var \Everest\Models\User $user */
+        /** @var User $user */
         $user = User::factory()->create();
 
-        /** @var \Everest\Models\Node $node */
+        /** @var Node $node */
         $node = Node::factory()->create();
 
-        /** @var \Everest\Models\Allocation[]|\Illuminate\Database\Eloquent\Collection $allocations */
+        /** @var Allocation[]|\Illuminate\Database\Eloquent\Collection $allocations */
         $allocations = Allocation::factory()->times(5)->create([
             'node_id' => $node->id,
         ]);
@@ -151,13 +151,13 @@ class ServerCreationServiceTest extends IntegrationTestCase
      */
     public function testErrorEncounteredByWingsCausesServerToBeDeleted()
     {
-        /** @var \Everest\Models\User $user */
+        /** @var User $user */
         $user = User::factory()->create();
 
-        /** @var \Everest\Models\Node $node */
+        /** @var Node $node */
         $node = Node::factory()->create();
 
-        /** @var \Everest\Models\Allocation $allocation */
+        /** @var Allocation $allocation */
         $allocation = Allocation::factory()->create([
             'node_id' => $node->id,
         ]);

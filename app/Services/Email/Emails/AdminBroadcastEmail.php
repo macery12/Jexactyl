@@ -7,7 +7,7 @@ class AdminBroadcastEmail extends BaseEmail
     public function __construct(
         private string $subject,
         private string $message,
-        private ?string $adminName = null
+        private ?string $adminName = null,
     ) {
     }
 

@@ -23,7 +23,7 @@ class VariableValidatorService
     /**
      * Validate all of the passed data against the given service option variables.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
     public function handle(int $egg, array $fields = []): Collection
     {
@@ -34,7 +34,7 @@ class VariableValidatorService
             $query = $query->where('user_editable', true)->where('user_viewable', true);
         }
 
-        /** @var \Everest\Models\EggVariable[] $variables */
+        /** @var EggVariable[] $variables */
         $variables = $query->get();
 
         $data = $rules = $customAttributes = [];

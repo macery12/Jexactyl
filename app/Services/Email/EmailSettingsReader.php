@@ -4,8 +4,6 @@ namespace Everest\Services\Email;
 
 use Everest\Models\Setting;
 use Everest\Services\Security\SecretEncryptionService;
-use Everest\Services\Email\ResendPlanResolver;
-use Everest\Services\Email\ResendQuotaService;
 
 class EmailSettingsReader
 {

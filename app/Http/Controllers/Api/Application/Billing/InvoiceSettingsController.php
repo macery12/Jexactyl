@@ -2,13 +2,13 @@
 
 namespace Everest\Http\Controllers\Api\Application\Billing;
 
-use Everest\Http\Controllers\Api\Application\ApplicationApiController;
-use Everest\Models\Billing\InvoiceSettings;
-use Everest\Services\Billing\InvoiceSettingsService;
-use Everest\Services\Billing\InvoiceStorageService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Everest\Models\Billing\InvoiceSettings;
+use Everest\Services\Billing\InvoiceStorageService;
+use Everest\Services\Billing\InvoiceSettingsService;
+use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 
 class InvoiceSettingsController extends ApplicationApiController
 {
@@ -25,6 +25,7 @@ class InvoiceSettingsController extends ApplicationApiController
     public function show(Request $request): JsonResponse
     {
         $settings = $this->settingsService->get();
+
         return response()->json($this->transform($settings));
     }
 
@@ -57,7 +58,7 @@ class InvoiceSettingsController extends ApplicationApiController
             'r2_bytes_limit' => 'nullable|integer|min:1',
         ]);
 
-        $settings = $this->settingsService->update(array_filter($data, fn($v) => $v !== null));
+        $settings = $this->settingsService->update(array_filter($data, fn ($v) => $v !== null));
 
         return response()->json($this->transform($settings));
     }
@@ -189,6 +190,7 @@ class InvoiceSettingsController extends ApplicationApiController
                 $masked[$field] = '**redacted**';
             }
         }
+
         return $masked;
     }
 }

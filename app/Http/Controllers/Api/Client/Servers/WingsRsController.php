@@ -3,18 +3,18 @@
 namespace Everest\Http\Controllers\Api\Client\Servers;
 
 use Everest\Models\Server;
-use Everest\Models\Permission;
 use Illuminate\Http\Request;
+use Everest\Models\Permission;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Auth\Access\AuthorizationException;
 use Everest\Repositories\Wings\DaemonWingsRsRepository;
-use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 
 class WingsRsController extends ClientApiController
 {
     public function __construct(
-        private DaemonWingsRsRepository $wingsRsRepository
+        private DaemonWingsRsRepository $wingsRsRepository,
     ) {
         parent::__construct();
     }

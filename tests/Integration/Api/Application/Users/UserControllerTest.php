@@ -2,14 +2,14 @@
 
 namespace Everest\Tests\Integration\Api\Application\Users;
 
-use Everest\Events\ActivityLogged;
 use Everest\Models\User;
 use Illuminate\Http\Response;
+use Everest\Events\ActivityLogged;
 use Illuminate\Support\Facades\Event;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Transformers\Api\Application\UserTransformer;
 use Everest\Transformers\Api\Application\ServerTransformer;
 use Everest\Tests\Integration\Api\Application\ApplicationApiIntegrationTestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class UserControllerTest extends ApplicationApiIntegrationTestCase
 {

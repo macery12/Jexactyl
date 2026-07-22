@@ -2,8 +2,8 @@
 
 namespace Everest\Tests\Unit\Services\Email;
 
-use Everest\Services\Email\EmailSubjectResolver;
 use Everest\Tests\TestCase;
+use Everest\Services\Email\EmailSubjectResolver;
 
 class EmailSubjectResolverTest extends TestCase
 {

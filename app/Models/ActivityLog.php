@@ -25,11 +25,11 @@ use Illuminate\Database\Eloquent\Model as IlluminateModel;
  * @property int|null $api_key_id
  * @property bool|null $is_admin
  * @property \Illuminate\Support\Collection|null $properties
- * @property \Carbon\Carbon $timestamp
+ * @property Carbon $timestamp
  * @property IlluminateModel|\Eloquent $actor
- * @property \Illuminate\Database\Eloquent\Collection|\Everest\Models\ActivityLogSubject[] $subjects
+ * @property \Illuminate\Database\Eloquent\Collection|ActivityLogSubject[] $subjects
  * @property int|null $subjects_count
- * @property \Everest\Models\ApiKey|null $apiKey
+ * @property ApiKey|null $apiKey
  *
  * @method static Builder|ActivityLog forActor(\Illuminate\Database\Eloquent\Model $actor)
  * @method static Builder|ActivityLog forEvent(string $action)

@@ -6,11 +6,11 @@ use Everest\Models\Node;
 use Mockery\MockInterface;
 use Everest\Models\Database;
 use Everest\Models\DatabaseHost;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Services\Databases\DatabaseManagementService;
 use Everest\Services\Databases\DeployServerDatabaseService;
 use Everest\Exceptions\Service\Database\NoSuitableDatabaseHostException;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class DeployServerDatabaseServiceTest extends IntegrationTestCase
 {

@@ -3,17 +3,16 @@
 namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Models\Setting;
-use Everest\Models\AiUsageLog;
-use Everest\Facades\Activity;
 use Illuminate\Http\Request;
+use Everest\Facades\Activity;
 use Illuminate\Http\Response;
+use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\RateLimiter;
 use Everest\Services\AI\OpenAIService;
 use Everest\Services\Email\EmailRedactor;
+use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Requests\Api\Application\Intelligence;
 
 class IntelligenceController extends ApplicationApiController
@@ -159,6 +158,7 @@ class IntelligenceController extends ApplicationApiController
         $rateLimitKey = 'ai:admin:' . ($request->user()?->id ?? 'anon');
         if (RateLimiter::tooManyAttempts($rateLimitKey, 60)) {
             $retryAfter = RateLimiter::availableIn($rateLimitKey);
+
             return response()->json([
                 'error' => 'Too many AI requests. Please try again in ' . $retryAfter . ' seconds.',
                 'retry_after' => $retryAfter,
@@ -294,7 +294,7 @@ class IntelligenceController extends ApplicationApiController
 
         // Fill missing days with 0
         $series = [];
-        for ($i = 6; $i >= 0; $i--) {
+        for ($i = 6; $i >= 0; --$i) {
             $date = $now->copy()->subDays($i)->format('Y-m-d');
             $series[] = [
                 'date' => $date,

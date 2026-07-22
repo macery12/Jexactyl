@@ -15,7 +15,7 @@ class ResendService
 
     /**
      * Send an email using Resend API.
-     * 
+     *
      * Returns EmailResult with structured response data.
      * NO logging - that's handled by higher-level services (EmailManager, EmailDeliveryTracker).
      *

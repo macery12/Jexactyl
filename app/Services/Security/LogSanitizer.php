@@ -2,7 +2,6 @@
 
 namespace Everest\Services\Security;
 
-use Throwable;
 use Everest\Services\Email\EmailRedactor;
 
 class LogSanitizer
@@ -114,7 +113,7 @@ class LogSanitizer
         return self::redactSensitivePayload($summary);
     }
 
-    public static function exceptionContext(Throwable $exception): array
+    public static function exceptionContext(\Throwable $exception): array
     {
         $context = [
             'exception' => $exception::class,

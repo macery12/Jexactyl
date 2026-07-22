@@ -7,9 +7,6 @@ use Everest\Transformers\Api\Transformer;
 
 class CouponTransformer extends Transformer
 {
-    /**
-     * {@inheritdoc}
-     */
     public function getResourceName(): string
     {
         return Coupon::RESOURCE_NAME;
