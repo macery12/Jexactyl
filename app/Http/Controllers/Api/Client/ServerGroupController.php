@@ -48,6 +48,7 @@ class ServerGroupController extends ClientApiController
     {
         $data = $request->validated();
         $group = $request->user()->serverGroups()->findOrFail($id);
+        /** @var \Everest\Models\Server $server */
         $server = $request->user()->servers()->where('uuid', $data['server'])->firstOrFail();
 
         $server->groups()->syncWithoutDetaching([$group->id]);
@@ -63,6 +64,7 @@ class ServerGroupController extends ClientApiController
         $data = $request->validated();
         // Verify group ownership - findOrFail ensures the group belongs to this user
         $request->user()->serverGroups()->findOrFail($id);
+        /** @var \Everest\Models\Server $server */
         $server = $request->user()->servers()->where('uuid', $data['server'])->firstOrFail();
 
         $server->groups()->detach($id);

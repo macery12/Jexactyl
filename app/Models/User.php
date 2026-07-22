@@ -41,9 +41,11 @@ use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
  * @property \Illuminate\Support\Carbon|null $totp_authenticated_at
  * @property \Illuminate\Support\Carbon|null $email_verified_at
  * @property bool $gravatar
+ * @property bool $recovery_code_seen
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property string $avatar_url
+ * @property Billing\UserBillingProfile|null $billingProfile
  * @property string $recovery_code
  * @property string|null $admin_role_name
  * @property bool $email_verified

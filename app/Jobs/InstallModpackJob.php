@@ -148,9 +148,9 @@ class InstallModpackJob extends Job implements ShouldQueue
                 if ($this->wipeServer) {
                     $parent->update(['phase' => 'wiping', 'total_children' => $total]);
                     $res = $scriptRepo->run($this->buildWipeScript(), [], $callTimeout);
-                    if (!str_contains($res['stdout'] ?? '', self::WIPE_SENTINEL)) {
+                    if (!str_contains($res['stdout'], self::WIPE_SENTINEL)) {
                         $parent->update(['install_log' => $this->buildFailLog('Server wipe', $res)]);
-                        throw new \RuntimeException($this->firstError($res['stderr'] ?? '') ?: 'Server wipe did not complete.');
+                        throw new \RuntimeException($this->firstError($res['stderr']) ?: 'Server wipe did not complete.');
                     }
                 }
 
@@ -178,9 +178,9 @@ class InstallModpackJob extends Job implements ShouldQueue
                         $loaderTimeout,
                         $this->resolveLoaderImage($mcVersion),
                     );
-                    if (!str_contains($res['stdout'] ?? '', self::LOADER_SENTINEL)) {
+                    if (!str_contains($res['stdout'], self::LOADER_SENTINEL)) {
                         $parent->update(['install_log' => $this->buildFailLog('Loader install', $res)]);
-                        throw new \RuntimeException($this->firstError($res['stderr'] ?? '') ?: 'Loader install did not complete.');
+                        throw new \RuntimeException($this->firstError($res['stderr']) ?: 'Loader install did not complete.');
                     }
                     $notes[] = ucfirst($loaderName) . " {$loaderVersion} installed for Minecraft {$mcVersion}.";
                 }
@@ -188,9 +188,9 @@ class InstallModpackJob extends Job implements ShouldQueue
                 // Step: overrides.
                 $parent->update(['phase' => 'overrides', 'total_children' => $total]);
                 $res = $scriptRepo->run($this->buildOverridesScript($zipUrl, $overridesRoot), [], $callTimeout);
-                if (!str_contains($res['stdout'] ?? '', self::OVERRIDES_SENTINEL)) {
+                if (!str_contains($res['stdout'], self::OVERRIDES_SENTINEL)) {
                     $parent->update(['install_log' => $this->buildFailLog('Overrides', $res)]);
-                    throw new \RuntimeException($this->firstError($res['stderr'] ?? '') ?: 'Overrides step did not complete.');
+                    throw new \RuntimeException($this->firstError($res['stderr']) ?: 'Overrides step did not complete.');
                 }
 
                 $parent->update(['phase' => 'mods', 'completed_children' => 0, 'failed_children' => 0]);
@@ -271,10 +271,10 @@ class InstallModpackJob extends Job implements ShouldQueue
             ]);
 
             $res    = $scriptRepo->run($this->buildModsBatchScript($slice), [], $callTimeout);
-            $stdout = $res['stdout'] ?? '';
+            $stdout = $res['stdout'];
 
             if (!str_contains($stdout, self::BATCH_SENTINEL)) {
-                throw new \RuntimeException($this->firstError($res['stderr'] ?? '') ?: 'A mod batch did not complete.');
+                throw new \RuntimeException($this->firstError($res['stderr']) ?: 'A mod batch did not complete.');
             }
 
             [$processed, , $batchFailed] = $this->parseBatch($stdout);

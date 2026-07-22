@@ -226,7 +226,7 @@ class ExtensionsController extends ApplicationApiController
         $result = $this->uninstallService->uninstall(
             $extensionId,
             $dropData,
-            sprintf('admin:%s', $request->user()?->email ?? 'unknown')
+            sprintf('admin:%s', $request->user()->email)
         );
 
         Activity::event('admin:extensions:uninstall')
@@ -525,7 +525,7 @@ class ExtensionsController extends ApplicationApiController
 
         $results = $this->batchService->batchUninstall(
             $items,
-            sprintf('admin:%s', $request->user()?->email ?? 'unknown')
+            sprintf('admin:%s', $request->user()->email)
         );
 
         foreach ($results as $result) {

@@ -16,7 +16,7 @@ class SchemaBaseline
 
     public const LEGACY_CHAIN_PATH = 'database/schema/legacy-migrations.txt';
 
-    /** @var array<string, array{columns: array<string, array>, indexes: array, foreignKeys: array, collation: string}> */
+    /** @var array<string, array{columns: array<string, array>, indexes: array, foreignKeys: array, collation: string, primaryKey: string[]}> */
     private array $tables = [];
 
     private function __construct()

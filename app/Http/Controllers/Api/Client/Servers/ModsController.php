@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Services\Mods\SpigetService;
 use Everest\Services\Mods\ModrinthService;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Everest\Services\Plugins\PluginInstallService;
 use Everest\Services\Plugins\ProviderAccessService;
 use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
@@ -51,7 +50,6 @@ class ModsController extends ClientApiController
     public function __construct(
         private ModrinthService $modrinthService,
         private SpigetService $spigetService,
-        private PluginInstallService $pluginInstallService,
         private DaemonFileRepository $fileRepository,
         private ProviderAccessService $providerAccessService,
     ) {

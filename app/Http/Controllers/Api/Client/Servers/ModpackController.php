@@ -264,7 +264,7 @@ class ModpackController extends ClientApiController
      */
     private function resolveLoader(Server $server): ?string
     {
-        $eggName  = $server->egg?->name ?? '';
+        $eggName  = $server->egg->name ?? '';
         $detected = MinecraftStartupOptions::detectLoader($eggName);
 
         if (!$detected || !in_array($detected, self::MODPACK_LOADERS, true)) {

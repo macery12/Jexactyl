@@ -162,7 +162,7 @@ class PluginInstallService
                 'provider'        => $this->normalizeProviderForAnalytics($providerKey),
                 'type'            => $type,
                 'project_id'      => (string) $projectId,
-                'file_size_bytes' => $downloadedSize ?? 0,
+                'file_size_bytes' => $downloadedSize,
                 'status'          => MarketplaceInstallLog::STATUS_SUCCESS,
                 'server_id'       => $server->id,
                 'user_id'         => $userId ?? auth()->id(),

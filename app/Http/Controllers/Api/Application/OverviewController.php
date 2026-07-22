@@ -72,11 +72,11 @@ class OverviewController extends ApplicationApiController
             ->selectRaw('COALESCE(SUM(disk), 0) as disk_used')
             ->first();
 
-        $total = (int) $servers->total;
-        $suspended = (int) $servers->suspended;
-        $installFailed = (int) $servers->install_failed;
-        $memoryUsed = (int) $servers->memory_used;
-        $diskUsed = (int) $servers->disk_used;
+        $total = (int) $servers->getAttribute('total');
+        $suspended = (int) $servers->getAttribute('suspended');
+        $installFailed = (int) $servers->getAttribute('install_failed');
+        $memoryUsed = (int) $servers->getAttribute('memory_used');
+        $diskUsed = (int) $servers->getAttribute('disk_used');
 
         // Per-node allocation, so the dashboard can show each node's posture
         // instead of a single cluster-wide number.
@@ -161,8 +161,8 @@ class OverviewController extends ApplicationApiController
 
         return [
             'tickets' => [
-                'pending' => (int) $tickets->pending,
-                'inProgress' => (int) $tickets->in_progress,
+                'pending' => (int) $tickets->getAttribute('pending'),
+                'inProgress' => (int) $tickets->getAttribute('in_progress'),
             ],
             'billingExceptions' => BillingException::query()
                 ->where('created_at', '>=', now()->subDays(7))
@@ -215,7 +215,7 @@ class OverviewController extends ApplicationApiController
                 'id' => sha1($log->id),
                 'event' => $log->event,
                 'description' => $log->description,
-                'actor' => $log->actor?->username ?? 'system',
+                'actor' => $log->actor instanceof User ? $log->actor->username : 'system',
                 'timestamp' => $log->timestamp->toIso8601String(),
             ])
             ->all();

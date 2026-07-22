@@ -127,7 +127,7 @@ class AppServiceProvider extends ServiceProvider
 
                     public function getKey()
                     {
-                        return null;
+                        return '';
                     }
 
                     public function getAllKeys(): array
