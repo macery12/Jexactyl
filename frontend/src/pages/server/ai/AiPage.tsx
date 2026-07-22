@@ -52,7 +52,9 @@ export default function AiPage() {
     // The stream callbacks close over state at send time; a ref keeps the
     // persistence target correct even when the id changes mid-stream.
     const activeIdRef = useRef<number | null>(null);
-    activeIdRef.current = activeId;
+    useEffect(() => {
+        activeIdRef.current = activeId;
+    }, [activeId]);
 
     const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'closed');
     const toggleRail = () => {

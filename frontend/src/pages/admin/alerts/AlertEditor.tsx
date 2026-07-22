@@ -237,6 +237,8 @@ export default function AlertEditor({
         const formChanged = JSON.stringify(form) !== JSON.stringify(initial);
         const usersChanged =
             JSON.stringify(users.map(u => u.id).sort()) !==
+            // initialUsers.current is an immutable snapshot taken once on mount.
+            // eslint-disable-next-line react-hooks/refs -- stable mount snapshot, safe to read in render
             JSON.stringify(initialUsers.current.map(u => u.id).sort());
         return formChanged || usersChanged;
     }, [form, initial, users]);

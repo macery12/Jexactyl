@@ -12,13 +12,14 @@ type Probe = 'checking' | 'reachable' | 'unreachable';
 export default function HostStatus({ host }: { host: DatabaseHost }) {
     const [status, setStatus] = useState<Probe>('checking');
 
+    const addr = hostAddress(host);
     useEffect(() => {
         let cancelled = false;
         setStatus('checking');
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 4000);
 
-        fetch(`https://${hostAddress(host)}`, { mode: 'no-cors', signal: controller.signal })
+        fetch(`https://${addr}`, { mode: 'no-cors', signal: controller.signal })
             .then(() => !cancelled && setStatus('reachable'))
             .catch(() => !cancelled && setStatus('unreachable'))
             .finally(() => clearTimeout(timer));
@@ -28,7 +29,7 @@ export default function HostStatus({ host }: { host: DatabaseHost }) {
             controller.abort();
             clearTimeout(timer);
         };
-    }, [host.host, host.port]);
+    }, [addr]);
 
     if (status === 'checking') {
         return <Spinner className="h-3 w-3 shrink-0" />;

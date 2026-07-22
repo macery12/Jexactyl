@@ -75,10 +75,11 @@ export function useCheckoutController(productId: number): CheckoutController {
             retry: false,
         })),
     });
+    const eggIdsKey = eggQueries.map(q => q.data?.id).join(',');
     const eggs = useMemo(
         () => eggQueries.flatMap(q => (q.data ? [q.data] : [])),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [eggQueries.map(q => q.data?.id).join(',')],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on resolved egg ids
+        [eggIdsKey],
     );
     const eggsResolved = eggQueries.length === 0 || eggQueries.every(q => q.isFetched);
 

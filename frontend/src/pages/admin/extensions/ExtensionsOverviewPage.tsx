@@ -119,7 +119,7 @@ export default function ExtensionsOverviewPage() {
         prevActive.current = active;
     }, [active, qc]);
 
-    const extensions = extensionsQuery.data ?? [];
+    const extensions = useMemo(() => extensionsQuery.data ?? [], [extensionsQuery.data]);
 
     // Keep the open drawer's data fresh after mutations invalidate the list.
     useEffect(() => {

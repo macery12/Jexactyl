@@ -76,7 +76,10 @@ export default function MarketplaceSection() {
     const [tab, setTab] = useState<Tab>(urlTab ?? stored.tab ?? 'installed');
 
     // Provider (source) for the mods/plugins browsers.
-    const providers: ProviderKey[] = tab === 'plugins' ? caps?.plugins ?? [] : caps?.mods ?? [];
+    const providers: ProviderKey[] = useMemo(
+        () => (tab === 'plugins' ? caps?.plugins ?? [] : caps?.mods ?? []),
+        [tab, caps],
+    );
     const urlSource = params.get('provider') as Source | null;
     const [source, setSource] = useState<Source>(urlSource ?? stored.source ?? 'modrinth');
 

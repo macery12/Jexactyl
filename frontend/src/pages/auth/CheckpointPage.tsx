@@ -27,7 +27,7 @@ export default function CheckpointPage() {
                 code: values.code,
                 recoveryToken: values.recovery,
             });
-            window.location.href = res.intended || abs();
+            window.location.assign(res.intended || abs());
         } catch {
             setError(m['auth.checkpoint.codeError']());
         }
