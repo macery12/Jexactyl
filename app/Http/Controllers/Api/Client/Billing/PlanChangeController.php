@@ -2,6 +2,7 @@
 
 namespace Everest\Http\Controllers\Api\Client\Billing;
 
+use Everest\Models\User;
 use Everest\Models\Server;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Product;
@@ -12,6 +13,7 @@ use Everest\Services\Billing\BillingValidationService;
 use Everest\Transformers\Api\Client\ProductTransformer;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\GetServerRequest;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class PlanChangeController extends ClientApiController
 {
@@ -97,9 +99,15 @@ class PlanChangeController extends ClientApiController
 
     /**
      * Apply a plan change to the server.
+     *
+     * Restricted to the server owner (and root admins): a plan change rewrites the billing
+     * product and cycle that the owner is charged on at renewal, so it is not delegable to
+     * subusers.
      */
     public function changePlan(GetServerRequest $request, Server $server, int $productId): JsonResponse
     {
+        $this->assertOwner($request->user(), $server);
+
         $newProduct = Product::findOrFail($productId);
 
         // Re-verify that the server has a billing product
@@ -162,6 +170,18 @@ class PlanChangeController extends ClientApiController
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 400);
+        }
+    }
+
+    /**
+     * Root admins may change the plan on any server; everyone else must be the owner.
+     * Subusers are deliberately excluded even with full server permissions, since the
+     * charge lands on the owner rather than on the caller.
+     */
+    private function assertOwner(User $user, Server $server): void
+    {
+        if ($user->id !== $server->owner_id && !$user->root_admin) {
+            throw new AccessDeniedHttpException('Only the server owner can change the billing plan.');
         }
     }
 }
