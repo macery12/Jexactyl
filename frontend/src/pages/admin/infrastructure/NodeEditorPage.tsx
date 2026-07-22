@@ -134,6 +134,9 @@ export default function NodeEditorPage() {
 
     const backTo = editing ? `/admin/infrastructure/nodes/${id}` : '/admin/infrastructure';
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form watch() opts out of the react compiler
+    const scheme = watch('scheme');
+
     return (
         <form onSubmit={onSubmit} className="flex flex-col gap-5">
             <div>
@@ -168,7 +171,7 @@ export default function NodeEditorPage() {
                         </FieldRow>
                         <FieldRow label={m['admin.infrastructure.node.field.scheme']()}>
                             <Select
-                                value={watch('scheme')}
+                                value={scheme}
                                 onChange={v => setValue('scheme', v as 'http' | 'https', { shouldDirty: true })}
                                 options={[
                                     { value: 'https', label: 'https' },

@@ -52,6 +52,7 @@ export function VirtualGrid<T>({
 
     const rowCount = Math.ceil(items.length / cols);
 
+    // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual opts out of the react compiler
     const rowVirtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: () => scrollRef.current,
