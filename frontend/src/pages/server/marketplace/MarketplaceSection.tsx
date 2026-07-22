@@ -85,6 +85,7 @@ export default function MarketplaceSection() {
 
     // Keep the active tab valid once capabilities load.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (caps && !tabs.includes(tab)) setTab(tabs[0] ?? 'installed');
     }, [caps, tabs, tab]);
 
@@ -92,6 +93,7 @@ export default function MarketplaceSection() {
     useEffect(() => {
         const first = providers[0];
         if ((tab === 'mods' || tab === 'plugins') && first && !providers.includes(source)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setSource(first);
         }
     }, [tab, providers, source]);

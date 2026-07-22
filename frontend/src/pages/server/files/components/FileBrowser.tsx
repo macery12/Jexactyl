@@ -111,6 +111,7 @@ export default function FileBrowser() {
 
     // Reset transient state whenever the directory changes.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setSelected([]);
         setSearchTerm('');
     }, [directory]);

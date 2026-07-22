@@ -73,6 +73,7 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
 
     useEffect(() => {
         if (!open) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setMemo('');
         setPermissions(emptyPermissions());
         setError(null);

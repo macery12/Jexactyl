@@ -95,6 +95,7 @@ export function useCheckoutController(productId: number): CheckoutController {
 
     // Seed node from first viable node.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (nodeId === 0 && nodesQ.data && nodesQ.data.length > 0) setNodeId(nodesQ.data[0]!.id);
     }, [nodesQ.data, nodeId]);
 
@@ -102,12 +103,14 @@ export function useCheckoutController(productId: number): CheckoutController {
     useEffect(() => {
         if (cycleDays === 0 && cyclesQ.data && cyclesQ.data.length > 0) {
             const def = cyclesQ.data.find(c => c.isDefault) ?? cyclesQ.data[0]!;
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setCycleDays(def.days);
         }
     }, [cyclesQ.data, cycleDays]);
 
     // Seed egg from first resolved allowed egg.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (eggId === undefined && eggs.length > 0) setEggId(eggs[0]!.id);
     }, [eggs, eggId]);
 
@@ -136,6 +139,7 @@ export function useCheckoutController(productId: number): CheckoutController {
 
     // Coupon is priced against the current cycle; changing the cycle invalidates it.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (couponData) setCouponData(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cycleDays]);

@@ -74,6 +74,7 @@ export default function SettingsPage() {
     useEffect(() => {
         if (modsFlag && !form) {
             const f = toForm(modsFlag);
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setForm(f);
             setSaved(f);
         }

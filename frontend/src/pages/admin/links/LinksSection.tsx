@@ -66,12 +66,14 @@ export default function LinksSection() {
     // when links exist; fall back to the create form on an empty list.
     useEffect(() => {
         if (!links || selection !== null) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setSelection(links.length > 0 ? { mode: 'edit', id: links[0]!.id } : { mode: 'new' });
     }, [links, selection]);
 
     // A stale edit-selection (e.g. after a delete) collapses to the first link or new.
     useEffect(() => {
         if (selection?.mode === 'edit' && links && !links.some(l => l.id === selection.id)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setSelection(links.length > 0 ? { mode: 'edit', id: links[0]!.id } : { mode: 'new' });
         }
     }, [selection, links]);

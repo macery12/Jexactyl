@@ -54,12 +54,14 @@ export default function DatabasesSection() {
     // when hosts exist; fall back to the create form on an empty list.
     useEffect(() => {
         if (!hosts || selection !== null) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setSelection(hosts.length > 0 ? { mode: 'edit', id: hosts[0]!.id } : { mode: 'new' });
     }, [hosts, selection]);
 
     // A stale edit-selection (e.g. after a delete) collapses to the first host or new.
     useEffect(() => {
         if (selection?.mode === 'edit' && hosts && !hosts.some(h => h.id === selection.id)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setSelection(hosts.length > 0 ? { mode: 'edit', id: hosts[0]!.id } : { mode: 'new' });
         }
     }, [selection, hosts]);

@@ -26,6 +26,7 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
 
     useEffect(() => {
         if (!open) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setName('');
         setDescription('');
         setColor(DEFAULT_COLOR);

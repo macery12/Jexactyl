@@ -135,6 +135,7 @@ export function SettingsTab() {
 
     useEffect(() => {
         if (!settings || hydrated) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setForm({
             key: '',
             mode: settings.mode || 'openai',

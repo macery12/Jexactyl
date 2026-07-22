@@ -42,6 +42,7 @@ export default function SmtpPage() {
     }, [settings]);
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (initial) setForm(initial);
     }, [initial]);
 

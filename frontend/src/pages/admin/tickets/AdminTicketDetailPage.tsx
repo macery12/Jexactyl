@@ -80,6 +80,7 @@ export default function AdminTicketDetailPage() {
 
     useEffect(() => {
         if (!ticket) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setStatus(ticket.status);
         setPriority(ticket.priority);
         setAssignee(ticket.assignedTo ? String(ticket.assignedTo.id) : '');

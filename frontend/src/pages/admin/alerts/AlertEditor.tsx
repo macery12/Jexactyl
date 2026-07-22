@@ -119,6 +119,7 @@ function UserPicker({
 
     useEffect(() => {
         if (query.trim().length < 2) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setResults([]);
             return;
         }

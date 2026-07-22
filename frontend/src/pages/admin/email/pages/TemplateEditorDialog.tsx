@@ -74,6 +74,7 @@ export function TemplateEditorDialog({
     // Seed the editor once the source arrives.
     useEffect(() => {
         if (sourceQ.data) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setContent(sourceQ.data.content);
             setSavedContent(sourceQ.data.content);
             setIsCustomized(sourceQ.data.is_customized);

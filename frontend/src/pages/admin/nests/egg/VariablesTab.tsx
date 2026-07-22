@@ -399,6 +399,7 @@ export function VariablesTab({
     // Re-sync to server truth whenever the parent egg refetches (create / delete
     // / cross-tab save). In-tab edits don't change the `variables` prop.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setRows(variables);
         setBaseline(variables);
     }, [variables]);

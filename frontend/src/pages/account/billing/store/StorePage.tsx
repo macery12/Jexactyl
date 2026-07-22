@@ -35,6 +35,7 @@ export default function StorePage() {
 
     useEffect(() => {
         if (categoryId === null && categoriesQ.data && categoriesQ.data.length > 0) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setCategoryId(categoriesQ.data[0]!.id);
         }
     }, [categoriesQ.data, categoryId]);

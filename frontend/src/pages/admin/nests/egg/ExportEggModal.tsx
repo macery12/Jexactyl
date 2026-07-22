@@ -16,6 +16,7 @@ export function ExportEggModal({ eggId, onClose }: { eggId: number; onClose: () 
 
     useEffect(() => {
         let active = true;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setLoading(true);
         exportEgg(eggId)
             .then(json => active && setContent(json))

@@ -15,6 +15,7 @@ export default function HostStatus({ host }: { host: DatabaseHost }) {
     const addr = hostAddress(host);
     useEffect(() => {
         let cancelled = false;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setStatus('checking');
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 4000);

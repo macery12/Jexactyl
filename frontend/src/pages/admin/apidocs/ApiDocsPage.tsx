@@ -108,6 +108,7 @@ export default function ApiDocsPage() {
     // current one drops out of the filtered set.
     useEffect(() => {
         const first = filtered[0];
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (first && !filtered.some(e => e.id === selectedId)) setSelectedId(first.id);
     }, [filtered, selectedId]);
 
@@ -342,6 +343,7 @@ function NavTag({
 
     // Keep the group holding the selected endpoint expanded.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (containsSelected) setOpen(true);
     }, [containsSelected]);
 

@@ -84,6 +84,7 @@ export default function FileEditor({ action }: { action: 'edit' | 'new' }) {
     useEffect(() => {
         if (action !== 'edit' || !filename) return;
         const controller = new AbortController();
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setLoading(true);
         setError(null);
         getFileContents(uuid, filename, { signal: controller.signal })
@@ -104,6 +105,7 @@ export default function FileEditor({ action }: { action: 'edit' | 'new' }) {
         if (!filename) return;
         const match = LanguageDescription.matchFilename(languages, filename);
         if (match) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setLangName(match.name);
             match.load().then(setLangExt);
         }

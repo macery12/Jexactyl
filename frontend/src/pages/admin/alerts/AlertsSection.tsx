@@ -70,6 +70,7 @@ export default function AlertsSection() {
     // when content exists; fall back to the create form on an empty list.
     useEffect(() => {
         if (!alerts || selection !== null) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setSelection(alerts.length > 0 ? { mode: 'edit', id: alerts[0]!.id } : { mode: 'new' });
     }, [alerts, selection]);
 
@@ -81,6 +82,7 @@ export default function AlertsSection() {
     // A stale edit-selection (e.g. after a delete elsewhere) collapses to new.
     useEffect(() => {
         if (selection?.mode === 'edit' && alerts && !alerts.some(a => a.id === selection.id)) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setSelection(alerts.length > 0 ? { mode: 'edit', id: alerts[0]!.id } : { mode: 'new' });
         }
     }, [selection, alerts]);

@@ -74,6 +74,7 @@ export function EditBillingModal({ open, onClose, server }: { open: boolean; onC
     // Reset to the server's persisted billing every time the modal opens, so a
     // cancelled run never leaks its edits into the next one.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (open) setDraft(draftFrom(server));
     }, [open, server]);
 
@@ -84,6 +85,7 @@ export function EditBillingModal({ open, onClose, server }: { open: boolean; onC
         if (!open || draft.categoryId || !categoriesQ.data) return;
         const uuid = server.billing.product?.categoryUuid;
         const match = uuid ? categoriesQ.data.find(c => c.uuid === uuid) : undefined;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (match) set('categoryId', String(match.id));
         else if (categoriesQ.data.length === 1) set('categoryId', String(categoriesQ.data[0]!.id));
     }, [open, categoriesQ.data, server.billing.product?.categoryUuid, draft.categoryId]);
@@ -99,6 +101,7 @@ export function EditBillingModal({ open, onClose, server }: { open: boolean; onC
     useEffect(() => {
         const products = productsQ.data;
         if (!products) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setDraft(prev => {
             if (!prev.productId || products.some(p => String(p.id) === prev.productId)) return prev;
             return { ...prev, productId: '', billingDays: null };
@@ -116,6 +119,7 @@ export function EditBillingModal({ open, onClose, server }: { open: boolean; onC
     useEffect(() => {
         const cycles = cyclesQ.data;
         if (!cycles?.length) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setDraft(prev => {
             if (prev.billingDays && cycles.some(c => c.days === prev.billingDays)) return prev;
             const fallback = cycles.find(c => c.isDefault) ?? cycles[0]!;

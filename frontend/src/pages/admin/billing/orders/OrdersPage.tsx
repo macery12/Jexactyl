@@ -126,6 +126,7 @@ export default function OrdersPage() {
     );
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setPage(1);
     }, [filters, sort, sortDesc]);
 

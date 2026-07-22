@@ -187,6 +187,7 @@ export default function RoleDetailPage() {
     // after a save).
     useEffect(() => {
         if (!role) return;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setName(role.name);
         setDescription(role.description ?? '');
         setColor(role.color ?? '#6366f1');
