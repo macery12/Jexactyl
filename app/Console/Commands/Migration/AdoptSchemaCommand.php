@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Everest\Services\Migration\SchemaChange;
 use Everest\Services\Migration\SchemaBaseline;
 use Everest\Services\Migration\SchemaReconciler;
+use Everest\Services\Migration\ColumnRemediation;
 use Everest\Services\Migration\SchemaAdoptService;
 
 class AdoptSchemaCommand extends Command
@@ -73,9 +74,10 @@ class AdoptSchemaCommand extends Command
         };
 
         $changes = $replan();
+        $remediations = $reconciler->remediations($baseline);
         $unrepairable = $reconciler->unrepairableDifferences($baseline);
 
-        if ($changes === [] && $unrepairable === [] && $service->alreadyAdopted($currentChain)) {
+        if ($changes === [] && $remediations === [] && $unrepairable === [] && $service->alreadyAdopted($currentChain)) {
             $this->info('This install already matches the shipped schema and is on the consolidated chain — nothing to do.');
 
             return 0;
@@ -83,6 +85,7 @@ class AdoptSchemaCommand extends Command
 
         $this->reportPlan(
             $changes,
+            $remediations,
             $unrepairable,
             $reconciler->toleratedDifferences($baseline),
             array_values(array_diff($reconciler->extraTables($baseline), $dropTables)),
@@ -104,6 +107,13 @@ class AdoptSchemaCommand extends Command
             $this->warn('Aborted. Nothing was written.');
 
             return 1;
+        }
+
+        // Data decisions come first: filling and remapping rows so the columns
+        // they belong to are safe to alter, before the schema plan runs.
+        if ($remediations !== []) {
+            $this->runRemediations($service, $remediations);
+            $reconciler->refresh();
         }
 
         $this->line('');
@@ -134,6 +144,7 @@ class AdoptSchemaCommand extends Command
         array $currentChain,
     ): int {
         $remaining = $replan();
+        $remediations = $reconciler->remediations($baseline);
         $unrepairable = $reconciler->unrepairableDifferences($baseline);
 
         $this->line('');
@@ -144,10 +155,11 @@ class AdoptSchemaCommand extends Command
         }
 
         // The migration history is the panel's claim about what this schema is.
-        // Rewriting it while the schema still differs would make every later
-        // upgrade trust a description that is not true, so that claim is only
-        // made once it is earned.
-        if ($remaining !== [] || $unrepairable !== []) {
+        // Rewriting it while the schema still differs — including a data decision
+        // that was skipped rather than made — would make every later upgrade
+        // trust a description that is not true, so that claim is only made once
+        // it is earned.
+        if ($remaining !== [] || $remediations !== [] || $unrepairable !== []) {
             $this->line('');
             $this->error('Could not bring this install fully in line with the shipped schema.');
             $this->line('');
@@ -155,6 +167,10 @@ class AdoptSchemaCommand extends Command
 
             foreach ($remaining as $change) {
                 $this->line('  - ' . $change->description);
+            }
+
+            foreach ($remediations as $remediation) {
+                $this->line('  - ' . $remediation->target() . ': needs a data decision (see above)');
             }
 
             foreach ($unrepairable as $problem) {
@@ -201,6 +217,183 @@ class AdoptSchemaCommand extends Command
             $this->line('      statement: ' . $failure['statement']);
             $this->line('      ' . $failure['error']);
         }
+    }
+
+    /**
+     * Dry-run view of the data decisions the real run will walk through. Shows
+     * what is there now and what the default would do, so the operator knows
+     * what they are agreeing to before anything prompts them.
+     *
+     * @param ColumnRemediation[] $remediations
+     */
+    private function reportRemediations(array $remediations): void
+    {
+        $this->line('');
+        $this->warn(sprintf('  ? %d column(s) need a data decision before the schema can change:', count($remediations)));
+
+        foreach ($remediations as $r) {
+            $this->line('');
+            $this->line(sprintf('    %s — %s → %s', $r->target(), $r->currentType, $r->targetType));
+            $this->line('      ' . wordwrap($r->explanation, 78, "\n      ", true));
+
+            if ($r->kind === ColumnRemediation::KIND_VALUE_REMAP) {
+                $this->line('      values present now:');
+                foreach ($r->distribution as $value => $count) {
+                    $this->line(sprintf('        `%s` — %s row(s)', $value, number_format($count)));
+                }
+                $this->line('      You will be asked, per value, whether it means '
+                    . implode(', ', $r->meaningfulTargets) . ', or a normal account.');
+            } else {
+                $this->line(sprintf(
+                    '      %s row(s) are NULL; the default fill is %s. You can change it when prompted.',
+                    number_format($r->nullCount),
+                    $r->proposedFill === null ? 'unset (you must supply one)' : "`{$r->proposedFill}`",
+                ));
+            }
+        }
+    }
+
+    /**
+     * Walk each data decision with the operator, build the SQL from their
+     * answers, and apply it. Runs before the schema plan, so by the time the
+     * columns are altered their rows already fit.
+     *
+     * @param ColumnRemediation[] $remediations
+     */
+    private function runRemediations(SchemaAdoptService $service, array $remediations): void
+    {
+        $this->line('');
+        $this->line('Data decisions:');
+
+        foreach ($remediations as $r) {
+            $this->line('');
+            $this->line('  ' . $r->target() . ':');
+            $this->line('  ' . wordwrap($r->explanation, 74, "\n  ", true));
+
+            $statements = $r->kind === ColumnRemediation::KIND_VALUE_REMAP
+                ? $this->planValueRemap($r)
+                : $this->planNullFill($r);
+
+            if ($statements === []) {
+                $this->warn('    · left as-is; it will be listed as still outstanding.');
+
+                continue;
+            }
+
+            try {
+                foreach ($statements as $statement) {
+                    $service->run($statement);
+                    $this->line('    ✔ ' . $statement);
+                }
+            } catch (\Throwable $e) {
+                // A failed fix leaves the column short of the target, so the
+                // schema plan will leave it outstanding and the history rewrite
+                // is held back. Report and move on rather than crash.
+                $this->warn('    ! could not apply: ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Turn a value remap into SQL. The type change comes first (lossless — every
+     * integer has a string form), then one UPDATE per source value the operator
+     * gives a meaning to; anything they leave alone keeps the target's neutral
+     * value, which for these columns is what the old integer already widened to.
+     *
+     * @return string[]
+     */
+    private function planValueRemap(ColumnRemediation $r): array
+    {
+        if (!$this->interactive()) {
+            $this->warn('    · needs an interactive choice per value; re-run without --assume-yes, '
+                . 'or map it by hand. Skipping.');
+
+            return [];
+        }
+
+        $choices = array_merge(['normal account (NULL)'], $r->meaningfulTargets);
+        $updates = [];
+
+        foreach ($r->distribution as $value => $count) {
+            $answer = $this->choice(
+                sprintf('    `%s` (%s row(s)) means', $value, number_format($count)),
+                $choices,
+                0,
+            );
+
+            if ($answer === $choices[0]) {
+                $updates[] = sprintf(
+                    'UPDATE `%s` SET `%s` = NULL WHERE `%s` = %s',
+                    $r->table,
+                    $r->column,
+                    $r->column,
+                    $this->quote((string) $value),
+                );
+
+                continue;
+            }
+
+            $updates[] = sprintf(
+                'UPDATE `%s` SET `%s` = %s WHERE `%s` = %s',
+                $r->table,
+                $r->column,
+                $this->quote($answer),
+                $r->column,
+                $this->quote((string) $value),
+            );
+        }
+
+        // The column is widened to its text type first, so the UPDATEs above
+        // compare against the values as strings.
+        return array_merge(
+            [sprintf('ALTER TABLE `%s` MODIFY COLUMN `%s` %s NULL', $r->table, $r->column, $r->targetType)],
+            $updates,
+        );
+    }
+
+    /**
+     * Turn a NULL fill into a single UPDATE. The column is made NOT NULL
+     * afterwards by the ordinary schema plan, once these rows no longer hold
+     * NULL. Under --assume-yes the proposed fill is used when there is one, and
+     * the decision is deferred when there is not.
+     *
+     * @return string[]
+     */
+    private function planNullFill(ColumnRemediation $r): array
+    {
+        $fill = $r->proposedFill;
+
+        if ($this->interactive()) {
+            $answer = $this->ask(
+                sprintf('    Fill the %s NULL row(s) with (blank keeps the default)', number_format($r->nullCount)),
+                $fill,
+            );
+            $fill = $answer === null || $answer === '' ? $fill : $answer;
+        }
+
+        if ($fill === null) {
+            $this->warn('    · no fill value and no default; supply one interactively or by hand. Skipping.');
+
+            return [];
+        }
+
+        return [sprintf(
+            'UPDATE `%s` SET `%s` = %s WHERE `%s` IS NULL',
+            $r->table,
+            $r->column,
+            $this->quote($fill),
+            $r->column,
+        )];
+    }
+
+    private function interactive(): bool
+    {
+        return $this->input->isInteractive() && !$this->option('assume-yes');
+    }
+
+    private function quote(string $value): string
+    {
+        return DB::connection()->getPdo()->quote($value);
     }
 
     private function printPreamble(string $database): void
@@ -263,6 +456,7 @@ class AdoptSchemaCommand extends Command
 
     /**
      * @param SchemaChange[] $changes
+     * @param ColumnRemediation[] $remediations
      * @param string[] $unrepairable
      * @param string[] $tolerated
      * @param string[] $extraTables
@@ -274,6 +468,7 @@ class AdoptSchemaCommand extends Command
      */
     private function reportPlan(
         array $changes,
+        array $remediations,
         array $unrepairable,
         array $tolerated,
         array $extraTables,
@@ -317,6 +512,10 @@ class AdoptSchemaCommand extends Command
                 }
                 $this->line('');
             }
+        }
+
+        if ($remediations !== []) {
+            $this->reportRemediations($remediations);
         }
 
         if ($unrepairable !== []) {

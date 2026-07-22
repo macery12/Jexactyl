@@ -130,11 +130,19 @@ class SchemaAdoptService
      * point is to get as close to the shipped schema as this install allows and
      * then say plainly what is left.
      *
-     * @param callable(): SchemaChange[] $replan
-     * @param callable(SchemaChange): void|null $onApplied
-     *
      * @return array{applied: SchemaChange[], failed: array<array{change: SchemaChange, statement: string, error: string}>}
      */
+    /**
+     * Run one statement outside the phased plan — the data fixes a remediation
+     * produces, which have to land before the columns they belong to are
+     * altered. Unlike a plan change these are not swallowed on failure: a fill
+     * or remap that cannot be written is a reason to stop, not to press on.
+     */
+    public function run(string $statement): void
+    {
+        $this->connection->statement($statement);
+    }
+
     public function applyPlan(callable $replan, ?callable $onApplied = null): array
     {
         $applied = [];

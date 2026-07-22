@@ -147,7 +147,31 @@ Two failure modes found while doing this, both now fixed:
 - A single failing statement aborted the whole run. Failures are now collected
   and the remaining changes still attempted.
 
-Two refinements to what counts as unsafe, from a second install's dry run:
+**Data decisions (2026-07-21).** Installs that came through a fork
+(Pterodactyl → JexPanel → here) turned up two differences that DDL cannot close
+on its own, because they turn on what the rows *mean*:
+
+- `users.state` is an integer enum on the fork; this panel reads it as text
+  (`NULL`/`'suspended'`/`'pending'`). The type widens losslessly, but which
+  integer meant "suspended" is not in the schema. Guessing would silently
+  un-suspend or lock out accounts.
+- `egg_variables.rules` is NULL on older installs but NOT NULL in the shipped
+  schema; tightening it as-is blanks every NULL to `''`, which strips validation
+  from those variables with no warning.
+
+Rather than refuse these (stranding the upgrade) or coerce them (losing meaning),
+the command now runs a **remediation pass** before the schema plan: it reads the
+column's actual value distribution, proposes a safe default, and applies the
+`UPDATE`s the operator confirms. A remediation only ever *suggests* — the
+per-column knowledge it draws on ([`ColumnRemediation`](../../app/Services/Migration/ColumnRemediation.php),
+hints in `SchemaReconciler::remediationHints()`) encodes this panel's meaning for
+its own columns, never a guess about the source. Under `--assume-yes` a safe
+default (a NULL fill) is taken; a genuine choice (the state remap) is skipped and
+holds back the history rewrite, so automation never corrupts. Outstanding
+remediations block the bookkeeping rewrite exactly like an unrepairable
+difference does.
+
+Two further refinements to what counts as unsafe, from the same dry runs:
 
 - `char(191)` → `varchar(191)` was refused as a change of type family. It holds
   the same values either way, and is now corrected. (`varchar` → `char` still is

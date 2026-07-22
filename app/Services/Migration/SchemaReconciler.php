@@ -71,6 +71,12 @@ class SchemaReconciler
                     continue;
                 }
 
+                // A difference a guided remediation can close is not unrepairable
+                // — it is reported and resolved in that pass instead.
+                if ($this->remediationFor($table, $column, $definition, $actual[$column]) !== null) {
+                    continue;
+                }
+
                 if (($reason = $this->lossyColumnChange($table, $column, $definition, $actual[$column])) !== null) {
                     $problems[] = sprintf(
                         '`%s`.`%s`: %s — changing this could truncate or reinterpret existing values, so it is left alone. Correct it by hand.',
@@ -83,6 +89,207 @@ class SchemaReconciler
         }
 
         return $problems;
+    }
+
+    /**
+     * Column differences that turn on what the rows mean rather than what shape
+     * they are, and so need a decision from the operator before any DDL runs.
+     * Each is returned as facts plus a proposal; the command drives the
+     * conversation and applies the resulting data fix. See {@see ColumnRemediation}.
+     *
+     * Recomputed like everything else against the live schema, so once a
+     * remediation is applied it stops being reported on the next pass.
+     *
+     * @return ColumnRemediation[]
+     */
+    public function remediations(SchemaBaseline $baseline): array
+    {
+        $remediations = [];
+        $actualTables = $this->tables();
+
+        foreach ($baseline->tableNames() as $table) {
+            if ($table === 'migrations' || !in_array($table, $actualTables, true)) {
+                continue;
+            }
+
+            $actual = $this->columns($table);
+
+            foreach ($baseline->columns($table) as $column => $definition) {
+                if (!isset($actual[$column])) {
+                    continue;
+                }
+
+                if (($remediation = $this->remediationFor($table, $column, $definition, $actual[$column])) !== null) {
+                    $remediations[] = $remediation;
+                }
+            }
+        }
+
+        return $remediations;
+    }
+
+    /**
+     * The one remediation a column needs, or null when it needs none. Two shapes
+     * are recognised: an integer enum where the shipped schema wants text labels
+     * (a value remap), and a NOT NULL column that currently holds NULLs (a fill).
+     */
+    private function remediationFor(string $table, string $column, array $expected, array $actual): ?ColumnRemediation
+    {
+        $hint = $this->remediationHints()[$table . '.' . $column] ?? [];
+
+        // A value remap only applies where the shipped column carries a known
+        // vocabulary (so "everything else" has a defined neutral value) and the
+        // type change preserves the data underneath it.
+        if (($hint['kind'] ?? null) === ColumnRemediation::KIND_VALUE_REMAP
+            && $this->representationWidening($actual, $expected)) {
+            return new ColumnRemediation(
+                kind: ColumnRemediation::KIND_VALUE_REMAP,
+                table: $table,
+                column: $column,
+                currentType: $actual['type'],
+                targetType: $expected['type'],
+                explanation: $hint['explanation'],
+                distribution: $this->valueDistribution($table, $column),
+                meaningfulTargets: $hint['meaningful'] ?? [],
+            );
+        }
+
+        // A NOT NULL column that still holds NULLs. Left to the plain plan this
+        // would tighten in place and let the database blank every NULL with no
+        // warning; instead the operator chooses the fill first.
+        if (!$expected['nullable'] && $actual['nullable'] && $this->nullCount($table, $column) > 0) {
+            // A shipped default is the obvious fill and needs no thought; a hint
+            // supplies one where there is no default; otherwise the operator is
+            // asked, and the run cannot proceed unattended.
+            $fill = $hint['fill'] ?? $this->defaultFillValue($expected);
+
+            return new ColumnRemediation(
+                kind: ColumnRemediation::KIND_NULL_FILL,
+                table: $table,
+                column: $column,
+                currentType: $actual['type'],
+                targetType: $expected['type'],
+                explanation: $hint['explanation'] ?? sprintf(
+                    'The shipped schema makes `%s`.`%s` NOT NULL. Existing NULLs need a value before it can be tightened.',
+                    $table,
+                    $column,
+                ),
+                nullCount: $this->nullCount($table, $column),
+                proposedFill: $fill,
+                safeUnattended: $fill !== null,
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Per-column knowledge that lets a remediation propose a sensible default.
+     * These encode *this panel's* meaning for its own columns, not guesses about
+     * any particular source panel — so a value remap only ever suggests, and the
+     * operator confirms which source value is which.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function remediationHints(): array
+    {
+        return [
+            'users.state' => [
+                'kind' => ColumnRemediation::KIND_VALUE_REMAP,
+                'meaningful' => ['suspended', 'pending'],
+                'explanation' => "This install stores the account state as an integer — a fork's enum — "
+                    . "but this panel reads it as text: NULL for a normal account, 'suspended', or 'pending'. "
+                    . 'The mapping is by meaning, not by number, so you confirm which code means what; '
+                    . 'anything you do not claim becomes a normal (NULL) account.',
+            ],
+            'egg_variables.rules' => [
+                'kind' => ColumnRemediation::KIND_NULL_FILL,
+                'fill' => 'nullable|string',
+                'explanation' => 'Some variable rule sets are NULL here, but the shipped schema requires a value. '
+                    . "'nullable|string' means the variable is optional and unvalidated — the safe, non-restrictive "
+                    . "default. Blanking them ('') instead would quietly strip validation from those variables.",
+            ],
+        ];
+    }
+
+    /**
+     * Whether changing $actual's type to $expected's keeps every stored value
+     * intact — specifically an integer becoming a string wide enough to hold its
+     * decimal form. That is what lets a value remap treat the type change as
+     * free and spend its attention on the vocabulary instead.
+     */
+    private function representationWidening(array $actual, array $expected): bool
+    {
+        if ($this->integerBounds($this->baseType($actual['type']), false) === null) {
+            return false;
+        }
+
+        if (!in_array($this->baseType($expected['type']), ['varchar', 'char', 'text', 'mediumtext', 'longtext'], true)) {
+            return false;
+        }
+
+        // The widest 64-bit integer is 20 digits, 21 with a sign; a text type
+        // (no size) or any string at least that wide cannot truncate one.
+        $size = $this->typeSize($expected['type']);
+
+        return $size === null || $size >= 21;
+    }
+
+    /** A NOT NULL column's shipped default as a fill value, or null when it has none. */
+    private function defaultFillValue(array $expected): ?string
+    {
+        if ($expected['default'] === null) {
+            return null;
+        }
+
+        // Defaults are stored as SQL literals; a value remap works in raw values,
+        // so strip one layer of quoting off a string literal.
+        $default = $this->defaultLiteral($expected['default']);
+
+        if (preg_match("/^'(.*)'$/s", $default, $m)) {
+            return str_replace("''", "'", $m[1]);
+        }
+
+        return $default;
+    }
+
+    /**
+     * Distinct current values of a column and how many rows hold each, for
+     * presenting a remap. Capped so a high-cardinality column cannot flood the
+     * screen; a remap only makes sense on a low-cardinality enum anyway.
+     *
+     * @return array<string, int>
+     */
+    private function valueDistribution(string $table, string $column): array
+    {
+        $rows = $this->connection->select(sprintf(
+            'SELECT `%s` AS v, COUNT(*) AS n FROM `%s` GROUP BY `%s` ORDER BY n DESC LIMIT 50',
+            $column,
+            $table,
+            $column,
+        ));
+
+        $distribution = [];
+
+        foreach ($rows as $row) {
+            // NULL already means "normal" in the target vocabulary; only concrete
+            // values need a decision.
+            if ($row->v === null) {
+                continue;
+            }
+
+            $distribution[(string) $row->v] = (int) $row->n;
+        }
+
+        return $distribution;
+    }
+
+    private function nullCount(string $table, string $column): int
+    {
+        return $this->cache['nulls'][$table][$column] ??= (int) $this->connection
+            ->table($table)
+            ->whereNull($column)
+            ->count();
     }
 
     /**
@@ -372,6 +579,13 @@ class SchemaReconciler
                 continue;
             }
 
+            // A column that needs a data decision is handled in the remediation
+            // pass, which fills or remaps the rows first; once it has, this plan
+            // recomputes and the corrected column falls through to a plain MODIFY.
+            if ($this->remediationFor($table, $column, $definition, $actual[$column]) !== null) {
+                continue;
+            }
+
             $changes[] = new SchemaChange(
                 kind: SchemaChange::KIND_MODIFY_COLUMN,
                 table: $table,
@@ -381,8 +595,6 @@ class SchemaReconciler
                     $table,
                     $this->columnDefinition($column, $definition),
                 )],
-                // Tightening a nullable column rewrites any NULL already stored.
-                destructive: $actual[$column]['nullable'] && !$definition['nullable'],
             );
         }
 
