@@ -5,7 +5,8 @@ namespace Everest\Http\Controllers\Api\Application;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Blade;
+use Everest\Services\Email\Templating\EmailTemplateRenderer;
+use Everest\Services\Email\Templating\TwigEnvironmentFactory;
 use Everest\Http\Requests\Api\Application\Email\RevertEmailTemplateRequest;
 use Everest\Http\Requests\Api\Application\Email\GetEmailTemplateKeysRequest;
 use Everest\Http\Requests\Api\Application\Email\PreviewEmailTemplateRequest;
@@ -13,8 +14,13 @@ use Everest\Http\Requests\Api\Application\Email\UpdateEmailTemplateSourceRequest
 
 class EmailTemplateController extends ApplicationApiController
 {
+    public function __construct(private EmailTemplateRenderer $renderer)
+    {
+        parent::__construct();
+    }
+
     /**
-     * All available email templates with their display metadata, Blade view path, and variable docs.
+     * All available email templates with their display metadata, view path, and variable docs.
      *
      * Each entry in 'variables' has:
      *   name        – the variable reference used in the template
@@ -28,9 +34,9 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.account-created',
             'variables' => [
-                ['name' => '$userName',  'description' => "Recipient's display name",   'example' => 'Jane Smith',           'required' => true],
-                ['name' => '$userEmail', 'description' => "Recipient's email address",  'example' => 'jane@example.com',     'required' => false],
-                ['name' => '$loginUrl',  'description' => 'Link to the login page',     'example' => 'https://example.com/login', 'required' => true],
+                ['name' => 'userName',  'description' => "Recipient's display name",   'example' => 'Jane Smith',           'required' => true],
+                ['name' => 'userEmail', 'description' => "Recipient's email address",  'example' => 'jane@example.com',     'required' => false],
+                ['name' => 'loginUrl',  'description' => 'Link to the login page',     'example' => 'https://example.com/login', 'required' => true],
             ],
         ],
         'auth.account_locked' => [
@@ -38,10 +44,10 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.account-locked',
             'variables' => [
-                ['name' => '$userName',    'description' => "Recipient's display name",          'example' => 'Jane Smith',                          'required' => true],
-                ['name' => '$reason',      'description' => 'Reason the account was locked',     'example' => 'Multiple failed login attempts',       'required' => false],
-                ['name' => '$suspendedAt', 'description' => 'Date/time the account was locked',  'example' => 'April 13, 2026 10:30 AM',             'required' => false],
-                ['name' => '$supportUrl',  'description' => 'Link to the support page',          'example' => 'https://example.com/support',         'required' => false],
+                ['name' => 'userName',    'description' => "Recipient's display name",          'example' => 'Jane Smith',                          'required' => true],
+                ['name' => 'reason',      'description' => 'Reason the account was locked',     'example' => 'Multiple failed login attempts',       'required' => false],
+                ['name' => 'suspendedAt', 'description' => 'Date/time the account was locked',  'example' => 'April 13, 2026 10:30 AM',             'required' => false],
+                ['name' => 'supportUrl',  'description' => 'Link to the support page',          'example' => 'https://example.com/support',         'required' => false],
             ],
         ],
         'auth.account_unsuspended' => [
@@ -49,8 +55,8 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.account-unsuspended',
             'variables' => [
-                ['name' => '$userName',      'description' => "Recipient's display name",              'example' => 'Jane Smith',              'required' => true],
-                ['name' => '$unsuspendedAt', 'description' => 'Date/time the account was unsuspended', 'example' => 'April 13, 2026 2:15 PM', 'required' => false],
+                ['name' => 'userName',      'description' => "Recipient's display name",              'example' => 'Jane Smith',              'required' => true],
+                ['name' => 'unsuspendedAt', 'description' => 'Date/time the account was unsuspended', 'example' => 'April 13, 2026 2:15 PM', 'required' => false],
             ],
         ],
         'auth.email_verification' => [
@@ -58,9 +64,9 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.email-verification',
             'variables' => [
-                ['name' => '$userName',        'description' => "Recipient's display name",            'example' => 'Jane Smith',                              'required' => true],
-                ['name' => '$verificationUrl', 'description' => 'Email verification link',             'example' => 'https://example.com/verify?token=abc123', 'required' => true],
-                ['name' => '$expiresIn',       'description' => 'How long the link is valid',          'example' => '60 minutes',                              'required' => false],
+                ['name' => 'userName',        'description' => "Recipient's display name",            'example' => 'Jane Smith',                              'required' => true],
+                ['name' => 'verificationUrl', 'description' => 'Email verification link',             'example' => 'https://example.com/verify?token=abc123', 'required' => true],
+                ['name' => 'expiresIn',       'description' => 'How long the link is valid',          'example' => '60 minutes',                              'required' => false],
             ],
         ],
         'auth.password_reset' => [
@@ -68,9 +74,9 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.password-reset',
             'variables' => [
-                ['name' => '$userName',  'description' => "Recipient's display name",       'example' => 'Jane Smith',                           'required' => true],
-                ['name' => '$resetUrl',  'description' => 'Password reset link',            'example' => 'https://example.com/reset?token=abc', 'required' => true],
-                ['name' => '$expiresIn', 'description' => 'How long the reset link is valid', 'example' => '60 minutes',                         'required' => false],
+                ['name' => 'userName',  'description' => "Recipient's display name",       'example' => 'Jane Smith',                           'required' => true],
+                ['name' => 'resetUrl',  'description' => 'Password reset link',            'example' => 'https://example.com/reset?token=abc', 'required' => true],
+                ['name' => 'expiresIn', 'description' => 'How long the reset link is valid', 'example' => '60 minutes',                         'required' => false],
             ],
         ],
         'auth.password_changed' => [
@@ -78,9 +84,9 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.password-changed',
             'variables' => [
-                ['name' => '$userName',  'description' => "Recipient's display name",     'example' => 'Jane Smith',             'required' => true],
-                ['name' => '$changedAt', 'description' => 'Date/time password was changed', 'example' => 'April 13, 2026 11:45 AM', 'required' => false],
-                ['name' => '$ipAddress', 'description' => 'IP address of the request',    'example' => '192.0.2.42',             'required' => false],
+                ['name' => 'userName',  'description' => "Recipient's display name",     'example' => 'Jane Smith',             'required' => true],
+                ['name' => 'changedAt', 'description' => 'Date/time password was changed', 'example' => 'April 13, 2026 11:45 AM', 'required' => false],
+                ['name' => 'ipAddress', 'description' => 'IP address of the request',    'example' => '192.0.2.42',             'required' => false],
             ],
         ],
         'auth.new_login' => [
@@ -88,11 +94,11 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.new-login',
             'variables' => [
-                ['name' => '$userName',  'description' => "Recipient's display name",      'example' => 'Jane Smith',                    'required' => true],
-                ['name' => '$ipAddress', 'description' => 'IP address of the login',       'example' => '192.0.2.42',                    'required' => false],
-                ['name' => '$userAgent', 'description' => 'Browser/device string',         'example' => 'Chrome 124 on macOS Sonoma',    'required' => false],
-                ['name' => '$location',  'description' => 'Approximate geographic location', 'example' => 'San Francisco, CA, US',       'required' => false],
-                ['name' => '$loginTime', 'description' => 'Date/time of the login',        'example' => 'April 13, 2026 9:00 AM UTC',   'required' => false],
+                ['name' => 'userName',  'description' => "Recipient's display name",      'example' => 'Jane Smith',                    'required' => true],
+                ['name' => 'ipAddress', 'description' => 'IP address of the login',       'example' => '192.0.2.42',                    'required' => false],
+                ['name' => 'userAgent', 'description' => 'Browser/device string',         'example' => 'Chrome 124 on macOS Sonoma',    'required' => false],
+                ['name' => 'location',  'description' => 'Approximate geographic location', 'example' => 'San Francisco, CA, US',       'required' => false],
+                ['name' => 'loginTime', 'description' => 'Date/time of the login',        'example' => 'April 13, 2026 9:00 AM UTC',   'required' => false],
             ],
         ],
         'auth.2fa_enabled' => [
@@ -100,8 +106,8 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.2fa-enabled',
             'variables' => [
-                ['name' => '$userName',  'description' => "Recipient's display name",    'example' => 'Jane Smith',             'required' => true],
-                ['name' => '$enabledAt', 'description' => 'Date/time 2FA was enabled',   'example' => 'April 13, 2026 8:55 AM', 'required' => false],
+                ['name' => 'userName',  'description' => "Recipient's display name",    'example' => 'Jane Smith',             'required' => true],
+                ['name' => 'enabledAt', 'description' => 'Date/time 2FA was enabled',   'example' => 'April 13, 2026 8:55 AM', 'required' => false],
             ],
         ],
         'auth.2fa_disabled' => [
@@ -109,9 +115,9 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Auth',
             'view'     => 'emails.auth.2fa-disabled',
             'variables' => [
-                ['name' => '$userName',   'description' => "Recipient's display name",    'example' => 'Jane Smith',             'required' => true],
-                ['name' => '$disabledAt', 'description' => 'Date/time 2FA was disabled',  'example' => 'April 13, 2026 8:55 AM', 'required' => false],
-                ['name' => '$ipAddress',  'description' => 'IP address of the request',   'example' => '192.0.2.42',             'required' => false],
+                ['name' => 'userName',   'description' => "Recipient's display name",    'example' => 'Jane Smith',             'required' => true],
+                ['name' => 'disabledAt', 'description' => 'Date/time 2FA was disabled',  'example' => 'April 13, 2026 8:55 AM', 'required' => false],
+                ['name' => 'ipAddress',  'description' => 'IP address of the request',   'example' => '192.0.2.42',             'required' => false],
             ],
         ],
         'server.created' => [
@@ -119,11 +125,11 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Server',
             'view'     => 'emails.server.created',
             'variables' => [
-                ['name' => '$userName',     'description' => "Recipient's display name",     'example' => 'Jane Smith',             'required' => true],
-                ['name' => '$serverName',   'description' => 'Name of the created server',   'example' => 'Survival-Minecraft',     'required' => true],
-                ['name' => '$serverId',     'description' => 'Short server identifier',       'example' => 'a1b2c3d4',               'required' => false],
-                ['name' => '$serverUrl',    'description' => 'Link to the server panel',      'example' => 'https://example.com/server/a1b2c3d4', 'required' => false],
-                ['name' => '$nodeLocation', 'description' => 'Node/datacenter location',      'example' => 'US East (New York)',     'required' => false],
+                ['name' => 'userName',     'description' => "Recipient's display name",     'example' => 'Jane Smith',             'required' => true],
+                ['name' => 'serverName',   'description' => 'Name of the created server',   'example' => 'Survival-Minecraft',     'required' => true],
+                ['name' => 'serverId',     'description' => 'Short server identifier',       'example' => 'a1b2c3d4',               'required' => false],
+                ['name' => 'serverUrl',    'description' => 'Link to the server panel',      'example' => 'https://example.com/server/a1b2c3d4', 'required' => false],
+                ['name' => 'nodeLocation', 'description' => 'Node/datacenter location',      'example' => 'US East (New York)',     'required' => false],
             ],
         ],
         'server.suspended' => [
@@ -131,10 +137,10 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Server',
             'view'     => 'emails.server.suspended',
             'variables' => [
-                ['name' => '$userName',    'description' => "Recipient's display name",          'example' => 'Jane Smith',              'required' => true],
-                ['name' => '$serverName',  'description' => 'Name of the suspended server',      'example' => 'Survival-Minecraft',      'required' => true],
-                ['name' => '$reason',      'description' => 'Reason for suspension',             'example' => 'Payment overdue',         'required' => false],
-                ['name' => '$suspendedAt', 'description' => 'Date/time the server was suspended', 'example' => 'April 13, 2026 12:00 PM', 'required' => false],
+                ['name' => 'userName',    'description' => "Recipient's display name",          'example' => 'Jane Smith',              'required' => true],
+                ['name' => 'serverName',  'description' => 'Name of the suspended server',      'example' => 'Survival-Minecraft',      'required' => true],
+                ['name' => 'reason',      'description' => 'Reason for suspension',             'example' => 'Payment overdue',         'required' => false],
+                ['name' => 'suspendedAt', 'description' => 'Date/time the server was suspended', 'example' => 'April 13, 2026 12:00 PM', 'required' => false],
             ],
         ],
         'server.unsuspended' => [
@@ -142,9 +148,9 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Server',
             'view'     => 'emails.server.unsuspended',
             'variables' => [
-                ['name' => '$userName',      'description' => "Recipient's display name",              'example' => 'Jane Smith',              'required' => true],
-                ['name' => '$serverName',    'description' => 'Name of the unsuspended server',        'example' => 'Survival-Minecraft',      'required' => true],
-                ['name' => '$unsuspendedAt', 'description' => 'Date/time the server was unsuspended',  'example' => 'April 13, 2026 3:30 PM',  'required' => false],
+                ['name' => 'userName',      'description' => "Recipient's display name",              'example' => 'Jane Smith',              'required' => true],
+                ['name' => 'serverName',    'description' => 'Name of the unsuspended server',        'example' => 'Survival-Minecraft',      'required' => true],
+                ['name' => 'unsuspendedAt', 'description' => 'Date/time the server was unsuspended',  'example' => 'April 13, 2026 3:30 PM',  'required' => false],
             ],
         ],
         'server.expiring_soon' => [
@@ -152,10 +158,10 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Server',
             'view'     => 'emails.server.expiring-soon',
             'variables' => [
-                ['name' => '$userName',      'description' => "Recipient's display name",       'example' => 'Jane Smith',                  'required' => true],
-                ['name' => '$serverName',    'description' => 'Name of the expiring server',    'example' => 'Survival-Minecraft',          'required' => true],
-                ['name' => '$expiresAt',     'description' => 'Expiration date/time',           'example' => 'April 16, 2026 12:00 PM',    'required' => false],
-                ['name' => '$daysRemaining', 'description' => 'Days remaining before expiry',   'example' => '3',                          'required' => false],
+                ['name' => 'userName',      'description' => "Recipient's display name",       'example' => 'Jane Smith',                  'required' => true],
+                ['name' => 'serverName',    'description' => 'Name of the expiring server',    'example' => 'Survival-Minecraft',          'required' => true],
+                ['name' => 'expiresAt',     'description' => 'Expiration date/time',           'example' => 'April 16, 2026 12:00 PM',    'required' => false],
+                ['name' => 'daysRemaining', 'description' => 'Days remaining before expiry',   'example' => '3',                          'required' => false],
             ],
         ],
         'billing.payment_received' => [
@@ -163,18 +169,18 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Billing',
             'view'     => 'emails.billing.payment-received',
             'variables' => [
-                ['name' => '$userName',        'description' => "Recipient's display name",        'example' => 'Jane Smith',                'required' => true],
-                ['name' => '$amount',          'description' => 'Payment amount (numeric string)', 'example' => '9.99',                      'required' => true],
-                ['name' => '$currency',        'description' => 'Currency code',                   'example' => 'USD',                       'required' => true],
-                ['name' => '$paymentMethod',   'description' => 'Payment method description',      'example' => 'Visa •••• 4242',            'required' => false],
-                ['name' => '$invoiceId',       'description' => 'Invoice identifier',              'example' => 'INV-2026-04289',            'required' => false],
-                ['name' => '$transactionDate', 'description' => 'Date/time of the transaction',   'example' => 'April 13, 2026 10:00 AM',  'required' => false],
-                ['name' => '$isRenewal',       'description' => 'Whether this is a renewal payment', 'example' => 'true',                  'required' => false],
-                ['name' => '$originalAmount',  'description' => 'Pre-discount amount (if applicable)', 'example' => '12.99',               'required' => false],
-                ['name' => '$discountAmount',  'description' => 'Discount amount applied',         'example' => '3.00',                    'required' => false],
-                ['name' => '$couponCode',      'description' => 'Coupon code used',                'example' => 'SAVE3',                   'required' => false],
-                ['name' => '$billingDays',     'description' => 'Number of days in billing cycle', 'example' => '30',                      'required' => false],
-                ['name' => '$billingCycle',    'description' => 'Billing cycle label',             'example' => 'Monthly',                 'required' => false],
+                ['name' => 'userName',        'description' => "Recipient's display name",        'example' => 'Jane Smith',                'required' => true],
+                ['name' => 'amount',          'description' => 'Payment amount (numeric string)', 'example' => '9.99',                      'required' => true],
+                ['name' => 'currency',        'description' => 'Currency code',                   'example' => 'USD',                       'required' => true],
+                ['name' => 'paymentMethod',   'description' => 'Payment method description',      'example' => 'Visa •••• 4242',            'required' => false],
+                ['name' => 'invoiceId',       'description' => 'Invoice identifier',              'example' => 'INV-2026-04289',            'required' => false],
+                ['name' => 'transactionDate', 'description' => 'Date/time of the transaction',   'example' => 'April 13, 2026 10:00 AM',  'required' => false],
+                ['name' => 'isRenewal',       'description' => 'Whether this is a renewal payment', 'example' => 'true',                  'required' => false],
+                ['name' => 'originalAmount',  'description' => 'Pre-discount amount (if applicable)', 'example' => '12.99',               'required' => false],
+                ['name' => 'discountAmount',  'description' => 'Discount amount applied',         'example' => '3.00',                    'required' => false],
+                ['name' => 'couponCode',      'description' => 'Coupon code used',                'example' => 'SAVE3',                   'required' => false],
+                ['name' => 'billingDays',     'description' => 'Number of days in billing cycle', 'example' => '30',                      'required' => false],
+                ['name' => 'billingCycle',    'description' => 'Billing cycle label',             'example' => 'Monthly',                 'required' => false],
             ],
         ],
         'billing.payment_failed' => [
@@ -182,14 +188,14 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Billing',
             'view'     => 'emails.billing.payment-failed',
             'variables' => [
-                ['name' => '$userName',      'description' => "Recipient's display name",       'example' => 'Jane Smith',        'required' => true],
-                ['name' => '$amount',        'description' => 'Payment amount attempted',       'example' => '9.99',              'required' => true],
-                ['name' => '$currency',      'description' => 'Currency code',                  'example' => 'USD',               'required' => true],
-                ['name' => '$reason',        'description' => 'Reason the payment failed',      'example' => 'Card declined',     'required' => false],
-                ['name' => '$invoiceId',     'description' => 'Invoice identifier',             'example' => 'INV-2026-04289',   'required' => false],
-                ['name' => '$retryUrl',      'description' => 'Link to retry or update billing', 'example' => 'https://example.com/billing', 'required' => false],
-                ['name' => '$paymentMethod', 'description' => 'Payment method that failed',     'example' => 'Visa •••• 4242',   'required' => false],
-                ['name' => '$isRenewal',     'description' => 'Whether this was a renewal attempt', 'example' => 'false',        'required' => false],
+                ['name' => 'userName',      'description' => "Recipient's display name",       'example' => 'Jane Smith',        'required' => true],
+                ['name' => 'amount',        'description' => 'Payment amount attempted',       'example' => '9.99',              'required' => true],
+                ['name' => 'currency',      'description' => 'Currency code',                  'example' => 'USD',               'required' => true],
+                ['name' => 'reason',        'description' => 'Reason the payment failed',      'example' => 'Card declined',     'required' => false],
+                ['name' => 'invoiceId',     'description' => 'Invoice identifier',             'example' => 'INV-2026-04289',   'required' => false],
+                ['name' => 'retryUrl',      'description' => 'Link to retry or update billing', 'example' => 'https://example.com/billing', 'required' => false],
+                ['name' => 'paymentMethod', 'description' => 'Payment method that failed',     'example' => 'Visa •••• 4242',   'required' => false],
+                ['name' => 'isRenewal',     'description' => 'Whether this was a renewal attempt', 'example' => 'false',        'required' => false],
             ],
         ],
         'billing.server_renewal_notice' => [
@@ -197,15 +203,15 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Billing',
             'view'     => 'emails.billing.server-renewal-notice',
             'variables' => [
-                ['name' => '$userName',       'description' => "Recipient's display name",         'example' => 'Jane Smith',                    'required' => true],
-                ['name' => '$serverName',     'description' => 'Name of the server to be renewed', 'example' => 'Survival-Minecraft',            'required' => true],
-                ['name' => '$renewalUrl',     'description' => 'Link to the renewal/billing page', 'example' => 'https://example.com/billing',  'required' => false],
-                ['name' => '$renewalDate',    'description' => 'Scheduled renewal date',           'example' => 'April 16, 2026',               'required' => false],
-                ['name' => '$suspensionTime', 'description' => 'When server will be suspended if unpaid', 'example' => 'April 16, 2026 12:00 PM UTC', 'required' => false],
-                ['name' => '$renewalAmount',  'description' => 'Amount due for renewal',           'example' => '9.99',                         'required' => false],
-                ['name' => '$currency',       'description' => 'Currency code',                    'example' => 'USD',                          'required' => false],
-                ['name' => '$billingDays',    'description' => 'Number of days in billing cycle',  'example' => '30',                           'required' => false],
-                ['name' => '$billingCycle',   'description' => 'Billing cycle label',              'example' => 'Monthly',                      'required' => false],
+                ['name' => 'userName',       'description' => "Recipient's display name",         'example' => 'Jane Smith',                    'required' => true],
+                ['name' => 'serverName',     'description' => 'Name of the server to be renewed', 'example' => 'Survival-Minecraft',            'required' => true],
+                ['name' => 'renewalUrl',     'description' => 'Link to the renewal/billing page', 'example' => 'https://example.com/billing',  'required' => false],
+                ['name' => 'renewalDate',    'description' => 'Scheduled renewal date',           'example' => 'April 16, 2026',               'required' => false],
+                ['name' => 'suspensionTime', 'description' => 'When server will be suspended if unpaid', 'example' => 'April 16, 2026 12:00 PM UTC', 'required' => false],
+                ['name' => 'renewalAmount',  'description' => 'Amount due for renewal',           'example' => '9.99',                         'required' => false],
+                ['name' => 'currency',       'description' => 'Currency code',                    'example' => 'USD',                          'required' => false],
+                ['name' => 'billingDays',    'description' => 'Number of days in billing cycle',  'example' => '30',                           'required' => false],
+                ['name' => 'billingCycle',   'description' => 'Billing cycle label',              'example' => 'Monthly',                      'required' => false],
             ],
         ],
         'admin.broadcast' => [
@@ -213,8 +219,8 @@ class EmailTemplateController extends ApplicationApiController
             'category' => 'Admin',
             'view'     => 'emails.admin-broadcast',
             'variables' => [
-                ['name' => '$adminName', 'description' => 'Name of the admin sending the message', 'example' => 'Admin',                       'required' => false],
-                ['name' => '$message',   'description' => 'Broadcast message body',                'example' => 'Scheduled maintenance tonight.', 'required' => true],
+                ['name' => 'adminName', 'description' => 'Name of the admin sending the message', 'example' => 'Admin',                       'required' => false],
+                ['name' => 'message',   'description' => 'Broadcast message body',                'example' => 'Scheduled maintenance tonight.', 'required' => true],
             ],
         ],
     ];
@@ -346,7 +352,7 @@ class EmailTemplateController extends ApplicationApiController
                 'key'           => $key,
                 'label'         => $meta['label'],
                 'category'      => $meta['category'],
-                'variables'     => $meta['variables'] ?? [],
+                'variables'     => $meta['variables'],
                 'is_customized' => file_exists($customPath),
             ];
         }
@@ -369,14 +375,11 @@ class EmailTemplateController extends ApplicationApiController
 
         $data = self::SAMPLE_DATA[$key] ?? [];
 
-        $customPath = $this->customViewPath($meta['view']);
-
-        if (file_exists($customPath)) {
-            $customSource = file_get_contents($customPath);
-            $html = Blade::render($customSource, $data, deleteCachedView: true);
-        } else {
-            $html = view($meta['view'], $data)->render();
-        }
+        // The renderer resolves the override itself and renders it under the sandbox, so
+        // preview and a real send go down exactly the same path. Previously preview called
+        // Blade::render() on the saved source directly, which is what made the editor a
+        // code-execution surface.
+        $html = $this->renderer->render($meta['view'], $data);
 
         return response($html, 200, [
             'Content-Type'           => 'text/html; charset=UTF-8',
@@ -387,7 +390,7 @@ class EmailTemplateController extends ApplicationApiController
     }
 
     /**
-     * Return the raw Blade source of a template file.
+     * Return the raw Twig source of a template file.
      * Returns the custom override if one exists, otherwise the default.
      */
     public function source(PreviewEmailTemplateRequest $request, string $key): JsonResponse
@@ -422,7 +425,7 @@ class EmailTemplateController extends ApplicationApiController
     }
 
     /**
-     * Save edits as a custom override file alongside the original Blade template.
+     * Save edits as a custom override file alongside the original Twig template.
      * The original file is never modified.
      */
     public function update(UpdateEmailTemplateSourceRequest $request, string $key): JsonResponse
@@ -460,13 +463,30 @@ class EmailTemplateController extends ApplicationApiController
 
         $content = $request->input('content');
 
+        // Compile the candidate before it goes anywhere near disk. A template that does not
+        // parse, or that reaches for something the sandbox forbids, is rejected here with a
+        // line number the editor can show -- rather than silently failing every send of
+        // that template until someone notices the delivery log.
+        $error = $this->renderer->validate($meta['view'], $content, self::SAMPLE_DATA[$key] ?? []);
+
+        if ($error !== null) {
+            // Fractal error envelope, so the editor's existing firstError() surfaces it as
+            // a toast without any frontend change.
+            return response()->json([
+                'errors' => [[
+                    'code' => 'InvalidEmailTemplate',
+                    'status' => '422',
+                    'detail' => $error,
+                ]],
+            ], 422);
+        }
+
         if (file_put_contents($customPath, $content, LOCK_EX) === false) {
             abort(500, 'Failed to write custom template file.');
         }
 
-        if (function_exists('opcache_invalidate')) {
-            opcache_invalidate($customPath, true);
-        }
+        // No cache invalidation needed: Twig's ArrayLoader keys the compiled template on
+        // its source, so a saved override compiles fresh on the next render.
 
         Log::info('Email template custom override saved by admin.', [
             'key'      => $key,
@@ -482,7 +502,7 @@ class EmailTemplateController extends ApplicationApiController
     }
 
     /**
-     * Remove the custom override and revert to the original Blade template.
+     * Remove the custom override and revert to the original Twig template.
      */
     public function revert(RevertEmailTemplateRequest $request, string $key): JsonResponse
     {
@@ -513,22 +533,27 @@ class EmailTemplateController extends ApplicationApiController
     }
 
     /**
-     * Convert a Blade view name (e.g. "emails.auth.account-created") to an absolute file path.
+     * Convert a view name (e.g. "emails.auth.account-created") to an absolute file path.
      */
     private function viewPath(string $viewName): string
     {
-        return resource_path('views/' . str_replace('.', '/', $viewName) . '.blade.php');
+        $name = TwigEnvironmentFactory::templateName($viewName);
+
+        if ($name === null) {
+            abort(400, 'Unsafe template name.');
+        }
+
+        return resource_path(TwigEnvironmentFactory::TEMPLATE_ROOT) . '/' . $name;
     }
 
     /**
-     * Derive the custom override path from a Blade view name.
+     * Derive the custom override path from a view name.
      * The custom file is stored next to the original with a ".custom" suffix, e.g.
-     * "account-created.blade.php.custom".  This suffix is not recognised by Laravel's
-     * view resolver, so it will never be loaded automatically and cannot be overwritten
-     * by normal template updates or deploys.
+     * "account-created.twig.custom". The renderer's loader only resolves ".twig", so an
+     * override is never picked up implicitly and cannot be clobbered by a deploy.
      */
     private function customViewPath(string $viewName): string
     {
-        return $this->viewPath($viewName) . '.custom';
+        return $this->viewPath($viewName) . EmailTemplateRenderer::OVERRIDE_SUFFIX;
     }
 }

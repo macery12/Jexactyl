@@ -33,7 +33,7 @@ import { TEMPLATES_KEY } from './TemplatesPage';
 type ViewMode = 'split' | 'code' | 'preview';
 type Device = 'desktop' | 'mobile';
 
-// Fullscreen editor for a single email template. Left pane is the raw Blade
+// Fullscreen editor for a single email template. Left pane is the raw Twig
 // source, right pane is the rendered preview (sample data). The preview reflects
 // the saved template and refreshes on save/revert or via the manual button —
 // matching the V1 flow, so no draft-render endpoint is needed. Variables can be

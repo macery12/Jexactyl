@@ -288,7 +288,7 @@ export interface EmailTemplateVariable {
 }
 
 // Summary entry returned by the template index — enough to render a card and
-// open the editor. Full Blade source is fetched lazily per template.
+// open the editor. Full Twig source is fetched lazily per template.
 export interface EmailTemplateSummary {
     key: string;
     label: string;

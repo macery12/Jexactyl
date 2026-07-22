@@ -4,14 +4,13 @@ namespace Everest\Services\Email;
 
 use Everest\Models\EmailDelivery;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\View;
-use Illuminate\Support\Facades\Blade;
 use Everest\Services\Email\Emails\BaseEmail;
 use Everest\Services\Email\Transports\SmtpTransport;
 use Everest\Exceptions\Service\Email\ResendException;
 use Everest\Services\Email\Emails\CustomMessageEmail;
 use Everest\Services\Email\Transports\EmailTransport;
 use Everest\Services\Email\Transports\ResendTransport;
+use Everest\Services\Email\Templating\EmailTemplateRenderer;
 use Everest\Exceptions\Service\Email\ResendValidationException;
 use Everest\Exceptions\Service\Email\ResendAuthenticationException;
 
@@ -324,46 +323,24 @@ class EmailManager
             return $email->getHtml();
         }
 
-        // Render Blade view, merging any extra data (e.g. resolved replyTo for the footer)
+        // Merge any extra data (e.g. resolved replyTo for the footer)
         return $this->renderViewWithCustomOverride($email->view(), array_merge($email->data(), $extraData));
     }
 
     /**
-     * Render a Blade view, using the admin-saved custom override file when one exists.
+     * Render an email template, using the admin-saved custom override when one exists.
      *
-     * Custom overrides are stored as "<original>.blade.php.custom" files by
-     * EmailTemplateController and are not picked up by Laravel's view loader,
-     * so we must detect and render them manually.
+     * Templates are Twig, rendered under a sandbox by EmailTemplateRenderer. They used to
+     * be Blade, which compiles to PHP -- an operator-editable body was therefore arbitrary
+     * code execution as the web user. Nothing here may reintroduce a path that hands
+     * template source to a compiler outside the sandbox.
+     *
+     * The renderer owns override lookup and view-name validation, so both live in one
+     * place rather than being duplicated between here and the admin controller.
      */
     private function renderViewWithCustomOverride(string $viewPath, array $data): string
     {
-        // Guard: only allow view paths that consist of safe characters so no
-        // path-traversal sequences (../, %2F, null bytes, etc.) can sneak in.
-        // Consecutive dots are also rejected to prevent '..'-based traversal.
-        if (!preg_match('/^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)*$/i', $viewPath)) {
-            return View::make($viewPath, $data)->render();
-        }
-
-        $viewsDir = realpath(resource_path('views'));
-        if (!$viewsDir) {
-            return View::make($viewPath, $data)->render();
-        }
-
-        $customFile = $viewsDir . DIRECTORY_SEPARATOR
-            . str_replace('.', DIRECTORY_SEPARATOR, $viewPath)
-            . '.blade.php.custom';
-
-        if (is_file($customFile)) {
-            // Belt-and-suspenders: confirm the resolved path is still inside the views directory.
-            $resolvedFile = realpath($customFile);
-            if ($resolvedFile !== false && str_starts_with($resolvedFile, $viewsDir . DIRECTORY_SEPARATOR)) {
-                $source = file_get_contents($resolvedFile);
-
-                return Blade::render($source, $data, deleteCachedView: true);
-            }
-        }
-
-        return View::make($viewPath, $data)->render();
+        return app(EmailTemplateRenderer::class)->render($viewPath, $data);
     }
 
     /**

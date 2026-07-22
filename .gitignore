@@ -27,6 +27,7 @@ _ide_helper_models.php
 .php-cs-fixer.cache
 coverage.xml
 resources/lang/locales.js
+resources/views/emails/**/*.twig.custom
 resources/views/emails/**/*.blade.php.custom
 resources/views/emails/**/*.blade.php.bak.*
 

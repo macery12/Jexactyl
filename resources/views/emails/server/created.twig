@@ -1,0 +1,22 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% include "partials/header.twig" with {
+        title: 'Server Created Successfully',
+        subtitle: 'Your new server is being prepared.'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Hello {{ userName }},</p>
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Your server <strong>{{ serverName }}</strong> has been created successfully and is being set up.</p>
+    {% embed "partials/panel.twig" with {title: 'Server details'} %}
+        {% block body %}
+            {% include "partials/key_value_table.twig" with {
+                rows: {
+                    'Server ID': serverId,
+                    'Location': nodeLocation
+                }
+            } %}
+        {% endblock %}
+    {% endembed %}
+    {% include "partials/button.twig" with {url: serverUrl, text: 'View Server'} %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Thank you for using our service.</p>
+{% endblock %}
