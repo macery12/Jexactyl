@@ -12,6 +12,7 @@ use Everest\Exceptions\DisplayException;
 use Everest\Services\Email\EmailManager;
 use Illuminate\Validation\Rules\Password;
 use Everest\Models\EmailNotificationSetting;
+use Everest\Services\Auth\UserSessionService;
 use Everest\Services\Users\UserUpdateService;
 use Everest\Services\Auth\PasswordResetService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -24,6 +25,7 @@ class ForgotPasswordController extends AbstractLoginController
     public function __construct(
         private UserUpdateService $updateService,
         private PasswordResetService $passwordResetService,
+        private UserSessionService $sessions,
     ) {
         parent::__construct();
     }
@@ -68,6 +70,12 @@ class ForgotPasswordController extends AbstractLoginController
             'recovery_code' => Hash::make(Str::random(32)),
             'recovery_code_seen' => false,
         ]);
+
+        // Recovery-code reset is an account-compromise path, so it has to evict every
+        // existing session the way the token reset does. This one dispatches no
+        // PasswordReset event, so PasswordResetListener does not cover it. Revoke before
+        // sendLoginResponse() so the session it establishes is not caught in the sweep.
+        $this->sessions->revokeAll($user);
 
         if (!$user->use_totp) {
             return $this->sendLoginResponse($user, $request);

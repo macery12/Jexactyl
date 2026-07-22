@@ -7,6 +7,7 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Http\JsonResponse;
+use Everest\Services\Auth\UserSessionService;
 use Everest\Services\Users\UserUpdateService;
 use Everest\Transformers\Api\Client\AccountTransformer;
 use Everest\Http\Requests\Api\Client\Account\SetupUserRequest;
@@ -19,8 +20,11 @@ class AccountController extends ClientApiController
     /**
      * AccountController constructor.
      */
-    public function __construct(private AuthManager $manager, private UserUpdateService $updateService)
-    {
+    public function __construct(
+        private AuthManager $manager,
+        private UserUpdateService $updateService,
+        private UserSessionService $sessions,
+    ) {
         parent::__construct();
     }
 
@@ -69,6 +73,13 @@ class AccountController extends ClientApiController
         if (method_exists($guard, 'logoutOtherDevices')) {
             $guard->logoutOtherDevices($request->input('password'));
         }
+
+        // logoutOtherDevices() only rehashes the remember-me password hash; without
+        // Laravel's AuthenticateSession middleware -- which this panel registers on the
+        // /admin prefix only -- it never terminates a live session. The docblock above
+        // and the "Other devices have been signed out" message in the UI both promise
+        // that it does, so revoke through the panel's own session store, which does.
+        $this->sessions->revokeAll($user, $request->hasSession() ? $request->session()->getId() : null);
 
         Activity::event('user:account.password-changed')->log();
 

@@ -2,7 +2,9 @@
 
 namespace Everest\Transformers\Api\Application;
 
+use Everest\Models\User;
 use Everest\Models\Database;
+use Everest\Models\AdminRole;
 use League\Fractal\Resource\Item;
 use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Transformers\Api\Transformer;
@@ -64,12 +66,45 @@ class ServerDatabaseTransformer extends Transformer
     /**
      * Include the database password in the request.
      */
-    public function includePassword(Database $model): Item
+    public function includePassword(Database $model): Item|NullResource
     {
+        if (!$this->canViewPassword()) {
+            return $this->null();
+        }
+
         return $this->item($model, function (Database $model) {
             return [
                 'password' => $this->encrypter->decrypt($model->password),
             ];
         });
+    }
+
+    /**
+     * Transformer::authorize() is still the inherited stub that returns true for any
+     * authenticated user, so the include ACL cannot carry this one. Gate the decrypted
+     * credential explicitly against the admin role system instead.
+     *
+     * `servers.read` -- all that GetServerDatabasesRequest needs to reach this
+     * transformer -- is deliberately not sufficient: it would let any role that can
+     * list servers dump every database password on the panel via
+     * `?include=databases.password`.
+     */
+    private function canViewPassword(): bool
+    {
+        $user = $this->request->user();
+
+        if (!$user instanceof User) {
+            return false;
+        }
+
+        if ($user->root_admin) {
+            return true;
+        }
+
+        if (!$user->admin_role_id) {
+            return false;
+        }
+
+        return in_array(AdminRole::DATABASES_READ, AdminRole::find($user->admin_role_id)->permissions ?? [], true);
     }
 }
