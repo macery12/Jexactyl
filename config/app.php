@@ -15,22 +15,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Admin Indicators
+    | Quick Tabs
     |--------------------------------------------------------------------------
-    | Allow the panel to display small indicators in the top-right of the UI
-    | when certain M12Labs features are toggled to 'on'.
+    | Allow the panel to display category dropdown tabs in the top bar, giving
+    | administrators quick access to admin tools and routes. Each tab only lists
+    | destinations the viewer has permission for and whose module is enabled.
     */
-    'indicators' => false,
+    'quick_tabs' => false,
 
     /*
     |--------------------------------------------------------------------------
-    | Admin Speed Dial
+    | Command Palette
     |--------------------------------------------------------------------------
-    | This controls whether a small 'speed dial' component is visible to
-    | administrators when they are on the client UI, to perform certain admin-side
-    | actions quickly.
+    | This controls whether administrators can open a searchable command palette
+    | (Cmd/Ctrl + K) to jump to any admin route or run quick actions such as
+    | creating a server or user.
     */
-    'speed_dial' => false,
+    'command_palette' => false,
 
     /*
     |--------------------------------------------------------------------------

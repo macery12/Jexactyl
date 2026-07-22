@@ -14,8 +14,8 @@ export interface GeneralSettings {
     locale: string;
     // Whether users may override the panel language from their account settings.
     user_locale: boolean;
-    indicators: boolean;
-    speed_dial: boolean;
+    quick_tabs: boolean;
+    command_palette: boolean;
 }
 
 // PATCH the general settings. Only the `app:*`-prefixed keys the backend
@@ -26,8 +26,8 @@ export async function updateGeneralSettings(values: GeneralSettings): Promise<vo
         'app:logo': values.logo || null,
         'app:locale': values.locale,
         'app:user_locale': values.user_locale,
-        'app:indicators': values.indicators,
-        'app:speed_dial': values.speed_dial,
+        'app:quick_tabs': values.quick_tabs,
+        'app:command_palette': values.command_palette,
     });
 }
 

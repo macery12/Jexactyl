@@ -61,8 +61,8 @@ interface GeneralForm {
     logo: string;
     locale: string;
     userLocale: boolean;
-    indicators: boolean;
-    speedDial: boolean;
+    quickTabs: boolean;
+    commandPalette: boolean;
 }
 
 export default function SettingsSection() {
@@ -74,8 +74,8 @@ export default function SettingsSection() {
         logo: site?.logo ?? '',
         locale: site?.locale ?? getLocale(),
         userLocale: site?.user_locale ?? true,
-        indicators: site?.indicators ?? false,
-        speedDial: site?.speed_dial ?? false,
+        quickTabs: site?.quick_tabs ?? false,
+        commandPalette: site?.command_palette ?? false,
     };
 
     const [form, setForm] = useState<GeneralForm>(initial);
@@ -101,8 +101,8 @@ export default function SettingsSection() {
                 logo: form.logo.trim() || null,
                 locale: form.locale,
                 user_locale: form.userLocale,
-                indicators: form.indicators,
-                speed_dial: form.speedDial,
+                quick_tabs: form.quickTabs,
+                command_palette: form.commandPalette,
             });
             // The default language is a GLOBAL setting (app:locale) — now saved
             // for every user's next load. Mirror it onto the in-memory
@@ -181,17 +181,17 @@ export default function SettingsSection() {
                 <div className="mt-5 grid gap-3 md:grid-cols-2">
                     <ToggleRow
                         icon={LayoutPanelTop}
-                        label={m['admin.settings.general.indicators']()}
-                        help={m['admin.settings.general.indicatorsHelp']()}
-                        checked={form.indicators}
-                        onChange={v => set('indicators', v)}
+                        label={m['admin.settings.general.quickTabs']()}
+                        help={m['admin.settings.general.quickTabsHelp']()}
+                        checked={form.quickTabs}
+                        onChange={v => set('quickTabs', v)}
                     />
                     <ToggleRow
                         icon={Zap}
-                        label={m['admin.settings.general.speedDial']()}
-                        help={m['admin.settings.general.speedDialHelp']()}
-                        checked={form.speedDial}
-                        onChange={v => set('speedDial', v)}
+                        label={m['admin.settings.general.commandPalette']()}
+                        help={m['admin.settings.general.commandPaletteHelp']()}
+                        checked={form.commandPalette}
+                        onChange={v => set('commandPalette', v)}
                     />
                 </div>
             </SectionCard>

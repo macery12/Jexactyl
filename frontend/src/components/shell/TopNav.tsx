@@ -5,6 +5,8 @@ import { Menu, ChevronDown, LogOut, User as UserIcon, Shield } from 'lucide-reac
 import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
 import { BrandMark } from '@/components/ui/BrandMark';
+import { QuickTabs } from '@/components/shell/QuickTabs';
+import { CommandPalette } from '@/components/shell/CommandPalette';
 import { readCsrfToken } from '@/lib/globals';
 import { cn } from '@/lib/cn';
 
@@ -47,6 +49,8 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
             </div>
 
             <div className="flex items-center gap-2">
+                {isAdmin && site?.quick_tabs && <QuickTabs />}
+                {isAdmin && site?.command_palette && <CommandPalette />}
                 {isAdmin && (
                     <Link
                         to={inAdmin ? '/' : '/admin'}

@@ -15,7 +15,7 @@ class SettingsServiceProvider extends ServiceProvider
     protected array $keys = [
         // M12Labs-specific keys
         'app:name', 'app:logo', 'app:mode', 'app:setup', 'app:locale',
-        'app:user_locale', 'app:speed_dial', 'app:indicators',
+        'app:user_locale', 'app:command_palette', 'app:quick_tabs',
         'pterodactyl:guzzle:timeout', 'pterodactyl:guzzle:connect_timeout',
         'pterodactyl:console:count', 'pterodactyl:console:frequency',
         'pterodactyl:auth:2fa_required',

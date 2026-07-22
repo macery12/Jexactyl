@@ -30,8 +30,10 @@ export interface SiteConfiguration {
     locale: string;
     // Admin toggle (app:user_locale): may users override the panel language?
     user_locale: boolean;
-    speed_dial: boolean;
-    indicators: boolean;
+    // Admin toggle (app:command_palette): may admins open the Cmd/Ctrl+K palette?
+    command_palette: boolean;
+    // Admin toggle (app:quick_tabs): show the admin category dropdowns in the top bar.
+    quick_tabs: boolean;
     captcha: { enabled: boolean; siteKey: string };
     activity: { enabled: { account: boolean; server: boolean; admin: boolean } };
 }

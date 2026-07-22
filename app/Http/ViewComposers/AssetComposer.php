@@ -22,8 +22,8 @@ class AssetComposer
             'debug' => env('APP_DEBUG') ?? false,
             'locale' => Setting::get('settings::app:locale') ?: (config('app.locale') ?: 'en'),
             'user_locale' => boolval(config('app.user_locale', true)),
-            'speed_dial' => boolval(config('app.speed_dial', false)),
-            'indicators' => boolval(config('app.indicators', false)),
+            'command_palette' => boolval(config('app.command_palette', false)),
+            'quick_tabs' => boolval(config('app.quick_tabs', false)),
             'captcha' => [
                 'enabled' => $turnstileService->isEnabled(),
                 'siteKey' => $turnstileService->getSiteKey() ?? '',
