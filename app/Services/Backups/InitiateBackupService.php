@@ -16,7 +16,7 @@ use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 
 class InitiateBackupService
 {
-    private ?array $ignoredFiles;
+    private array $ignoredFiles = [];
 
     private bool $isLocked = false;
 
@@ -113,7 +113,7 @@ class InitiateBackupService
                 'server_id' => $server->id,
                 'uuid' => Uuid::uuid4()->toString(),
                 'name' => trim($name) ?: sprintf('Backup at %s', CarbonImmutable::now()->toDateTimeString()),
-                'ignored_files' => array_values($this->ignoredFiles ?? []),
+                'ignored_files' => array_values($this->ignoredFiles),
                 'disk' => $this->backupManager->getDefaultAdapter(),
                 'is_locked' => $this->isLocked,
             ], true, true);

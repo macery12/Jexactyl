@@ -8,6 +8,7 @@ use Everest\Facades\Activity;
 use Everest\Models\Permission;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Everest\Exceptions\DisplayException;
 use Everest\Repositories\Eloquent\SubuserRepository;
 use Everest\Services\Subusers\SubuserCreationService;
 use Everest\Transformers\Api\Client\SubuserTransformer;
