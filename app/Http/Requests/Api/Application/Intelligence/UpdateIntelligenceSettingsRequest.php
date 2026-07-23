@@ -69,14 +69,12 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
 
                             return;
                         }
-                        if (strlen($value) < 1 || strlen($value) > 100) {
+                        if (strlen($value) > 100) {
                             $fail('The model must be between 1 and 100 characters.');
                         }
                     }
                 },
             ],
-            'feature_server_assistant' => 'nullable|bool',
-            'feature_crash_analysis' => 'nullable|bool',
         ];
     }
 

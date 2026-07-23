@@ -37,7 +37,7 @@ class TicketController extends ClientApiController
     {
         $data = $request->validated();
         $enabled = config('modules.tickets.enabled');
-        $max_count = (int) config('modules.tickets.max_count') ?? 0;
+        $max_count = (int) (config('modules.tickets.max_count') ?? 0);
 
         if (!boolval($enabled)) {
             throw new DisplayException('You cannot create a ticket as the module is disabled.');
@@ -112,11 +112,9 @@ class TicketController extends ClientApiController
             throw new DisplayException('You do not own this ticket.');
         }
 
-        if (!is_null($ticket)) {
-            $ticket->delete();
+        $ticket->delete();
 
-            TicketMessage::where('ticket_id', $ticket->id)->delete();
-        }
+        TicketMessage::where('ticket_id', $ticket->id)->delete();
 
         Activity::event('user:ticket.delete')
             ->property('identifier', $ticket->id)

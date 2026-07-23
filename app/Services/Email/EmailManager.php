@@ -296,7 +296,7 @@ class EmailManager
                     $tracker->finishAttemptFailure(
                         attempt: $attempt,
                         error: $e->getMessage(),
-                        statusCode: method_exists($e, 'getCode') ? $e->getCode() : 0,
+                        statusCode: $e->getCode(),
                         exception: $e,
                         responsePayload: null,
                         retryable: $retryable
@@ -444,7 +444,7 @@ class EmailManager
 
         $result = $transportInstance->send($message);
 
-        if ($transport === 'resend' && isset($result->meta)) {
+        if ($transport === 'resend') {
             $this->syncResendUsage($result->meta);
         }
 

@@ -78,7 +78,7 @@ class Category extends Model
     {
         $allowedEggs = $this->allowed_eggs;
 
-        if (empty($allowedEggs) || !is_array($allowedEggs)) {
+        if (empty($allowedEggs)) {
             $allowedEggs = [$this->egg_id];
         }
 
