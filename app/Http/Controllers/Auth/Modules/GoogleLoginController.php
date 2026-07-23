@@ -9,17 +9,20 @@ use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Laravel\Socialite\Facades\Socialite;
-use Everest\Services\Users\UserCreationService;
 use Everest\Http\Controllers\Auth\AbstractLoginController;
 
 class GoogleLoginController extends AbstractLoginController
 {
     /**
+     * OAuth client configuration passed to the Socialite Google provider.
+     */
+    private array $config;
+
+    /**
      * GoogleLoginController constructor.
      */
-    public function __construct(
-        private UserCreationService $creationService,
-    ) {
+    public function __construct()
+    {
         parent::__construct();
 
         $this->config = [
@@ -54,8 +57,8 @@ class GoogleLoginController extends AbstractLoginController
     {
         $response = Socialite::buildProvider(\Laravel\Socialite\Two\GoogleProvider::class, $this->config)->user();
 
-        if (User::where('email', $response->email)->exists()) {
-            $user = User::where('email', $response->email)->first();
+        if (User::where('email', $response->getEmail())->exists()) {
+            $user = User::where('email', $response->getEmail())->first();
 
             // If user has 2FA enabled, redirect to login for TOTP verification
             if ($user->use_totp) {
@@ -71,7 +74,7 @@ class GoogleLoginController extends AbstractLoginController
 
             return $redirect;
         }
-        $user = $this->createAccount(['email' => $response->email, 'username' => 'null_user_' . $this->randStr(16)]);
+        $user = $this->createAccount(['email' => $response->getEmail(), 'username' => 'null_user_' . $this->randStr(16)]);
 
         $loginResponse = $this->sendLoginResponse($user, $request);
         $redirect = redirect('/settings');
@@ -81,9 +84,6 @@ class GoogleLoginController extends AbstractLoginController
         }
 
         return $redirect;
-
-
-        return redirect()->route('auth.login');
     }
 
     /**

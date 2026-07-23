@@ -25,7 +25,9 @@ class InvoiceEncryptionService
 
     public function __construct()
     {
-        $raw = env('INVOICE_ENCRYPTION_KEY') ?: config('app.key', '');
+        // Routed through config so the key survives `config:cache` (env() returns
+        // null once the config is cached, which would silently fall back to APP_KEY).
+        $raw = config('modules.billing.invoice_encryption_key') ?: config('app.key', '');
 
         if (str_starts_with($raw, 'base64:')) {
             $key = base64_decode(substr($raw, 7), strict: true);

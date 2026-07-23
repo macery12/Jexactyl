@@ -26,6 +26,7 @@ abstract class AbstractLoginController extends Controller
     use AuthenticatesUsers;
 
     protected AuthManager $auth;
+    protected UserCreationService $creation;
     protected UserSessionService $sessionService;
 
     /**
