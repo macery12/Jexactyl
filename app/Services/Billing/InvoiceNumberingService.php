@@ -6,10 +6,6 @@ use Illuminate\Support\Facades\DB;
 
 class InvoiceNumberingService
 {
-    public function __construct(private InvoiceSettingsService $settingsService)
-    {
-    }
-
     /**
      * Atomically allocate the next invoice number for the current year.
      *

@@ -9,7 +9,6 @@ use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
 use Everest\Exceptions\DisplayException;
 use Everest\Services\Billing\PlanChangeService;
-use Everest\Services\Billing\BillingValidationService;
 use Everest\Transformers\Api\Client\ProductTransformer;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\GetServerRequest;
@@ -19,7 +18,6 @@ class PlanChangeController extends ClientApiController
 {
     public function __construct(
         private PlanChangeService $planChangeService,
-        private BillingValidationService $validationService,
     ) {
         parent::__construct();
     }

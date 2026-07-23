@@ -52,7 +52,7 @@ class CreateServerService
 
         // Extract custom variables from metadata if available
         $customVariables = [];
-        if (isset($metadata->variables) && $metadata->variables !== null && $metadata->variables !== '') {
+        if (isset($metadata->variables) && $metadata->variables !== '') {
             if (is_string($metadata->variables)) {
                 $decoded = json_decode($metadata->variables, true);
                 if (json_last_error() !== JSON_ERROR_NONE) {

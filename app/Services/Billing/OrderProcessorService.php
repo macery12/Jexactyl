@@ -4,6 +4,7 @@ namespace Everest\Services\Billing;
 
 use Everest\Models\Server;
 use Everest\Models\Billing\Order;
+use Everest\Models\Billing\Product;
 use Everest\Models\Billing\CouponUsage;
 
 /**

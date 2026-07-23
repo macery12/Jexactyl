@@ -19,7 +19,6 @@ class PlanChangeService
      * PlanChangeService constructor.
      */
     public function __construct(
-        private BillingValidationService $validationService,
         private BuildModificationService $buildModificationService,
         private DaemonServerRepository $daemonRepository,
     ) {
@@ -46,7 +45,7 @@ class PlanChangeService
     public function changePlan(Server $server, Product $newProduct, bool $force = false, ?int $billingDays = null): Server
     {
         // Ensure the new product is in the same category as the current one
-        $currentProduct = $server->billingProductId ? Product::find($server->billingProductId) : null;
+        $currentProduct = $server->billing_product_id ? Product::find($server->billing_product_id) : null;
 
         if ($currentProduct && $currentProduct->category_uuid !== $newProduct->category_uuid) {
             throw new DisplayException('Cannot change to a plan in a different category.');
