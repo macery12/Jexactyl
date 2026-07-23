@@ -7,15 +7,11 @@ use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class StoreApplicationApiKeyRequest extends ApplicationApiRequest
 {
-    public function getKeyPermissions(): array
+    public function rules(): array
     {
-        $arr = [];
-
-        foreach ($this->all()['permissions'] as $key => $value) {
-            $arr[$key] = $value;
-        }
-
-        return $arr;
+        return [
+            'memo' => 'required|string|min:3|max:191',
+        ];
     }
 
     public function permission(): string

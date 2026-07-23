@@ -52,10 +52,12 @@ class ApiController extends ApplicationApiController
      */
     public function store(StoreApplicationApiKeyRequest $request): JsonResponse
     {
+        // Application-API access is governed by the owning user's AdminRole/root_admin,
+        // not by per-key resource grants — so no permission set is collected or stored.
         $apiKey = $this->keyCreationService->setKeyType(ApiKey::TYPE_APPLICATION)->handle([
             'memo' => $request->input('memo'),
             'user_id' => $request->user()->id,
-        ], $request->getKeyPermissions());
+        ]);
 
         Activity::event('admin:api-keys:create')
             ->property('api-key', $apiKey)

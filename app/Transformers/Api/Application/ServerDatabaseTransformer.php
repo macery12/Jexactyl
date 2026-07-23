@@ -80,9 +80,11 @@ class ServerDatabaseTransformer extends Transformer
     }
 
     /**
-     * Transformer::authorize() is still the inherited stub that returns true for any
-     * authenticated user, so the include ACL cannot carry this one. Gate the decrypted
-     * credential explicitly against the admin role system instead.
+     * Gate the decrypted credential explicitly against the admin role system rather
+     * than riding on Transformer::authorize()/the include ACL. A decrypted password is
+     * far more sensitive than the rest of the resource, so it keeps its own dedicated
+     * `databases.read` check that a future change to the include-permission map cannot
+     * loosen.
      *
      * `servers.read` -- all that GetServerDatabasesRequest needs to reach this
      * transformer -- is deliberately not sufficient: it would let any role that can

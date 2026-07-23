@@ -83,6 +83,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Wings Daemon
+    |--------------------------------------------------------------------------
+    |
+    | Controls how the panel talks to Wings daemons. `verify_tls` decides whether
+    | the daemon's TLS certificate is verified on every request. It is an explicit
+    | flag rather than an implicit environment check; when WINGS_VERIFY_TLS is
+    | unset it falls back to the historical behavior of verifying only in
+    | production, so installs using self-signed daemon certs in local/staging are
+    | unaffected until they opt in.
+    */
+
+    'wings' => [
+        'verify_tls' => env('WINGS_VERIFY_TLS', env('APP_ENV', 'production') === 'production'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Releases
     |--------------------------------------------------------------------------
     |

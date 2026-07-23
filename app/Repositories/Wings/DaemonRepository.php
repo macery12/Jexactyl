@@ -51,7 +51,7 @@ abstract class DaemonRepository
         Assert::isInstanceOf($this->node, Node::class);
 
         return new Client([
-            'verify' => $this->app->environment('production'),
+            'verify' => (bool) config('everest.wings.verify_tls'),
             'base_uri' => $this->node->getConnectionAddress(),
             'timeout' => config('everest.guzzle.timeout'),
             'connect_timeout' => config('everest.guzzle.connect_timeout'),

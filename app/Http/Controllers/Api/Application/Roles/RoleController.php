@@ -90,7 +90,14 @@ class RoleController extends ApplicationApiController
      */
     public function update(UpdateRoleRequest $request, AdminRole $role): array
     {
-        $role->update($request->validated());
+        $validated = $request->validated();
+        if (array_key_exists('permissions', $validated)) {
+            $this->assertWithinPrivilegeCeiling($request, $role, (array) $validated['permissions']);
+        } else {
+            $this->assertWithinPrivilegeCeiling($request, $role, null);
+        }
+
+        $role->update($validated);
 
         return $this->fractal->item($role)
             ->transformWith(AdminRoleTransformer::class)
@@ -102,11 +109,49 @@ class RoleController extends ApplicationApiController
      */
     public function updatePermissions(UpdateRoleRequest $request, AdminRole $role): array
     {
-        $role->update(['permissions' => $request->input('permissions', [])]);
+        $permissions = $request->input('permissions', []);
+        $this->assertWithinPrivilegeCeiling($request, $role, $permissions);
+
+        $role->update(['permissions' => $permissions]);
 
         return $this->fractal->item($role)
             ->transformWith(AdminRoleTransformer::class)
             ->toArray();
+    }
+
+    /**
+     * Enforce a self-privilege ceiling on role edits. A non-root admin holding
+     * `roles.update` must not be able to (a) edit the role assigned to them — the
+     * direct self-escalation vector — or (b) grant any permission they do not
+     * themselves already hold, on any role. Root admins are unrestricted.
+     *
+     * @param array<int, string>|null $requestedPermissions the permission set being
+     *                                                      assigned, or null when the
+     *                                                      request does not touch permissions
+     */
+    private function assertWithinPrivilegeCeiling(UpdateRoleRequest $request, AdminRole $role, ?array $requestedPermissions): void
+    {
+        $actor = $request->user();
+        if ($actor->root_admin) {
+            return;
+        }
+
+        if ($actor->admin_role_id !== null && (int) $actor->admin_role_id === (int) $role->id) {
+            abort(403, 'You cannot modify the role assigned to your own account.');
+        }
+
+        if ($requestedPermissions === null) {
+            return;
+        }
+
+        // Mirror ApplicationApiRequest::authorize(): the actor always holds a valid
+        // admin_role_id here (a non-root requester without one fails authorization
+        // before reaching the controller), so the role lookup is treated as present.
+        $actorPermissions = AdminRole::find($actor->admin_role_id)->permissions ?? [];
+        $exceeding = array_diff($requestedPermissions, $actorPermissions);
+        if (!empty($exceeding)) {
+            abort(403, 'You cannot grant permissions that your own role does not hold.');
+        }
     }
 
     /**
