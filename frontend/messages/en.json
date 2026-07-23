@@ -414,6 +414,7 @@
   "admin.api.meta.created": "Created {ago}",
   "admin.api.meta.lastUsed": "Last used {ago}",
   "admin.api.neverUsed": "Never used",
+  "admin.api.permissionsHint": "Each key inherits the permissions of your own admin role — it can do everything you can do through the application API, and nothing you can't. To limit what a key can reach, give the owning account a role with narrower permissions.",
   "admin.api.resource.r_allocations": "Allocations",
   "admin.api.resource.r_database_hosts": "Database hosts",
   "admin.api.resource.r_eggs": "Eggs",

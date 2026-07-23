@@ -1,7 +1,7 @@
 import { m } from '@/i18n';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Info, KeyRound, Plus, Trash2 } from 'lucide-react';
 import { getAdminApiKeys, deleteAdminApiKey, type AdminApiKey } from '@/api/adminApiKeys';
 import { timeAgo } from '@/lib/format';
 import { can } from '@/lib/can';
@@ -99,6 +99,11 @@ export default function ApiKeysListPage() {
                     </Button>
                 )}
             </div>
+
+            <p className="flex items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5 text-sm text-[var(--color-ink-muted)]">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-ink-faint)]" />
+                {m['admin.api.permissionsHint']()}
+            </p>
 
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
                 {isLoading ? (

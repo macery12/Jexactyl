@@ -414,6 +414,7 @@
   "admin.api.meta.created": "Создано {ago}",
   "admin.api.meta.lastUsed": "Последнее использование {ago}",
   "admin.api.neverUsed": "Никогда не использовался",
+  "admin.api.permissionsHint": "Каждый ключ наследует права вашей административной роли — он может делать всё, что доступно вам через API приложения, и ничего сверх этого. Чтобы ограничить доступ ключа, назначьте владельцу учётной записи роль с более узкими правами.",
   "admin.api.resource.r_allocations": "Распределение средств",
   "admin.api.resource.r_database_hosts": "Хосты баз данных",
   "admin.api.resource.r_eggs": "Яйца",
