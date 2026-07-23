@@ -5,6 +5,12 @@ namespace Everest\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property User|null $user
+ * @property Server|null $server
+ * @property \Carbon\Carbon|null $created_at
+ * @property int|null $requests COUNT(*) alias from usage aggregation queries
+ */
 class AiUsageLog extends Model
 {
     /**

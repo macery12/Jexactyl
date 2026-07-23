@@ -87,8 +87,10 @@ class Alert extends Model
 
     /**
      * Get the users that this alert is targeted to.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsToMany<User, $this>
      */
-    public function users()
+    public function users(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(User::class, 'alert_user')->withTimestamps();
     }

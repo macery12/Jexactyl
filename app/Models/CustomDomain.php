@@ -5,6 +5,9 @@ namespace Everest\Models;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property CustomDomainApiKey|null $apiKey
+ */
 class CustomDomain extends Model
 {
     public const RESOURCE_NAME = 'custom_domain';
