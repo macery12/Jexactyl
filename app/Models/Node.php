@@ -33,6 +33,8 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
  * @property int $disk
  * @property int $disk_overallocate
  * @property int $sum_disk
+ * @property int $total_allocations Aggregate alias set by loadServerSums()
+ * @property int $used_allocations Aggregate alias set by loadServerSums()
  * @property int $upload_size
  * @property string $daemon_token_id
  * @property string $daemon_token

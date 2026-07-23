@@ -28,7 +28,7 @@ class RequireTwoFactorAuthentication
      */
     public function handle(Request $request, \Closure $next): mixed
     {
-        /** @var User $user */
+        /** @var User|null $user */
         $user = $request->user();
         $uri = rtrim($request->getRequestUri(), '/') . '/';
         $current = $request->route()->getName();

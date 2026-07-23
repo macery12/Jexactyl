@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $extension_id
  * @property string $action
  * @property array $files
+ * @property User|null $actor
  */
 class ExtensionFileSnapshot extends Model
 {

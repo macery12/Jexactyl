@@ -1,0 +1,30 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% include "partials/header.twig" with {
+        title: 'New Login Detected',
+        subtitle: 'A new sign-in was recorded on your account.'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Hello {{ userName }},</p>
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">We detected a new login to your account. Review the details below.</p>
+    {% embed "partials/panel.twig" with {title: 'Login details'} %}
+        {% block body %}
+            {% include "partials/key_value_table.twig" with {
+                rows: {
+                    'Time': loginTime,
+                    'IP Address': ipAddress,
+                    'Device': userAgent,
+                    'Location': (location is not null and location != 'Unknown') ? location : null
+                }
+            } %}
+        {% endblock %}
+    {% endembed %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">If this was you, no further action is needed. If you don’t recognize this activity, secure your account immediately.</p>
+    {% include "partials/button.twig" with {
+        url: appUrl ~ '/account',
+        text: 'Review Account Security'
+    } %}
+    <p style="margin:12px 0 0; color:#111827; font-size:14px; line-height:1.6; text-align:center;">
+        Need to reset your password? <a href="{{ appUrl }}/auth/password" style="color:#2563eb; text-decoration:underline;">Start a reset</a>.
+    </p>
+{% endblock %}

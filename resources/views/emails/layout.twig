@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $subject ?? config('app.name') }}</title>
+    <title>{{ subject|default(appName) }}</title>
 </head>
 <body style="margin:0; padding:0; background-color:#f3f4f6; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#111827;">
-    @if(!empty(trim($preheader ?? '')))
+    {% if preheader|default('')|trim is not empty %}
         <div style="display:none; max-height:0px; overflow:hidden; font-size:1px; line-height:1px; color:#f3f4f6; opacity:0;">
-            {{ trim($preheader ?? '') }}
+            {{ preheader|trim }}
         </div>
-    @endif
+    {% endif %}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6; width: 100%; border-spacing:0;">
         <tr>
             <td align="center" style="padding: 24px;">
@@ -20,12 +20,12 @@
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border:1px solid #e5e7eb; border-radius: 12px; overflow:hidden; width:100%; border-spacing:0;">
                                 <tr>
                                     <td style="padding: 32px 32px 0;">
-                                        @yield('content')
+                                        {% block content %}{% endblock %}
                                     </td>
                                 </tr>
                                 <tr>
                                     <td style="padding: 0 32px 32px;">
-                                        @include('emails.partials.footer')
+                                        {% include "partials/footer.twig" %}
                                     </td>
                                 </tr>
                             </table>

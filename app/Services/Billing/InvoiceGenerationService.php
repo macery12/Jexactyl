@@ -91,7 +91,7 @@ class InvoiceGenerationService
             'customer' => [
                 'id' => $user?->id,
                 'username' => $user?->username,
-                'name' => $user?->name ?? $user?->username ?? 'Customer',
+                'name' => $user?->username ?? 'Customer',
                 'email' => $user?->email ?? '',
                 'billing_address' => $billingData ? [
                     'first_name'    => $billingData['first_name'] ?? null,

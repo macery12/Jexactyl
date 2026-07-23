@@ -5,8 +5,10 @@ namespace Everest\Transformers\Api;
 use Everest\Models\User;
 use Illuminate\Http\Request;
 use Webmozart\Assert\Assert;
+use Everest\Models\AdminRole;
 use League\Fractal\Resource\Item;
 use Illuminate\Container\Container;
+use Everest\Services\Acl\Api\AdminAcl;
 use League\Fractal\Resource\Collection;
 use League\Fractal\TransformerAbstract;
 
@@ -47,15 +49,49 @@ abstract class Transformer extends TransformerAbstract
     }
 
     /**
-     * Determines if the user making this request is authorized to access the given
-     * resource on the API. This is used when requested included items to ensure that
-     * the user and key are authorized to see the result.
-     *
-     * TODO: implement this with the new API key formats.
+     * Maps each API ACL resource to the AdminRole read-permission that governs it.
+     * Sub-resources without a first-class admin module defer to their nearest owning
+     * module's read permission: allocations and locations are administered under
+     * Nodes, and server databases under the Databases (database-hosts) module.
+     */
+    protected const INCLUDE_PERMISSIONS = [
+        AdminAcl::RESOURCE_SERVERS => AdminRole::SERVERS_READ,
+        AdminAcl::RESOURCE_NODES => AdminRole::NODES_READ,
+        AdminAcl::RESOURCE_ALLOCATIONS => AdminRole::NODES_READ,
+        AdminAcl::RESOURCE_LOCATIONS => AdminRole::NODES_READ,
+        AdminAcl::RESOURCE_USERS => AdminRole::USERS_READ,
+        AdminAcl::RESOURCE_NESTS => AdminRole::NESTS_READ,
+        AdminAcl::RESOURCE_EGGS => AdminRole::EGGS_READ,
+        AdminAcl::RESOURCE_DATABASE_HOSTS => AdminRole::DATABASES_READ,
+        AdminAcl::RESOURCE_SERVER_DATABASES => AdminRole::DATABASES_READ,
+    ];
+
+    /**
+     * Determines if the user making this request is authorized to expand the given
+     * related resource via `?include=`. Root admins may expand anything; a scoped
+     * admin must hold the AdminRole read-permission that governs the resource. An
+     * unauthenticated request, an unmapped resource, or a role missing the required
+     * permission all fail closed and yield a null include rather than leaking data.
      */
     protected function authorize(string $resource): bool
     {
-        return $this->request->user() instanceof User;
+        $user = $this->request->user();
+        if (!$user instanceof User) {
+            return false;
+        }
+
+        if ($user->root_admin) {
+            return true;
+        }
+
+        $required = self::INCLUDE_PERMISSIONS[$resource] ?? null;
+        if ($required === null || $user->admin_role_id === null) {
+            return false;
+        }
+
+        // Mirror ApplicationApiRequest::authorize()/canViewPassword(): resolve the
+        // actor's role and test membership of the required read-permission.
+        return in_array($required, AdminRole::find($user->admin_role_id)->permissions ?? [], true);
     }
 
     /**

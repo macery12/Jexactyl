@@ -9,6 +9,6 @@ class DeleteCouponRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::BILLING_WRITE;
+        return AdminRole::BILLING_UPDATE;
     }
 }

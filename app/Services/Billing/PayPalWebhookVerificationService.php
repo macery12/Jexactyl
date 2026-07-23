@@ -54,7 +54,7 @@ class PayPalWebhookVerificationService
         }
 
         $event = $request->json()->all();
-        if (!is_array($event) || $event === []) {
+        if ($event === []) {
             return $this->failure(400, 'invalid_payload', [
                 'transmission_id' => LogSanitizer::maskIdentifier($headers['transmission_id']),
             ]);

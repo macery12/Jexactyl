@@ -25,6 +25,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array|null $tags
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
+ * @property User|null $user
+ * @property \Illuminate\Database\Eloquent\Collection|EmailDeliveryAttempt[] $deliveryAttempts
  */
 class EmailDelivery extends Model
 {

@@ -31,15 +31,6 @@ use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions
 class ModsController extends ClientApiController
 {
     /**
-     * Directories to skip when scanning for installed addons.
-     * These contain internal/remapped files that are not real user plugins.
-     */
-    private const IGNORED_DIRECTORIES = [
-        '.paper-remapped',
-        '.paper-remapped-cp',
-    ];
-
-    /**
      * Cache TTL for installed addons scan (in seconds).
      */
     private const INSTALLED_CACHE_TTL = 300;

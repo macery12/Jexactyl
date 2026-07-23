@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property Carbon|null $expires_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property User|null $user
  */
 class JGuardEntry extends Model
 {

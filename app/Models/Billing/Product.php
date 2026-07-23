@@ -146,6 +146,7 @@ class Product extends Model
     /**
      * Get all billing cycles for this product.
      */
+    /** @return HasMany<BillingCycle, $this> */
     public function billingCycles(): HasMany
     {
         return $this->hasMany(BillingCycle::class);

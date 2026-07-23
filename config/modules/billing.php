@@ -7,6 +7,12 @@ return [
     'enabled' => env('BILLING_ENABLED', true),
 
     /*
+     * Dedicated key for encrypting invoice snapshots and storage credentials.
+     * Falls back to APP_KEY when unset (see InvoiceEncryptionService).
+     */
+    'invoice_encryption_key' => env('INVOICE_ENCRYPTION_KEY'),
+
+    /*
      * Configure the publishable & secret API key for Stripe.
      */
     'keys' => [

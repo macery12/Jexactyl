@@ -1,0 +1,22 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% include "partials/header.twig" with {
+        title: 'Welcome!',
+        subtitle: 'Your account is ready to use.'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Hello {{ userName }},</p>
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Your account has been successfully created.</p>
+    {% embed "partials/panel.twig" with {title: 'Account details'} %}
+        {% block body %}
+            {% include "partials/key_value_table.twig" with {
+                rows: {
+                    'Email': email
+                }
+            } %}
+        {% endblock %}
+    {% endembed %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">You can now log in to your account using the button below.</p>
+    {% include "partials/button.twig" with {url: loginUrl, text: 'Log In'} %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Thank you for joining us!</p>
+{% endblock %}

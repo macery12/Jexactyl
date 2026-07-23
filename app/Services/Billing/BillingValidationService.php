@@ -129,7 +129,7 @@ class BillingValidationService
      * @param int|null $nodeId The node ID for location-based pricing (optional)
      * @param int|null $userId The user ID for per-user coupon validation (required if coupon is used)
      *
-     * @return array{finalPrice: float, discount: float} The final price and discount amount
+     * @return array{finalPrice: float, discount: float, subtotal: float, billingDays: int, multiplier: float, nodeMultiplier: float}
      *
      * @throws DisplayException if coupon validation fails
      */

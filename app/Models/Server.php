@@ -66,6 +66,7 @@ use Everest\Exceptions\Http\Server\ServerStateConflictException;
  * @property int|null $mounts_count
  * @property Nest $nest
  * @property Node $node
+ * @property User|null $user
  * @property \Illuminate\Notifications\DatabaseNotificationCollection|\Illuminate\Notifications\DatabaseNotification[] $notifications
  * @property int|null $notifications_count
  * @property \Illuminate\Database\Eloquent\Collection|Schedule[] $schedules
@@ -320,6 +321,8 @@ class Server extends Model
 
     /**
      * Gets all allocations associated with this server.
+     *
+     * @return HasMany<Allocation, $this>
      */
     public function allocations(): HasMany
     {
@@ -329,6 +332,7 @@ class Server extends Model
     /**
      * Gets all custom domain mappings associated with this server.
      */
+    /** @return HasMany<ServerCustomDomain, $this> */
     public function customDomains(): HasMany
     {
         return $this->hasMany(ServerCustomDomain::class, 'server_id');
@@ -353,6 +357,7 @@ class Server extends Model
     /**
      * Gets information for the service variables associated with this server.
      */
+    /** @return HasMany<EggVariable, $this> */
     public function variables(): HasMany
     {
         return $this->hasMany(EggVariable::class, 'egg_id', 'egg_id')

@@ -71,7 +71,13 @@ return [
     |
     */
 
-    'connection' => env('SESSION_CONNECTION'),
+    // Default the redis session store to its own dedicated connection (redis DB
+    // `REDIS_DATABASE_SESSIONS`, see config/database.php) rather than the shared
+    // cache connection. Without this, redis sessions live under the cache prefix
+    // on the same keyspace as the application cache, so any `cache:clear` /
+    // `optimize:clear` (run by the post-build reload script and the extension
+    // rebuild pipeline) flushes every login session and signs all users out.
+    'connection' => env('SESSION_CONNECTION', env('SESSION_DRIVER') === 'redis' ? 'sessions' : null),
 
     /*
     |--------------------------------------------------------------------------

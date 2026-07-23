@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\Request;
 use Illuminate\Database\ConnectionInterface;
 use Everest\Services\Webhooks\WebhookEventService;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
-use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
 class ActivityLogService
 {
@@ -29,7 +28,6 @@ class ActivityLogService
         protected ActivityLogBatchService $batch,
         protected ActivityLogTargetableService $targetable,
         protected ConnectionInterface $connection,
-        private SettingsRepositoryInterface $settings,
         private WebhookEventService $webhook,
     ) {
     }
@@ -185,7 +183,7 @@ class ActivityLogService
 
         try {
             return $this->save();
-        } catch (\Throwable|\Exception $exception) {
+        } catch (\Throwable $exception) {
             if (config('app.env') !== 'production') {
                 /* @noinspection PhpUnhandledExceptionInspection */
                 throw $exception;

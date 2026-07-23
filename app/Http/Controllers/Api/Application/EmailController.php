@@ -371,7 +371,7 @@ class EmailController extends ApplicationApiController
                 'status' => 500,
                 'message' => $message,
             ],
-        ] + ($context !== null && $this->isTestAction($context) ? [
+        ] + ($this->isTestAction($context) ? [
             'tested_at' => now()->toIso8601String(),
             'test_type' => $this->getTestType($context),
         ] : []), 500);

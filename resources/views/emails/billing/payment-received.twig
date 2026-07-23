@@ -1,0 +1,38 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% include "partials/header.twig" with {
+        title: isRenewal ? 'Payment Received - Server Renewal' : 'Payment Received',
+        subtitle: 'Thanks for your payment. Your services remain active.'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Hello {{ userName }},</p>
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">We've successfully received your payment{{ isRenewal ? ' for your server renewal' : '' }}. Your services will continue without interruption.</p>
+    {% embed "partials/panel.twig" with {title: 'Payment details'} %}
+        {% block body %}
+            {% set discountLabel = couponCode ? 'Discount (' ~ couponCode ~ ')' : 'Discount' %}
+            {% set hasDiscount = originalAmount and discountAmount %}
+            {% include "partials/key_value_table.twig" with {
+                rows: {
+                    'Amount': currency ~ ' ' ~ amount,
+                    'Original Amount': hasDiscount ? currency ~ ' ' ~ originalAmount : null,
+                    (discountLabel): hasDiscount ? '-' ~ currency ~ ' ' ~ discountAmount : null,
+                    'Payment Method': paymentMethod,
+                    'Billing Cycle': billingCycle ?: null,
+                    'Transaction Date': transactionDate,
+                    'Invoice ID': invoiceId != 'N/A' ? invoiceId : null
+                }
+            } %}
+        {% endblock %}
+    {% endembed %}
+    {% include "partials/button.twig" with {
+        url: appUrl ~ '/billing',
+        text: 'View Billing History'
+    } %}
+    {% if invoiceDownloadUrl is not empty %}
+        {% include "partials/button.twig" with {
+            url: invoiceDownloadUrl,
+            text: 'Download Invoice PDF'
+        } %}
+    {% endif %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">If you have any questions about this payment, please contact our support team.</p>
+{% endblock %}

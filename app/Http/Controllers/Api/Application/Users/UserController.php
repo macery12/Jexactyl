@@ -150,6 +150,16 @@ class UserController extends ApplicationApiController
      */
     public function store(StoreUserRequest $request): JsonResponse
     {
+        if (
+            !$request->user()->root_admin
+            && (
+                $request->input('root_admin')
+                || !is_null($request->input('admin_role_id'))
+            )
+        ) {
+            throw new DisplayException('You must be a root administrator to grant another user permissions.');
+        }
+
         $user = $this->creationService->handle($request->validated());
 
         Activity::event('admin:users:create')

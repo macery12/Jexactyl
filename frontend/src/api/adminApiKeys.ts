@@ -3,24 +3,8 @@ import http from '@/lib/http';
 // Administrative (application) API keys, backed by /api/application/api
 // (Fractal collection of ApiKeyTransformer). These are the panel-wide keys that
 // authenticate against the application API, gated behind api.read/create/delete.
-
-// The resource permissions a key can be granted. Each maps to a 0/1/2 grant
-// (no access / read / read & write) mirroring the V1 create form.
-export const API_KEY_RESOURCES = [
-    'r_allocations',
-    'r_database_hosts',
-    'r_eggs',
-    'r_locations',
-    'r_nests',
-    'r_nodes',
-    'r_server_databases',
-    'r_servers',
-    'r_users',
-] as const;
-
-export type ApiKeyResource = (typeof API_KEY_RESOURCES)[number];
-export type ApiKeyPermissionValue = '0' | '1' | '2';
-export type ApiKeyPermissions = Record<ApiKeyResource, ApiKeyPermissionValue>;
+// Access is governed by the owner's AdminRole/root_admin — there is no per-key
+// resource scoping, so the create form only collects a memo.
 
 export interface AdminApiKey {
     id: number;
@@ -84,8 +68,8 @@ export async function getAdminApiKeys(page = 1, perPage = 25): Promise<AdminApiK
 }
 
 // POST /api/application/api — create a key; returns the full token, shown once.
-export async function createAdminApiKey(memo: string, permissions: ApiKeyPermissions): Promise<string> {
-    const { data } = await http.post('/api/application/api', { memo, permissions });
+export async function createAdminApiKey(memo: string): Promise<string> {
+    const { data } = await http.post('/api/application/api', { memo });
     return data.token as string;
 }
 

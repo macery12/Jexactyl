@@ -315,6 +315,8 @@ class BillingCycleService
      * with other cycle/price calculations. BillingValidationService retains a
      * delegation shim for backwards compatibility.
      *
+     * @return array{finalPrice: float, discount: float, subtotal: float, billingDays: int, multiplier: float, nodeMultiplier: float}
+     *
      * @throws DisplayException if coupon validation fails
      */
     public function calculatePriceWithCoupon(

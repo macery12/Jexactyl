@@ -1,0 +1,26 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% include "partials/header.twig" with {
+        title: 'Account Restored',
+        subtitle: 'Your account suspension has been lifted.'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Hello {{ userName }},</p>
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Good news! Your account has been unsuspended and you now have full access again.</p>
+    {% embed "partials/panel.twig" with {title: 'Restoration details'} %}
+        {% block body %}
+            {% include "partials/key_value_table.twig" with {
+                rows: {
+                    'Restored At': unsuspendedAt
+                }
+            } %}
+        {% endblock %}
+    {% endembed %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">You can now log in and manage your servers normally.</p>
+    {% include "partials/button.twig" with {
+        url: appUrl ~ '/auth/login',
+        text: 'Login to Panel',
+        color: '#10b981'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Thank you for your patience.</p>
+{% endblock %}

@@ -1,72 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, TriangleAlert } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m } from '@/i18n';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { firstError } from '@/lib/apiError';
-import {
-    createAdminApiKey,
-    API_KEY_RESOURCES,
-    type ApiKeyPermissions,
-    type ApiKeyPermissionValue,
-    type ApiKeyResource,
-} from '@/api/adminApiKeys';
-
-const GRANTS: ApiKeyPermissionValue[] = ['0', '1', '2'];
-const GRANT_LABEL: Record<ApiKeyPermissionValue, () => string> = {
-    '0': () => m['admin.api.grant.none'](),
-    '1': () => m['admin.api.grant.read'](),
-    '2': () => m['admin.api.grant.readWrite'](),
-};
-
-function emptyPermissions(): ApiKeyPermissions {
-    return Object.fromEntries(API_KEY_RESOURCES.map(r => [r, '0'])) as ApiKeyPermissions;
-}
-
-function PermissionRow({
-    resource,
-    value,
-    onChange,
-}: {
-    resource: ApiKeyResource;
-    value: ApiKeyPermissionValue;
-    onChange: (v: ApiKeyPermissionValue) => void;
-}) {
-    return (
-        <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-medium text-[var(--color-ink)]">
-                {td(`admin.api.resource.${resource}`, resource)}
-            </span>
-            <div className="flex overflow-hidden rounded-lg border border-[var(--color-border-strong)]">
-                {GRANTS.map(g => (
-                    <button
-                        key={g}
-                        type="button"
-                        onClick={() => onChange(g)}
-                        className={`px-3 py-1 text-xs font-medium transition-colors ${
-                            value === g
-                                ? 'bg-[var(--brand)] text-[var(--color-brand-ink)]'
-                                : 'bg-[var(--color-surface)] text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)]'
-                        }`}
-                    >
-                        {GRANT_LABEL[g]()}
-                    </button>
-                ))}
-            </div>
-        </div>
-    );
-}
+import { createAdminApiKey } from '@/api/adminApiKeys';
 
 // Create dialog for an application API key. On success the full token is shown
-// exactly once (it can never be recovered), with copy-to-clipboard.
+// exactly once (it can never be recovered), with copy-to-clipboard. Access is
+// governed by the owner's AdminRole/root_admin, so no per-resource scoping is
+// collected here.
 export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     const qc = useQueryClient();
 
     const [memo, setMemo] = useState('');
-    const [permissions, setPermissions] = useState<ApiKeyPermissions>(emptyPermissions);
     const [error, setError] = useState<string | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
@@ -75,23 +25,19 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
         if (!open) return;
         // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         setMemo('');
-        setPermissions(emptyPermissions());
         setError(null);
         setToken(null);
         setCopied(false);
     }, [open]);
 
     const mutation = useMutation({
-        mutationFn: () => createAdminApiKey(memo.trim(), permissions),
+        mutationFn: () => createAdminApiKey(memo.trim()),
         onSuccess: async newToken => {
             setToken(newToken);
             await qc.invalidateQueries({ queryKey: ['admin', 'api-keys'] });
         },
         onError: err => setError(firstError(err) ?? m['common.states.genericError']()),
     });
-
-    const setGrant = (resource: ApiKeyResource, value: ApiKeyPermissionValue) =>
-        setPermissions(prev => ({ ...prev, [resource]: value }));
 
     const canSubmit = memo.trim().length >= 3;
 
@@ -165,20 +111,6 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
                 <Field label={m['admin.api.form.memo']()} hint={m['admin.api.form.memoHint']()}>
                     <Input value={memo} onChange={e => setMemo(e.target.value)} autoComplete="off" maxLength={191} />
                 </Field>
-
-                <div>
-                    <p className="mb-2 text-sm font-medium text-[var(--color-ink)]">{m['admin.api.form.permissions']()}</p>
-                    <div className="flex flex-col gap-2">
-                        {API_KEY_RESOURCES.map(resource => (
-                            <PermissionRow
-                                key={resource}
-                                resource={resource}
-                                value={permissions[resource]}
-                                onChange={v => setGrant(resource, v)}
-                            />
-                        ))}
-                    </div>
-                </div>
             </div>
         </Modal>
     );

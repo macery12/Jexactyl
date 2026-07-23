@@ -107,10 +107,7 @@ class PlayerManagerController extends ClientApiController
                     foreach ($rawPlayers as $player) {
                         $userData = $this->lookupUserName($player, $server);
 
-                        if ($userData) {
-                            $uuid = $userData['uuid'];
-                        }
-
+                        $uuid = $userData['uuid'] ?? null;
                         if (!$uuid) {
                             continue;
                         }
@@ -170,44 +167,6 @@ class PlayerManagerController extends ClientApiController
         return substr($uuid, 0, 8) . '-' . substr($uuid, 8, 4) . '-' . substr($uuid, 12, 4) . '-' . substr($uuid, 16, 4) . '-' . substr($uuid, 20);
     }
 
-    private function lookupUser(string $uuid, Server $server): ?array
-    {
-        $name = config('app.name', 'M12Labs');
-        $uuid = str_replace('-', '', $uuid);
-        $cache = $this->userCache($server);
-
-        foreach ($cache as $player) {
-            if ($player['uuid'] === $this->formatUuid($uuid)) {
-                return [
-                    'uuid' => $this->formatUuid($player['uuid']),
-                    'name' => $player['name'],
-                ];
-            }
-        }
-
-        $data = Cache::remember("minecraftplayer:$uuid", 1000, function () use ($name, $uuid) {
-            try {
-                $req = Http::withUserAgent("M12Labs Player Manager @ $name")
-                    ->timeout(5)
-                    ->retry(2, 100, throw: true)
-                    ->get("https://sessionserver.mojang.com/session/minecraft/profile/$uuid");
-
-                return json_decode($req->getBody()->getContents(), true);
-            } catch (\Throwable $e) {
-                return null;
-            }
-        });
-
-        if (is_null($data)) {
-            return null;
-        }
-
-        return [
-            'uuid' => $this->formatUuid($data['id']),
-            'name' => $data['name'],
-        ];
-    }
-
     private function lookupUserName(string $name, Server $server): ?array
     {
         $app = config('app.name', 'M12Labs');
@@ -239,7 +198,7 @@ class PlayerManagerController extends ClientApiController
                     ->retry(2, 100, throw: true)
                     ->get("https://api.mojang.com/users/profiles/minecraft/$name");
 
-                return json_decode($req->getBody()->getContents(), true);
+                return json_decode($req->body(), true);
             } catch (\Throwable $e) {
                 return null;
             }

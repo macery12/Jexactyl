@@ -287,7 +287,7 @@ class ExtensionCatalogService
     }
 
     /**
-     * @return array{id: string, name: string, description: string, author: string, icon: string, route: string, settingsSchema: array<int, array<string, mixed>>, latestRelease: array<string, mixed>}
+     * @return array{id: string, name: string, description: string, author: string, icon: string, route: string, settingsSchema: array<int, array<string, mixed>>, latestRelease: array<string, mixed>, repository: ExtensionRepository}
      */
     public function findRepositoryPackage(string $extensionId, int $repositoryId, ?string $version = null): array
     {

@@ -16,8 +16,9 @@ parameters:
         # Ignore repository interface missing methods
         - '#Call to an undefined method Everest\\Repositories\\Wings\\DaemonRepository::(\w+)\(\)#'
 
-        # Ignore magic spatie calls
-        - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder::allowed(\w+)\(\)#'
+        # Ignore magic spatie query-builder calls (allowedFilters/allowedSorts/…),
+        # including on generic Builder<Model> receivers.
+        - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder(\<[^>]+\>)?::allowed(\w+)\(\)#'
 
         # Optional extension package (minecraft_startup_editor) — the class is only
         # present when that extension is installed; core code references it lazily.

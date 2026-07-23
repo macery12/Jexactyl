@@ -28,6 +28,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $voided_reason
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
+ * @property Order|null $order
+ * @property User|null $user
  */
 class Invoice extends Model
 {

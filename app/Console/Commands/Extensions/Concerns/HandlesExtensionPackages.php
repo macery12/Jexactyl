@@ -14,6 +14,16 @@ use Everest\Services\Extensions\ExtensionPackageArtifactService;
 trait HandlesExtensionPackages
 {
     /**
+     * Read an option that only some of the commands using this trait define
+     * (e.g. the uninstall command has no --yes/--path/--release). Returns null
+     * instead of throwing when the current command lacks the option.
+     */
+    private function packageOption(string $key): mixed
+    {
+        return $this->hasOption($key) ? $this->option($key) : null;
+    }
+
+    /**
      * Resolve how to obtain the extension package — from a repository or a local file.
      * $action should be 'install' or 'update' (used only in interactive prompt text).
      *
@@ -27,13 +37,13 @@ trait HandlesExtensionPackages
         $cwd = getcwd() ?: base_path();
         $discoveredArtifacts = $artifactService->discoverArchives($cwd);
         $validArtifacts = array_values(array_filter($discoveredArtifacts, fn (array $a): bool => !isset($a['error'])));
-        $explicitPath = $this->option('path') ? trim((string) $this->option('path')) : null;
+        $explicitPath = $this->packageOption('path') ? trim((string) $this->packageOption('path')) : null;
 
         if ($explicitPath !== null && $explicitPath !== '') {
             return $this->createFileResolution($explicitPath, $cwd, $discoveredArtifacts, $source);
         }
 
-        if ($this->option('file')) {
+        if ($this->packageOption('file')) {
             return $this->resolveFileModeSelection($source, $cwd, $discoveredArtifacts, $validArtifacts, $action);
         }
 
@@ -48,7 +58,7 @@ trait HandlesExtensionPackages
             ));
 
             if (count($matchingLocal) === 1) {
-                if ($this->option('yes') || $this->confirm(sprintf(
+                if ($this->packageOption('yes') || $this->confirm(sprintf(
                     'Found local package %s (%s) in %s. %s from that file instead of using the repository?',
                     $matchingLocal[0]['name'],
                     $matchingLocal[0]['version'],
@@ -57,7 +67,7 @@ trait HandlesExtensionPackages
                 ), true)) {
                     return $this->createFileResolution($matchingLocal[0]['archivePath'], $cwd, $discoveredArtifacts, $source);
                 }
-            } elseif ($validArtifacts !== [] && !$this->option('yes')) {
+            } elseif ($validArtifacts !== [] && !$this->packageOption('yes')) {
                 $choice = $this->choice(
                     sprintf('Found %d local extension package file(s) in %s while you asked for "%s". What do you want to do?', count($validArtifacts), $cwd, $source),
                     ['Use repository ' . $action, 'Select a discovered package', 'Enter a path', 'Cancel'],
@@ -86,7 +96,7 @@ trait HandlesExtensionPackages
             }
 
             if (count($validArtifacts) === 1) {
-                if ($this->option('yes') || $this->confirm(sprintf(
+                if ($this->packageOption('yes') || $this->confirm(sprintf(
                     ucfirst($action) . ' from the local package %s (%s) found in %s?',
                     $validArtifacts[0]['name'],
                     $validArtifacts[0]['version'],
@@ -98,20 +108,20 @@ trait HandlesExtensionPackages
                 throw new DisplayException(ucfirst($action) . ' cancelled.');
             }
 
-            if ($this->option('yes')) {
+            if ($this->packageOption('yes')) {
                 throw new DisplayException(sprintf('Multiple local extension packages were found. Re-run without --yes to select one, or pass --path explicitly.'));
             }
 
             return $this->selectDiscoveredArtifact($validArtifacts, $cwd, $discoveredArtifacts, null, $action);
         }
 
-        $repository = $this->resolveRepository($this->option('repository'));
+        $repository = $this->resolveRepository($this->packageOption('repository'));
 
         return [
             'mode'                => 'repository',
             'extensionId'         => $source,
             'repository'          => $repository,
-            'release'             => $this->option('release') ? trim((string) $this->option('release')) : null,
+            'release'             => $this->packageOption('release') ? trim((string) $this->packageOption('release')) : null,
             'discoveredArtifacts' => $discoveredArtifacts,
             'cwd'                 => $cwd,
         ];
@@ -137,7 +147,7 @@ trait HandlesExtensionPackages
             return $this->createFileResolution($validArtifacts[0]['archivePath'], $cwd, $discoveredArtifacts, $validArtifacts[0]['extensionId']);
         }
 
-        if ($this->option('yes')) {
+        if ($this->packageOption('yes')) {
             throw new DisplayException('Multiple local extension packages were found. Pass --path or re-run without --yes to choose one interactively.');
         }
 
@@ -200,7 +210,7 @@ trait HandlesExtensionPackages
             'mode'                => 'file',
             'extensionId'         => $artifact['extensionId'],
             'archivePath'         => $artifact['archivePath'],
-            'label'               => $this->option('label') ? trim((string) $this->option('label')) : sprintf('Manual package file (%s)', $artifact['archiveName']),
+            'label'               => $this->packageOption('label') ? trim((string) $this->packageOption('label')) : sprintf('Manual package file (%s)', $artifact['archiveName']),
             'artifact'            => $artifact,
             'requestedSource'     => $requestedSource,
             'discoveredArtifacts' => $discoveredArtifacts,

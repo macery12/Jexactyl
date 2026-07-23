@@ -415,7 +415,7 @@ class ExtensionsController extends ApplicationApiController
     /**
      * Delete a custom extension repository.
      */
-    public function deleteRepository(GetExtensionsRequest $request, ExtensionRepository $repository): Response
+    public function deleteRepository(GetExtensionsRequest $request, ExtensionRepository $repository): Response|JsonResponse
     {
         if ($repository->is_official) {
             return new JsonResponse(['error' => 'The official M12Labs repository cannot be deleted. Disable it instead.'], 422);

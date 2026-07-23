@@ -6,7 +6,6 @@ use Everest\Models\Server;
 use Illuminate\Support\Arr;
 use Illuminate\Database\ConnectionInterface;
 use Everest\Traits\Services\ReturnsUpdatedModels;
-use Everest\Repositories\Wings\DaemonServerRepository;
 use Everest\Repositories\Wings\DaemonRevocationRepository;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 
@@ -19,7 +18,6 @@ class DetailsModificationService
      */
     public function __construct(
         private ConnectionInterface $connection,
-        private DaemonServerRepository $serverRepository,
         private DaemonRevocationRepository $revocationRepository,
     ) {
     }

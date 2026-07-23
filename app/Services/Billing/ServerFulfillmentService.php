@@ -333,37 +333,40 @@ class ServerFulfillmentService
 
     /**
      * Dispatch a PaymentFailed email event.
-     * {
-     * try {
-     * $user = $order->user;
-     * if (!$user) {
-     * Log::warning("Cannot dispatch PaymentFailed email for order {$order->id}: user not found");
-     * return;
-     * }.
-     *
-     * $currency = config('modules.billing.currency.code', 'USD');
-     * $product = Product::find($order->product_id);
-     * $amount = $order->amount ?? ($product ? $product->price : 0);
-     * $isRenewal = $order->type === Order::TYPE_REN;
-     *
-     * event(new \Everest\Events\Email\PaymentFailed(
-     * user: $user,
-     * amount: $amount,
-     * currency: $currency,
-     * reason: $reason,
-     * invoiceId: (string) $order->id,
-     * correlationId: \Illuminate\Support\Str::uuid()->toString(),
-     * paymentMethod: ucfirst($processor),
-     * isRenewal: $isRenewal,
-     * ));
-     *
-     * Log::info("Dispatched PaymentFailed email for order {$order->id}");
-     * } catch (\Exception $e) {
-     * Log::error("Failed to dispatch PaymentFailed email for order {$order->id}: " . $e->getMessage());
-     * }
-     * }
-     *
-     * /**
+     */
+    public function dispatchPaymentFailedEmail(Order $order, string $reason, string $processor): void
+    {
+        try {
+            $user = $order->user;
+            if (!$user) {
+                Log::warning("Cannot dispatch PaymentFailed email for order {$order->id}: user not found");
+
+                return;
+            }
+
+            $currency = config('modules.billing.currency.code', 'USD');
+            $product = Product::find($order->product_id);
+            $amount = (float) ($order->total ?? ($product ? $product->price : 0));
+            $isRenewal = $order->type === Order::TYPE_REN;
+
+            event(new \Everest\Events\Email\PaymentFailed(
+                user: $user,
+                amount: $amount,
+                currency: $currency,
+                reason: $reason,
+                invoiceId: (string) $order->id,
+                correlationId: \Illuminate\Support\Str::uuid()->toString(),
+                paymentMethod: ucfirst($processor),
+                isRenewal: $isRenewal,
+            ));
+
+            Log::info("Dispatched PaymentFailed email for order {$order->id}");
+        } catch (\Exception $e) {
+            Log::error("Failed to dispatch PaymentFailed email for order {$order->id}: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Dispatch PaymentReceived email event after successful order fulfillment.
      *
      * @param Order $order The completed order

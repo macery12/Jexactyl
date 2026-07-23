@@ -23,6 +23,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
  * @property string|null $package_checksum
  * @property array $manifest
  * @property \Carbon\Carbon|null $installed_at
+ * @property ExtensionRepository|null $repository
+ * @property \Illuminate\Database\Eloquent\Collection|ExtensionPackageFile[] $files
  */
 class ExtensionPackage extends Model
 {

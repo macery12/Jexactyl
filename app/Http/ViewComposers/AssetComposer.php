@@ -19,7 +19,7 @@ class AssetComposer
             'logo' => config('app.logo') ?? null,
             'mode' => config('app.mode') ?? 'standard',
             'setup' => config('app.setup') ?? false,
-            'debug' => env('APP_DEBUG') ?? false,
+            'debug' => (bool) config('app.debug', false),
             'locale' => Setting::get('settings::app:locale') ?: (config('app.locale') ?: 'en'),
             'user_locale' => boolval(config('app.user_locale', true)),
             'command_palette' => boolval(config('app.command_palette', false)),

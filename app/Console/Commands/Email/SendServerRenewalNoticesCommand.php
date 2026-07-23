@@ -114,7 +114,7 @@ class SendServerRenewalNoticesCommand extends Command
                 Log::error("Failed to send renewal notice for server {$server->id}", [
                     'error' => $e->getMessage(),
                     'server_id' => $server->id,
-                    'user_id' => $server->user_id,
+                    'user_id' => $server->owner_id,
                 ]);
                 ++$skippedCount;
             }
@@ -170,7 +170,7 @@ class SendServerRenewalNoticesCommand extends Command
 
         Log::info("Sent renewal notice for server {$server->id}", [
             'server_id' => $server->id,
-            'user_id' => $server->user_id,
+            'user_id' => $server->owner_id,
             'renewal_date' => $server->renewal_date->toDateTimeString(),
             'days_until_renewal' => $daysUntilRenewal,
             'notice_stage_days' => $targetDaysAhead,

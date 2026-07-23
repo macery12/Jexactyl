@@ -4,6 +4,24 @@ namespace Everest\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $server_id
+ * @property int|null $allocation_id
+ * @property int $custom_domain_id
+ * @property string|null $subdomain
+ * @property string|null $full_domain
+ * @property int|null $port
+ * @property string|null $protocol
+ * @property string|null $service_tag
+ * @property string|null $status
+ * @property string|null $last_error
+ * @property array|null $dns_records
+ * @property \Carbon\Carbon|null $last_synced_at
+ * @property CustomDomain|null $customDomain
+ * @property Server $server
+ * @property Allocation|null $allocation
+ */
 class ServerCustomDomain extends Model
 {
     public const RESOURCE_NAME = 'server_custom_domain';

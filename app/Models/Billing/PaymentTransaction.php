@@ -5,6 +5,24 @@ namespace Everest\Models\Billing;
 use Everest\Models\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $order_id
+ * @property string $processor
+ * @property string|null $external_id
+ * @property string|null $capture_id
+ * @property string|null $status
+ * @property float|string|null $amount
+ * @property string|null $currency
+ * @property string|null $payer_id
+ * @property string|null $payer_email
+ * @property string|null $payment_token
+ * @property array|null $raw_metadata
+ * @property \Carbon\Carbon|null $captured_at
+ * @property \Carbon\Carbon $created_at
+ * @property \Carbon\Carbon $updated_at
+ * @property Order|null $order
+ */
 class PaymentTransaction extends Model
 {
     protected $table = 'payment_transactions';

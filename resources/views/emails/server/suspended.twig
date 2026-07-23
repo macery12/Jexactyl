@@ -1,0 +1,26 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% include "partials/header.twig" with {
+        title: 'Server Suspended',
+        subtitle: 'Action required to restore your service.'
+    } %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Hello {{ userName }},</p>
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">Your server <strong>{{ serverName }}</strong> has been suspended.</p>
+    {% embed "partials/panel.twig" with {title: 'Suspension details'} %}
+        {% block body %}
+            {% include "partials/key_value_table.twig" with {
+                rows: {
+                    'Reason': reason,
+                    'Suspended At': suspendedAt
+                }
+            } %}
+        {% endblock %}
+    {% endembed %}
+    <p style="margin:0 0 16px; color:#111827; font-size:15px; line-height:1.6;">To restore access, please resolve the issue that led to the suspension. If you believe this was in error, contact support.</p>
+    {% include "partials/button.twig" with {
+        url: appUrl ~ '/support',
+        text: 'Contact Support',
+        color: '#ef4444'
+    } %}
+{% endblock %}

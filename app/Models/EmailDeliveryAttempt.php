@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int $delivery_id
  * @property int $attempt_number
- * @property \Carbon\Carbon $started_at
+ * @property \Carbon\Carbon|null $started_at
  * @property \Carbon\Carbon|null $finished_at
  * @property int|null $duration_ms
  * @property bool $success
@@ -100,7 +100,7 @@ class EmailDeliveryAttempt extends Model
     public function calculateDuration(): void
     {
         if ($this->started_at && $this->finished_at) {
-            $this->duration_ms = $this->started_at->diffInMilliseconds($this->finished_at);
+            $this->duration_ms = (int) $this->started_at->diffInMilliseconds($this->finished_at);
         }
     }
 }

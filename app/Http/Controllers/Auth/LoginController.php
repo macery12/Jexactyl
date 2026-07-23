@@ -11,22 +11,10 @@ use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Exceptions\DisplayException;
 use Everest\Http\Requests\Auth\RegisterRequest;
-use Everest\Services\Users\UserCreationService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
 class LoginController extends AbstractLoginController
 {
-    /**
-     * LoginController constructor.
-     */
-    public function __construct(
-        private UserCreationService $creationService,
-        private SettingsRepositoryInterface $settings,
-    ) {
-        parent::__construct();
-    }
-
     /**
      * Handle a login request to the application.
      *

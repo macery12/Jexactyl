@@ -44,6 +44,8 @@ class DeferredEmail extends Model
 
     /**
      * Get pending deferred emails ready to send.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, self>
      */
     public static function getPendingEmails(int $limit = 100): \Illuminate\Database\Eloquent\Collection
     {

@@ -59,11 +59,14 @@ use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
  * @property int|null $recovery_tokens_count
  * @property \Illuminate\Database\Eloquent\Collection|Server[] $servers
  * @property int|null $servers_count
+ * @property \Illuminate\Database\Eloquent\Collection|ServerGroup[] $serverGroups
+ * @property \Illuminate\Database\Eloquent\Collection|Ticket[] $tickets
  * @property \Illuminate\Database\Eloquent\Collection|UserSSHKey[] $sshKeys
  * @property int|null $ssh_keys_count
  * @property \Illuminate\Database\Eloquent\Collection|ApiKey[] $tokens
  * @property int|null $tokens_count
  *
+ * @method ApiKey|\Laravel\Sanctum\TransientToken|null currentAccessToken() Sanctum's token model is swapped to ApiKey via Sanctum::usePersonalAccessTokenModel().
  * @method static \Database\Factories\UserFactory factory(...$parameters)
  * @method static Builder|User newModelQuery()
  * @method static Builder|User newQuery()
@@ -309,6 +312,7 @@ class User extends Model implements
             ->where('key_type', ApiKey::TYPE_ACCOUNT);
     }
 
+    /** @return HasMany<ServerGroup, $this> */
     public function serverGroups(): HasMany
     {
         return $this->hasMany(ServerGroup::class);
@@ -319,21 +323,25 @@ class User extends Model implements
         return $this->hasMany(RecoveryToken::class);
     }
 
+    /** @return HasMany<Server, $this> */
     public function servers(): HasMany
     {
         return $this->hasMany(Server::class, 'owner_id');
     }
 
+    /** @return HasMany<UserSSHKey, $this> */
     public function sshKeys(): HasMany
     {
         return $this->hasMany(UserSSHKey::class);
     }
 
+    /** @return HasMany<Ticket, $this> */
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class);
     }
 
+    /** @return HasMany<UserSession, $this> */
     public function sessions(): HasMany
     {
         return $this->hasMany(UserSession::class);

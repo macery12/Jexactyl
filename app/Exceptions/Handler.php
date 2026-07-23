@@ -262,9 +262,6 @@ final class Handler extends ExceptionHandler
     {
         $previous = [];
         while ($value = $e->getPrevious()) {
-            if (!$value instanceof \Throwable) {
-                break;
-            }
             $previous[] = $value;
             $e = $value;
         }
