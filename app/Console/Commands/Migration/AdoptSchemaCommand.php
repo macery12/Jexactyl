@@ -2,6 +2,8 @@
 
 namespace Everest\Console\Commands\Migration;
 
+use Everest\Models\Setting;
+use Everest\Models\JGuardEntry;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Everest\Services\Migration\SchemaChange;
@@ -350,6 +352,12 @@ class AdoptSchemaCommand extends Command
             $this->line(sprintf('    %s — %s → %s', $r->target(), $r->currentType, $r->targetType));
             $this->line('      ' . wordwrap($r->explanation, 78, "\n      ", true));
 
+            if ($this->isUserStateRemap($r)) {
+                $this->previewUserStateRemap();
+
+                continue;
+            }
+
             if ($r->kind === ColumnRemediation::KIND_VALUE_REMAP) {
                 $this->line('      values present now:');
                 foreach ($r->distribution as $value => $count) {
@@ -383,6 +391,15 @@ class AdoptSchemaCommand extends Command
             $this->line('');
             $this->line('  ' . $r->target() . ':');
             $this->line('  ' . wordwrap($r->explanation, 74, "\n  ", true));
+
+            // `users.state` gets the guided cohort walk instead of the generic
+            // per-value prompt: it knows `0` is the live account and every other
+            // code is the old suspended/pending pool, so one decision covers all.
+            if ($this->isUserStateRemap($r)) {
+                $this->remapUserState($service, $r);
+
+                continue;
+            }
 
             $statements = $r->kind === ColumnRemediation::KIND_VALUE_REMAP
                 ? $this->planValueRemap($r)
@@ -463,6 +480,191 @@ class AdoptSchemaCommand extends Command
             [sprintf('ALTER TABLE `%s` MODIFY COLUMN `%s` %s NULL', $r->table, $r->column, $r->targetType)],
             $updates,
         );
+    }
+
+    /**
+     * Dry-run view of the guided `users.state` walk: the cohort it would act on
+     * and the three whole-cohort choices offered, in place of the generic
+     * per-value preview.
+     */
+    private function previewUserStateRemap(): void
+    {
+        $cohort = $this->userStateCohort();
+
+        if ($cohort->isEmpty()) {
+            $this->line('      No non-zero account states present — every account would be left normal, no prompt.');
+
+            return;
+        }
+
+        $this->line(sprintf(
+            '      %s account(s) carry a non-zero state (`0` is always kept as a normal account).',
+            number_format($cohort->count()),
+        ));
+        $this->line('      The live run lists them (username + email, first 20) and offers one choice:');
+        $this->line('        · unsuspend everyone (all → normal)');
+        $this->line('        · mark them suspended (non-zero → suspended, 0 → normal)');
+        $this->line('        · mark them pending under jGuard (enables jGuard + records pending entries)');
+    }
+
+    private function isUserStateRemap(ColumnRemediation $r): bool
+    {
+        return $r->kind === ColumnRemediation::KIND_VALUE_REMAP
+            && $r->table === 'users'
+            && $r->column === 'state';
+    }
+
+    /**
+     * The accounts a `users.state` remap would act on: everyone whose fork state
+     * is a non-zero code. `0` (and NULL) is always a normal, available account —
+     * the one value this never touches — so the cohort is "everything else",
+     * which for the forks this has seen is the old suspended/pending pool. Read
+     * while the column is still an integer, before it is widened.
+     *
+     * @return \Illuminate\Support\Collection<int, \stdClass>
+     */
+    private function userStateCohort(): \Illuminate\Support\Collection
+    {
+        return DB::table('users')
+            ->whereNotNull('state')
+            ->where('state', '<>', 0)
+            ->orderBy('id')
+            ->get(['id', 'username', 'email']);
+    }
+
+    /**
+     * The guided version of the `users.state` value remap. The generic per-value
+     * walk asks what each integer means in the abstract; this knows the shape
+     * these forks actually have — `0` is the live/admin account, every other code
+     * is the old suspended/pending pool — and offers one decision over the whole
+     * cohort instead. `0` (and NULL) is always released to a normal account.
+     */
+    private function remapUserState(SchemaAdoptService $service, ColumnRemediation $r): void
+    {
+        $cohort = $this->userStateCohort();
+        $widen = sprintf('ALTER TABLE `%s` MODIFY COLUMN `%s` %s NULL', $r->table, $r->column, $r->targetType);
+
+        // Nothing non-zero to decide: widen the column and release everyone. The
+        // same end state as "unsuspend all", reached without a prompt.
+        if ($cohort->isEmpty()) {
+            try {
+                $service->run($widen);
+                $service->run(sprintf('UPDATE `%s` SET `%s` = NULL', $r->table, $r->column));
+                $this->line('    ✔ no non-zero account states; every account left normal.');
+            } catch (\Throwable $e) {
+                $this->warn('    ! could not apply: ' . $e->getMessage());
+            }
+
+            return;
+        }
+
+        if (!$this->interactive()) {
+            $this->warn('    · needs an interactive choice; re-run without --assume-yes, or map it by hand. Skipping.');
+
+            return;
+        }
+
+        // Show who is in the cohort so the decision is made against real accounts,
+        // not just a count. Capped so a large pool does not scroll the choice
+        // itself off the screen.
+        $this->line('');
+        $this->line(sprintf('    %s account(s) carry a non-zero state (the old suspended/pending pool):', number_format($cohort->count())));
+        foreach ($cohort->take(20) as $row) {
+            $this->line(sprintf('      · %s <%s>', $row->username, $row->email));
+        }
+        if ($cohort->count() > 20) {
+            $this->line(sprintf('      … and %s more not shown', number_format($cohort->count() - 20)));
+        }
+        $this->line('');
+
+        $options = [
+            'unsuspend' => 'Unsuspend everyone — set every account to normal (NULL)',
+            'suspend' => sprintf('Mark those %s suspended; everyone else normal', number_format($cohort->count())),
+            'pending' => sprintf('Mark those %s pending under jGuard; everyone else normal', number_format($cohort->count())),
+        ];
+
+        $answer = $this->choice('    What should happen to these accounts?', array_values($options), 0);
+        $decision = (string) array_search($answer, $options, true);
+
+        try {
+            // Widen first: the UPDATEs below compare the state as text.
+            $service->run($widen);
+
+            if ($decision === 'unsuspend') {
+                $service->run(sprintf('UPDATE `%s` SET `%s` = NULL', $r->table, $r->column));
+                $this->line('    ✔ every account set to normal.');
+
+                return;
+            }
+
+            $label = $decision === 'suspend' ? 'suspended' : 'pending';
+
+            // Non-zero → the chosen label; the always-available `0` → normal.
+            $service->run(sprintf(
+                "UPDATE `%s` SET `%s` = %s WHERE `%s` <> '0' AND `%s` IS NOT NULL",
+                $r->table,
+                $r->column,
+                $this->quote($label),
+                $r->column,
+                $r->column,
+            ));
+            $service->run(sprintf("UPDATE `%s` SET `%s` = NULL WHERE `%s` = '0'", $r->table, $r->column, $r->column));
+
+            $this->line(sprintf('    ✔ %s account(s) marked %s; the rest left normal.', number_format($cohort->count()), $label));
+
+            if ($decision === 'pending') {
+                $this->holdCohortUnderJGuard($cohort);
+            }
+        } catch (\Throwable $e) {
+            $this->warn('    ! could not apply: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Make the pending state actually hold. The login flow only stops a pending
+     * user while a matching pending `jguard_delay` row exists — with none it
+     * reads the state as stale and releases the account. So enable jGuard and
+     * record a manual-approval entry for each cohort member that lacks one.
+     *
+     * @param \Illuminate\Support\Collection<int, \stdClass> $cohort
+     */
+    private function holdCohortUnderJGuard(\Illuminate\Support\Collection $cohort): void
+    {
+        if (!config('modules.auth.jguard.enabled')) {
+            Setting::set('settings::modules:auth:jguard:enabled', 'true');
+            $this->line('    ✔ jGuard enabled so the pending accounts are held for approval.');
+        }
+
+        $ids = $cohort->pluck('id');
+        $existing = DB::table('jguard_delay')
+            ->whereIn('user_id', $ids)
+            ->where('status', JGuardEntry::STATUS_PENDING)
+            ->pluck('user_id')
+            ->all();
+
+        $now = now();
+        $rows = $ids
+            ->reject(fn ($id) => in_array($id, $existing, true))
+            ->map(fn ($id) => [
+                'user_id' => $id,
+                'status' => JGuardEntry::STATUS_PENDING,
+                'approval_mode' => JGuardEntry::MODE_MANUAL,
+                'expires_at' => null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ])
+            ->values()
+            ->all();
+
+        if ($rows !== []) {
+            DB::table('jguard_delay')->insert($rows);
+        }
+
+        $this->line(sprintf(
+            '    ✔ %s jGuard pending entr%s recorded; approve them in the panel to release each account.',
+            number_format(count($rows)),
+            count($rows) === 1 ? 'y' : 'ies',
+        ));
     }
 
     /**
