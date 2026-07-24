@@ -165,6 +165,49 @@ class FileController extends ClientApiController
     }
 
     /**
+     * Requests a signed URL to download a directory streamed as an archive.
+     *
+     * Uses the same file-download JWT contract as {@see download()} — only the
+     * daemon endpoint (/download/directory) and the archive_format differ — so a
+     * token accepted for file downloads is accepted here too.
+     *
+     * @throws \Throwable
+     */
+    public function downloadDirectory(GetFileContentsRequest $request, Server $server): array
+    {
+        // Mirror the daemon's StreamableArchiveFormat enum (snake_case). tar.gz
+        // is the daemon default and a sensible cross-platform choice.
+        $format = $request->query('archive_format', 'tar_gz');
+        if (!in_array($format, ['tar', 'tar_gz', 'tar_xz', 'tar_lzip', 'tar_bz2', 'tar_lz4', 'tar_zstd', 'zip', 'seven_zip'], true)) {
+            $format = 'tar_gz';
+        }
+
+        $token = $this->jwtService
+            ->setExpiresAt(CarbonImmutable::now()->addMinutes(15))
+            ->setScope(NodeJWTService::SCOPE_FILE_DOWNLOAD)
+            ->setUser($request->user())
+            ->setClaims([
+                'file_path' => rawurldecode($request->get('file')),
+                'server_uuid' => $server->uuid,
+            ])
+            ->handle($server->node, $request->user()->id . $server->uuid);
+
+        Activity::event('server:file.download')->property('directory', $request->get('file'))->log();
+
+        return [
+            'object' => 'signed_url',
+            'attributes' => [
+                'url' => sprintf(
+                    '%s/download/directory?token=%s&archive_format=%s',
+                    $server->node->getConnectionAddress(),
+                    $token->toString(),
+                    $format
+                ),
+            ],
+        ];
+    }
+
+    /**
      * Writes the contents of the specified file to the server.
      *
      * @throws \Everest\Exceptions\Http\Connection\DaemonConnectionException

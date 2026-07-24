@@ -202,6 +202,35 @@ export async function getFileDownloadUrl(uuid: string, file: string): Promise<st
     return data.attributes.url;
 }
 
+// Streams a whole directory as an archive (tar.gz by default). The daemon builds
+// the archive on the fly, so nothing is written to the server — unlike compress.
+export async function getDirectoryDownloadUrl(
+    uuid: string,
+    directory: string,
+    archiveFormat = 'tar_gz',
+): Promise<string> {
+    const { data } = await http.get(`/api/client/servers/${uuid}/files/download-directory`, {
+        params: { file: directory, archive_format: archiveFormat },
+    });
+    return data.attributes.url;
+}
+
+// Asks the daemon to fetch a remote file straight into the server (file.create).
+// `directory` is where it lands; `filename` overrides the name derived from the
+// URL. Both daemons implement /files/pull.
+export async function pullFile(
+    uuid: string,
+    params: { url: string; directory: string; filename?: string; useHeader?: boolean },
+): Promise<void> {
+    await http.post(`/api/client/servers/${uuid}/files/pull`, {
+        url: params.url,
+        directory: params.directory,
+        filename: params.filename || undefined,
+        use_header: params.useHeader ?? true,
+        foreground: false,
+    });
+}
+
 export async function getFileUploadUrl(uuid: string): Promise<string> {
     const { data } = await http.get(`/api/client/servers/${uuid}/files/upload`);
     return data.attributes.url;

@@ -4,9 +4,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import {
+    ArrowDownUp,
     ChevronRight,
     Copy,
     Download,
+    DownloadCloud,
     File as FileIcon,
     FileArchive,
     Info,
@@ -50,6 +52,7 @@ import {
     archiveContentsDirectory,
     archivePathSegment,
     getFileDownloadUrl,
+    getDirectoryDownloadUrl,
     isArchive,
     isEditable,
     isVirtualArchive,
@@ -70,10 +73,17 @@ import { CompressModal } from './CompressModal';
 import { ChmodModal } from './ChmodModal';
 import { ChecksumModal } from './ChecksumModal';
 import { ArchiveActionModal } from './ArchiveActionModal';
+import { PullModal } from './PullModal';
 
-type SortField = 'name' | 'size' | 'modified';
+type SortField = 'name' | 'size' | 'modified' | 'type';
 type SortDirection = 'asc' | 'desc';
 const DISPLAY_CAP = 250;
+
+// Extension used only for the "type" sort — groups like-typed files together.
+function fileExtension(name: string): string {
+    const dot = name.lastIndexOf('.');
+    return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
 
 function sortFiles(files: FileObject[], field: SortField, dir: SortDirection): FileObject[] {
     const sorted = [...files].sort((a, b) => {
@@ -81,6 +91,7 @@ function sortFiles(files: FileObject[], field: SortField, dir: SortDirection): F
         let cmp: number;
         if (field === 'name') cmp = a.name.localeCompare(b.name);
         else if (field === 'modified') cmp = a.modifiedAt.getTime() - b.modifiedAt.getTime();
+        else if (field === 'type') cmp = fileExtension(a.name).localeCompare(fileExtension(b.name)) || a.name.localeCompare(b.name);
         else cmp = a.size - b.size;
         return dir === 'asc' ? cmp : -cmp;
     });
@@ -123,6 +134,9 @@ export default function FileBrowser() {
     const canDelete = can(held, 'file.delete');
     const canSftp = can(held, 'file.sftp');
     const canArchive = can(held, 'file.archive');
+    // Viewing/downloading file (and directory) contents is a distinct permission
+    // from listing the directory (file.read) — mirrors V1's read vs read-content.
+    const canReadContent = can(held, 'file.read-content');
 
     const [gridView, setGridView] = usePersistedState<boolean>(`${id}_file_manager_view`, false);
     const [sortField, setSortField] = usePersistedState<SortField>(`${id}_file_sort_field`, 'name');
@@ -138,6 +152,7 @@ export default function FileBrowser() {
     const [chmod, setChmod] = useState<{ files: string[]; mode: string } | null>(null);
     const [checksum, setChecksum] = useState<string[] | null>(null);
     const [archiveAction, setArchiveAction] = useState<FileObject | null>(null);
+    const [showPull, setShowPull] = useState(false);
     const [busy, setBusy] = useState<string | null>(null);
     const supercharged = server.isNodeSupercharged;
     // Non-null while browsing inside a zip/7z/ddup — everything here is read-only.
@@ -182,11 +197,13 @@ export default function FileBrowser() {
         } else if (isArchive(file)) {
             // Archives no longer download on a single click — the chooser makes it
             // clear which ones can be browsed here (zip/7z/ddup on wings-rs) versus
-            // download-only formats (.tar.gz, .rar, …), and offers Extract.
-            setArchiveAction(file);
-        } else if (isEditable(file)) {
+            // download-only formats (.tar.gz, .rar, …), and offers Extract. Only
+            // open it when at least one action is actually available to the user.
+            const openable = supercharged && isVirtualArchive(file);
+            if (openable || canCreate || canReadContent) setArchiveAction(file);
+        } else if (isEditable(file) && canReadContent) {
             navigate(`/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`);
-        } else {
+        } else if (canReadContent) {
             void download(file.name);
         }
     };
@@ -194,6 +211,15 @@ export default function FileBrowser() {
     const download = async (name: string) => {
         try {
             const url = await getFileDownloadUrl(uuid, join(directory, name));
+            window.open(url);
+        } catch (e) {
+            push({ type: 'error', message: firstError(e) ?? m['common.states.genericError']() });
+        }
+    };
+
+    const downloadDir = async (name: string) => {
+        try {
+            const url = await getDirectoryDownloadUrl(uuid, join(directory, name));
             window.open(url);
         } catch (e) {
             push({ type: 'error', message: firstError(e) ?? m['common.states.genericError']() });
@@ -278,7 +304,7 @@ export default function FileBrowser() {
 
     // Per-file action handlers, shared by the list-row and grid-card menus so the
     // two views expose exactly the same options.
-    const caps: FileCaps = { canUpdate, canCreate, canDelete, canArchive, supercharged };
+    const caps: FileCaps = { canUpdate, canCreate, canDelete, canArchive, canReadContent, supercharged };
     const actions: FileActions = {
         edit: f => navigate(`/server/${id}/files/edit/${encodePathSegments(join(directory, f.name))}`),
         rename: f => setRename({ files: [f.name], mode: 'rename' }),
@@ -290,6 +316,7 @@ export default function FileBrowser() {
         chmod: f => setChmod({ files: [f.name], mode: f.modeBits }),
         checksum: f => setChecksum([f.name]),
         download: f => download(f.name),
+        downloadDir: f => downloadDir(f.name),
         remove: f => setConfirmDelete([f.name]),
     };
 
@@ -323,6 +350,10 @@ export default function FileBrowser() {
                                 {m['server.files.newDirectory']()}
                             </Button>
                             <UploadButton uuid={uuid} directory={directory} />
+                            <Button variant="secondary" size="sm" onClick={() => setShowPull(true)}>
+                                <DownloadCloud className="h-4 w-4" />
+                                {m['server.files.pull.action']()}
+                            </Button>
                             <Button
                                 size="sm"
                                 onClick={() => navigate(`/server/${id}/files/new${window.location.hash}`)}
@@ -332,6 +363,7 @@ export default function FileBrowser() {
                             </Button>
                         </>
                     )}
+                    <SortMenu field={sortField} dir={sortDirection} onSelect={toggleSort} />
                     <Button
                         variant="ghost"
                         size="icon"
@@ -555,6 +587,7 @@ export default function FileBrowser() {
 
             {/* ── Modals ── */}
             <NewDirectoryModal uuid={uuid} directory={directory} open={showNewDir} onClose={() => setShowNewDir(false)} />
+            {canCreate && <PullModal uuid={uuid} directory={directory} open={showPull} onClose={() => setShowPull(false)} />}
             {rename && (
                 <RenameMoveModal
                     uuid={uuid}
@@ -600,6 +633,7 @@ export default function FileBrowser() {
                     name={archiveAction.name}
                     openable={supercharged && isVirtualArchive(archiveAction)}
                     canExtract={canCreate}
+                    canDownload={canReadContent}
                     open
                     onOpen={() => openArchiveInline(archiveAction)}
                     onExtract={() => extractMutation.mutate({ name: archiveAction.name, open: true })}
@@ -681,6 +715,59 @@ function SortHeader({
     );
 }
 
+// Toolbar sort control. Duplicates the list-header sorting but is the only way
+// to reach it in grid view, and adds "Type" (which has no column of its own).
+function SortMenu({
+    field,
+    dir,
+    onSelect,
+}: {
+    field: SortField;
+    dir: SortDirection;
+    onSelect: (f: SortField) => void;
+}) {
+    const options: { value: SortField; label: string }[] = [
+        { value: 'name', label: m['server.files.col.name']() },
+        { value: 'size', label: m['server.files.col.size']() },
+        { value: 'modified', label: m['server.files.col.modified']() },
+        { value: 'type', label: m['server.files.col.type']() },
+    ];
+    return (
+        <Dropdown.Root>
+            <Dropdown.Trigger
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 text-sm text-[var(--color-ink-muted)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)] focus:outline-none"
+                title={m['server.files.sortBy']()}
+            >
+                <ArrowDownUp className="h-4 w-4" />
+                {dir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+            </Dropdown.Trigger>
+            <Dropdown.Portal>
+                <Dropdown.Content
+                    align="end"
+                    sideOffset={4}
+                    className="z-[60] min-w-[9rem] rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
+                >
+                    {options.map(o => (
+                        <Dropdown.Item
+                            key={o.value}
+                            onSelect={() => onSelect(o.value)}
+                            className="flex cursor-pointer select-none items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-ink)] outline-none data-[highlighted]:bg-[var(--color-surface-2)]"
+                        >
+                            {o.label}
+                            {field === o.value &&
+                                (dir === 'asc' ? (
+                                    <ArrowUp className="h-3.5 w-3.5 text-[var(--brand)]" />
+                                ) : (
+                                    <ArrowDown className="h-3.5 w-3.5 text-[var(--brand)]" />
+                                ))}
+                        </Dropdown.Item>
+                    ))}
+                </Dropdown.Content>
+            </Dropdown.Portal>
+        </Dropdown.Root>
+    );
+}
+
 // Shared capability flags + per-file action handlers. Both the list row and the
 // grid card render the same FileActionsMenu from these, so the two views never
 // drift apart.
@@ -689,6 +776,7 @@ interface FileCaps {
     canCreate: boolean;
     canDelete: boolean;
     canArchive: boolean;
+    canReadContent: boolean;
     supercharged: boolean;
 }
 interface FileActions {
@@ -702,6 +790,7 @@ interface FileActions {
     chmod: (f: FileObject) => void;
     checksum: (f: FileObject) => void;
     download: (f: FileObject) => void;
+    downloadDir: (f: FileObject) => void;
     remove: (f: FileObject) => void;
 }
 
@@ -773,7 +862,7 @@ function FileActionsMenu({
     actions: FileActions;
     align?: 'start' | 'end';
 }) {
-    const { canUpdate, canCreate, canDelete, canArchive, supercharged } = caps;
+    const { canUpdate, canCreate, canDelete, canArchive, canReadContent, supercharged } = caps;
     const archived = isArchive(file);
     return (
         <Dropdown.Root>
@@ -786,7 +875,7 @@ function FileActionsMenu({
                     sideOffset={4}
                     className="z-[60] min-w-[9rem] rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
                 >
-                    {file.isFile && isEditable(file) && canUpdate && (
+                    {file.isFile && isEditable(file) && canUpdate && canReadContent && (
                         <MenuItem icon={Pencil} label={m['common.actions.edit']()} onSelect={() => actions.edit(file)} />
                     )}
                     {canUpdate && (
@@ -843,11 +932,20 @@ function FileActionsMenu({
                             onSelect={() => actions.checksum(file)}
                         />
                     )}
-                    {file.isFile && (
+                    {file.isFile && canReadContent && (
                         <MenuItem
                             icon={Download}
                             label={m['server.files.download']()}
                             onSelect={() => actions.download(file)}
+                        />
+                    )}
+                    {/* Folders stream as an on-the-fly archive (file.read-content) —
+                        no temp file left behind, unlike Compress. */}
+                    {!file.isFile && canReadContent && (
+                        <MenuItem
+                            icon={Download}
+                            label={m['server.files.downloadArchive']()}
+                            onSelect={() => actions.downloadDir(file)}
                         />
                     )}
                     {canDelete && (

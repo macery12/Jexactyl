@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check, Copy, Fingerprint } from 'lucide-react';
+import { Check, Copy, Fingerprint, Info } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -15,6 +15,7 @@ const ALGORITHMS: { value: FingerprintAlgorithm; label: string }[] = [
     { value: 'sha1', label: 'SHA-1' },
     { value: 'md5', label: 'MD5' },
     { value: 'crc32', label: 'CRC32' },
+    { value: 'curseforge', label: 'CurseForge' },
 ];
 
 // wings-rs checksum viewer — computes fingerprints for one or more files server
@@ -78,9 +79,16 @@ export function ChecksumModal({
                     </div>
                 </div>
 
-                <p className="text-xs text-[var(--color-ink-faint)]">
-                    {m['server.files.checksum.summary']({ count: files.length })}
-                </p>
+                {algorithm === 'curseforge' ? (
+                    <div className="flex items-start gap-2.5 rounded-[var(--radius-card)] border border-[var(--brand)]/40 bg-[var(--brand)]/8 px-3.5 py-2.5 text-xs text-[var(--color-ink-muted)]">
+                        <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
+                        <p>{m['server.files.checksum.curseforgeHint']()}</p>
+                    </div>
+                ) : (
+                    <p className="text-xs text-[var(--color-ink-faint)]">
+                        {m['server.files.checksum.summary']({ count: files.length })}
+                    </p>
+                )}
 
                 {results.length === 0 ? (
                     <div className="flex flex-col gap-2">

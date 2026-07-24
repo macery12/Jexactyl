@@ -11,6 +11,7 @@ export function ArchiveActionModal({
     name,
     openable,
     canExtract,
+    canDownload,
     open,
     onOpen,
     onExtract,
@@ -20,6 +21,7 @@ export function ArchiveActionModal({
     name: string;
     openable: boolean;
     canExtract: boolean;
+    canDownload: boolean;
     open: boolean;
     onOpen: () => void;
     onExtract: () => void;
@@ -56,14 +58,16 @@ export function ArchiveActionModal({
                         {m['server.files.extract']()}
                     </Button>
                 )}
-                <Button
-                    variant={openable ? 'outline' : undefined}
-                    className="w-full"
-                    onClick={run(onDownload)}
-                >
-                    <Download className="h-4 w-4" />
-                    {m['server.files.download']()}
-                </Button>
+                {canDownload && (
+                    <Button
+                        variant={openable ? 'outline' : undefined}
+                        className="w-full"
+                        onClick={run(onDownload)}
+                    >
+                        <Download className="h-4 w-4" />
+                        {m['server.files.download']()}
+                    </Button>
+                )}
             </div>
         </Modal>
     );
