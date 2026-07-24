@@ -9,6 +9,7 @@ import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { useBilling } from '@/state/billing';
 import { loadStripeOnce } from '@/lib/stripe';
 import {
@@ -99,8 +100,8 @@ export default function PaymentPage() {
                 const { key } = await getStripeKey(product.id);
                 const instance = await loadStripeOnce(key);
                 if (!cancelled) setStripe(instance);
-            } catch {
-                if (!cancelled) push({ type: 'error', message: m['billing.payment.cardError']() });
+            } catch (err) {
+                if (!cancelled) push({ type: 'error', message: firstError(err) ?? m['billing.payment.cardError']() });
             }
         })();
         return () => {
@@ -152,8 +153,8 @@ export default function PaymentPage() {
             });
             clearDraft(productId);
             navigate('/billing/success');
-        } catch {
-            push({ type: 'error', message: m['billing.configure.createServerError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['billing.configure.createServerError']() });
             setCreatingFree(false);
         }
     };

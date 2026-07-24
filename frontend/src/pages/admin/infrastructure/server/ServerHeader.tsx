@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { suspendServer, unsuspendServer, reinstallServer, deleteServer } from '@/api/adminServers';
 
 export function ServerHeader() {
@@ -44,8 +45,8 @@ export function ServerHeader() {
             push({ type: 'success', message: msg });
             await qc.invalidateQueries({ queryKey: ['admin', 'server-view', String(server.id)] });
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
-        } catch {
-            push({ type: 'error', message: m['common.states.genericError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
         } finally {
             setBusy(false);
         }

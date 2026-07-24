@@ -128,18 +128,9 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
     });
 
     Route::prefix('/billing')->group(function () {
-        Route::post('/nodes/{product:id}', [Client\Billing\NodesController::class, 'index']);
-        Route::get('/categories', [Client\Billing\CategoryController::class, 'index']);
         Route::get('/custom-domains/options', [Client\Billing\CustomDomainOptionsController::class, 'index'])
             ->middleware('throttle:custom-domains-billing-options');
 
-        Route::get('/categories/{id}', [Client\Billing\ProductController::class, 'index']);
-        Route::get('/products/{id}', [Client\Billing\ProductController::class, 'view']);
-        Route::get('/products/{id}/variables', [Client\Billing\EggController::class, 'index']);
-        Route::get('/eggs/{id}', [Client\Billing\EggController::class, 'getEgg']);
-
-        // Unified checkout controller for both free and paid products
-        Route::get('/products/{id}/key', [Client\Billing\CheckoutController::class, 'getStripeKey']);
         Route::middleware('verified.view:billing')->group(function () {
             Route::post('/nodes/{product:id}', [Client\Billing\NodesController::class, 'index']);
             Route::get('/categories', [Client\Billing\CategoryController::class, 'index']);

@@ -2747,6 +2747,7 @@
   "common.editor.allSaved": "Все изменения сохранены",
   "common.editor.unsaved": "Несохраненные изменения",
   "common.error.body": "На этой странице произошла непредвиденная ошибка. Обычно перезагрузка её устраняет.",
+  "common.error.emailNotVerified": "Подтвердите адрес электронной почты, чтобы продолжить.",
   "common.error.home": "Вернуться на панель",
   "common.error.reload": "Перезагрузить страницу",
   "common.error.title": "Что-то пошло не так",

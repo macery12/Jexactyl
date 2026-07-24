@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { useBilling } from '@/state/billing';
 import {
     getBillingProfile,
@@ -77,7 +78,7 @@ export default function ConfigureCheckout() {
             <div className="space-y-4">
                 <BackLink />
                 <div className="flex items-center gap-2 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
-                    <AlertTriangle className="h-4 w-4" /> {m['billing.configure.loadError']()}
+                    <AlertTriangle className="h-4 w-4" /> {firstError(checkout.error) ?? m['billing.configure.loadError']()}
                 </div>
             </div>
         );
@@ -95,8 +96,8 @@ export default function ConfigureCheckout() {
             if (hasCompleteBillingProfile(profile)) return true;
             push({ type: 'error', message: m['billing.configure.addressRequired']() });
             return false;
-        } catch {
-            push({ type: 'error', message: m['billing.configure.addressError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['billing.configure.addressError']() });
             return false;
         }
     };
@@ -138,8 +139,8 @@ export default function ConfigureCheckout() {
                 serverName: checkout.serverName.trim(),
             });
             navigate(`/checkout/payment?product=${checkout.product!.id}`);
-        } catch {
-            push({ type: 'error', message: m['billing.configure.startError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['billing.configure.startError']() });
         } finally {
             setSubmitting(false);
         }

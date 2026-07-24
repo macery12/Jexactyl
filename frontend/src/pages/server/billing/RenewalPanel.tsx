@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { useServer } from '@/components/server/ServerContext';
 import { useBilling } from '@/state/billing';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { loadStripeOnce } from '@/lib/stripe';
 import {
     getStripeIntent,
@@ -345,8 +346,8 @@ function PayPalRenewalButton({ productId, couponId }: { productId: number; coupo
                 cancelUrl: window.location.origin + abs('/billing/cancel'),
             });
             window.location.href = `/api/client/billing/paypal/orders/${order.id}/redirect`;
-        } catch {
-            push({ type: 'error', message: m['billing.payment.startPaypalError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['billing.payment.startPaypalError']() });
             setLoading(false);
         }
     };

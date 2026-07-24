@@ -1,4 +1,16 @@
 import { isAxiosError } from 'axios';
+import { m } from '@/i18n';
+
+/**
+ * Machine-readable codes the panel carries its own translation for. The backend
+ * emits these with hardcoded English text — EmailVerificationGate::ERROR_MESSAGE
+ * is a PHP constant, not a translation key — so a `ru` panel would otherwise
+ * show English. Anything absent here falls through to the server's own string,
+ * which for DisplayException/validation failures is already the better copy.
+ */
+const LOCALIZED_CODES: Record<string, () => string> = {
+    EMAIL_NOT_VERIFIED: () => m['common.error.emailNotVerified'](),
+};
 
 // Pull the first human-readable message out of a Fractal/Laravel error response.
 // Fractal validation errors arrive as `{ errors: [{ detail }] }`; other failures
@@ -6,6 +18,9 @@ import { isAxiosError } from 'axios';
 // present so callers can substitute their own localized fallback.
 export function firstError(err: unknown): string | undefined {
     if (isAxiosError(err)) {
+        const localized = LOCALIZED_CODES[errorCode(err) ?? ''];
+        if (localized) return localized();
+
         const errors = err.response?.data?.errors;
         if (Array.isArray(errors) && errors[0]?.detail) return errors[0].detail;
         return err.response?.data?.message;
@@ -18,11 +33,17 @@ export function firstError(err: unknown): string | undefined {
  * exception's class basename there (`AccountPendingApprovalException`, …).
  * Use it to branch on a specific failure instead of matching message text,
  * which is localized and admin-configurable.
+ *
+ * A few gates answer outside the Fractal envelope with a flat
+ * `{ code, message }` body (EmailVerificationGate's `EMAIL_NOT_VERIFIED`, for
+ * one), so fall back to the top-level `code` before giving up.
  */
 export function errorCode(err: unknown): string | undefined {
     if (!isAxiosError(err)) return undefined;
-    const errors = err.response?.data?.errors;
-    return Array.isArray(errors) ? errors[0]?.code : undefined;
+    const data = err.response?.data;
+    const errors = data?.errors;
+    if (Array.isArray(errors) && errors[0]?.code) return errors[0].code;
+    return typeof data?.code === 'string' ? data.code : undefined;
 }
 
 interface FractalValidationError {

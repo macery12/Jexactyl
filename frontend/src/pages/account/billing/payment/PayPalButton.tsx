@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { createPayPalOrder, updatePayPalOrder } from '@/api/accountBilling';
 
 export interface PayPalButtonProps {
@@ -41,8 +42,8 @@ export default function PayPalButton(props: PayPalButtonProps) {
                 name: props.serverName,
             });
             window.location.href = `/api/client/billing/paypal/orders/${order.id}/redirect`;
-        } catch {
-            push({ type: 'error', message: m['billing.payment.startPaypalError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['billing.payment.startPaypalError']() });
             setLoading(false);
         }
     };

@@ -1,4 +1,5 @@
 import { m } from '@/i18n';
+import { firstError } from '@/lib/apiError';
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import {
@@ -152,8 +153,11 @@ export function useCheckoutController(productId: number): CheckoutController {
             const result = await validateCoupon(code, basePrice, 'new');
             setCouponData(result);
             return { ok: true, message: m['billing.coupon.applied']({ code: result.coupon.code }) };
-        } catch {
-            return { ok: false, message: m['billing.coupon.invalid']() };
+        } catch (err) {
+            // The controller throws DisplayException with the real reason (expired,
+            // minimum spend, wrong order type) and the verification gate answers 403
+            // here too — both beat the generic "invalid code" fallback.
+            return { ok: false, message: firstError(err) ?? m['billing.coupon.invalid']() };
         } finally {
             setCouponBusy(false);
         }

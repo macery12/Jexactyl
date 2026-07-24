@@ -2,7 +2,6 @@ import { m, td } from '@/i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { isAxiosError } from 'axios';
 import { Activity, Settings2, TerminalSquare, Gauge, Network, Wallet, Save, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
@@ -12,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 import { panelClass, PanelHeader } from '../../dashboardParts';
@@ -93,15 +93,6 @@ function formFrom(s: ServerView): FormShape {
     };
 }
 
-function firstError(err: unknown, fallback: string): string {
-    if (isAxiosError(err)) {
-        const errors = err.response?.data?.errors;
-        if (Array.isArray(errors) && errors[0]?.detail) return errors[0].detail;
-        return err.response?.data?.message ?? fallback;
-    }
-    return fallback;
-}
-
 export function ServerEditor() {
     const s = useServerView();
     const qc = useQueryClient();
@@ -164,8 +155,8 @@ export function ServerEditor() {
             setValue('image', firstDockerImage(egg.dockerImages), { shouldDirty: true });
             setValue('startup', egg.startup, { shouldDirty: true });
             setEnvDirty(true);
-        } catch {
-            push({ type: 'error', message: m['admin.infrastructure.common.loadError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['admin.infrastructure.common.loadError']() });
         }
     };
 
@@ -211,7 +202,7 @@ export function ServerEditor() {
             await qc.invalidateQueries({ queryKey: ['admin', 'server-view', String(s.id)] });
             await qc.invalidateQueries({ queryKey: ['admin', 'servers'] });
         } catch (err) {
-            push({ type: 'error', message: firstError(err, m['common.states.genericError']()) });
+            push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() });
         } finally {
             setSaving(false);
         }

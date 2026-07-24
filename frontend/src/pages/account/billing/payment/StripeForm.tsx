@@ -5,6 +5,7 @@ import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
+import { firstError } from '@/lib/apiError';
 import { updateStripeIntent } from '@/api/accountBilling';
 
 export interface StripeFormProps {
@@ -52,8 +53,8 @@ export default function StripeForm(props: StripeFormProps) {
                 push({ type: 'error', message: error.message ?? m['billing.payment.confirmError']() });
                 setLoading(false);
             }
-        } catch {
-            push({ type: 'error', message: m['billing.payment.startCardError']() });
+        } catch (err) {
+            push({ type: 'error', message: firstError(err) ?? m['billing.payment.startCardError']() });
             setLoading(false);
         }
     };

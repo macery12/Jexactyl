@@ -2780,6 +2780,7 @@
   "common.editor.allSaved": "All changes saved",
   "common.editor.unsaved": "Unsaved changes",
   "common.error.body": "This page hit an unexpected error. Reloading usually clears it.",
+  "common.error.emailNotVerified": "Verify your email address to continue.",
   "common.error.home": "Back to dashboard",
   "common.error.reload": "Reload page",
   "common.error.title": "Something went wrong",
