@@ -68,3 +68,5 @@ update.sh
 
 # Misc (image-related files)
 misc
+.claude/*
+
