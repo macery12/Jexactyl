@@ -141,17 +141,22 @@ class DaemonWingsRsRepository extends DaemonRepository
         $this->assertSupercharged();
         Assert::isInstanceOf($this->server, Server::class);
 
+        // `ignored` is a repeated query key (ignored=a&ignored=b) on the daemon;
+        // Guzzle's array serialization (ignored[0]=a) is silently dropped, so
+        // build the string by hand — see getFingerprints for the same fix.
+        $query = http_build_query([
+            'directory' => $directory,
+            'per_page' => $perPage,
+            'page' => $page,
+        ], '', '&', PHP_QUERY_RFC3986);
+        foreach (array_values($ignored) as $pattern) {
+            $query .= '&ignored=' . rawurlencode($pattern);
+        }
+
         try {
             $response = $this->getHttpClient()->get(
                 sprintf('/api/servers/%s/files/list', $this->server->uuid),
-                [
-                    'query' => [
-                        'directory' => $directory,
-                        'ignored' => $ignored,
-                        'per_page' => $perPage,
-                        'page' => $page,
-                    ],
-                ]
+                ['query' => $query]
             );
         } catch (TransferException $exception) {
             throw new DaemonConnectionException($exception);
@@ -168,15 +173,18 @@ class DaemonWingsRsRepository extends DaemonRepository
         $this->assertSupercharged();
         Assert::isInstanceOf($this->server, Server::class);
 
+        // The daemon parses `files` as a repeated query key (files=a&files=b).
+        // Guzzle would serialize a PHP array as files[0]=a&files[1]=b, which the
+        // daemon's Vec<String> extractor ignores, so build the string by hand.
+        $query = 'algorithm=' . rawurlencode($algorithm);
+        foreach (array_values($files) as $file) {
+            $query .= '&files=' . rawurlencode($file);
+        }
+
         try {
             $response = $this->getHttpClient()->get(
                 sprintf('/api/servers/%s/files/fingerprints', $this->server->uuid),
-                [
-                    'query' => [
-                        'algorithm' => $algorithm,
-                        'files' => $files,
-                    ],
-                ]
+                ['query' => $query]
             );
         } catch (TransferException $exception) {
             throw new DaemonConnectionException($exception);

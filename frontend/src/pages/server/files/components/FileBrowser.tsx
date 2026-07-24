@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { isAxiosError } from 'axios';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
@@ -8,16 +9,22 @@ import {
     Download,
     File as FileIcon,
     FileArchive,
+    Info,
     Folder,
     FolderInput,
     FolderPlus,
     FilePlus,
+    Fingerprint,
+    FolderOpen,
     LayoutGrid,
     List as ListIcon,
     MoreVertical,
     Network,
+    Package,
+    PackageOpen,
     Pencil,
     Search,
+    Settings2,
     Trash2,
     ArrowUp,
     ArrowDown,
@@ -37,10 +44,15 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
     loadDirectory,
     copyFile,
+    compressFiles,
+    decompressFile,
     deleteFiles,
+    archiveContentsDirectory,
+    archivePathSegment,
     getFileDownloadUrl,
     isArchive,
     isEditable,
+    isVirtualArchive,
     type FileObject,
 } from '@/api/files';
 import {
@@ -54,6 +66,10 @@ import { NewDirectoryModal, RenameMoveModal } from './Modals';
 import { UploadButton } from './UploadButton';
 import { ConnectionPanel } from './ConnectionPanel';
 import { FileSearchModal } from './FileSearchModal';
+import { CompressModal } from './CompressModal';
+import { ChmodModal } from './ChmodModal';
+import { ChecksumModal } from './ChecksumModal';
+import { ArchiveActionModal } from './ArchiveActionModal';
 
 type SortField = 'name' | 'size' | 'modified';
 type SortDirection = 'asc' | 'desc';
@@ -72,9 +88,23 @@ function sortFiles(files: FileObject[], field: SortField, dir: SortDirection): F
     return sorted.filter((f, i) => i === 0 || f.name !== sorted[i - 1]?.name);
 }
 
-function FileTypeIcon({ file }: { file: FileObject }) {
+// Archive jobs can outrun the request timeout on large directories; the daemon
+// keeps going regardless, so surface that as info rather than a failure.
+function isTimeout(e: unknown): boolean {
+    return isAxiosError(e) && (e.code === 'ECONNABORTED' || e.code === 'ETIMEDOUT');
+}
+
+// `openable` = a Supercharged node can browse into this archive; it gets the
+// brand colour to read as interactive, while download-only archives stay amber.
+function FileTypeIcon({ file, openable }: { file: FileObject; openable?: boolean }) {
     if (!file.isFile) return <Folder className="h-[18px] w-[18px] shrink-0 text-[var(--brand)]" />;
-    if (isArchive(file)) return <FileArchive className="h-[18px] w-[18px] shrink-0 text-[var(--color-warning)]" />;
+    if (isArchive(file)) {
+        return (
+            <FileArchive
+                className={`h-[18px] w-[18px] shrink-0 ${openable ? 'text-[var(--brand)]' : 'text-[var(--color-warning)]'}`}
+            />
+        );
+    }
     return <FileIcon className="h-[18px] w-[18px] shrink-0 text-[var(--color-ink-faint)]" />;
 }
 
@@ -92,6 +122,7 @@ export default function FileBrowser() {
     const canUpdate = can(held, 'file.update');
     const canDelete = can(held, 'file.delete');
     const canSftp = can(held, 'file.sftp');
+    const canArchive = can(held, 'file.archive');
 
     const [gridView, setGridView] = usePersistedState<boolean>(`${id}_file_manager_view`, false);
     const [sortField, setSortField] = usePersistedState<SortField>(`${id}_file_sort_field`, 'name');
@@ -103,6 +134,14 @@ export default function FileBrowser() {
     const [showSearch, setShowSearch] = useState(false);
     const [rename, setRename] = useState<{ files: string[]; mode: 'rename' | 'move' } | null>(null);
     const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null);
+    const [compressFormat, setCompressFormat] = useState<string[] | null>(null);
+    const [chmod, setChmod] = useState<{ files: string[]; mode: string } | null>(null);
+    const [checksum, setChecksum] = useState<string[] | null>(null);
+    const [archiveAction, setArchiveAction] = useState<FileObject | null>(null);
+    const [busy, setBusy] = useState<string | null>(null);
+    const supercharged = server.isNodeSupercharged;
+    // Non-null while browsing inside a zip/7z/ddup — everything here is read-only.
+    const insideArchive = archivePathSegment(directory);
 
     const { data: files, isLoading, isError, refetch } = useQuery({
         queryKey: ['server-files', uuid, directory],
@@ -133,9 +172,18 @@ export default function FileBrowser() {
         }
     };
 
+    const openArchiveInline = (file: FileObject) =>
+        navigate({ hash: encodePathSegments(join(directory, file.name)) });
+
     const openEntry = (file: FileObject) => {
         if (!file.isFile) {
+            // Plain folders open directly.
             navigate({ hash: encodePathSegments(join(directory, file.name)) });
+        } else if (isArchive(file)) {
+            // Archives no longer download on a single click — the chooser makes it
+            // clear which ones can be browsed here (zip/7z/ddup on wings-rs) versus
+            // download-only formats (.tar.gz, .rar, …), and offers Extract.
+            setArchiveAction(file);
         } else if (isEditable(file)) {
             navigate(`/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`);
         } else {
@@ -161,6 +209,54 @@ export default function FileBrowser() {
         onError: (e: unknown) => push({ type: 'error', message: firstError(e) ?? m['common.states.genericError']() }),
     });
 
+    // Compress + extract both hit the shared daemon endpoints, so one action
+    // covers the Go daemon and wings-rs alike. Format selection (wings-rs only)
+    // lives in CompressModal.
+    const compressMutation = useMutation({
+        mutationFn: (names: string[]) => compressFiles(uuid, directory, names),
+        onMutate: () => setBusy(m['server.files.compressing']()),
+        onSuccess: async () => {
+            push({ type: 'success', message: m['server.files.compressed']() });
+            setSelected([]);
+            await qc.invalidateQueries({ queryKey: ['server-files', uuid, directory] });
+        },
+        onError: (e: unknown) =>
+            push(
+                isTimeout(e)
+                    ? { type: 'info', message: m['server.files.compressSlow']() }
+                    : { type: 'error', message: firstError(e) ?? m['common.states.genericError']() },
+            ),
+        onSettled: () => setBusy(null),
+    });
+
+    const extractMutation = useMutation({
+        mutationFn: ({ name }: { name: string; open: boolean }) => decompressFile(uuid, directory, name),
+        onMutate: () => setBusy(m['server.files.extracting']()),
+        onSuccess: async (_r, { name, open }) => {
+            push({ type: 'success', message: m['server.files.extracted']() });
+            await qc.invalidateQueries({ queryKey: ['server-files', uuid, directory] });
+            // Archives without a single top-level folder extract straight into the
+            // current directory, so only navigate when that folder really appeared.
+            if (open) {
+                const target = archiveContentsDirectory(name);
+                const fresh = await qc.fetchQuery({
+                    queryKey: ['server-files', uuid, directory],
+                    queryFn: () => loadDirectory(uuid, directory),
+                });
+                if (fresh.some(f => !f.isFile && f.name === target)) {
+                    navigate({ hash: encodePathSegments(join(directory, target)) });
+                }
+            }
+        },
+        onError: (e: unknown) =>
+            push(
+                isTimeout(e)
+                    ? { type: 'info', message: m['server.files.extractSlow']() }
+                    : { type: 'error', message: firstError(e) ?? m['common.states.genericError']() },
+            ),
+        onSettled: () => setBusy(null),
+    });
+
     const deleteMutation = useMutation({
         mutationFn: (names: string[]) => deleteFiles(uuid, directory, names),
         onSuccess: async (_r, names) => {
@@ -179,6 +275,23 @@ export default function FileBrowser() {
         setSelected(prev => (prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]));
     const allSelected = filtered.length > 0 && selected.length === filtered.length;
     const toggleSelectAll = () => setSelected(allSelected ? [] : filtered.map(f => f.name));
+
+    // Per-file action handlers, shared by the list-row and grid-card menus so the
+    // two views expose exactly the same options.
+    const caps: FileCaps = { canUpdate, canCreate, canDelete, canArchive, supercharged };
+    const actions: FileActions = {
+        edit: f => navigate(`/server/${id}/files/edit/${encodePathSegments(join(directory, f.name))}`),
+        rename: f => setRename({ files: [f.name], mode: 'rename' }),
+        move: f => setRename({ files: [f.name], mode: 'move' }),
+        copy: f => copyMutation.mutate(f.name),
+        compress: f => compressMutation.mutate([f.name]),
+        compressAs: f => setCompressFormat([f.name]),
+        extract: (f, open) => extractMutation.mutate({ name: f.name, open }),
+        chmod: f => setChmod({ files: [f.name], mode: f.modeBits }),
+        checksum: f => setChecksum([f.name]),
+        download: f => download(f.name),
+        remove: f => setConfirmDelete([f.name]),
+    };
 
     const crumbs = breadcrumbSegments(directory);
 
@@ -228,15 +341,17 @@ export default function FileBrowser() {
                     >
                         {gridView ? <ListIcon className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
                     </Button>
+                    {/* Labelled, not a bare icon — the connection drawer (and the
+                        Launch SFTP action inside it) was undiscoverable otherwise. */}
                     {canSftp && (
                         <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9"
+                            variant="secondary"
+                            size="sm"
                             title={m['server.files.connection.title']()}
                             onClick={() => setShowConnection(v => !v)}
                         >
                             <Network className="h-4 w-4" />
+                            {m['server.files.connection.short']()}
                         </Button>
                     )}
                     {server.isNodeSupercharged && (
@@ -252,6 +367,20 @@ export default function FileBrowser() {
                     )}
                 </div>
             </div>
+
+            {/* ── Inside-archive notice ── the daemon lets you read into a zip,
+                but the server can't use anything until it's extracted. ── */}
+            {insideArchive && (
+                <div className="mb-3 flex items-start gap-2.5 rounded-[var(--radius-card)] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3.5 py-2.5 text-sm text-[var(--color-warning)]">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                        <p className="font-semibold">{m['server.files.insideArchive.title']()}</p>
+                        <p className="mt-0.5 text-[var(--color-warning)]/90">
+                            {m['server.files.insideArchive.body']({ name: insideArchive })}
+                        </p>
+                    </div>
+                </div>
+            )}
 
             {/* ── Over-cap warning ── */}
             {filtered.length > DISPLAY_CAP && (
@@ -283,6 +412,8 @@ export default function FileBrowser() {
                                     selected={selected.includes(file.name)}
                                     onOpen={() => openEntry(file)}
                                     onToggle={() => toggleSelect(file.name)}
+                                    caps={caps}
+                                    actions={actions}
                                 />
                             ))}
                         </div>
@@ -331,19 +462,8 @@ export default function FileBrowser() {
                                             selected={selected.includes(file.name)}
                                             onToggle={() => toggleSelect(file.name)}
                                             onOpen={() => openEntry(file)}
-                                            canUpdate={canUpdate}
-                                            canCreate={canCreate}
-                                            canDelete={canDelete}
-                                            onEdit={() =>
-                                                navigate(
-                                                    `/server/${id}/files/edit/${encodePathSegments(join(directory, file.name))}`,
-                                                )
-                                            }
-                                            onRename={() => setRename({ files: [file.name], mode: 'rename' })}
-                                            onMove={() => setRename({ files: [file.name], mode: 'move' })}
-                                            onCopy={() => copyMutation.mutate(file.name)}
-                                            onDownload={() => download(file.name)}
-                                            onDelete={() => setConfirmDelete([file.name])}
+                                            caps={caps}
+                                            actions={actions}
                                         />
                                     ))}
                                 </tbody>
@@ -367,6 +487,16 @@ export default function FileBrowser() {
             {/* ── Connection details drawer (overlays, doesn't shift layout) ── */}
             {canSftp && <ConnectionPanel open={showConnection} onClose={() => setShowConnection(false)} />}
 
+            {/* ── Long-running archive job indicator ── */}
+            {busy && (
+                <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
+                    <div className="pointer-events-auto flex items-center gap-2.5 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-4 py-2 text-sm text-[var(--color-ink-muted)] shadow-2xl shadow-black/40">
+                        <Spinner className="h-4 w-4" />
+                        {busy}
+                    </div>
+                </div>
+            )}
+
             {/* ── Mass actions bar ── */}
             {selected.length > 0 && (
                 <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
@@ -382,6 +512,32 @@ export default function FileBrowser() {
                             >
                                 <FolderInput className="h-4 w-4" />
                                 {m['server.files.move']()}
+                            </Button>
+                        )}
+                        {canArchive && (
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={compressMutation.isPending}
+                                onClick={() => compressMutation.mutate(selected)}
+                            >
+                                <Package className="h-4 w-4" />
+                                {m['server.files.compress.action']()}
+                            </Button>
+                        )}
+                        {canArchive && server.isNodeSupercharged && (
+                            <Button variant="ghost" size="sm" onClick={() => setCompressFormat(selected)}>
+                                {m['server.files.compress.as']()}
+                            </Button>
+                        )}
+                        {canUpdate && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setChmod({ files: selected, mode: '' })}
+                            >
+                                <Settings2 className="h-4 w-4" />
+                                {m['server.files.chmod.action']()}
                             </Button>
                         )}
                         {canDelete && (
@@ -408,6 +564,47 @@ export default function FileBrowser() {
                     open
                     onClose={() => setRename(null)}
                     onDone={() => setSelected([])}
+                />
+            )}
+            {compressFormat && server.isNodeSupercharged && (
+                <CompressModal
+                    uuid={uuid}
+                    directory={directory}
+                    files={compressFormat}
+                    open
+                    onClose={() => setCompressFormat(null)}
+                    onDone={() => setSelected([])}
+                />
+            )}
+            {chmod && (
+                <ChmodModal
+                    uuid={uuid}
+                    directory={directory}
+                    files={chmod.files}
+                    initialMode={chmod.mode}
+                    open
+                    onClose={() => setChmod(null)}
+                    onDone={() => setSelected([])}
+                />
+            )}
+            {checksum && server.isNodeSupercharged && (
+                <ChecksumModal
+                    uuid={uuid}
+                    files={checksum.map(name => join(directory, name))}
+                    open
+                    onClose={() => setChecksum(null)}
+                />
+            )}
+            {archiveAction && (
+                <ArchiveActionModal
+                    name={archiveAction.name}
+                    openable={supercharged && isVirtualArchive(archiveAction)}
+                    canExtract={canCreate}
+                    open
+                    onOpen={() => openArchiveInline(archiveAction)}
+                    onExtract={() => extractMutation.mutate({ name: archiveAction.name, open: true })}
+                    onDownload={() => void download(archiveAction.name)}
+                    onClose={() => setArchiveAction(null)}
                 />
             )}
             {server.isNodeSupercharged && (
@@ -484,34 +681,44 @@ function SortHeader({
     );
 }
 
+// Shared capability flags + per-file action handlers. Both the list row and the
+// grid card render the same FileActionsMenu from these, so the two views never
+// drift apart.
+interface FileCaps {
+    canUpdate: boolean;
+    canCreate: boolean;
+    canDelete: boolean;
+    canArchive: boolean;
+    supercharged: boolean;
+}
+interface FileActions {
+    edit: (f: FileObject) => void;
+    rename: (f: FileObject) => void;
+    move: (f: FileObject) => void;
+    copy: (f: FileObject) => void;
+    compress: (f: FileObject) => void;
+    compressAs: (f: FileObject) => void;
+    extract: (f: FileObject, open: boolean) => void;
+    chmod: (f: FileObject) => void;
+    checksum: (f: FileObject) => void;
+    download: (f: FileObject) => void;
+    remove: (f: FileObject) => void;
+}
+
 function Row({
     file,
     selected,
     onToggle,
     onOpen,
-    canUpdate,
-    canCreate,
-    canDelete,
-    onEdit,
-    onRename,
-    onMove,
-    onCopy,
-    onDownload,
-    onDelete,
+    caps,
+    actions,
 }: {
     file: FileObject;
     selected: boolean;
     onToggle: () => void;
     onOpen: () => void;
-    canUpdate: boolean;
-    canCreate: boolean;
-    canDelete: boolean;
-    onEdit: () => void;
-    onRename: () => void;
-    onMove: () => void;
-    onCopy: () => void;
-    onDownload: () => void;
-    onDelete: () => void;
+    caps: FileCaps;
+    actions: FileActions;
 }) {
     return (
         <tr
@@ -529,7 +736,7 @@ function Row({
             </td>
             <td className="px-3 py-3.5">
                 <span className="flex min-w-0 items-center gap-2.5">
-                    <FileTypeIcon file={file} />
+                    <FileTypeIcon file={file} openable={caps.supercharged && isVirtualArchive(file)} />
                     <span
                         className={`truncate text-[15px] ${file.isFile ? 'text-[var(--color-ink)]' : 'font-medium text-[var(--color-ink)]'} group-hover:text-[var(--color-accent)]`}
                     >
@@ -549,46 +756,25 @@ function Row({
                 {timeAgo(file.modifiedAt)}
             </td>
             <td className="px-3 py-3.5 text-right" onClick={e => e.stopPropagation()}>
-                <RowMenu
-                    file={file}
-                    canUpdate={canUpdate}
-                    canCreate={canCreate}
-                    canDelete={canDelete}
-                    onEdit={onEdit}
-                    onRename={onRename}
-                    onMove={onMove}
-                    onCopy={onCopy}
-                    onDownload={onDownload}
-                    onDelete={onDelete}
-                />
+                <FileActionsMenu file={file} caps={caps} actions={actions} />
             </td>
         </tr>
     );
 }
 
-function RowMenu({
+function FileActionsMenu({
     file,
-    canUpdate,
-    canCreate,
-    canDelete,
-    onEdit,
-    onRename,
-    onMove,
-    onCopy,
-    onDownload,
-    onDelete,
+    caps,
+    actions,
+    align = 'end',
 }: {
     file: FileObject;
-    canUpdate: boolean;
-    canCreate: boolean;
-    canDelete: boolean;
-    onEdit: () => void;
-    onRename: () => void;
-    onMove: () => void;
-    onCopy: () => void;
-    onDownload: () => void;
-    onDelete: () => void;
+    caps: FileCaps;
+    actions: FileActions;
+    align?: 'start' | 'end';
 }) {
+    const { canUpdate, canCreate, canDelete, canArchive, supercharged } = caps;
+    const archived = isArchive(file);
     return (
         <Dropdown.Root>
             <Dropdown.Trigger className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)] focus:outline-none">
@@ -596,19 +782,81 @@ function RowMenu({
             </Dropdown.Trigger>
             <Dropdown.Portal>
                 <Dropdown.Content
-                    align="end"
+                    align={align}
                     sideOffset={4}
                     className="z-[60] min-w-[9rem] rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-1 shadow-xl shadow-black/30"
                 >
                     {file.isFile && isEditable(file) && canUpdate && (
-                        <MenuItem icon={Pencil} label={m['common.actions.edit']()} onSelect={onEdit} />
+                        <MenuItem icon={Pencil} label={m['common.actions.edit']()} onSelect={() => actions.edit(file)} />
                     )}
-                    {canUpdate && <MenuItem icon={Pencil} label={m['server.files.rename']()} onSelect={onRename} />}
-                    {canUpdate && <MenuItem icon={FolderInput} label={m['server.files.move']()} onSelect={onMove} />}
-                    {file.isFile && canCreate && <MenuItem icon={Copy} label={m['server.files.copy']()} onSelect={onCopy} />}
-                    {file.isFile && <MenuItem icon={Download} label={m['server.files.download']()} onSelect={onDownload} />}
+                    {canUpdate && (
+                        <MenuItem icon={Pencil} label={m['server.files.rename']()} onSelect={() => actions.rename(file)} />
+                    )}
+                    {canUpdate && (
+                        <MenuItem icon={FolderInput} label={m['server.files.move']()} onSelect={() => actions.move(file)} />
+                    )}
+                    {canUpdate && (
+                        <MenuItem
+                            icon={Settings2}
+                            label={m['server.files.chmod.action']()}
+                            onSelect={() => actions.chmod(file)}
+                        />
+                    )}
+                    {file.isFile && canCreate && (
+                        <MenuItem icon={Copy} label={m['server.files.copy']()} onSelect={() => actions.copy(file)} />
+                    )}
+                    {/* Extract runs against /files/decompress, which both the Go
+                        daemon and wings-rs implement — one action, either daemon. */}
+                    {archived && canCreate && (
+                        <>
+                            <MenuItem
+                                icon={PackageOpen}
+                                label={m['server.files.extract']()}
+                                onSelect={() => actions.extract(file, false)}
+                            />
+                            <MenuItem
+                                icon={FolderOpen}
+                                label={m['server.files.extractAndOpen']()}
+                                onSelect={() => actions.extract(file, true)}
+                            />
+                        </>
+                    )}
+                    {!archived && canArchive && (
+                        <MenuItem
+                            icon={Package}
+                            label={m['server.files.compress.action']()}
+                            onSelect={() => actions.compress(file)}
+                        />
+                    )}
+                    {!archived && canArchive && supercharged && (
+                        <MenuItem
+                            icon={FileArchive}
+                            label={m['server.files.compress.as']()}
+                            onSelect={() => actions.compressAs(file)}
+                        />
+                    )}
+                    {/* Checksums are a wings-rs feature (file.read). */}
+                    {file.isFile && supercharged && (
+                        <MenuItem
+                            icon={Fingerprint}
+                            label={m['server.files.checksum.action']()}
+                            onSelect={() => actions.checksum(file)}
+                        />
+                    )}
+                    {file.isFile && (
+                        <MenuItem
+                            icon={Download}
+                            label={m['server.files.download']()}
+                            onSelect={() => actions.download(file)}
+                        />
+                    )}
                     {canDelete && (
-                        <MenuItem icon={Trash2} label={m['common.actions.delete']()} onSelect={onDelete} danger />
+                        <MenuItem
+                            icon={Trash2}
+                            label={m['common.actions.delete']()}
+                            onSelect={() => actions.remove(file)}
+                            danger
+                        />
                     )}
                 </Dropdown.Content>
             </Dropdown.Portal>
@@ -644,11 +892,15 @@ function GridCard({
     selected,
     onOpen,
     onToggle,
+    caps,
+    actions,
 }: {
     file: FileObject;
     selected: boolean;
     onOpen: () => void;
     onToggle: () => void;
+    caps: FileCaps;
+    actions: FileActions;
 }) {
     return (
         <div
@@ -667,8 +919,15 @@ function GridCard({
                 onClick={e => e.stopPropagation()}
                 aria-label={file.name}
             />
+            {/* Same per-file menu as the list view — grid users had no actions before. */}
+            <div
+                className="absolute right-1 top-1 opacity-0 transition-opacity group-hover:opacity-100 data-[open]:opacity-100"
+                onClick={e => e.stopPropagation()}
+            >
+                <FileActionsMenu file={file} caps={caps} actions={actions} />
+            </div>
             <div className="scale-[1.7] py-2">
-                <FileTypeIcon file={file} />
+                <FileTypeIcon file={file} openable={caps.supercharged && isVirtualArchive(file)} />
             </div>
             <span className="w-full truncate text-center text-sm text-[var(--color-ink)] group-hover:text-[var(--color-accent)]">
                 {file.name}

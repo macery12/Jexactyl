@@ -42,6 +42,30 @@ export function isEditable(file: FileObject): boolean {
     return !isArchive(file);
 }
 
+// Archives the daemon can list *into* as if they were folders (wings-rs only).
+// The daemon walks these transparently via the normal /files/list endpoint, so
+// browsing is a pure navigation concern — the same "download instead" fallback
+// applies to every other archive type and to plain Go daemons.
+const VIRTUAL_ARCHIVE_EXTENSIONS = ['.zip', '.7z', '.ddup'];
+
+export function isVirtualArchive(file: FileObject): boolean {
+    if (!file.isFile) return false;
+    const lower = file.name.toLowerCase();
+    return VIRTUAL_ARCHIVE_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
+// When the daemon lists inside an archive, the archive's filename stays in the
+// path (e.g. /backups/world.zip/region). Returns the first such segment so the
+// UI can warn that everything below it is read-only until extracted.
+export function archivePathSegment(directory: string): string | null {
+    const segments = directory.split('/').filter(Boolean);
+    const seg = segments.find(s => {
+        const lower = s.toLowerCase();
+        return VIRTUAL_ARCHIVE_EXTENSIONS.some(ext => lower.endsWith(ext));
+    });
+    return seg ?? null;
+}
+
 interface FractalFile {
     attributes: {
         name: string;
@@ -94,8 +118,48 @@ export async function copyFile(uuid: string, location: string): Promise<void> {
     await http.post(`/api/client/servers/${uuid}/files/copy`, { location });
 }
 
+// chmod goes through the shared daemon endpoint (`file.update`), so it works on
+// both the Go daemon and wings-rs. `mode` is an octal string like "755".
+export async function chmodFiles(
+    uuid: string,
+    root: string,
+    files: { file: string; mode: string }[],
+): Promise<void> {
+    await http.post(`/api/client/servers/${uuid}/files/chmod`, { root, files });
+}
+
 export async function deleteFiles(uuid: string, root: string, files: string[]): Promise<void> {
     await http.post(`/api/client/servers/${uuid}/files/delete`, { root, files });
+}
+
+// Compress/extract go through the shared daemon endpoints, so a single action
+// works against both the Go daemon and wings-rs. Format selection is wings-rs
+// only and lives in `compressAdvanced` below.
+export async function compressFiles(uuid: string, root: string, files: string[]): Promise<FileObject> {
+    const { data } = await http.post(
+        `/api/client/servers/${uuid}/files/compress`,
+        { root, files },
+        { timeout: 15000 },
+    );
+    return toFileObject(data);
+}
+
+export async function decompressFile(uuid: string, root: string, file: string): Promise<void> {
+    await http.post(`/api/client/servers/${uuid}/files/decompress`, { root, file }, { timeout: 15000 });
+}
+
+// Strips the archive extension so "Extract & open" knows where the daemon put
+// the contents. Mirrors V1's getArchiveExtractedDirectory.
+export function archiveContentsDirectory(name: string): string {
+    const lower = name.toLowerCase();
+    const extensions = [
+        '.tar.gz', '.tar.xz', '.tar.bz2', '.tar.lz4', '.tar.zst', '.tar.zstd', '.tar.lzip', '.tar.br',
+        '.tgz', '.txz', '.tbz2', '.tlz4', '.tzst', '.zip', '.7z', '.rar', '.ddup', '.tar',
+    ];
+    for (const ext of extensions) {
+        if (lower.endsWith(ext)) return name.slice(0, name.length - ext.length);
+    }
+    return name;
 }
 
 export async function getFileContents(
@@ -159,6 +223,63 @@ export async function searchFiles(
 ): Promise<SearchResult[]> {
     const { data } = await http.post(`/api/client/servers/${uuid}/wings-rs/search`, params);
     return Array.isArray(data) ? data : [];
+}
+
+// Archive formats wings-rs can produce. The Go daemon has no format selection,
+// so the picker is gated behind `isNodeSupercharged`.
+export type ArchiveFormat =
+    | 'tar'
+    | 'tar_gz'
+    | 'tar_xz'
+    | 'tar_lzip'
+    | 'tar_bz2'
+    | 'tar_lz4'
+    | 'tar_zstd'
+    | 'zip'
+    | 'seven_zip';
+
+export async function compressAdvanced(
+    uuid: string,
+    params: { root: string; files: string[]; format: ArchiveFormat; name?: string },
+): Promise<void> {
+    await http.post(`/api/client/servers/${uuid}/wings-rs/compress`, params, { timeout: 15000 });
+}
+
+// ── Checksums (wings-rs only) ────────────────────────────────────────────────
+// Algorithms the daemon's fingerprints endpoint accepts (its Algorithm enum).
+export type FingerprintAlgorithm =
+    | 'md5'
+    | 'crc32'
+    | 'sha1'
+    | 'sha224'
+    | 'sha256'
+    | 'sha384'
+    | 'sha512'
+    | 'curseforge';
+
+export interface FileFingerprint {
+    path: string;
+    algorithm: FingerprintAlgorithm;
+    hash: string;
+}
+
+export async function getFingerprints(
+    uuid: string,
+    files: string[],
+    algorithm: FingerprintAlgorithm,
+): Promise<FileFingerprint[]> {
+    const { data } = await http.post(`/api/client/servers/${uuid}/wings-rs/fingerprints`, {
+        files,
+        algorithm,
+    });
+    // The daemon answers with { fingerprints: { "<path>": "<hash>" } } — a map
+    // keyed by the exact path string we sent. Fall back to a bare map if the
+    // wrapper is ever dropped. Skip empty hashes (files it couldn't read).
+    const map = (data?.fingerprints ?? data) as Record<string, unknown> | null;
+    if (!map || typeof map !== 'object') return [];
+    return Object.entries(map)
+        .filter(([, hash]) => hash != null && hash !== '')
+        .map(([path, hash]): FileFingerprint => ({ path, algorithm, hash: String(hash) }));
 }
 
 export interface SshInfo {

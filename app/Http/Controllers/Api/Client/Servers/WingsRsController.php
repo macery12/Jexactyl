@@ -47,7 +47,7 @@ class WingsRsController extends ClientApiController
         $request->validate([
             'files' => 'required|array|min:1|max:50',
             'files.*' => 'required|string|max:1024',
-            'algorithm' => 'string|in:sha256,sha512,md5,blake3',
+            'algorithm' => 'string|in:md5,crc32,sha1,sha224,sha256,sha384,sha512,curseforge',
         ]);
 
         $data = $this->wingsRsRepository

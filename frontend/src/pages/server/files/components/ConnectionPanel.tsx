@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Network, X } from 'lucide-react';
+import { ExternalLink, Network, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { useServer } from '@/components/server/ServerContext';
@@ -102,6 +102,7 @@ export function ConnectionPanel({ open, onClose }: { open: boolean; onClose: () 
                         </div>
                         <a href={launchUrl} className="self-start">
                             <Button variant="outline" size="sm">
+                                <ExternalLink className="h-4 w-4" />
                                 {m['server.files.connection.launch']()}
                             </Button>
                         </a>
