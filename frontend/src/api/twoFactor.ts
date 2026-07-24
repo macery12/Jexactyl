@@ -19,7 +19,19 @@ export async function enableTwoFactor(code: string, password: string): Promise<s
     return data.attributes.tokens;
 }
 
-// POST /api/client/account/two-factor/disable — disables 2FA after re-auth.
-export async function disableTwoFactor(password: string): Promise<void> {
-    await http.post('/api/client/account/two-factor/disable', { password });
+// POST /api/client/account/two-factor/disable — disables 2FA after re-auth with
+// the password *and* the second factor itself. Send exactly one of code /
+// recoveryToken: the backend takes the recovery branch whenever a token is
+// present, so passing both would ignore a perfectly good code.
+export async function disableTwoFactor(
+    password: string,
+    second: { code?: string; recoveryToken?: string },
+): Promise<void> {
+    const useRecovery = Boolean(second.recoveryToken && second.recoveryToken.length > 0);
+
+    await http.post('/api/client/account/two-factor/disable', {
+        password,
+        code: useRecovery ? undefined : second.code,
+        recovery_token: useRecovery ? second.recoveryToken : undefined,
+    });
 }

@@ -3,8 +3,6 @@
 namespace Everest\Http\Controllers\Auth;
 
 use Everest\Models\User;
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
@@ -45,22 +43,21 @@ class LoginController extends AbstractLoginController
             $this->sendFailedLoginResponse($request, $user);
         }
 
+        // Check the account is usable before handing out a 2FA challenge. Doing it
+        // here as well as in sendLoginResponse means a pending or suspended user is
+        // told why up front, rather than after typing a TOTP code.
+        $this->assertAccountUsable($user);
+
         if (!$user->use_totp) {
             return $this->sendLoginResponse($user, $request);
         }
 
         Activity::event('auth:checkpoint')->withRequestMetadata()->subject($user)->log();
 
-        $request->session()->put('auth_confirmation_token', [
-            'user_id' => $user->id,
-            'token_value' => $token = Str::random(64),
-            'expires_at' => CarbonImmutable::now()->addMinutes(5),
-        ]);
-
         return new JsonResponse([
             'data' => [
                 'complete' => false,
-                'confirmation_token' => $token,
+                'confirmation_token' => $this->issueTwoFactorChallenge($request, $user),
             ],
         ]);
     }
@@ -76,6 +73,12 @@ class LoginController extends AbstractLoginController
         }
 
         $user = $this->createAccount($request->validated());
+
+        // jGuard holds the account for approval — do not issue a session. The SPA
+        // shows the "awaiting approval" screen off the back of this response.
+        if ($user->isPending()) {
+            return $this->sendPendingApprovalResponse($user);
+        }
 
         // Automatically log in the user after successful registration
         return $this->sendLoginResponse($user, $request);

@@ -13,6 +13,18 @@ export function firstError(err: unknown): string | undefined {
     return undefined;
 }
 
+/**
+ * The machine-readable `code` on a Fractal error — the backend puts the
+ * exception's class basename there (`AccountPendingApprovalException`, …).
+ * Use it to branch on a specific failure instead of matching message text,
+ * which is localized and admin-configurable.
+ */
+export function errorCode(err: unknown): string | undefined {
+    if (!isAxiosError(err)) return undefined;
+    const errors = err.response?.data?.errors;
+    return Array.isArray(errors) ? errors[0]?.code : undefined;
+}
+
 interface FractalValidationError {
     detail?: string;
     meta?: { source_field?: string; rule?: string };

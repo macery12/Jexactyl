@@ -2,112 +2,100 @@
 
 namespace Everest\Http\Controllers\Auth\Modules;
 
-use Everest\Models\User;
-use Carbon\CarbonImmutable;
 use Everest\Models\Setting;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Everest\Models\UserOAuthAccount;
 use Illuminate\Http\RedirectResponse;
 use Laravel\Socialite\Facades\Socialite;
-use Everest\Http\Controllers\Auth\AbstractLoginController;
+use Everest\Services\Auth\SocialIdentity;
+use Laravel\Socialite\Two\GoogleProvider;
 
-class GoogleLoginController extends AbstractLoginController
+class GoogleLoginController extends AbstractSocialLoginController
 {
-    /**
-     * OAuth client configuration passed to the Socialite Google provider.
-     */
-    private array $config;
-
-    /**
-     * GoogleLoginController constructor.
-     */
-    public function __construct()
+    protected function provider(): string
     {
-        parent::__construct();
+        return UserOAuthAccount::PROVIDER_GOOGLE;
+    }
 
-        $this->config = [
-            'redirect' => route('auth.modules.google.authenticate'),
-            'client_id' => Setting::get('settings::modules:auth:google:client_id', config('modules.auth.google.client_id')),
-            'client_secret' => Setting::get('settings::modules:auth:google:client_secret', config('modules.auth.google.client_secret')),
-        ];
+    protected function clientId(): ?string
+    {
+        return Setting::get('settings::modules:auth:google:client_id', config('modules.auth.google.client_id'));
+    }
+
+    protected function clientSecret(): ?string
+    {
+        return Setting::get('settings::modules:auth:google:client_secret', config('modules.auth.google.client_secret'));
     }
 
     /**
-     * Get the user's Google details in order to access the account.
+     * Socialite provider configured from the admin-managed credentials.
      *
-     * @throws \Everest\Exceptions\DisplayException
-     * @throws \Illuminate\Validation\ValidationException
+     * Built per call rather than in the constructor: the settings are editable at
+     * runtime, and a cached constructor read meant credential changes only took
+     * effect after a config clear.
      */
-    public function requestToken(Request $request): string
+    private function driver(): GoogleProvider
     {
-        if ($this->hasTooManyLoginAttempts($request)) {
-            $this->fireLockoutEvent($request);
-            $this->sendLockoutResponse($request);
-        }
+        /** @var GoogleProvider $provider */
+        $provider = Socialite::buildProvider(GoogleProvider::class, [
+            'client_id' => $this->clientId(),
+            'client_secret' => $this->clientSecret(),
+            'redirect' => route('auth.modules.google.authenticate'),
+        ]);
 
-        return Socialite::buildProvider(\Laravel\Socialite\Two\GoogleProvider::class, $this->config)
-            ->redirect()
-            ->getTargetUrl();
+        return $provider;
     }
 
     /**
-     * Authenticate with the Google OAuth2 service.
+     * Socialite writes its own `state` into the session during redirect() and
+     * validates it in user(), so the panel does not add a second one here — the
+     * callback clears STATE_SESSION_KEY rather than checking it.
+     */
+    protected function buildAuthorizeUrl(Request $request): string
+    {
+        return $this->driver()->redirect()->getTargetUrl();
+    }
+
+    /**
+     * Handle the OAuth2 callback.
      */
     public function authenticate(Request $request): RedirectResponse
     {
-        $response = Socialite::buildProvider(\Laravel\Socialite\Two\GoogleProvider::class, $this->config)->user();
-
-        if (User::where('email', $response->getEmail())->exists()) {
-            $user = User::where('email', $response->getEmail())->first();
-
-            // If user has 2FA enabled, redirect to login for TOTP verification
-            if ($user->use_totp) {
-                return $this->redirectToTwoFactorChallenge($request, $user);
-            }
-
-            $loginResponse = $this->sendLoginResponse($user, $request);
-            $redirect = redirect('/');
-
-            foreach ($loginResponse->headers->getCookies() as $cookie) {
-                $redirect->headers->setCookie($cookie);
-            }
-
-            return $redirect;
-        }
-        $user = $this->createAccount(['email' => $response->getEmail(), 'username' => 'null_user_' . $this->randStr(16)]);
-
-        $loginResponse = $this->sendLoginResponse($user, $request);
-        $redirect = redirect('/settings');
-
-        foreach ($loginResponse->headers->getCookies() as $cookie) {
-            $redirect->headers->setCookie($cookie);
+        if (!$this->moduleEnabled()) {
+            return $this->failRedirect('module_disabled');
         }
 
-        return $redirect;
-    }
+        if ($request->filled('error')) {
+            return $this->failRedirect($request->input('error') === 'access_denied' ? 'cancelled' : 'provider_error');
+        }
 
-    /**
-     * Redirect a user with 2FA enabled to the TOTP verification challenge.
-     * Stores the pending authentication in session for the checkpoint flow.
-     */
-    protected function redirectToTwoFactorChallenge(Request $request, User $user): RedirectResponse
-    {
-        $token = Str::random(64);
+        // Socialite owns state validation for this provider; drop our parallel
+        // copy so it cannot be replayed against a later attempt.
+        $request->session()->forget(self::STATE_SESSION_KEY);
 
-        $request->session()->put('auth_confirmation_token', [
-            'user_id' => $user->id,
-            'token_value' => $token,
-            'expires_at' => CarbonImmutable::now()->addMinutes(5),
-        ]);
+        try {
+            $account = $this->driver()->user();
+        } catch (\Throwable $e) {
+            // Covers InvalidStateException, a revoked code, and network failures.
+            // All of these previously escaped as an unhandled 500.
+            Log::warning('Google SSO callback failed', ['exception' => $e->getMessage()]);
 
-        return redirect('/auth/login?checkpoint=' . $token);
-    }
+            return $this->failRedirect('provider_error');
+        }
 
-    /**
-     * Create a random string we can use for a temporary username.
-     */
-    public function randStr(int $length = 10): string
-    {
-        return substr(str_shuffle(str_repeat($x = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length / strlen($x)))), 1, $length);
+        if (!$account->getId()) {
+            return $this->failRedirect('provider_error');
+        }
+
+        $identity = new SocialIdentity(
+            provider: $this->provider(),
+            id: (string) $account->getId(),
+            email: $account->getEmail(),
+            username: $account->getNickname() ?: $account->getName(),
+            avatar: $account->getAvatar(),
+        );
+
+        return $this->resolveIdentity($request, $identity);
     }
 }

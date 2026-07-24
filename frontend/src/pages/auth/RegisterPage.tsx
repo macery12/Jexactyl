@@ -10,6 +10,7 @@ import { useFlags } from '@/state/flags';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Turnstile } from '@/components/auth/Turnstile';
+import { SsoButtons } from '@/components/auth/SsoButtons';
 import { PasswordInput, PasswordStrength, passwordMeetsPolicy } from '@/components/auth/PasswordStrength';
 import { RecoveryCodeDisplay } from '@/components/auth/RecoveryCodeDisplay';
 
@@ -20,7 +21,9 @@ export default function RegisterPage() {
     const captcha = useFlags(s => s.site?.captcha);
     const [token, setToken] = useState<string | undefined>(undefined);
     const [submitError, setSubmitError] = useState<string | null>(null);
-    const [pending, setPending] = useState(false);
+    // Server-authored jGuard copy (admin-configurable), set only when the account
+    // was created but held for approval.
+    const [pendingMessage, setPendingMessage] = useState<string | null>(null);
     const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle');
     // After a successful signup we hold the one-time recovery code and gate the
     // redirect behind an explicit acknowledgement so the user cannot miss it.
@@ -103,11 +106,39 @@ export default function RegisterPage() {
                 return;
             }
             // jGuard: account created but awaiting staff approval — no session issued.
-            setPending(true);
+            // The recovery code is still surfaced, since a pending user never
+            // reaches the post-login reveal and cannot be given it afterwards.
+            setRecoveryCode(res.recoveryCode ?? null);
+            setPendingMessage(res.pendingMessage ?? m['auth.register.pendingBody']());
         } catch (err) {
             setSubmitError(firstError(err) ?? m['common.states.genericError']());
         }
     });
+
+    // Pending wins over the plain recovery reveal: there is no session to
+    // continue into, so the code is shown inline here instead.
+    if (pendingMessage) {
+        return (
+            <div className="flex w-full flex-col gap-5">
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">{m['auth.register.pendingTitle']()}</h1>
+                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{pendingMessage}</p>
+                </div>
+                {recoveryCode && (
+                    <>
+                        <p className="text-sm text-[var(--color-ink-muted)]">{m['auth.register.recoveryBody']()}</p>
+                        <RecoveryCodeDisplay code={recoveryCode} />
+                    </>
+                )}
+                <a
+                    href={abs('/auth/login')}
+                    className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+                >
+                    {m['auth.backToLogin']()}
+                </a>
+            </div>
+        );
+    }
 
     if (recoveryCode) {
         return (
@@ -128,23 +159,6 @@ export default function RegisterPage() {
                 >
                     {m['auth.register.recoveryContinue']()}
                 </Button>
-            </div>
-        );
-    }
-
-    if (pending) {
-        return (
-            <div className="flex w-full flex-col gap-5">
-                <div>
-                    <h1 className="text-2xl font-semibold tracking-tight">{m['auth.register.pendingTitle']()}</h1>
-                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.register.pendingBody']()}</p>
-                </div>
-                <a
-                    href={abs('/auth/login')}
-                    className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
-                >
-                    {m['auth.backToLogin']()}
-                </a>
             </div>
         );
     }
@@ -224,6 +238,8 @@ export default function RegisterPage() {
             >
                 {isSubmitting ? m['auth.register.submitting']() : m['auth.register.submit']()}
             </Button>
+
+            <SsoButtons captchaToken={token} onError={setSubmitError} />
 
             <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
                 {m['auth.register.haveAccount']()}

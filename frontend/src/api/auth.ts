@@ -6,6 +6,8 @@ export interface AuthResponse {
     confirmationToken?: string;
     /** jGuard: 'pending' when the account was created but needs staff approval. */
     userState?: string | null;
+    /** Server-authored copy for the pending screen (admin-configurable). */
+    pendingMessage?: string;
     /** One-time offline recovery code — only present on the register response. */
     recoveryCode?: string | null;
 }
@@ -30,18 +32,47 @@ export async function login(params: {
     };
 }
 
-// POST /auth/login/checkpoint — TOTP / recovery 2FA step.
+// POST /auth/modules/{provider} — start an SSO sign-in. Returns the provider's
+// authorize URL for the browser to follow. Deliberately a POST: it is a
+// state-changing step (it writes the OAuth `state` into the session) and it
+// carries the captcha token when Turnstile is on.
+export async function externalLogin(provider: 'discord' | 'google', captchaToken?: string): Promise<string> {
+    await primeCsrf();
+    const { data } = await http.post(`/auth/modules/${provider}`, {
+        'cf-turnstile-response': captchaToken,
+    });
+    // The endpoint responds with the bare URL string.
+    return typeof data === 'string' ? data : (data?.url ?? '');
+}
+
+// POST /auth/login/checkpoint — TOTP / recovery 2FA step. Exactly one of `code`
+// or `recoveryToken` is sent: the backend takes the recovery branch whenever a
+// recovery token is present, so sending both would reject a valid TOTP code.
 export async function checkpoint(params: {
     confirmationToken: string;
-    code: string;
+    code?: string;
     recoveryToken?: string;
 }): Promise<AuthResponse> {
+    const useRecovery = Boolean(params.recoveryToken && params.recoveryToken.length > 0);
     const { data } = await http.post('/auth/login/checkpoint', {
         confirmation_token: params.confirmationToken,
-        authentication_code: params.code,
-        recovery_token: params.recoveryToken && params.recoveryToken.length > 0 ? params.recoveryToken : undefined,
+        authentication_code: useRecovery ? undefined : params.code,
+        recovery_token: useRecovery ? params.recoveryToken : undefined,
     });
     return { complete: data.data.complete, intended: data.data.intended || undefined };
+}
+
+// GET /auth/login/checkpoint/pending — read back the confirmation token for the
+// login this session already started. Used when an SSO callback redirects into
+// the checkpoint: a server redirect cannot hand over router state, and putting
+// the token in the URL would leak it into history, `Referer` and access logs.
+export async function getPendingCheckpoint(): Promise<string | null> {
+    try {
+        const { data } = await http.get('/auth/login/checkpoint/pending');
+        return data.data?.confirmation_token ?? null;
+    } catch {
+        return null;
+    }
 }
 
 // POST /auth/register — self-signup. Backend auto-logs in on success (unless
@@ -66,7 +97,10 @@ export async function register(params: {
         complete: data.data.complete,
         intended: data.data.intended || undefined,
         confirmationToken: data.data.confirmation_token || undefined,
-        userState: data.data.user?.state ?? null,
+        // `user_state` is set on the pending response (no session issued);
+        // `user.state` is the shape returned when a session was issued.
+        userState: data.data.user_state ?? data.data.user?.state ?? null,
+        pendingMessage: data.data.pending_message || undefined,
         recoveryCode: data.data.recovery_code ?? null,
     };
 }

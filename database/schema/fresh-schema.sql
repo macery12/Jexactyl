@@ -716,8 +716,8 @@ CREATE TABLE `email_quotas` (
   `month_sent_count` int(11) NOT NULL DEFAULT 0,
   `monthly_overage` int(11) NOT NULL DEFAULT 0,
   `overage_count` int(11) NOT NULL DEFAULT 0,
-  `month_reset_at` date NOT NULL DEFAULT '2026-07-20',
-  `day_reset_at` date NOT NULL DEFAULT '2026-07-20',
+  `month_reset_at` date NOT NULL DEFAULT '2026-07-23',
+  `day_reset_at` date NOT NULL DEFAULT '2026-07-23',
   `period_month` varchar(7) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -975,7 +975,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=23 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=26 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `mount_node`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1212,7 +1212,6 @@ CREATE TABLE `products` (
   `name` varchar(191) NOT NULL,
   `icon` varchar(191) DEFAULT NULL,
   `price` double NOT NULL,
-  `base_price` decimal(10,2) DEFAULT NULL,
   `description` varchar(191) DEFAULT NULL,
   `visible` tinyint(1) DEFAULT NULL,
   `cpu_limit` int(10) unsigned NOT NULL,
@@ -1347,6 +1346,12 @@ CREATE TABLE `server_presets` (
   `cpu` int(10) unsigned NOT NULL,
   `memory` int(11) NOT NULL,
   `disk` int(11) NOT NULL,
+  `swap` int(11) NOT NULL DEFAULT 0,
+  `io` int(10) unsigned NOT NULL DEFAULT 500,
+  `databases` int(10) unsigned NOT NULL DEFAULT 0,
+  `backups` int(10) unsigned NOT NULL DEFAULT 0,
+  `allocations` int(10) unsigned NOT NULL DEFAULT 0,
+  `subusers` int(11) NOT NULL DEFAULT 0,
   `nest_id` int(10) unsigned DEFAULT NULL,
   `egg_id` int(10) unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -1608,6 +1613,25 @@ CREATE TABLE `user_billing_profiles` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `user_billing_profiles_user_id_unique` (`user_id`),
   CONSTRAINT `user_billing_profiles_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_oauth_accounts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_oauth_accounts` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) unsigned NOT NULL,
+  `provider` varchar(32) NOT NULL,
+  `provider_user_id` varchar(191) NOT NULL,
+  `provider_username` varchar(191) DEFAULT NULL,
+  `provider_email` varchar(191) DEFAULT NULL,
+  `provider_avatar` varchar(191) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `user_oauth_accounts_provider_provider_user_id_unique` (`provider`,`provider_user_id`),
+  UNIQUE KEY `user_oauth_accounts_user_id_provider_unique` (`user_id`,`provider`),
+  CONSTRAINT `user_oauth_accounts_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user_sessions`;

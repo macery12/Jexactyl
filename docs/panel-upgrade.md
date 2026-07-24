@@ -27,6 +27,16 @@ bookkeeping — an existing database's `migrations` table lists 327 filenames th
 no longer exist, so Laravel would see 22 unknown migrations as "pending" and try
 to create tables that are already there.
 
+Migrations added *after* the consolidation (files dated later than
+`2026_07_20_000022`) do introduce real schema the legacy chain never had. They
+need no special handling here: step 1 below builds whatever the shipped schema
+has and the install does not, so the same run that fixes the bookkeeping also
+creates those tables and columns. This is why
+[`fresh-schema.sql`](../database/schema/fresh-schema.sql) **must be regenerated
+whenever a migration is added** — `scripts/schema-diff.sh` fails the build
+otherwise, and an out-of-date baseline would leave adopting installs stamped as
+migrated without the new schema.
+
 `p:migrate:adopt` reconciles that. It:
 
 1. builds anything the shipped schema has and this install does not — missing

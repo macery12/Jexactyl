@@ -6,8 +6,8 @@ const CheckpointPage = lazy(() => import('@/pages/auth/CheckpointPage'));
 const RegisterPage = lazy(() => import('@/pages/auth/RegisterPage'));
 const ForgotPasswordPage = lazy(() => import('@/pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('@/pages/auth/ResetPasswordPage'));
-const DiscordLinkChoicePage = lazy(() => import('@/pages/auth/DiscordLinkChoicePage'));
-const DiscordRegisterPage = lazy(() => import('@/pages/auth/DiscordRegisterPage'));
+const SsoLinkChoicePage = lazy(() => import('@/pages/auth/SsoLinkChoicePage'));
+const SsoRegisterPage = lazy(() => import('@/pages/auth/SsoRegisterPage'));
 
 // Auth area (/auth/*). Seeded from V1_UI_Map §3.1.
 export const authRoutes: RouteDef[] = [
@@ -16,6 +16,15 @@ export const authRoutes: RouteDef[] = [
     route('register', { name: 'Register', element: RegisterPage, condition: f => f.auth.registration.enabled }),
     route('password', { name: 'Forgot Password', element: ForgotPasswordPage }),
     route('password/reset/:token', { element: ResetPasswordPage }),
-    route('discord/link-choice', { element: DiscordLinkChoicePage, condition: f => f.auth.modules.discord.enabled }),
-    route('discord/register', { element: DiscordRegisterPage, condition: f => f.auth.modules.discord.enabled }),
+    // Provider-agnostic SSO signup/link pages — reached after a Discord or Google
+    // callback finds no account for the identity. Gated on either module being on
+    // rather than on Discord specifically.
+    route('sso/link-choice', {
+        element: SsoLinkChoicePage,
+        condition: f => f.auth.modules.discord.enabled || f.auth.modules.google.enabled,
+    }),
+    route('sso/register', {
+        element: SsoRegisterPage,
+        condition: f => f.auth.modules.discord.enabled || f.auth.modules.google.enabled,
+    }),
 ];

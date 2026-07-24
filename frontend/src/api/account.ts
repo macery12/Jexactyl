@@ -28,15 +28,37 @@ export async function updateLanguage(language: string | null): Promise<void> {
     await http.put('/api/client/account/language', { language });
 }
 
-// ---- discord ---------------------------------------------------------------
+// ---- linked SSO accounts ----------------------------------------------------
 
-// Returns the OAuth URL to redirect the browser to for linking. The unlink
-// endpoint just detaches the association server-side.
-export async function getDiscordLinkUrl(): Promise<string> {
-    const { data } = await http.post('/api/client/account/discord/link');
+export type SsoProvider = 'discord' | 'google';
+
+export interface LinkedSsoAccount {
+    provider: SsoProvider;
+    label: string;
+    /** Whether the module is switched on panel-wide. */
+    enabled: boolean;
+    linked: boolean;
+    username: string | null;
+    email: string | null;
+    linked_at: string | null;
+}
+
+// GET /api/client/account/sso — every known provider with its link state, so the
+// settings row can render both "linked" and "available to link" from one call.
+export async function getLinkedSsoAccounts(): Promise<LinkedSsoAccount[]> {
+    const { data } = await http.get('/api/client/account/sso');
+    return data.data;
+}
+
+// Returns the OAuth URL to redirect the browser to for linking. The callback
+// recognises the link flow from the session and returns to /settings.
+export async function getSsoLinkUrl(provider: SsoProvider): Promise<string> {
+    const { data } = await http.post(`/api/client/account/sso/${provider}/link`);
     return data.url;
 }
 
-export async function unlinkDiscord(): Promise<void> {
-    await http.post('/api/client/account/discord/unlink');
+// Unlinking removes a sign-in route, so the backend re-authenticates with the
+// account password. axios sends a DELETE body under `data`.
+export async function unlinkSsoProvider(provider: SsoProvider, password: string): Promise<void> {
+    await http.delete(`/api/client/account/sso/${provider}`, { data: { password } });
 }

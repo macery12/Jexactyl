@@ -2,16 +2,16 @@
 
 namespace Everest\Http\Controllers\Auth;
 
-use Carbon\Carbon;
 use Everest\Models\User;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
-use PragmaRX\Google2FA\Google2FA;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Contracts\Encryption\Encrypter;
 use Everest\Events\Auth\ProvidedAuthenticationToken;
 use Everest\Http\Requests\Auth\LoginCheckpointRequest;
+use Everest\Services\Users\TwoFactorVerificationService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 
@@ -23,8 +23,7 @@ class LoginCheckpointController extends AbstractLoginController
      * LoginCheckpointController constructor.
      */
     public function __construct(
-        private Encrypter $encrypter,
-        private Google2FA $google2FA,
+        private TwoFactorVerificationService $verification,
         private ValidationFactory $validation,
     ) {
         parent::__construct();
@@ -44,6 +43,7 @@ class LoginCheckpointController extends AbstractLoginController
     public function __invoke(LoginCheckpointRequest $request): JsonResponse
     {
         if ($this->hasTooManyLoginAttempts($request)) {
+            $this->fireLockoutEvent($request);
             $this->sendLockoutResponse($request);
         }
 
@@ -65,53 +65,43 @@ class LoginCheckpointController extends AbstractLoginController
 
         // Recovery tokens go through a slightly different pathway for usage.
         if (!is_null($recoveryToken = $request->input('recovery_token'))) {
-            if ($this->isValidRecoveryToken($user, $recoveryToken)) {
+            if ($this->verification->consumeRecoveryToken($user, $recoveryToken)) {
                 Event::dispatch(new ProvidedAuthenticationToken($user, true));
 
                 return $this->sendLoginResponse($user, $request);
             }
-        } else {
-            $decrypted = $this->encrypter->decrypt($user->totp_secret);
-            $oldTimestamp = $user->totp_authenticated_at
-                ? (int) floor($user->totp_authenticated_at->unix() / $this->google2FA->getKeyRegeneration())
-                : null;
+        } elseif ($this->verification->isValidTotp($user, $request->input('authentication_code') ?? '')) {
+            Event::dispatch(new ProvidedAuthenticationToken($user));
 
-            $verified = $this->google2FA->verifyKeyNewer(
-                $decrypted,
-                $request->input('authentication_code') ?? '',
-                $oldTimestamp,
-                config('Everest.auth.2fa.window') ?? 1,
-            );
-
-            if ($verified !== false) {
-                $user->update(['totp_authenticated_at' => Carbon::now()]);
-
-                Event::dispatch(new ProvidedAuthenticationToken($user));
-
-                return $this->sendLoginResponse($user, $request);
-            }
+            return $this->sendLoginResponse($user, $request);
         }
 
         $this->sendFailedLoginResponse($request, $user, !empty($recoveryToken) ? 'The recovery token provided is not valid.' : null);
     }
 
     /**
-     * Determines if a given recovery token is valid for the user account. If we find a matching token
-     * it will be deleted from the database.
+     * Hand the pending confirmation token back to the checkpoint page.
      *
-     * @throws \Exception
+     * Only the session that started the login can read it, which makes this
+     * equivalent in reach to the session cookie itself while keeping the token
+     * out of the URL. SSO callbacks are server-side redirects and have no other
+     * way to pass it — the old approach put it in a query string that reached
+     * browser history, `Referer` headers and access logs.
      */
-    protected function isValidRecoveryToken(User $user, string $value): bool
+    public function pending(Request $request): JsonResponse
     {
-        foreach ($user->recoveryTokens as $token) {
-            if (password_verify($value, $token->token)) {
-                $token->delete();
+        $details = $request->session()->get('auth_confirmation_token');
 
-                return true;
-            }
+        if (!$this->hasValidSessionData($details)) {
+            return new JsonResponse(['data' => ['pending' => false]], Response::HTTP_NOT_FOUND);
         }
 
-        return false;
+        return new JsonResponse([
+            'data' => [
+                'pending' => true,
+                'confirmation_token' => $details['token_value'],
+            ],
+        ]);
     }
 
     /**

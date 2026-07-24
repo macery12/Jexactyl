@@ -19,6 +19,9 @@ return [
         'sftp' => [
             'fail' => 'Failed SFTP log in',
         ],
+        'sso' => [
+            'register' => 'Created account via :provider sign-in',
+        ],
     ],
     'user' => [
         'account' => [
@@ -36,6 +39,10 @@ return [
         'two-factor' => [
             'create' => 'Enabled two-factor auth',
             'delete' => 'Disabled two-factor auth',
+        ],
+        'sso' => [
+            'link' => 'Linked :provider account',
+            'unlink' => 'Unlinked :provider account',
         ],
     ],
     'server' => [

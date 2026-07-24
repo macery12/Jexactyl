@@ -38,27 +38,48 @@ Route::middleware(['throttle:authentication'])->group(function () {
     // Login endpoints.
     Route::post('/login', [Auth\LoginController::class, 'login'])->middleware('captcha');
     Route::post('/login/checkpoint', Auth\LoginCheckpointController::class)->name('auth.login-checkpoint');
+    // Hands the pending confirmation token back to the checkpoint page. Scoped to
+    // the session that started the login, which is what keeps the token out of
+    // the URL for SSO callbacks (server redirects have no other way to pass it).
+    Route::get('/login/checkpoint/pending', [Auth\LoginCheckpointController::class, 'pending'])
+        ->name('auth.login-checkpoint.pending');
 
     Route::post('/register', [Auth\LoginController::class, 'register'])->middleware('captcha');
     Route::post('/check-username', [Auth\LoginController::class, 'checkUsername'])
         ->middleware('throttle:10,1') // 10 requests per minute to prevent enumeration
         ->name('auth.check-username');
 
+    // Outbound leg + provider callback. The callback paths are registered with
+    // the provider as redirect URIs — do not rename them.
+    //
+    // Both callbacks drop `guest`: a signed-in user reaches them when linking a
+    // provider from their account settings.
     Route::post('/modules/discord', [Auth\Modules\DiscordLoginController::class, 'requestToken'])->middleware('captcha');
     Route::get('/modules/discord/authenticate', [Auth\Modules\DiscordLoginController::class, 'authenticate'])
         ->withoutMiddleware('guest')
         ->name('auth.modules.discord.authenticate');
-    Route::get('/modules/discord/registration-data', [Auth\Modules\DiscordLoginController::class, 'getRegistrationData'])
-        ->name('auth.modules.discord.registration-data');
-    Route::post('/modules/discord/check-username', [Auth\Modules\DiscordLoginController::class, 'checkUsername'])
-        ->name('auth.modules.discord.check-username');
-    Route::post('/modules/discord/complete', [Auth\Modules\DiscordLoginController::class, 'completeRegistration'])
-        ->middleware('captcha')
-        ->name('auth.modules.discord.complete');
 
     Route::post('/modules/google', [Auth\Modules\GoogleLoginController::class, 'requestToken'])->middleware('captcha');
     Route::get('/modules/google/authenticate', [Auth\Modules\GoogleLoginController::class, 'authenticate'])
+        ->withoutMiddleware('guest')
         ->name('auth.modules.google.authenticate');
+
+    // Provider-agnostic signup/link flow, driven by whatever identity the
+    // callback stashed in the session. Shared by Discord and Google.
+    Route::prefix('/sso')->group(function () {
+        Route::get('/registration-data', [Auth\Modules\SsoRegistrationController::class, 'registrationData'])
+            ->name('auth.sso.registration-data');
+        Route::post('/check-username', [Auth\Modules\SsoRegistrationController::class, 'checkUsername'])
+            ->middleware('throttle:10,1') // 10 per minute to blunt enumeration
+            ->name('auth.sso.check-username');
+        Route::post('/complete', [Auth\Modules\SsoRegistrationController::class, 'complete'])
+            ->middleware('captcha')
+            ->name('auth.sso.complete');
+        Route::post('/link-intent', [Auth\Modules\SsoRegistrationController::class, 'linkIntent'])
+            ->name('auth.sso.link-intent');
+        Route::post('/cancel', [Auth\Modules\SsoRegistrationController::class, 'cancel'])
+            ->name('auth.sso.cancel');
+    });
 
     // Recovery code based password reset endpoint.
     Route::post('/password', [Auth\ForgotPasswordController::class, 'verify'])

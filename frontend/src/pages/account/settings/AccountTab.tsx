@@ -7,18 +7,20 @@ import { EmailForm } from './EmailForm';
 import { PasswordForm } from './PasswordForm';
 import { TwoFactorRow } from './TwoFactorRow';
 import { RecoveryCodeRow } from './RecoveryCodeRow';
-import { DiscordRow } from './DiscordRow';
+import { LinkedAccountsRow } from './LinkedAccountsRow';
 import { BillingAddressRow } from './BillingAddressRow';
 import { LanguageCard } from './LanguageCard';
 
 // "Account" tab of the settings page: identity summary, the email and password
 // forms, and a single "Sign-in & security" card of compact rows (2FA, recovery
-// code, Discord, billing address).
+// code, connected accounts, billing address).
 export function AccountTab() {
     const user = useSession(s => s.user);
     const flags = useFlags(s => s.everest);
 
-    const discordEnabled = flags?.auth.modules.discord.enabled ?? false;
+    // Either SSO module being on is enough — the row lists whichever are enabled.
+    const ssoEnabled =
+        (flags?.auth.modules.discord.enabled ?? false) || (flags?.auth.modules.google.enabled ?? false);
     const billingEnabled = flags?.billing.enabled ?? false;
     // Admins can disable per-user language selection (app:user_locale).
     const userLocaleAllowed = window.SiteConfiguration?.user_locale !== false;
@@ -82,7 +84,7 @@ export function AccountTab() {
                 <div className="divide-y divide-[var(--color-border)]">
                     <TwoFactorRow />
                     <RecoveryCodeRow />
-                    {discordEnabled && <DiscordRow />}
+                    {ssoEnabled && <LinkedAccountsRow />}
                     {billingEnabled && <BillingAddressRow />}
                 </div>
             </SettingsCard>

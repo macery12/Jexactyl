@@ -57,6 +57,8 @@ use Illuminate\Contracts\Auth\CanResetPassword as CanResetPasswordContract;
  * @property int|null $notifications_count
  * @property \Illuminate\Database\Eloquent\Collection|RecoveryToken[] $recoveryTokens
  * @property int|null $recovery_tokens_count
+ * @property \Illuminate\Database\Eloquent\Collection|UserOAuthAccount[] $oauthAccounts
+ * @property int|null $oauth_accounts_count
  * @property \Illuminate\Database\Eloquent\Collection|Server[] $servers
  * @property int|null $servers_count
  * @property \Illuminate\Database\Eloquent\Collection|ServerGroup[] $serverGroups
@@ -345,6 +347,29 @@ class User extends Model implements
     public function sessions(): HasMany
     {
         return $this->hasMany(UserSession::class);
+    }
+
+    /** @return HasMany<UserOAuthAccount, $this> */
+    public function oauthAccounts(): HasMany
+    {
+        return $this->hasMany(UserOAuthAccount::class);
+    }
+
+    /**
+     * Whether an SSO identity for the given provider is linked to this account.
+     */
+    public function hasOAuthProvider(string $provider): bool
+    {
+        return $this->oauthAccounts()->where('provider', $provider)->exists();
+    }
+
+    /**
+     * True while jGuard is holding the account for approval. Distinct from
+     * suspension — a pending account has simply never been activated.
+     */
+    public function isPending(): bool
+    {
+        return $this->state === 'pending';
     }
 
     public function billingProfile(): HasOne

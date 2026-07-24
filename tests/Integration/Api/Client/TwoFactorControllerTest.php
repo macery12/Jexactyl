@@ -11,6 +11,8 @@ use PHPUnit\Framework\ExpectationFailedException;
 
 class TwoFactorControllerTest extends ClientApiIntegrationTestCase
 {
+    private const TOTP_SECRET = 'AAAAAAAAAAAAAAAA';
+
     /**
      * Test that image data for enabling 2FA is returned by the endpoint and that the user
      * record in the database is updated as expected.
@@ -122,18 +124,35 @@ class TwoFactorControllerTest extends ClientApiIntegrationTestCase
     }
 
     /**
-     * Test that two-factor authentication can be disabled on an account as long as the password
-     * provided is valid for the account.
+     * Creates an account with two-factor genuinely enabled — a real encrypted
+     * secret, not just the `use_totp` flag — so a code can be verified against it.
+     */
+    private function userWithTwoFactor(): User
+    {
+        return User::factory()->create([
+            'use_totp' => true,
+            'totp_secret' => encrypt(self::TOTP_SECRET),
+        ]);
+    }
+
+    private function currentCode(): string
+    {
+        return $this->app->make(Google2FA::class)->getCurrentOtp(self::TOTP_SECRET);
+    }
+
+    /**
+     * Test that two-factor authentication can be disabled on an account when both
+     * the password and a current authentication code are provided.
      */
     public function testTwoFactorCanBeDisabledOnAccount()
     {
         Carbon::setTestNow(Carbon::now());
 
-        /** @var User $user */
-        $user = User::factory()->create(['use_totp' => true]);
+        $user = $this->userWithTwoFactor();
 
         $response = $this->actingAs($user)->postJson('/api/client/account/two-factor/disable', [
             'password' => 'invalid',
+            'code' => $this->currentCode(),
         ]);
 
         $response->assertStatus(Response::HTTP_BAD_REQUEST);
@@ -142,6 +161,7 @@ class TwoFactorControllerTest extends ClientApiIntegrationTestCase
 
         $response = $this->actingAs($user)->postJson('/api/client/account/two-factor/disable', [
             'password' => 'password',
+            'code' => $this->currentCode(),
         ]);
 
         $response->assertStatus(Response::HTTP_NO_CONTENT);
@@ -149,7 +169,93 @@ class TwoFactorControllerTest extends ClientApiIntegrationTestCase
         $user = $user->refresh();
         $this->assertFalse($user->use_totp);
         $this->assertNotNull($user->totp_authenticated_at);
-        $this->assertSame(Carbon::now(), $user->totp_authenticated_at);
+        $this->assertTrue(Carbon::now()->equalTo($user->totp_authenticated_at));
+    }
+
+    /**
+     * The password alone must not switch two-factor off — that is exactly the move
+     * an attacker holding a stolen password or a hijacked session would make.
+     */
+    public function testDisablingTwoFactorRequiresTheSecondFactor()
+    {
+        $user = $this->userWithTwoFactor();
+
+        $this->actingAs($user)
+            ->postJson('/api/client/account/two-factor/disable', ['password' => 'password'])
+            ->assertStatus(Response::HTTP_BAD_REQUEST)
+            ->assertJsonPath(
+                'errors.0.detail',
+                'A two-factor code or recovery token is required to disable two-factor authentication.'
+            );
+
+        $this->assertTrue($user->refresh()->use_totp);
+    }
+
+    /**
+     * Test that an incorrect authentication code is refused.
+     */
+    public function testDisablingTwoFactorRejectsAnInvalidCode()
+    {
+        $user = $this->userWithTwoFactor();
+
+        $this->actingAs($user)
+            ->postJson('/api/client/account/two-factor/disable', [
+                'password' => 'password',
+                'code' => '000000',
+            ])
+            ->assertStatus(Response::HTTP_BAD_REQUEST)
+            ->assertJsonPath('errors.0.detail', 'The two-factor code provided is not valid.');
+
+        $this->assertTrue($user->refresh()->use_totp);
+    }
+
+    /**
+     * A recovery token works in place of a code, and is consumed on use.
+     */
+    public function testDisablingTwoFactorAcceptsARecoveryToken()
+    {
+        $user = $this->userWithTwoFactor();
+
+        // The real service bulk-inserts these, so the model has no fillable list.
+        RecoveryToken::query()->forceCreate([
+            'user_id' => $user->id,
+            'token' => password_hash('recovery-1', PASSWORD_DEFAULT),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/client/account/two-factor/disable', [
+                'password' => 'password',
+                'recovery_token' => 'recovery-1',
+            ])
+            ->assertStatus(Response::HTTP_NO_CONTENT);
+
+        $this->assertFalse($user->refresh()->use_totp);
+        $this->assertSame(0, RecoveryToken::query()->where('user_id', $user->id)->count());
+    }
+
+    /**
+     * Test that an unrecognised recovery token is refused.
+     */
+    public function testDisablingTwoFactorRejectsAnInvalidRecoveryToken()
+    {
+        $user = $this->userWithTwoFactor();
+
+        // The real service bulk-inserts these, so the model has no fillable list.
+        RecoveryToken::query()->forceCreate([
+            'user_id' => $user->id,
+            'token' => password_hash('recovery-1', PASSWORD_DEFAULT),
+        ]);
+
+        $this->actingAs($user)
+            ->postJson('/api/client/account/two-factor/disable', [
+                'password' => 'password',
+                'recovery_token' => 'not-the-token',
+            ])
+            ->assertStatus(Response::HTTP_BAD_REQUEST)
+            ->assertJsonPath('errors.0.detail', 'The recovery token provided is not valid.');
+
+        $this->assertTrue($user->refresh()->use_totp);
+        $this->assertSame(1, RecoveryToken::query()->where('user_id', $user->id)->count());
     }
 
     /**
@@ -193,11 +299,12 @@ class TwoFactorControllerTest extends ClientApiIntegrationTestCase
      */
     public function testDisablingTwoFactorRequiresValidPassword()
     {
-        $user = User::factory()->create(['use_totp' => true]);
+        $user = $this->userWithTwoFactor();
 
         $this->actingAs($user)
             ->postJson('/api/client/account/two-factor/disable', [
                 'password' => 'foo',
+                'code' => $this->currentCode(),
             ])
             ->assertStatus(Response::HTTP_BAD_REQUEST)
             ->assertJsonPath('errors.0.detail', 'The password provided was not valid.');

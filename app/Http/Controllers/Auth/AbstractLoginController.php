@@ -4,7 +4,10 @@ namespace Everest\Http\Controllers\Auth;
 
 use Carbon\Carbon;
 use Everest\Models\User;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use Everest\Facades\Activity;
 use Everest\Models\JGuardEntry;
 use Illuminate\Auth\AuthManager;
 use Illuminate\Http\JsonResponse;
@@ -12,14 +15,19 @@ use Illuminate\Auth\Events\Failed;
 use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Log;
 use Everest\Events\Auth\DirectLogin;
+use Everest\Models\UserOAuthAccount;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Event;
 use Everest\Exceptions\DisplayException;
 use Everest\Http\Controllers\Controller;
+use Everest\Services\Auth\SocialIdentity;
 use Everest\Services\Auth\UserSessionService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Everest\Services\Users\UserCreationService;
 use Everest\Services\Webhooks\WebhookEventService;
 use Illuminate\Foundation\Auth\AuthenticatesUsers;
+use Everest\Exceptions\Http\Auth\AccountSuspendedException;
+use Everest\Exceptions\Http\Auth\AccountPendingApprovalException;
 
 abstract class AbstractLoginController extends Controller
 {
@@ -86,10 +94,203 @@ abstract class AbstractLoginController extends Controller
     }
 
     /**
+     * Stash the pending-2FA state in the session and return the confirmation
+     * token that must be replayed to the checkpoint endpoint.
+     *
+     * Shared by the password login (which returns the token as JSON) and both
+     * SSO callbacks (which redirect). Previously each SSO controller rolled its
+     * own copy and sent the user to `/auth/login?checkpoint=<token>`, a query
+     * string nothing on the frontend has ever read — so every SSO user with 2FA
+     * enabled was silently bounced back to an empty login form.
+     */
+    protected function issueTwoFactorChallenge(Request $request, User $user): string
+    {
+        $request->session()->put('auth_confirmation_token', [
+            'user_id' => $user->id,
+            'token_value' => $token = Str::random(64),
+            'expires_at' => CarbonImmutable::now()->addMinutes(5),
+        ]);
+
+        return $token;
+    }
+
+    /**
+     * Send a user arriving through an SSO callback to the 2FA checkpoint.
+     *
+     * The token deliberately stays out of the URL — the checkpoint page reads it
+     * back from the session over `GET /auth/login/checkpoint/pending`, which keeps
+     * it out of browser history, `Referer` headers and access logs.
+     */
+    protected function redirectToTwoFactorChallenge(Request $request, User $user): RedirectResponse
+    {
+        $this->issueTwoFactorChallenge($request, $user);
+
+        Activity::event('auth:checkpoint')->withRequestMetadata()->subject($user)->log();
+
+        return redirect('/auth/login/checkpoint');
+    }
+
+    /**
+     * Attach an SSO identity the user opted to link before signing in.
+     *
+     * Proving ownership of the panel account with a password (and 2FA, if
+     * enabled) is what authorises the link — matching email addresses alone is
+     * not enough, since that would let whoever controls an address claim the
+     * account using it.
+     */
+    protected function completePendingOAuthLink(User $user, Request $request): void
+    {
+        if (!$request->session()->pull(Modules\AbstractSocialLoginController::LINK_AFTER_LOGIN_SESSION_KEY)) {
+            return;
+        }
+
+        $stored = $request->session()->pull(Modules\AbstractSocialLoginController::REGISTRATION_SESSION_KEY);
+        if (!is_array($stored)) {
+            return;
+        }
+
+        $identity = SocialIdentity::fromArray($stored);
+        if ($identity->provider === '' || $identity->id === '') {
+            return;
+        }
+
+        // Refuse if another account already owns this provider identity.
+        if ($this->oauthIdentityClaimedByOther($identity, $user)) {
+            return;
+        }
+
+        $this->storeOAuthLink($user, $identity);
+
+        Activity::event('user:sso.link')
+            ->subject($user)
+            ->property('provider', $identity->provider)
+            ->log();
+    }
+
+    /**
+     * Whether this provider identity is already attached to a different account.
+     */
+    protected function oauthIdentityClaimedByOther(SocialIdentity $identity, User $user): bool
+    {
+        return UserOAuthAccount::query()
+            ->where('provider', $identity->provider)
+            ->where('provider_user_id', $identity->id)
+            ->where('user_id', '!=', $user->id)
+            ->exists();
+    }
+
+    /**
+     * Persist (or refresh) the link row for a user and provider.
+     */
+    protected function storeOAuthLink(User $user, SocialIdentity $identity): UserOAuthAccount
+    {
+        /** @var UserOAuthAccount $account */
+        $account = UserOAuthAccount::query()->updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'provider' => $identity->provider,
+            ],
+            [
+                'provider_user_id' => $identity->id,
+                'provider_username' => $identity->username,
+                'provider_email' => $identity->email,
+                'provider_avatar' => $identity->avatar,
+            ]
+        );
+
+        // Keep users.external_id in step for Discord: it predates this table and
+        // is still what other parts of the panel read for a Discord id.
+        if ($identity->provider === UserOAuthAccount::PROVIDER_DISCORD && $user->external_id !== $identity->id) {
+            $user->update(['external_id' => $identity->id]);
+        }
+
+        return $account;
+    }
+
+    /**
+     * Refuse to issue a session to an account that is not usable yet.
+     *
+     * This sits in front of every login path (password, 2FA checkpoint and both
+     * SSO callbacks) rather than in middleware, because middleware only ran on
+     * the client API — a pending or suspended user could still authenticate,
+     * hold a real session and reach everything outside /api/client.
+     *
+     * @throws AccountPendingApprovalException
+     * @throws AccountSuspendedException
+     */
+    protected function assertAccountUsable(User $user): void
+    {
+        if ($user->isSuspended()) {
+            throw new AccountSuspendedException();
+        }
+
+        if (!$user->isPending()) {
+            return;
+        }
+
+        $entry = JGuardEntry::query()
+            ->where('user_id', $user->id)
+            ->where('status', JGuardEntry::STATUS_PENDING)
+            ->first();
+
+        // No pending entry — the state is stale (jGuard was turned off, or the
+        // entry was cleaned up). Release the account rather than locking it out.
+        if (!$entry) {
+            $user->update(['state' => null]);
+
+            return;
+        }
+
+        // 'delayed' accounts activate on their own once the delay elapses. The
+        // scheduled command normally does this; do it here too so a login that
+        // lands between runs is not turned away.
+        if ($entry->approval_mode === JGuardEntry::MODE_DELAYED && $entry->isExpired()) {
+            $entry->update(['status' => JGuardEntry::STATUS_APPROVED]);
+            $user->update(['state' => null]);
+
+            return;
+        }
+
+        throw AccountPendingApprovalException::withConfiguredMessage();
+    }
+
+    /**
+     * The response returned in place of a session when jGuard is holding a newly
+     * created account. `complete: false` with no confirmation token is what tells
+     * the SPA to show the "awaiting approval" screen.
+     */
+    protected function sendPendingApprovalResponse(User $user): JsonResponse
+    {
+        $data = [
+            'complete' => false,
+            'user_state' => 'pending',
+            'pending_message' => AccountPendingApprovalException::withConfiguredMessage()->getMessage(),
+        ];
+
+        // The one-time recovery code is generated at creation and shown exactly
+        // once. A pending user never reaches the post-login reveal, so surface it
+        // here instead of silently discarding it.
+        if (!empty($user->recoveryCodePlain)) {
+            $data['recovery_code'] = $user->recoveryCodePlain;
+        }
+
+        return new JsonResponse(['data' => $data]);
+    }
+
+    /**
      * Send the response after the user was authenticated.
+     *
+     * @throws AccountPendingApprovalException
+     * @throws AccountSuspendedException
      */
     protected function sendLoginResponse(User $user, Request $request): JsonResponse
     {
+        $this->assertAccountUsable($user);
+
+        // Consume a pending "sign in to link" before the session is regenerated,
+        // so an SSO identity the user chose to attach survives the 2FA step too.
+        $this->completePendingOAuthLink($user, $request);
+
         $request->session()->remove('auth_confirmation_token');
         $request->session()->regenerate();
 
@@ -163,34 +364,67 @@ abstract class AbstractLoginController extends Controller
             throw new DisplayException('This username is already in use by another user.');
         }
 
-        $jguardEnabled = config('modules.auth.jguard.enabled') ?? false;
+        return $this->createAccountUnchecked($data);
+    }
+
+    /**
+     * Create an account without consulting the registration toggle, applying the
+     * jGuard hold if one is configured.
+     *
+     * SSO signup uses this: an admin who enables Discord/Google login has opted
+     * into accounts being created through it, independently of whether the email
+     * signup form is open. jGuard still applies — it is the approval gate, and
+     * SSO is exactly the path it exists to screen.
+     */
+    protected function createAccountUnchecked(array $data): User
+    {
+        $user = $this->creation->handle(array_merge($data, [
+            'state' => $this->jguardHoldsNewAccounts() ? 'pending' : null,
+        ]));
+
+        $this->applyJGuardHold($user);
+
+        return $user;
+    }
+
+    /**
+     * Whether jGuard is configured to hold new registrations for approval.
+     */
+    protected function jguardHoldsNewAccounts(): bool
+    {
+        if (!(config('modules.auth.jguard.enabled') ?? false)) {
+            return false;
+        }
+
+        return config('modules.auth.jguard.approval_mode', JGuardEntry::MODE_MANUAL) !== JGuardEntry::MODE_IMMEDIATE;
+    }
+
+    /**
+     * Record the jGuard entry for a freshly created account and notify staff.
+     * No-op when jGuard is off or set to immediate approval.
+     */
+    protected function applyJGuardHold(User $user): void
+    {
+        if (!$this->jguardHoldsNewAccounts()) {
+            return;
+        }
+
         $approvalMode = config('modules.auth.jguard.approval_mode', JGuardEntry::MODE_MANUAL);
         $delay = (int) (config('modules.auth.jguard.delay') ?? 60);
 
-        // When jGuard is active and the mode is not immediate, hold the account pending.
-        $isPending = $jguardEnabled && $approvalMode !== JGuardEntry::MODE_IMMEDIATE;
+        $expiresAt = $approvalMode === JGuardEntry::MODE_DELAYED
+            ? Carbon::now()->addMinutes($delay)
+            : null;
 
-        $user = $this->creation->handle(array_merge($data, [
-            'state' => $isPending ? 'pending' : null,
-        ]));
+        JGuardEntry::create([
+            'user_id' => $user->id,
+            'status' => JGuardEntry::STATUS_PENDING,
+            'approval_mode' => $approvalMode,
+            'expires_at' => $expiresAt,
+        ]);
 
-        if ($isPending) {
-            $expiresAt = $approvalMode === JGuardEntry::MODE_DELAYED
-                ? Carbon::now()->addMinutes($delay)
-                : null;
-
-            JGuardEntry::create([
-                'user_id' => $user->id,
-                'status' => JGuardEntry::STATUS_PENDING,
-                'approval_mode' => $approvalMode,
-                'expires_at' => $expiresAt,
-            ]);
-
-            Container::getInstance()->make(WebhookEventService::class)
-                ->notifyJGuardRegistered($user, $approvalMode, $expiresAt);
-        }
-
-        return $user;
+        Container::getInstance()->make(WebhookEventService::class)
+            ->notifyJGuardRegistered($user, $approvalMode, $expiresAt);
     }
 
     /**

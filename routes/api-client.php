@@ -43,7 +43,10 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
                 ->name('api:client.account');
             Route::get('/two-factor', [Client\TwoFactorController::class, 'index'])->middleware('verified.view:credentials');
             Route::post('/two-factor', [Client\TwoFactorController::class, 'store'])->middleware('verified.interact:credentials');
-            Route::post('/two-factor/disable', [Client\TwoFactorController::class, 'delete'])->middleware('verified.interact:credentials');
+            // Throttled: this endpoint now checks a 6-digit code, so it is the one
+            // place an authenticated session could grind at the second factor.
+            Route::post('/two-factor/disable', [Client\TwoFactorController::class, 'delete'])
+                ->middleware(['verified.interact:credentials', 'throttle:6,1']);
 
             Route::get('/recovery-code', [Client\RecoveryCodeController::class, 'index'])->middleware('verified.view:credentials');
             Route::post('/recovery-code', [Client\RecoveryCodeController::class, 'store'])
@@ -62,10 +65,15 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             ->name('api:client.account.email-verification')
             ->middleware('throttle:email-verification');
 
-        Route::post('/discord/link', [Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'requestLinkToken'])
-            ->name('api:client.account.discord.link');
-        Route::post('/discord/unlink', [Everest\Http\Controllers\Auth\Modules\DiscordLoginController::class, 'unlinkDiscord'])
-            ->name('api:client.account.discord.unlink');
+        // Linked SSO identities. `{provider}` is validated against
+        // UserOAuthAccount::PROVIDERS inside the controller.
+        Route::get('/sso', [Client\SsoAccountController::class, 'index'])
+            ->name('api:client.account.sso');
+        Route::post('/sso/{provider}/link', [Client\SsoAccountController::class, 'link'])
+            ->name('api:client.account.sso.link');
+        Route::delete('/sso/{provider}', [Client\SsoAccountController::class, 'unlink'])
+            ->middleware('throttle:6,1')
+            ->name('api:client.account.sso.unlink');
 
         Route::get('/activity', Client\ActivityLogController::class)
             ->middleware('verified.view:credentials')
