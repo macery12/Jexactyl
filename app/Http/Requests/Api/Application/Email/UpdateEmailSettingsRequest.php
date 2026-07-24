@@ -68,16 +68,24 @@ class UpdateEmailSettingsRequest extends ApplicationApiRequest
             $data['modules:email:resend:api_key'] = $this->input('api_key', '');
         }
 
+        // The "sender identity" fields (from_email/from_name/reply_to) are exposed
+        // in the UI as a single global identity (Overview page) and are the only
+        // source for a "from" address — neither the SMTP nor Resend sub-page has
+        // its own from field. Mirror them to both transports' keys so the active
+        // transport always has a from address regardless of which one is selected.
         if ($this->has('from_email')) {
             $data['modules:email:resend:from_email'] = $this->input('from_email', '');
+            $data['modules:email:smtp:from_email'] = $this->input('from_email', '');
         }
 
         if ($this->has('from_name')) {
             $data['modules:email:resend:from_name'] = $this->input('from_name', '');
+            $data['modules:email:smtp:from_name'] = $this->input('from_name', '');
         }
 
         if ($this->has('reply_to')) {
             $data['modules:email:resend:reply_to'] = $this->input('reply_to', '');
+            $data['modules:email:smtp:reply_to'] = $this->input('reply_to', '');
         }
 
         if ($this->has('resend_plan')) {
