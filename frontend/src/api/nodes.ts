@@ -17,6 +17,11 @@ export interface NodeListItem {
     isPublic: boolean;
     isBehindProxy: boolean;
     maintenanceMode: boolean;
+    // Billing placement flags — which product tier may deploy here. Independent
+    // of `isPublic`: that governs auto-deployment, these govern paid vs free
+    // purchases (NodeAvailabilityService picks the column off the product).
+    deployable: boolean;
+    deployableFree: boolean;
     wingsType: WingsType;
     wingsVersion: string | null;
     // Capacity (MiB). `*Overallocate` is a percentage (-1 == unlimited, 0 == none).
@@ -58,6 +63,9 @@ interface FractalNode {
         public: boolean;
         behind_proxy: boolean;
         maintenance_mode: boolean;
+        // Nullable in the schema; absent flags read as "not deployable".
+        deployable?: boolean | null;
+        deployable_free?: boolean | null;
         wings_type?: string;
         wings_version?: string | null;
         wings_detected_at?: string | null;
@@ -88,6 +96,8 @@ function toListItem({ attributes: a }: FractalNode): NodeListItem {
         isPublic: a.public,
         isBehindProxy: a.behind_proxy,
         maintenanceMode: a.maintenance_mode,
+        deployable: Boolean(a.deployable),
+        deployableFree: Boolean(a.deployable_free),
         wingsType: a.wings_type === 'wings-rs' ? 'wings-rs' : 'default',
         wingsVersion: a.wings_version ?? null,
         memory: a.memory,
@@ -243,7 +253,8 @@ export interface NodeFormValues {
     public_port_sftp: number;
     daemon_base?: string;
     upload_size?: number;
-    deployable?: boolean;
+    deployable: boolean;
+    deployable_free: boolean;
     database_host_id?: number | null;
 }
 

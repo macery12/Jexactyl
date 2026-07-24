@@ -146,16 +146,48 @@ php artisan p:migrate:adopt --assume-yes --no-interaction
 | `--keep-vestigial` | Keep `subscriptions` and `subscription_items` instead of dropping them. |
 | `--keep-extra-indexes` | Keep indexes this install has that the shipped schema does not. |
 | `--assume-yes` | Answer the confirmation prompts yes. **Required for unattended runs.** |
+| `--force` | Reconcile the schema again on an install that has already been adopted. |
 
 Exit code is `0` on success or when there is nothing to do, `1` when anything
 was left unresolved — including a partial success, where the fixable changes
-were applied but the migration history was not rewritten.
+were applied but the migration history was not rewritten, and an already-adopted
+install whose schema has since drifted.
+
+## This is a one-time step
+
+Once the migration history has been rewritten, adoption has happened, and the
+install is upgraded like any other from then on:
+
+```bash
+php artisan migrate
+```
+
+Running `p:migrate:adopt` again says so and stops, without re-presenting the
+first-time plan or its prompts:
+
+```
+  ✔ Already adopted — this install is on the consolidated migration chain.
+    The last adoption run on this machine was 2026-07-23 20:12:00.
+    Its schema still matches the shipped one exactly, so there is nothing to do.
+```
+
+The test is the `migrations` table itself: an adopted install lists **every**
+consolidated migration and **no** rows from the old chain. Both halves matter.
+An install that pulled the new files and ran `migrate` before finding this
+command has the consolidated rows *and* 327 stale ones — it is not adopted, and
+is offered the ordinary upgrade so those rows get cleaned up.
+
+If the schema has drifted since adoption, that is reported as drift and nothing
+is written; the fix is `php artisan migrate` first, since a migration added
+after adoption usually accounts for it, and `--force` only if the difference
+survives that.
 
 ## Safety properties
 
-- **Idempotent.** Running it twice is a no-op — the second run recomputes the
-  plan from the live schema, finds nothing to do, and exits `0`. An installer can
-  call it unconditionally.
+- **Idempotent, and it says so.** Running it twice is not just a harmless no-op
+  — the second run recognises the install as already adopted, reports it, and
+  exits `0` without rebuilding the first-time plan. An installer can call it
+  unconditionally.
 - **Repairs what it can, reports what it cannot.** A difference it cannot fix
   safely does not stop the run. Everything fixable is still applied, and the
   unfixable remainder is listed at the end with the reason. Nothing is

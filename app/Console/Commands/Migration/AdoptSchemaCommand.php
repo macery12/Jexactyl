@@ -18,7 +18,8 @@ class AdoptSchemaCommand extends Command
         {--dry-run : Report exactly what would change and write nothing}
         {--keep-vestigial : Keep the subscriptions and subscription_items tables instead of dropping them}
         {--keep-extra-indexes : Keep indexes this install has that the shipped schema does not}
-        {--assume-yes : Answer the confirmation prompts with yes. Required for unattended runs}';
+        {--assume-yes : Answer the confirmation prompts with yes. Required for unattended runs}
+        {--force : Reconcile again even though this install has already been adopted}';
 
     /**
      * Tables the rebuild dropped (D2). Both were Cashier-style leftovers with no
@@ -44,7 +45,9 @@ class AdoptSchemaCommand extends Command
         $service = new SchemaAdoptService($connection);
         $reconciler = new SchemaReconciler($connection);
 
-        $this->printPreamble($connection->getDatabaseName());
+        $adopted = $service->isAdopted($legacyChain, $currentChain);
+
+        $this->printPreamble($connection->getDatabaseName(), $adopted);
 
         if (($blockers = $service->blockers()) !== []) {
             $this->error('This install cannot be upgraded yet:');
@@ -77,10 +80,19 @@ class AdoptSchemaCommand extends Command
         $remediations = $reconciler->remediations($baseline);
         $unrepairable = $reconciler->unrepairableDifferences($baseline);
 
-        if ($changes === [] && $remediations === [] && $unrepairable === [] && $service->alreadyAdopted($currentChain)) {
-            $this->info('This install already matches the shipped schema and is on the consolidated chain — nothing to do.');
+        // Adoption is a one-time step, and the migration history is how the
+        // install records that it happened. Once that record is there, a second
+        // run must not present itself as a first-time upgrade — not even when
+        // the schema has since drifted, because replaying the first-time plan
+        // over an adopted install is how an operator ends up re-confirming
+        // prompts they already answered.
+        if ($adopted && !$this->option('force')) {
+            return $this->reportAlreadyAdopted($changes, $remediations, $unrepairable);
+        }
 
-            return 0;
+        if ($adopted) {
+            $this->warn('  ! This install is already on the consolidated chain; --force is reconciling it again.');
+            $this->line('    The migration history is already correct, so only the schema below changes.');
         }
 
         $this->reportPlan(
@@ -94,6 +106,7 @@ class AdoptSchemaCommand extends Command
             $reconciler->columnOrderDifferences($baseline),
             $legacyChain,
             $currentChain,
+            $adopted,
         );
 
         if ($dryRun) {
@@ -201,8 +214,109 @@ class AdoptSchemaCommand extends Command
         $this->line('     The egg seeder would overwrite any egg definitions you have customised.');
         $this->line('  3. Check the panel loads and a few servers look right.');
         $this->line('');
+        $this->line('  This was a one-time step. Upgrade this install with `php artisan migrate`');
+        $this->line('  from now on — running `p:migrate:adopt` again will say so and stop.');
+        $this->line('');
 
         return 0;
+    }
+
+    /**
+     * The second-run path. This install has already been adopted, so the only
+     * question left is whether its schema still matches — and either way the
+     * answer ends by pointing at `php artisan migrate`, which is how it is
+     * upgraded from here on.
+     *
+     * @param SchemaChange[] $changes
+     * @param ColumnRemediation[] $remediations
+     * @param string[] $unrepairable
+     */
+    private function reportAlreadyAdopted(array $changes, array $remediations, array $unrepairable): int
+    {
+        $this->info('  ✔ Already adopted — this install is on the consolidated migration chain.');
+
+        if (($at = $this->previousRunAt()) !== null) {
+            $this->line("    The last adoption run on this machine was {$at}.");
+        }
+
+        if ($changes === [] && $remediations === [] && $unrepairable === []) {
+            $this->line('    Its schema still matches the shipped one exactly, so there is nothing to do.');
+            $this->line('');
+            $this->line('  Upgrade this install the ordinary way from now on:');
+            $this->line('');
+            $this->line('      php artisan migrate');
+            $this->line('');
+            $this->line('  `p:migrate:adopt` is a one-time step and does not need to be run again.');
+            $this->line('');
+
+            return 0;
+        }
+
+        $outstanding = count($changes) + count($remediations) + count($unrepairable);
+
+        $this->line('');
+        $this->warn(sprintf('  ! Its schema has drifted from the shipped one since — %d difference(s):', $outstanding));
+        $this->line('');
+
+        foreach ($changes as $change) {
+            $this->line(($change->destructive ? '    ! ' : '    · ') . $change->description);
+        }
+
+        foreach ($remediations as $remediation) {
+            $this->line('    · ' . $remediation->target() . ': needs a data decision');
+        }
+
+        foreach ($unrepairable as $problem) {
+            $this->line('    · ' . $problem);
+        }
+
+        $this->line('');
+        $this->line('  The bookkeeping is already correct, so this is drift that appeared after');
+        $this->line('  adoption — not an unfinished upgrade. Run the ordinary upgrade first, in');
+        $this->line('  case a migration added since accounts for it:');
+        $this->line('');
+        $this->line('      php artisan migrate');
+        $this->line('');
+        $this->line('  If the list above survives that, re-run this command with --force to');
+        $this->line('  reconcile it. Nothing was written by this run.');
+        $this->line('');
+
+        return 1;
+    }
+
+    /**
+     * When adoption last ran here, as far as anything on disk can say. The
+     * `migrations` table carries no timestamp, so the evidence is the history
+     * archive written on the way out; absent if it was cleaned up, which is why
+     * this only decorates the message rather than deciding anything.
+     */
+    private function previousRunAt(): ?string
+    {
+        $archives = glob($this->archivePrefix() . '*.json') ?: [];
+
+        if ($archives === []) {
+            return null;
+        }
+
+        sort($archives);
+        $stamp = \DateTimeImmutable::createFromFormat(
+            'Ymd-His',
+            basename(substr((string) end($archives), strlen($this->archivePrefix())), '.json'),
+        );
+
+        return $stamp === false ? null : $stamp->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Archives are named per database. One machine routinely holds several — a
+     * live one and a restored clone being rehearsed against — and an archive
+     * from the wrong one would date an adoption that never happened here.
+     */
+    private function archivePrefix(): string
+    {
+        $database = (string) preg_replace('/[^A-Za-z0-9_-]/', '_', DB::connection()->getDatabaseName());
+
+        return storage_path("app/migration-history-{$database}-");
     }
 
     /** @param array<array{change: SchemaChange, statement: string, error: string}> $failures */
@@ -396,13 +510,23 @@ class AdoptSchemaCommand extends Command
         return DB::connection()->getPdo()->quote($value);
     }
 
-    private function printPreamble(string $database): void
+    private function printPreamble(string $database, bool $adopted): void
     {
         $this->line('');
         $this->warn('  ┌───────────────────────────────────────────────────────────────────┐');
         $this->warn('  │  SCHEMA ADOPTION — EXPERIMENTAL                                    │');
         $this->warn('  └───────────────────────────────────────────────────────────────────┘');
         $this->line('');
+
+        // An adopted install gets the status, not the pitch: the explanation of
+        // what this command is for only helps someone who has not run it yet.
+        if ($adopted) {
+            $this->line("  Target database: {$database}");
+            $this->line('');
+
+            return;
+        }
+
         $this->line('  This panel replaced its long migration history with a consolidated one.');
         $this->line('  This command compares your live schema against the schema this version');
         $this->line('  ships, builds whatever is missing, aligns index and constraint names,');
@@ -477,10 +601,15 @@ class AdoptSchemaCommand extends Command
         array $columnOrderTables,
         array $legacyChain,
         array $currentChain,
+        bool $adopted = false,
     ): void {
         $this->line('');
 
-        if ($historyGap !== []) {
+        // An adopted install has no legacy rows left — they were deleted on the
+        // way through, not skipped — so every observation about the old chain
+        // reads as an accusation of a state it is not in. Under --force the
+        // schema plan is the only part that still means anything.
+        if (!$adopted && $historyGap !== []) {
             $this->line(sprintf(
                 'This install did not run %d of the %d old migrations — it stopped part-way along the',
                 count($historyGap),
@@ -538,11 +667,16 @@ class AdoptSchemaCommand extends Command
         }
 
         $this->line('');
-        $this->line(sprintf(
-            'Migration history: up to %d old row(s) will be replaced with the %d consolidated migrations.',
-            count($legacyChain) - count($historyGap),
-            count($currentChain),
-        ));
+
+        if ($adopted) {
+            $this->line('Migration history: already the consolidated chain — left as it is.');
+        } else {
+            $this->line(sprintf(
+                'Migration history: up to %d old row(s) will be replaced with the %d consolidated migrations.',
+                count($legacyChain) - count($historyGap),
+                count($currentChain),
+            ));
+        }
 
         if ($unknownMigrations !== []) {
             $this->line('');
@@ -609,7 +743,7 @@ class AdoptSchemaCommand extends Command
      */
     private function archiveHistory(array $rows): void
     {
-        $path = storage_path('app/migration-history-' . date('Ymd-His') . '.json');
+        $path = $this->archivePrefix() . date('Ymd-His') . '.json';
 
         @file_put_contents($path, json_encode($rows, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 

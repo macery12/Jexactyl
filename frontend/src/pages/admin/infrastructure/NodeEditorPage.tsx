@@ -3,12 +3,13 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Server, Gauge, Network, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Server, Gauge, Network, SlidersHorizontal, CreditCard } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
 import { SectionCard, FieldGrid, FieldRow, SaveBar, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { useFlashes } from '@/state/flashes';
+import { useFlags } from '@/state/flags';
 import { firstError, applyFieldErrors } from '@/lib/apiError';
 import { createNode, updateNode, getNode, type NodeFormValues } from '@/api/nodes';
 import { getDatabaseHosts } from '@/api/adminDatabases';
@@ -22,6 +23,10 @@ const DEFAULTS: FormShape = {
     scheme: 'https',
     behind_proxy: false,
     public: true,
+    // Both default to 0 in the schema — a new node opts into billing placement
+    // explicitly rather than silently accepting purchases the moment it exists.
+    deployable: false,
+    deployable_free: false,
     memory: 4096,
     memory_overallocate: 0,
     disk: 51200,
@@ -55,6 +60,7 @@ export default function NodeEditorPage() {
     });
 
     const hostsQ = useQuery({ queryKey: ['admin', 'database-hosts'], queryFn: getDatabaseHosts });
+    const flags = useFlags(s => s.everest);
 
     const {
         register,
@@ -75,6 +81,8 @@ export default function NodeEditorPage() {
                   scheme: node.scheme,
                   behind_proxy: node.isBehindProxy,
                   public: node.isPublic,
+                  deployable: node.deployable,
+                  deployable_free: node.deployableFree,
                   memory: node.memory,
                   memory_overallocate: node.memoryOverallocate,
                   disk: node.disk,
@@ -205,6 +213,32 @@ export default function NodeEditorPage() {
                         />
                     </ToggleGroup>
                 </SectionCard>
+
+                {/* Purely billing-side flags, so the card follows the billing
+                    module's switch. Flags null == not loaded yet: fail open,
+                    same as the router's FeatureGate. */}
+                {(flags == null || flags.billing.enabled) && (
+                    <SectionCard
+                        icon={CreditCard}
+                        title={m['admin.infrastructure.node.section.deployment']()}
+                        desc={m['admin.infrastructure.node.section.deploymentDesc']()}
+                    >
+                        <ToggleGroup>
+                            <ToggleRow
+                                label={m['admin.infrastructure.node.field.deployable']()}
+                                desc={m['admin.infrastructure.node.field.deployableDesc']()}
+                                checked={watch('deployable')}
+                                onChange={v => setValue('deployable', v, { shouldDirty: true })}
+                            />
+                            <ToggleRow
+                                label={m['admin.infrastructure.node.field.deployableFree']()}
+                                desc={m['admin.infrastructure.node.field.deployableFreeDesc']()}
+                                checked={watch('deployable_free')}
+                                onChange={v => setValue('deployable_free', v, { shouldDirty: true })}
+                            />
+                        </ToggleGroup>
+                    </SectionCard>
+                )}
 
                 <SectionCard
                     icon={Gauge}

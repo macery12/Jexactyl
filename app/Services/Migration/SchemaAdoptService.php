@@ -70,6 +70,39 @@ class SchemaAdoptService
     }
 
     /**
+     * Rows from the old chain that this install still records.
+     *
+     * An adopted install has none: rewriteMigrationHistory() deletes them in the
+     * same transaction that inserts the consolidated chain, so the two together
+     * are the whole story. Holding both — an install that pulled the new files
+     * and ran `migrate` before finding this command — is not adoption, and is
+     * treated as an ordinary upgrade so the leftover rows get cleaned up.
+     *
+     * @param string[] $legacyChain
+     *
+     * @return string[]
+     */
+    public function legacyRemnants(array $legacyChain): array
+    {
+        return array_values(array_intersect($legacyChain, $this->appliedMigrations()));
+    }
+
+    /**
+     * Whether the bookkeeping says this install has been through adoption
+     * already. Deliberately independent of whether the schema currently matches:
+     * once the history has been rewritten, adoption happened, and any later
+     * difference is drift to report rather than a reason to replay a first-time
+     * upgrade.
+     *
+     * @param string[] $legacyChain
+     * @param string[] $currentChain
+     */
+    public function isAdopted(array $legacyChain, array $currentChain): bool
+    {
+        return $this->alreadyAdopted($currentChain) && $this->legacyRemnants($legacyChain) === [];
+    }
+
+    /**
      * Migration rows that no longer correspond to any file the panel ships.
      * Usually harmless leftovers from removed features; reported so a surprising
      * one is seen rather than silently discarded.
