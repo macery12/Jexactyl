@@ -9,6 +9,7 @@ import CouponsPage from './coupons/CouponsPage';
 import ExceptionsPage from './exceptions/ExceptionsPage';
 import SettingsPage from './settings/SettingsPage';
 import InvoiceSettingsPage from './invoicesettings/InvoiceSettingsPage';
+import StoreEditor from './store/StoreEditor';
 import { BillingNav } from './BillingNav';
 
 // Mounted at the admin `billing/*` splat route. Owns the billing overview, the
@@ -31,6 +32,7 @@ export default function BillingSection() {
                             <Routes>
                                 <Route index element={<BillingOverviewPage />} />
                                 <Route path="products" element={<ProductsPage />} />
+                                <Route path="store" element={<StoreEditor />} />
                                 <Route path="orders" element={<OrdersPage />} />
                                 <Route path="invoices" element={<InvoicesPage />} />
                                 <Route path="coupons" element={<CouponsPage />} />

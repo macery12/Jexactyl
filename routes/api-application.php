@@ -84,6 +84,12 @@ Route::middleware([AdminSubject::class])->group(function () {
 
         Route::delete('/keys', [Application\Billing\BillingController::class, 'resetKeys']);
 
+        // Storefront (/billing/order) customisation — section builder config.
+        Route::group(['prefix' => '/store'], function () {
+            Route::get('/', [Application\Billing\StoreController::class, 'index']);
+            Route::patch('/', [Application\Billing\StoreController::class, 'update']);
+        });
+
         Route::group(['prefix' => '/categories'], function () {
             Route::get('/', [Application\Billing\CategoryController::class, 'index']);
             Route::post('/', [Application\Billing\CategoryController::class, 'store']);

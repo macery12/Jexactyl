@@ -7,6 +7,7 @@ use Everest\Models\Setting;
 use Everest\Models\ExtensionConfig;
 use Everest\Services\Email\EmailManager;
 use Everest\Services\Email\EmailVerificationGate;
+use Everest\Services\Billing\StoreConfigService;
 use Everest\Services\Billing\InvoiceSettingsService;
 use Everest\Services\Billing\PaymentProcessorConfigService;
 
@@ -16,6 +17,7 @@ class EverestComposer
         private PaymentProcessorConfigService $processorConfigService,
         private EmailVerificationGate $emailVerificationGate,
         private InvoiceSettingsService $invoiceSettingsService,
+        private StoreConfigService $storeConfigService,
     ) {
     }
 
@@ -77,6 +79,10 @@ class EverestComposer
                     'terms' => config('modules.billing.links.terms'),
                     'privacy' => config('modules.billing.links.privacy'),
                 ],
+                // Operator-customisable storefront (hero/banner, features,
+                // catalog, custom block, trust bar). Blank copy fields fall back
+                // to the translated Paraglide defaults on the frontend.
+                'store' => $this->storeConfigService->get(),
                 'integrations' => [
                     'stripe' => [
                         'enabled' => boolval(config('modules.billing.integrations.stripe.enabled', false)),

@@ -73,7 +73,63 @@ export interface BillingConfig {
     currency: { symbol: string; code: string };
     links: { terms: string; privacy: string };
     require_billing_address?: boolean;
+    // Operator-customisable storefront (section builder). Injected inside the
+    // everest billing block by EverestComposer; edited via /admin/billing/store.
+    store?: StoreConfiguration;
     [k: string]: unknown;
+}
+
+// Customisable storefront (/billing/order) configuration — a section builder
+// mirroring the landing page system. Injected via everest.billing.store and
+// admin-editable. Blank string fields fall back to the translated Paraglide
+// `billing.store.*` defaults, so an un-customised panel looks exactly as before.
+export type StoreSectionId = 'hero' | 'features' | 'catalog' | 'custom' | 'trust';
+
+export interface StoreCta {
+    label: string;
+    href: string;
+}
+
+export interface StoreFeatureItem {
+    icon: string;
+    title: string;
+    body: string;
+}
+
+// Per-section data is loosely typed (shape varies by section id); the section
+// components and admin editor read the fields they own.
+export interface StoreSectionData {
+    badge?: string;
+    title?: string;
+    subtitle?: string;
+    heading?: string;
+    subheading?: string;
+    backgroundImage?: string;
+    promoText?: string;
+    primaryCta?: StoreCta;
+    items?: StoreFeatureItem[];
+    body?: string;
+    // Trust bar: accepted-method chips + their label.
+    methods?: string[];
+    acceptedLabel?: string;
+    // Catalog spotlight ("most popular") plan. featuredProductId undefined/null =
+    // auto (first plan of the selected category); a number pins a specific plan.
+    featuredEnabled?: boolean;
+    featuredBadge?: string;
+    featuredCta?: string;
+    featuredProductId?: number | null;
+}
+
+export interface StoreSection {
+    id: StoreSectionId;
+    enabled: boolean;
+    order: number;
+    data: StoreSectionData;
+}
+
+export interface StoreConfiguration {
+    enabled: boolean;
+    sections: StoreSection[];
 }
 
 // Feature flags — kept loose; only the fields the registry conditions read are
