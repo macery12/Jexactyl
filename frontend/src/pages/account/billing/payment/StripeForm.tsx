@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
-import { updateStripeIntent } from '@/api/accountBilling';
 
 export interface StripeFormProps {
     productId: number;
@@ -33,16 +32,6 @@ export default function StripeForm(props: StripeFormProps) {
         if (!stripe || !elements || !props.nodeId) return;
         setLoading(true);
         try {
-            await updateStripeIntent({
-                productId: props.productId,
-                intent: props.intentId,
-                nodeId: props.nodeId,
-                vars: props.vars,
-                couponId: props.couponId,
-                eggId: props.eggId,
-                name: props.serverName,
-                billingDays: props.billingDays,
-            });
             const { error } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {

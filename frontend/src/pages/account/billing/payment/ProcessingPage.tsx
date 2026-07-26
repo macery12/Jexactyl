@@ -11,6 +11,7 @@ import {
     checkPayPalOrderStatus,
     getOrderIdFromToken,
 } from '@/api/accountBilling';
+import { clearAllDrafts } from '../order/draft';
 
 // Terminal payment handler. Stripe returns here with ?payment_intent=…; PayPal
 // with ?token=…&processor=paypal. We finalise the order, then route to the
@@ -30,12 +31,14 @@ export default function ProcessingPage() {
     useEffect(() => {
         if (ran.current) return;
         ran.current = true;
+        clearAllDrafts();
 
         const stripeIntent = params.get('payment_intent');
         const token = params.get('token');
         const processor = params.get('processor');
         const renewal = params.get('renewal') === 'true';
         const renewedServer = params.get('server');
+        let disposed = false;
 
         // Full reload, not navigate: the server record the cockpit holds is now
         // stale (new renewal date, and the server may have just come out of
@@ -49,40 +52,87 @@ export default function ProcessingPage() {
         };
 
         if (stripeIntent) {
-            processPaidOrder(stripeIntent, renewal)
-                .then(finish)
-                .catch(() => navigate('/billing/cancel'));
-            return;
+            void (async () => {
+                for (let attempt = 0; attempt < 60 && !disposed; attempt += 1) {
+                    try {
+                        await processPaidOrder(stripeIntent, renewal);
+                        if (!disposed) finish();
+                        return;
+                    } catch {
+                        if (attempt < 59) {
+                            await new Promise(resolve => window.setTimeout(resolve, 2000));
+                        }
+                    }
+                }
+
+                if (!disposed) {
+                    // A timeout or lost response after capture is financially
+                    // ambiguous. Keep the user on the recovery page instead of
+                    // mislabelling the payment as cancelled.
+                    push({ type: 'warning', message: m['billing.processing.verifyDelay']() });
+                }
+            })();
+
+            return () => {
+                disposed = true;
+            };
         }
 
         const paypalActive = processor === 'paypal' || (billing.processors?.paypal?.available && !processor);
         if (token && paypalActive) {
-            getOrderIdFromToken(token)
-                .then(({ order_id }) =>
-                    capturePayPalOrder(order_id).then(() => {
-                        let polls = 0;
-                        const poll = async () => {
-                            polls += 1;
-                            if (polls > 60) {
+            void (async () => {
+                try {
+                    const { order_id } = await getOrderIdFromToken(token);
+                    for (let attempt = 0; attempt < 60 && !disposed; attempt += 1) {
+                        try {
+                            await capturePayPalOrder(order_id);
+                        } catch {
+                            // The provider may have completed capture even when
+                            // our response was lost. The owner-scoped status
+                            // endpoint is the durable source of truth.
+                        }
+
+                        try {
+                            const status = await checkPayPalOrderStatus(order_id);
+                            if (status.processed) {
+                                finish();
+                                return;
+                            }
+                            if (status.failed) {
+                                navigate('/billing/cancel');
+                                return;
+                            }
+                            if (status.requires_reconciliation) {
                                 push({ type: 'warning', message: m['billing.processing.verifyDelay']() });
                                 return;
                             }
-                            const status = await checkPayPalOrderStatus(order_id);
-                            if (status.processed) finish();
-                            else if (status.failed) navigate('/billing/cancel');
-                            else setTimeout(poll, 2000);
-                        };
-                        return poll();
-                    }),
-                )
-                .catch(() => {
+                        } catch {
+                            // Retry transient status failures below.
+                        }
+
+                        if (attempt < 59) {
+                            await new Promise(resolve => window.setTimeout(resolve, 2000));
+                        }
+                    }
+
+                    if (!disposed) {
+                        push({ type: 'warning', message: m['billing.processing.verifyDelay']() });
+                    }
+                } catch {
+                    if (disposed) return;
                     push({ type: 'error', message: m['billing.processing.paypalVerifyError']() });
-                    navigate('/billing/cancel');
-                });
-            return;
+                }
+            })();
+
+            return () => {
+                disposed = true;
+            };
         }
 
         push({ type: 'error', message: m['billing.processing.fulfillError']() });
+        return () => {
+            disposed = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 

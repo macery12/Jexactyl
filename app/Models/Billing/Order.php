@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $total
  * @property string $status
  * @property int $product_id
+ * @property bool $requires_free_product_entitlement
  * @property string|null $product_name
  * @property int|null $billing_days
  * @property float|null $final_price
@@ -30,7 +31,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array|null $domain_payload
  * @property string $type
  * @property int $threat_index
- * @property string $payment_intent_id
+ * @property string|null $payment_intent_id
  * @property string $payment_processor
  * @property string|null $paypal_order_id
  * @property string|null $paypal_capture_id
@@ -40,6 +41,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float|null $paypal_amount
  * @property string|null $paypal_currency
  * @property \Carbon\Carbon|null $paypal_captured_at
+ * @property string|null $checkout_nonce
+ * @property string|null $checkout_request_fingerprint
+ * @property string|null $checkout_fingerprint
+ * @property string|null $checkout_currency
+ * @property int|null $checkout_amount_minor
+ * @property \Carbon\Carbon|null $checkout_locked_at
+ * @property \Carbon\Carbon|null $fulfillment_started_at
+ * @property string|null $fulfillment_claim
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
  * @property \Everest\Models\Server|null $server
@@ -54,6 +63,8 @@ class Order extends Model
     public const STATUS_CANCELLED = 'cancelled';
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_PENDING = 'pending';
+    public const STATUS_FULFILLING = 'fulfilling';
+    public const STATUS_PAYMENT_REVIEW = 'payment_review';
     public const STATUS_PROCESSED = 'processed';
 
     public const TYPE_NEW = 'new';
@@ -78,8 +89,10 @@ class Order extends Model
         'name', 'user_id', 'description', 'payment_intent_id', 'payment_processor', 'paypal_order_id',
         'paypal_capture_id', 'paypal_payer_id', 'paypal_payer_email', 'paypal_status', 'paypal_amount', 'paypal_currency', 'paypal_captured_at',
         'payment_token', 'total', 'status', 'product_id', 'product_name', 'billing_days', 'final_price', 'multiplier_used', 'node_multiplier_used', 'egg_id', 'node_id', 'server_id', 'variables', 'type', 'threat_index',
+        'checkout_nonce', 'checkout_request_fingerprint', 'checkout_fingerprint', 'checkout_currency', 'checkout_amount_minor', 'checkout_locked_at', 'fulfillment_started_at', 'fulfillment_claim',
         'domain_payload',
         'coupon_id', 'subtotal', 'discount',
+        'requires_free_product_entitlement',
     ];
 
     /**
@@ -89,6 +102,7 @@ class Order extends Model
         'user_id' => 'int',
         'total' => 'float',
         'product_id' => 'int',
+        'requires_free_product_entitlement' => 'boolean',
         'billing_days' => 'int',
         'final_price' => 'float',
         'multiplier_used' => 'float',
@@ -104,6 +118,9 @@ class Order extends Model
         'discount' => 'float',
         'paypal_amount' => 'float',
         'paypal_captured_at' => 'datetime',
+        'checkout_locked_at' => 'datetime',
+        'fulfillment_started_at' => 'datetime',
+        'checkout_amount_minor' => 'integer',
     ];
 
     public static array $validationRules = [
@@ -111,7 +128,7 @@ class Order extends Model
         'user_id' => 'required|exists:users,id',
         'description' => 'required|string|min:3',
         'total' => 'required|min:0',
-        'status' => 'required|in:expired,pending,failed,cancelled,processed',
+        'status' => 'required|in:expired,pending,fulfilling,payment_review,failed,cancelled,processed',
         'product_id' => 'exists:products,id',
         'egg_id' => 'nullable|exists:eggs,id',
         'domain_payload' => 'nullable|array',

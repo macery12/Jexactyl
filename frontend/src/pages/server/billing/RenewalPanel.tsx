@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { abs } from '@/lib/base';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
@@ -50,10 +50,16 @@ export function RenewalPanel({
 
     // Renewal doubles as a chance to switch cycle length, so this starts at the
     // server's current cycle rather than the product default.
-    const [renewalDays, setRenewalDays] = useState<number | null>(server.billingDays);
+    const [renewalDays, setRenewalDays] = useState<number | null>(
+        model.isFree ? model.billingDays : server.billingDays,
+    );
     const [coupon, setCoupon] = useState<ValidateCouponResponse | null>(null);
+    const [paidCheckoutStarted, setPaidCheckoutStarted] = useState(false);
+    const startPaidCheckout = useCallback(() => setPaidCheckoutStarted(true), []);
 
-    const effectiveDays = renewalDays ?? server.billingDays ?? model.billingDays;
+    const effectiveDays = model.isFree
+        ? model.billingDays
+        : (renewalDays ?? server.billingDays ?? model.billingDays);
 
     // Price the cycle the user actually picked — not the one the server is on
     // today — so the figure shown, the coupon subtotal, and the amount the
@@ -67,6 +73,7 @@ export function RenewalPanel({
     // change invalidates it. Drop it and let the user re-apply against the new
     // amount rather than quoting a total the backend won't honour.
     const selectCycle = (days: number) => {
+        if (paidCheckoutStarted) return;
         if (days === effectiveDays) return;
         setRenewalDays(days);
         setCoupon(null);
@@ -170,7 +177,7 @@ export function RenewalPanel({
                     </div>
                 )}
 
-                {cycles.length > 1 && (
+                {!model.isFree && cycles.length > 1 && (
                     <div className="space-y-1.5">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-faint)]">
                             {m['server.billing.selectCycle']()}
@@ -179,7 +186,7 @@ export function RenewalPanel({
                             cycles={cycles}
                             selected={effectiveDays}
                             onSelect={selectCycle}
-                            disabled={renew.isPending}
+                            disabled={renew.isPending || paidCheckoutStarted}
                         />
                     </div>
                 )}
@@ -189,7 +196,7 @@ export function RenewalPanel({
                         subtotal={subtotal}
                         applied={coupon}
                         onChange={setCoupon}
-                        disabled={renew.isPending}
+                        disabled={renew.isPending || paidCheckoutStarted}
                     />
                 )}
 
@@ -210,11 +217,13 @@ export function RenewalPanel({
                     </div>
                 ) : (
                     <PaymentMethods
+                        key={`${product.id}:${coupon?.coupon.id ?? 'none'}:${effectiveDays}`}
                         product={product}
                         couponId={coupon?.coupon.id}
                         billingDays={effectiveDays}
                         stripeEnabled={stripeEnabled}
                         paypalEnabled={paypalEnabled}
+                        onStarted={startPaidCheckout}
                     />
                 )}
             </div>
@@ -229,18 +238,24 @@ function PaymentMethods({
     billingDays,
     stripeEnabled,
     paypalEnabled,
+    onStarted,
 }: {
     product: StoreProduct;
     couponId?: number;
     billingDays?: number;
     stripeEnabled: boolean;
     paypalEnabled: boolean;
+    onStarted: () => void;
 }) {
+    const server = useServer();
     const methods: Method[] = [
         ...(stripeEnabled ? (['stripe'] as const) : []),
         ...(paypalEnabled ? (['paypal'] as const) : []),
     ];
-    const [method, setMethod] = useState<Method | undefined>(methods[0]);
+    const [method, setMethod] = useState<Method | undefined>(
+        methods.length === 1 ? methods[0] : undefined,
+    );
+    const [checkoutNonce] = useState(() => crypto.randomUUID());
 
     const [stripe, setStripe] = useState<Stripe | null>(null);
     const [intent, setIntent] = useState<StripeIntent | null>(null);
@@ -248,12 +263,17 @@ function PaymentMethods({
     // The intent embeds the amount, so a coupon or cycle change has to mint a
     // fresh one — the <Elements key> below then remounts the card form.
     useEffect(() => {
-        if (!stripeEnabled) return;
+        if (!stripeEnabled || method !== 'stripe') return;
         let cancelled = false;
+        onStarted();
 
         (async () => {
             try {
-                const next = await getStripeIntent(product.id, couponId, billingDays);
+                const next = await getStripeIntent(product.id, couponId, billingDays, {
+                    renewal: true,
+                    serverId: server.internalId,
+                    checkoutNonce,
+                });
                 const { key } = await getStripeKey(product.id);
                 const instance = await loadStripeOnce(key);
                 if (cancelled) return;
@@ -267,7 +287,7 @@ function PaymentMethods({
         return () => {
             cancelled = true;
         };
-    }, [product.id, couponId, billingDays, stripeEnabled]);
+    }, [product.id, couponId, billingDays, stripeEnabled, server.internalId, method, checkoutNonce, onStarted]);
 
     if (methods.length === 0) {
         return <Notice tone="warning">{m['billing.payment.noMethods']()}</Notice>;
@@ -281,11 +301,17 @@ function PaymentMethods({
                         <button
                             key={option}
                             type="button"
-                            onClick={() => setMethod(option)}
+                            disabled={method !== undefined && method !== option}
+                            onClick={() => {
+                                if (method === undefined) {
+                                    setMethod(option);
+                                    onStarted();
+                                }
+                            }}
                             className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                                 method === option
                                     ? 'border-[var(--brand)] bg-[var(--brand-soft)] text-[var(--color-ink)]'
-                                    : 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)] hover:border-[var(--color-border-strong)]'
+                                    : 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)] hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50'
                             }`}
                         >
                             {option === 'stripe' ? m['server.billing.card']() : m['server.billing.paypal']()}
@@ -312,29 +338,44 @@ function PaymentMethods({
                             key={intent.id}
                             options={{ clientSecret: intent.secret, appearance: { theme: 'night' } }}
                         >
-                            <RenewalStripeForm
-                                productId={product.id}
-                                intentId={intent.id}
-                                billingDays={billingDays}
-                            />
+                            <RenewalStripeForm />
                         </Elements>
                     </Suspense>
                 )
             ) : method === 'paypal' ? (
                 <Suspense fallback={<Spinner className="h-6 w-6" />}>
-                    <PayPalRenewalButton productId={product.id} couponId={couponId} />
+                    <PayPalRenewalButton
+                        productId={product.id}
+                        couponId={couponId}
+                        billingDays={billingDays}
+                        checkoutNonce={checkoutNonce}
+                        onStarted={onStarted}
+                    />
                 </Suspense>
             ) : null}
         </div>
     );
 }
 
-function PayPalRenewalButton({ productId, couponId }: { productId: number; couponId?: number }) {
+function PayPalRenewalButton({
+    productId,
+    couponId,
+    billingDays,
+    checkoutNonce,
+    onStarted,
+}: {
+    productId: number;
+    couponId?: number;
+    billingDays?: number;
+    checkoutNonce: string;
+    onStarted: () => void;
+}) {
     const server = useServer();
     const push = useFlashes(s => s.push);
     const [loading, setLoading] = useState(false);
 
     const start = async () => {
+        onStarted();
         setLoading(true);
         try {
             const { createRenewalPayPalOrder } = await import('@/api/serverBilling');
@@ -342,8 +383,10 @@ function PayPalRenewalButton({ productId, couponId }: { productId: number; coupo
                 productId,
                 serverId: server.internalId,
                 couponId,
+                billingDays,
                 returnUrl: window.location.origin + abs(`/billing/processing?renewal=true&server=${server.id}&processor=paypal`),
                 cancelUrl: window.location.origin + abs('/billing/cancel'),
+                checkoutNonce,
             });
             window.location.href = `/api/client/billing/paypal/orders/${order.id}/redirect`;
         } catch (err) {

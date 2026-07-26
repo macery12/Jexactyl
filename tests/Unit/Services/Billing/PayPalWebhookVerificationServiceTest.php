@@ -4,7 +4,6 @@ namespace Everest\Tests\Unit\Services\Billing;
 
 use Everest\Tests\TestCase;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Everest\Services\Billing\PayPalPaymentService;
 use Everest\Services\Billing\PayPalWebhookVerificationService;
 
@@ -12,7 +11,6 @@ class PayPalWebhookVerificationServiceTest extends TestCase
 {
     protected function tearDown(): void
     {
-        Cache::flush();
         \Mockery::close();
 
         parent::tearDown();
@@ -36,10 +34,10 @@ class PayPalWebhookVerificationServiceTest extends TestCase
         $this->assertSame('missing_signature_headers', $result['reason']);
     }
 
-    public function testRejectsWebhookWhenTimestampIsStale(): void
+    public function testAcceptsWebhookRetryWhenPayPalVerifiesItsOriginalTimestamp(): void
     {
         $paypalService = \Mockery::mock(PayPalPaymentService::class);
-        $paypalService->shouldNotReceive('verifyWebhookSignature');
+        $paypalService->shouldReceive('verifyWebhookSignature')->once()->andReturnTrue();
 
         $service = new PayPalWebhookVerificationService($paypalService);
 
@@ -54,9 +52,8 @@ class PayPalWebhookVerificationServiceTest extends TestCase
 
         $result = $service->validate($request);
 
-        $this->assertFalse($result['valid']);
-        $this->assertSame(400, $result['status']);
-        $this->assertSame('invalid_timestamp', $result['reason']);
+        $this->assertTrue($result['valid']);
+        $this->assertSame('abc123456789', $result['transmission_id']);
     }
 
     public function testRejectsWebhookWhenSignatureIsInvalid(): void
@@ -82,7 +79,7 @@ class PayPalWebhookVerificationServiceTest extends TestCase
         $this->assertSame('invalid_signature', $result['reason']);
     }
 
-    public function testRejectsReplayOfVerifiedWebhookTransmission(): void
+    public function testAllowsVerifiedWebhookRetryForDurableLedgerHandling(): void
     {
         $paypalService = \Mockery::mock(PayPalPaymentService::class);
         $paypalService->shouldReceive('verifyWebhookSignature')->twice()->andReturnTrue();
@@ -102,8 +99,7 @@ class PayPalWebhookVerificationServiceTest extends TestCase
         $second = $service->validate($request);
 
         $this->assertTrue($first['valid']);
-        $this->assertFalse($second['valid']);
-        $this->assertSame(409, $second['status']);
-        $this->assertSame('replayed_webhook', $second['reason']);
+        $this->assertTrue($second['valid']);
+        $this->assertSame($first['transmission_id'], $second['transmission_id']);
     }
 }

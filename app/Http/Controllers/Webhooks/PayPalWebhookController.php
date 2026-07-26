@@ -8,36 +8,44 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Everest\Services\Security\LogSanitizer;
 use Everest\Models\Billing\PaymentTransaction;
+use Everest\Services\Billing\PayPalCaptureService;
 use Everest\Services\Billing\PayPalPaymentService;
-use Everest\Services\Billing\BillingValidationService;
+use Everest\Services\Billing\CheckoutIntegrityService;
 use Everest\Services\Billing\ServerFulfillmentService;
+use Everest\Services\Billing\PayPalWebhookEventService;
+use Everest\Services\Billing\PayPalNegativeEventService;
 use Everest\Services\Billing\PayPalWebhookVerificationService;
 
 class PayPalWebhookController
 {
+    private const POSITIVE_EVENTS = [
+        'PAYMENT.CAPTURE.COMPLETED',
+        'CHECKOUT.ORDER.COMPLETED',
+    ];
+
+    private const NEGATIVE_EVENTS = [
+        'PAYMENT.CAPTURE.DENIED',
+        'PAYMENT.CAPTURE.REFUNDED',
+        'PAYMENT.CAPTURE.REVERSED',
+    ];
+
     public function __construct(
         private PayPalPaymentService $paypalService,
         private PayPalWebhookVerificationService $verificationService,
-        private BillingValidationService $validationService,
         private ServerFulfillmentService $fulfillmentService,
+        private CheckoutIntegrityService $integrityService,
+        private PayPalCaptureService $captureService,
+        private PayPalWebhookEventService $eventService,
+        private PayPalNegativeEventService $negativeEventService,
     ) {
     }
 
-    /**
-     * Handle PayPal webhook notifications.
-     *
-     * This endpoint receives asynchronous notifications from PayPal about payment events.
-     * It verifies the webhook, fetches the actual payment status from PayPal API,
-     * and fulfills orders for successful payments.
-     *
-     * Important: This endpoint is public and receives requests directly from PayPal.
-     * No authentication or user context is available.
-     */
     public function handle(Request $request): JsonResponse
     {
+        $transmissionId = null;
+
         try {
             $verification = $this->verificationService->validate($request);
-
             if (!$verification['valid']) {
                 Log::warning('Rejected PayPal webhook request', array_merge([
                     'reason' => $verification['reason'],
@@ -46,181 +54,152 @@ class PayPalWebhookController
                 return response()->json(['ok' => false], $verification['status']);
             }
 
-            $eventType = $request->input('event_type');
+            $transmissionId = (string) $verification['transmission_id'];
+            $eventResult = $this->eventService->begin($transmissionId, $request->json()->all());
+            if ($eventResult === PayPalWebhookEventService::RESULT_COMPLETED) {
+                return response()->json(['ok' => true]);
+            }
+            if ($eventResult === PayPalWebhookEventService::RESULT_RETRY) {
+                return response()->json(['ok' => false], 503);
+            }
+
+            $eventType = (string) $request->input('event_type');
             $resource = $request->input('resource', []);
+            $paypalOrderId = $this->extractOrderId($eventType, is_array($resource) ? $resource : []);
 
-            // Extract PayPal order ID based on event type
-            // Different event types have order ID in different locations
-            $paypalOrderId = null;
-
-            switch ($eventType) {
-                case 'PAYMENT.CAPTURE.COMPLETED':
-                case 'PAYMENT.CAPTURE.DENIED':
-                case 'PAYMENT.CAPTURE.REFUNDED':
-                case 'PAYMENT.CAPTURE.REVERSED':
-                    // For all capture-related events, order ID is in supplementary_data
-                    // These events all relate to the same order and need the same extraction logic
-                    // Use safe array access to handle potentially missing nested keys
-                    if (isset($resource['supplementary_data']['related_ids']['order_id'])) {
-                        $paypalOrderId = $resource['supplementary_data']['related_ids']['order_id'];
-                    }
-                    break;
-
-                case 'CHECKOUT.ORDER.APPROVED':
-                case 'CHECKOUT.ORDER.COMPLETED':
-                case 'CHECKOUT.ORDER.SAVED':
-                    // For order events, ID is directly in the resource
-                    $paypalOrderId = $resource['id'] ?? null;
-                    break;
-
-                default:
-                    Log::warning('Unsupported PayPal webhook event type received', [
-                        'event_type' => $eventType,
-                        'resource_id' => $resource['id'] ?? null,
-                        'resource_type' => $request->input('resource_type'),
-                        'note' => 'This may be expected for certain PayPal events. Review PayPal webhook settings if unexpected.',
-                    ]);
-
-                    return response()->json(['ok' => true], 200);
-            }
-
-            if (!$paypalOrderId) {
-                Log::warning('PayPal webhook: Could not extract order ID from event', [
+            if ($paypalOrderId === null) {
+                Log::warning('PayPal webhook did not contain an order identifier', [
                     'event_type' => $eventType,
-                    'resource_id' => $resource['id'] ?? null,
-                    'resource_type' => $request->input('resource_type'),
                 ]);
+                $this->eventService->complete($transmissionId);
 
-                return response()->json(['ok' => true], 200);
+                return response()->json(['ok' => true]);
             }
 
-            $transaction = PaymentTransaction::where('processor', 'paypal')
+            /** @var PaymentTransaction|null $transaction */
+            $transaction = PaymentTransaction::query()
+                ->where('processor', 'paypal')
                 ->where('external_id', $paypalOrderId)
-                ->latest()
                 ->first();
             $order = $transaction?->order;
 
-            if (!$order) {
-                // Return 200 to prevent PayPal retries for non-existent orders
+            if ($order === null) {
                 Log::warning('PayPal webhook order not found', [
                     'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
                 ]);
+                $this->eventService->complete($transmissionId);
 
-                return response()->json(['ok' => true], 200);
+                return response()->json(['ok' => true]);
             }
 
-            // IDEMPOTENCY: Check if payment is already in a final state (processed, failed, or cancelled)
-            // This prevents duplicate processing if webhook is called multiple times
-            if (in_array($order->status, [Order::STATUS_PROCESSED, Order::STATUS_FAILED, Order::STATUS_CANCELLED], true)) {
-                Log::info("PayPal webhook: Order {$order->id} already in final state: {$order->status}");
+            if (in_array($eventType, self::NEGATIVE_EVENTS, true)) {
+                $negative = $this->negativeEventService->record(
+                    $order,
+                    $transaction,
+                    $eventType,
+                    $transmissionId,
+                );
+                if ($negative['requires_reconciliation']) {
+                    Log::critical('PayPal reported a negative event for an active or fulfilled order', [
+                        'order_id' => $order->id,
+                        'event_type' => $eventType,
+                        'order_status' => $negative['order_status'],
+                    ]);
+                }
+                $this->eventService->complete($transmissionId);
 
-                return response()->json(['ok' => true], 200);
+                return response()->json(['ok' => true]);
             }
 
-            // Validate billing is enabled
-            $this->validationService->validateBillingEnabled();
+            if (!in_array($eventType, self::POSITIVE_EVENTS, true)) {
+                Log::info('PayPal webhook requires no fulfillment action', [
+                    'event_type' => $eventType,
+                    'order_id' => $order->id,
+                ]);
+                $this->eventService->complete($transmissionId);
 
-            // SECURITY: Fetch order details from PayPal API (never trust webhook data directly)
-            // This also verifies the webhook is legitimate
-            $paypalOrder = $this->paypalService->getOrder($paypalOrderId);
-
-            // Handle different order statuses according to PayPal documentation
-            // https://developer.paypal.com/docs/api/orders/v2/#orders_get
-            $status = $paypalOrder['status'] ?? 'UNKNOWN';
-
-            Log::info('Processing PayPal webhook', [
-                'event_type' => $eventType,
-                'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
-                'order_id' => $order->id,
-                'paypal_status' => $status,
-                'order_status' => $order->status,
-            ]);
-
-            switch ($status) {
-                case 'COMPLETED':
-                    // Payment captured successfully - record payer/capture identifiers then fulfill
-                    Log::info('PayPal webhook completed order', [
-                        'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
-                        'order_id' => $order->id,
-                    ]);
-
-                    // Persist payer and capture details so they are available regardless of
-                    // whether the order was fulfilled via the client-side captureOrder endpoint
-                    // or this webhook path.
-                    $purchaseUnit = $paypalOrder['purchase_units'][0] ?? null;
-                    $capture = $purchaseUnit['payments']['captures'][0] ?? null;
-                    $payer = $paypalOrder['payer'] ?? null;
-
-                    if ($capture) {
-                        $order->paypal_capture_id = $order->paypal_capture_id ?? ($capture['id'] ?? null);
-                        $order->paypal_status = $capture['status'] ?? null;
-                        $order->paypal_amount = $order->paypal_amount ?? (isset($capture['amount']['value']) ? (float) $capture['amount']['value'] : null);
-                        $order->paypal_currency = $order->paypal_currency ?? ($capture['amount']['currency_code'] ?? null);
-                        $order->paypal_captured_at = $order->paypal_captured_at ?? (isset($capture['create_time']) ? \Carbon\Carbon::parse($capture['create_time']) : null);
-                    }
-
-                    if ($payer) {
-                        $order->paypal_payer_id = $order->paypal_payer_id ?? ($payer['payer_id'] ?? null);
-                        $order->paypal_payer_email = $order->paypal_payer_email ?? ($payer['email_address'] ?? null);
-                    }
-
-                    $order->save();
-
-                    $this->fulfillOrder($request, $order);
-                    break;
-
-                case 'APPROVED':
-                    // Order approved but not yet captured
-                    // This shouldn't happen if we auto-capture, but keep order as pending
-                    Log::info('PayPal webhook approved order pending capture', [
-                        'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
-                        'order_id' => $order->id,
-                    ]);
-                    break;
-
-                case 'VOIDED':
-                case 'EXPIRED':
-                    // Order voided or expired - mark as failed
-                    Log::info('PayPal webhook marked order failed', [
-                        'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
-                        'order_id' => $order->id,
-                        'paypal_status' => $status,
-                    ]);
-                    $order->update(['status' => Order::STATUS_FAILED]);
-                    break;
-
-                case 'CREATED':
-                case 'SAVED':
-                case 'PAYER_ACTION_REQUIRED':
-                    // Order in progress - keep as pending
-                    Log::info('PayPal webhook order still pending action', [
-                        'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
-                        'order_id' => $order->id,
-                        'paypal_status' => $status,
-                    ]);
-                    break;
-
-                default:
-                    // Unknown status - log for investigation
-                    Log::warning('PayPal webhook returned unknown status', [
-                        'paypal_order_id' => LogSanitizer::maskIdentifier($paypalOrderId),
-                        'paypal_status' => $status,
-                    ]);
+                return response()->json(['ok' => true]);
             }
-        } catch (\Throwable $e) {
-            // Log error but return 200 to prevent infinite PayPal retries
-            Log::error('PayPal webhook error', LogSanitizer::exceptionContext($e));
+
+            // A verified duplicate completion is already satisfied even if the
+            // customer later deleted the fulfilled server. This also cleanly
+            // acknowledges legacy processed rows that predate snapshot fields.
+            if ($order->status === Order::STATUS_PROCESSED) {
+                $this->eventService->complete($transmissionId);
+
+                return response()->json(['ok' => true]);
+            }
+
+            $providerOrder = $this->paypalService->getOrder($paypalOrderId);
+            $this->integrityService->assertPayPalOrder($order, $transaction, $providerOrder);
+            if (($providerOrder['status'] ?? null) !== 'COMPLETED') {
+                throw new \RuntimeException('PayPal has not finalized the order referenced by a completion event.');
+            }
+
+            if (in_array($order->status, [
+                Order::STATUS_FAILED,
+                Order::STATUS_CANCELLED,
+                Order::STATUS_EXPIRED,
+                Order::STATUS_PAYMENT_REVIEW,
+            ], true)) {
+                // Record the captured financial truth, but do not silently
+                // provision an order that local policy already terminated.
+                $this->captureService->record($order, $transaction, $providerOrder);
+                $transaction->forceFill(['status' => 'captured_review'])->saveOrFail();
+                Log::critical('Captured PayPal payment requires manual reconciliation', [
+                    'order_id' => $order->id,
+                    'local_status' => $order->status,
+                ]);
+                $this->eventService->complete($transmissionId);
+
+                return response()->json(['ok' => true]);
+            }
+
+            $this->fulfillmentService->fulfillPayPalOrder(
+                $request,
+                $order,
+                function () use ($order, $transaction, $providerOrder): void {
+                    $this->captureService->record($order, $transaction, $providerOrder);
+                },
+                true,
+            );
+
+            $this->eventService->complete($transmissionId);
+
+            return response()->json(['ok' => true]);
+        } catch (\Throwable $exception) {
+            if ($transmissionId !== null) {
+                try {
+                    $this->eventService->fail($transmissionId, $exception);
+                } catch (\Throwable $ledgerException) {
+                    Log::critical('Failed to persist PayPal webhook failure state', [
+                        'exception' => $ledgerException::class,
+                    ]);
+                }
+            }
+
+            Log::error('PayPal webhook processing failed', LogSanitizer::exceptionContext($exception));
+
+            // Verified transient failures must be retried. The durable event
+            // ledger and fulfillment claim make those retries idempotent.
+            return response()->json(['ok' => false], 500);
         }
-
-        return response()->json(['ok' => true], 200);
     }
 
-    /**
-     * Fulfill an order after successful payment.
-     */
-    private function fulfillOrder(Request $request, Order $order): void
+    private function extractOrderId(string $eventType, array $resource): ?string
     {
-        // Use centralized fulfillment service
-        $this->fulfillmentService->fulfillOrder($request, $order, null);
+        if (str_starts_with($eventType, 'PAYMENT.CAPTURE.')) {
+            $value = $resource['supplementary_data']['related_ids']['order_id'] ?? null;
+
+            return is_string($value) && $value !== '' ? $value : null;
+        }
+
+        if (str_starts_with($eventType, 'CHECKOUT.ORDER.')) {
+            $value = $resource['id'] ?? null;
+
+            return is_string($value) && $value !== '' ? $value : null;
+        }
+
+        return null;
     }
 }

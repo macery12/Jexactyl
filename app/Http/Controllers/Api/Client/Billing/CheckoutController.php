@@ -15,12 +15,15 @@ use Everest\Models\Billing\BillingException;
 use Everest\Services\Billing\BillingDefaults;
 use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\CreateOrderService;
+use Everest\Services\Billing\StripeCaptureService;
 use Everest\Services\Billing\OrderProcessorService;
-use Everest\Services\Billing\StripeCustomerService;
 use Everest\Services\Billing\InvoiceSettingsService;
+use Everest\Services\Billing\CheckoutSnapshotService;
 use Everest\Services\Billing\BillingValidationService;
+use Everest\Services\Billing\CheckoutIntegrityService;
 use Everest\Services\Billing\ServerFulfillmentService;
 use Everest\Transformers\Api\Client\ServerTransformer;
+use Everest\Services\Billing\StripeIntentCreationService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Billing\UpdateCheckoutRequest;
 use Everest\Exceptions\Billing\BillingException as BillingExceptionClass;
@@ -41,8 +44,11 @@ class CheckoutController extends ClientApiController
         private OrderProcessorService $processorService,
         private CreateOrderService $orderService,
         private ServerFulfillmentService $fulfillmentService,
-        private StripeCustomerService $stripeCustomerService,
+        private StripeIntentCreationService $stripeIntentCreationService,
         private InvoiceSettingsService $invoiceSettingsService,
+        private CheckoutSnapshotService $snapshotService,
+        private CheckoutIntegrityService $integrityService,
+        private StripeCaptureService $stripeCaptureService,
     ) {
         parent::__construct();
 
@@ -138,8 +144,11 @@ class CheckoutController extends ClientApiController
         // Lookup server scoped to the authenticated user
         $server = $user->servers()->findOrFail($serverId);
 
-        // Get billing days from request, or use server's existing billing_days, or default to 30
-        $billingDays = max(1, min(365, (int) ($request->input('billing_days') ?? $server->billing_days ?? BillingDefaults::defaultBillingDays())));
+        // A free product's renewal duration is authoritative server-side. A
+        // paid product made free by a coupon may still select an enabled cycle.
+        $billingDays = $product->isFree()
+            ? $product->getRenewalDays()
+            : (int) ($request->input('billing_days') ?? $server->billing_days ?? BillingDefaults::defaultBillingDays());
 
         // Calculate price with coupon for renewal (including server's node multiplier)
         $couponId = $request->input('coupon_id') ? (int) $request->input('coupon_id') : null;
@@ -201,72 +210,92 @@ class CheckoutController extends ClientApiController
      *
      * @throws BillingExceptionClass
      */
-    public function createIntent(Request $request, int $id): JsonResponse
+    public function createIntent(UpdateCheckoutRequest $request, int $id): JsonResponse
     {
         $this->ensureStripeInitialized();
 
         $product = Product::findOrFail($id);
+        $order = null;
 
         try {
-            // Get billing days (default to 30 if not provided)
-            $billingDays = (int) ($request->input('billing_days') ?? BillingDefaults::defaultBillingDays());
+            $this->validationService->validateBillingEnabled();
+            $requestFingerprint = $this->snapshotService->requestFingerprint(
+                $request,
+                $request->user(),
+                $product,
+                'stripe',
+            );
+            $existingOrder = $this->snapshotService->existingForRequest(
+                $request,
+                $request->user(),
+                $product,
+                'stripe',
+                $requestFingerprint,
+            );
+            if ($existingOrder !== null) {
+                return $this->resumeStripeCheckout($existingOrder);
+            }
 
-            // Calculate price with coupon using validation service for new purchase
-            $couponId = $request->input('coupon_id') ? (int) $request->input('coupon_id') : null;
-            $priceInfo = $this->validationService->calculatePriceWithCoupon($product, $couponId, 'new', $billingDays, null, $request->user()->id);
+            $snapshot = $this->snapshotService->resolve($request, $request->user(), $product, true);
+            $priceInfo = $snapshot['price'];
 
             // If the coupon makes the order free, skip PaymentIntent creation entirely.
             // Stripe does not allow $0 PaymentIntents; the frontend should route to processFree.
-            if ($couponId !== null && $priceInfo['finalPrice'] <= 0.0001) {
+            if ($priceInfo['finalPrice'] <= 0.0001) {
                 return response()->json(['free' => true]);
             }
 
-            // Validate this is not a free order
             $this->validationService->validatePriceType($priceInfo['finalPrice'], false);
 
-            $paymentMethodTypes = ['card'];
-
-            if (config('modules.billing.paypal')) {
-                $paymentMethodTypes[] = 'paypal';
-            }
-
-            if (config('modules.billing.link')) {
-                $paymentMethodTypes[] = 'link';
-            }
-
-            $customerId = null;
+            $attributes = $snapshot['attributes'];
             try {
-                $customerId = $this->stripeCustomerService->resolveForUser($request->user());
-            } catch (\Exception $e) {
-                // Non-fatal: proceed without customer link rather than blocking checkout
-                \Log::warning('Could not resolve Stripe Customer, proceeding without', [
-                    'user_id' => $request->user()->id,
-                    'error'   => $e->getMessage(),
-                ]);
+                $order = $this->orderService->create(
+                    null,
+                    $request->user(),
+                    $product,
+                    Order::STATUS_PENDING,
+                    $attributes['type'],
+                    $attributes['coupon_id'],
+                    $attributes['egg_id'],
+                    [
+                        'payment_processor' => 'stripe',
+                        'billing_days' => $attributes['billing_days'],
+                        'name' => $attributes['name'],
+                        'node_id' => $attributes['node_id'],
+                        'server_id' => $attributes['server_id'],
+                        'variables' => $attributes['variables'],
+                        'domain_payload' => $attributes['domain_payload'],
+                        'multiplier_used' => $attributes['multiplier_used'],
+                        'node_multiplier_used' => $attributes['node_multiplier_used'],
+                        'checkout_nonce' => $request->input('checkout_nonce'),
+                        'checkout_request_fingerprint' => $requestFingerprint,
+                    ],
+                    $priceInfo['finalPrice'],
+                    $priceInfo['subtotal'],
+                    $priceInfo['discount'],
+                    fn (Order $created): Order => $this->snapshotService->lock($created, $snapshot),
+                );
+            } catch (DisplayException $exception) {
+                $existingOrder = $this->snapshotService->existingForRequest(
+                    $request,
+                    $request->user(),
+                    $product,
+                    'stripe',
+                    $requestFingerprint,
+                );
+                if ($existingOrder !== null) {
+                    return $this->resumeStripeCheckout($existingOrder);
+                }
+
+                throw $exception;
             }
 
-            $intentParams = [
-                'amount' => $priceInfo['finalPrice'] * 100,
-                'currency' => strtolower(config('modules.billing.currency.code')),
-                'payment_method_types' => array_values($paymentMethodTypes),
-                'capture_method' => 'manual',
-            ];
-
-            if ($customerId) {
-                $intentParams['customer'] = $customerId;
-            }
-
-            $paymentIntent = $this->stripe->paymentIntents->create($intentParams);
-
-            if (!$paymentIntent->client_secret) {
-                throw new BillingExceptionClass('PaymentIntent client secret not generated', 'The payment intent was created but the client secret was not generated. Please check your Stripe configuration.', BillingException::TYPE_PAYMENT, null, 'stripe', $paymentIntent->id ?? null, ['product_id' => $product->id, 'amount' => $priceInfo['finalPrice']]);
-            }
-
-            return response()->json([
-                'id' => $paymentIntent->id,
-                'secret' => $paymentIntent->client_secret,
-            ]);
+            return $this->createAndAttachStripeIntent($order, $request->user());
         } catch (BillingExceptionClass $e) {
+            throw $e;
+        } catch (DisplayException $e) {
+            throw $e;
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
             throw $e;
         } catch (\Stripe\Exception\ApiErrorException $e) {
             \Log::error('Stripe payment intent creation failed', [
@@ -300,113 +329,44 @@ class CheckoutController extends ClientApiController
         $product = Product::findOrFail($id);
 
         try {
-            $intent = $this->stripe->paymentIntents->retrieve($request->input('intent'));
-
-            // Validate billing is enabled
             $this->validationService->validateBillingEnabled();
+            $snapshot = $this->snapshotService->resolve($request, $request->user(), $product, true);
+            $priceInfo = $snapshot['price'];
 
-            // Check if this is a renewal
-            $isRenewal = $request->has('renewal') && $request->boolean('renewal');
-
-            // For renewals, name and node_id are optional (server already exists)
-            // For new purchases, they are required
-            $serverName = trim((string) $request->input('name', ''));
-            if (!$isRenewal && empty($serverName)) {
-                throw new DisplayException('Server name is required.');
-            }
-
-            $nodeId = (int) $request->input('node_id');
-            $server = null;
-
-            // Only validate node deployment for new purchases, not renewals
-            if (!$isRenewal) {
-                $this->validationService->validateNodeSelectionForProduct($nodeId, $product);
-                $this->validationService->validateNodeDeployment($nodeId, false);
-            } else {
-                // For renewals, get the server object
-                $serverId = (int) $request->input('server_id');
-                if ($serverId) {
-                    $server = $request->user()->servers()->find($serverId);
-                    if ($server) {
-                        $nodeId = $server->node_id;
-                    }
-                }
-            }
-
-            if (!$intent) {
-                throw new BillingExceptionClass('PaymentIntent does not exist', 'The payment intent requested does not exist. Please try creating a new payment.', BillingException::TYPE_PAYMENT, null, 'stripe', $request->input('intent'), ['intent_id' => $request->input('intent')]);
-            }
-
-            // For renewals, egg_id is not required
-            $requestedEggId = $request->input('egg_id') ? (int) $request->input('egg_id') : null;
-            $eggId = !$isRenewal ? $this->validationService->validateAndGetEggId($product, $requestedEggId) : null;
-
-            // Get billing days - for renewals, use server's billing_days if not provided
-            $billingDays = (int) ($request->input('billing_days') ?? BillingDefaults::defaultBillingDays());
-            if ($isRenewal && !$request->has('billing_days') && $server && $server->billing_days) {
-                $billingDays = $server->billing_days;
-            }
-
-            // Determine order type and calculate price with coupon (including node multiplier)
-            $orderType = Order::resolveTypeFromRequest($request);
-            $couponId = $request->input('coupon_id') ? (int) $request->input('coupon_id') : null;
-            $priceInfo = $this->validationService->calculatePriceWithCoupon($product, $couponId, $orderType, $billingDays, $nodeId, $request->user()->id);
-
-            // Guard: Stripe rejects $0 PaymentIntents. If a coupon reduces the total to zero,
-            // the frontend must use the free checkout path instead.
             if ($priceInfo['finalPrice'] <= 0.0001) {
                 throw new DisplayException('This order is free due to the applied coupon. Please use the free checkout instead of payment.');
             }
+            $this->validationService->validatePriceType($priceInfo['finalPrice'], false);
 
-            // Update the intent amount if it has changed
-            if ($intent->amount !== (int) ($priceInfo['finalPrice'] * 100)) {
-                $intent->amount = (int) ($priceInfo['finalPrice'] * 100);
+            $intentId = (string) $request->input('intent');
+            /** @var PaymentTransaction $transaction */
+            $transaction = PaymentTransaction::query()
+                ->where('processor', 'stripe')
+                ->where('external_id', $intentId)
+                ->firstOrFail();
+            $order = $transaction->order;
+            abort_if($order->user_id !== $request->user()->id, 403);
+            abort_if((int) $order->product_id !== (int) $product->id, 404);
+
+            $intent = $this->stripe->paymentIntents->retrieve($intentId);
+            if (!in_array((string) ($intent->status ?? ''), ['requires_payment_method', 'requires_confirmation'], true)) {
+                throw new DisplayException('This payment intent can no longer be changed.');
             }
 
-            $metadata = [
-                'customer_email' => $request->user()->email,
-                'customer_name' => $request->user()->username,
-                'product_id' => (string) $id,
-                'node_id' => $isRenewal ? '' : (string) $nodeId,
-                'server_id' => (string) ($request->input('server_id') ?? 0),
-                'coupon_id' => (string) ($couponId ?? ''),
-                'egg_id' => $isRenewal ? '' : (string) $eggId,
-                'billing_days' => (string) $billingDays,
-                'name' => $isRenewal ? 'Server Renewal' : $serverName,
-            ];
+            if ($order->status !== Order::STATUS_PENDING) {
+                throw new DisplayException('This checkout can no longer be changed.');
+            }
 
-            $variables = $request->input('variables') ?? [];
-            $metadata['variables'] = !empty($variables) ? json_encode($variables) : '';
-            $domainPayload = $request->input('domain_payload') ?? [];
-            $metadata['domain_payload'] = !empty($domainPayload) ? json_encode($domainPayload) : '';
+            if (!$this->snapshotService->matches($order, $snapshot)) {
+                throw new DisplayException('This checkout is locked to different order details.');
+            }
 
-            $intent->metadata = $metadata;
-            $intent->save();
-
-            // Create the order with coupon, egg, billing days, and server_id
-            $this->orderService->create(
-                $intent->id,
-                $request->user(),
-                $product,
-                Order::STATUS_PENDING,
-                Order::resolveTypeFromRequest($request),
-                $couponId,
-                $eggId,
-                [
-                    'billing_days'   => $billingDays,
-                    'name'           => $isRenewal ? 'Server Renewal' : $serverName,
-                    'node_id'        => $isRenewal ? null : $nodeId,
-                    'variables'      => $variables,
-                    'server_id'      => $request->input('server_id') ? (int) $request->input('server_id') : null,
-                    'domain_payload' => is_array($domainPayload) ? $domainPayload : [],
-                ],
-                $priceInfo['finalPrice'],
-                $priceInfo['subtotal'],
-                $priceInfo['discount']
-            );
+            // Compatibility endpoint: finalized checkouts are immutable. Verify
+            // the caller and provider snapshot, but never mutate provider money.
+            $this->integrityService->assertStripeIntent($order, $transaction, $intent);
 
             return $this->returnNoContent();
-        } catch (BillingExceptionClass $e) {
+        } catch (BillingExceptionClass|DisplayException|\Illuminate\Database\Eloquent\ModelNotFoundException|\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
             throw $e;
         } catch (\Stripe\Exception\ApiErrorException $e) {
             \Log::error('Stripe intent update failed', [
@@ -431,20 +391,23 @@ class CheckoutController extends ClientApiController
      *
      * @throws BillingExceptionClass
      */
-    public function processPaid(Request $request): Response
+    public function processPaid(UpdateCheckoutRequest $request): Response
     {
         $this->ensureStripeInitialized();
+        $order = null;
 
         try {
             $intentId = (string) $request->input('intent');
-            $transaction = DB::transaction(function () use ($intentId) {
-                return PaymentTransaction::where('processor', 'stripe')
-                    ->where('external_id', $intentId)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-            });
+            $transaction = PaymentTransaction::where('processor', 'stripe')
+                ->where('external_id', $intentId)
+                ->firstOrFail();
             $order = $transaction->order;
             abort_if($order->user_id !== $request->user()->id, 403);
+
+            if ($order->status === Order::STATUS_PROCESSED) {
+                return $this->returnNoContent();
+            }
+
             $intent = $this->stripe->paymentIntents->retrieve($intentId);
 
             // Validate billing is enabled
@@ -457,64 +420,30 @@ class CheckoutController extends ClientApiController
                 throw new BillingExceptionClass('Unable to fetch PaymentIntent', 'Unable to fetch payment intent from Stripe. Please try again or contact support.', BillingException::TYPE_PAYMENT, $order->id, 'stripe', $intentId, ['intent_id' => $intentId]);
             }
 
-            // Check if order has already been processed
-            if (
-                $order->status === Order::STATUS_PROCESSED
-                && $intent->id === $order->payment_intent_id
-            ) {
-                throw new DisplayException('This order has already been processed.');
-            }
-
-            // If the payment wasn't successful, mark the order as failed
-            if ($intent->status !== 'requires_capture') {
-                DB::transaction(function () use ($order) {
-                    $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
-                    $lockedOrder->update(['status' => Order::STATUS_FAILED]);
-                });
-
+            if (!in_array($intent->status, ['requires_capture', 'succeeded'], true)) {
                 throw new BillingExceptionClass('Payment not ready for capture', 'The payment was not successful or is not ready to be captured. Status: ' . $intent->status, BillingException::TYPE_PAYMENT, $order->id, 'stripe', $intent->id, ['intent_status' => $intent->status]);
             }
 
-            // Use centralized fulfillment service to create/renew server
-            $server = $this->fulfillmentService->fulfillOrder($request, $order, $intent->metadata);
+            $this->integrityService->assertStripeIntent($order, $transaction, $intent);
 
-            // Capture the payment after processing the order
-            if ($intent->status === 'requires_capture') {
-                try {
-                    $capturedIntent = $intent->capture();
+            $this->fulfillmentService->fulfillStripeOrder(
+                $request,
+                $order,
+                function () use ($intent, $order, $transaction): void {
+                    $capturedIntent = $intent->status === 'requires_capture'
+                        ? $intent->capture(
+                            [],
+                            ['idempotency_key' => 'capture-order-' . $order->id]
+                        )
+                        : $intent;
 
-                    // Sync the captured intent details to payment_transactions
-                    try {
-                        $transaction = $order->transaction;
-                        if ($transaction) {
-                            $transaction->update([
-                                'status'     => 'captured',
-                                'capture_id' => $capturedIntent->latest_charge ?? null,
-                                'amount'     => isset($capturedIntent->amount_received) ? $capturedIntent->amount_received / 100 : null,
-                                'currency'   => $capturedIntent->currency ?? null,
-                            ]);
-                        }
-                    } catch (\Exception $syncEx) {
-                        \Log::warning('Failed to sync Stripe capture to PaymentTransaction', [
-                            'order_id' => $order->id,
-                            'error'    => $syncEx->getMessage(),
-                        ]);
-                    }
-                } catch (\Stripe\Exception\ApiErrorException $ex) {
-                    // Payment capture failed - delete the server and log exception
-                    $server->delete();
-
-                    throw new BillingExceptionClass('Failed to capture payment via Stripe', 'The server was created but payment capture failed: ' . $ex->getMessage() . '. The server has been removed. Please try again.', BillingException::TYPE_PAYMENT, $order->id, 'stripe', $intent->id, ['stripe_error' => $ex->getStripeCode(), 'server_id' => $server->id], $ex);
-                } catch (\Exception $ex) {
-                    // Unexpected error during capture - delete the server
-                    $server->delete();
-
-                    throw new BillingExceptionClass('Unexpected error during payment capture', 'An unexpected error occurred while capturing payment: ' . $ex->getMessage() . '. The server has been removed. Please try again.', BillingException::TYPE_PAYMENT, $order->id, 'stripe', $intent->id, ['server_id' => $server->id, 'error' => $ex->getMessage()], $ex);
-                }
-            }
+                    $this->stripeCaptureService->record($order, $transaction, $capturedIntent);
+                },
+                $intent->status === 'succeeded',
+            );
 
             return $this->returnNoContent();
-        } catch (BillingExceptionClass $e) {
+        } catch (BillingExceptionClass|DisplayException|\Illuminate\Database\Eloquent\ModelNotFoundException|\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
             throw $e;
         } catch (\Stripe\Exception\ApiErrorException $e) {
             \Log::error('Stripe order processing failed', [
@@ -523,7 +452,6 @@ class CheckoutController extends ClientApiController
                 'stripe_code' => $e->getStripeCode(),
             ]);
 
-            $order = Order::where('user_id', $request->user()->id)->latest()->first();
             throw new BillingExceptionClass('Stripe order processing failed', 'Failed to process order: ' . $e->getMessage() . '. Please contact support.', BillingException::TYPE_PAYMENT, $order?->id, 'stripe', $request->input('intent'), ['stripe_error' => $e->getStripeCode()], $e);
         } catch (\Exception $e) {
             \Log::error('Order processing exception', [
@@ -531,7 +459,6 @@ class CheckoutController extends ClientApiController
                 'error' => $e->getMessage(),
             ]);
 
-            $order = Order::where('user_id', $request->user()->id)->latest()->first();
             throw new BillingExceptionClass('Order processing error', 'An unexpected error occurred while processing your order: ' . $e->getMessage(), BillingException::TYPE_PAYMENT, $order?->id, 'stripe', $request->input('intent'), ['error' => $e->getMessage()], $e);
         }
     }
@@ -562,6 +489,125 @@ class CheckoutController extends ClientApiController
                 'error'      => 'A valid billing address is required to complete checkout.',
                 'error_code' => 'billing_address_required',
             ], 422));
+        }
+    }
+
+    private function resumeStripeCheckout(Order $order): JsonResponse
+    {
+        /** @var PaymentTransaction|null $transaction */
+        $transaction = $order->transaction()->first();
+        if ($transaction === null) {
+            throw new DisplayException('The existing checkout has no payment ledger.');
+        }
+        if (!$transaction->external_id) {
+            $user = $order->user;
+            if ($user === null) {
+                throw new DisplayException('The checkout owner no longer exists.');
+            }
+
+            return $this->createAndAttachStripeIntent($order, $user);
+        }
+
+        $intent = $this->stripe->paymentIntents->retrieve($transaction->external_id);
+        if (!$intent->client_secret) {
+            throw new DisplayException('The existing payment intent is unavailable.');
+        }
+        $this->integrityService->assertStripeIntent($order, $transaction, $intent);
+        if (($intent->status ?? null) === 'canceled') {
+            throw new DisplayException('The existing payment intent was cancelled.');
+        }
+        $this->assertCheckoutStillPending($order);
+
+        return response()->json([
+            'id' => $intent->id,
+            'secret' => $intent->client_secret,
+        ]);
+    }
+
+    private function createAndAttachStripeIntent(
+        Order $order,
+        \Everest\Models\User $user,
+    ): JsonResponse {
+        $intentParams = $this->stripeIntentCreationService->parameters($order, $user);
+
+        $paymentIntent = $this->stripe->paymentIntents->create(
+            $intentParams,
+            ['idempotency_key' => 'checkout-order-' . $order->id]
+        );
+        if (!$paymentIntent->client_secret) {
+            throw new BillingExceptionClass('PaymentIntent client secret not generated', 'The payment intent was created but no client secret was returned.', BillingException::TYPE_PAYMENT, $order->id, 'stripe', $paymentIntent->id ?? null);
+        }
+        $providerCustomerId = $paymentIntent->customer ?? null;
+        if (is_object($providerCustomerId)) {
+            $providerCustomerId = $providerCustomerId->id ?? null;
+        }
+        $providerCustomerId = $providerCustomerId ?: null;
+
+        DB::transaction(function () use ($order, $paymentIntent, $providerCustomerId): void {
+            /** @var Order $lockedOrder */
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            /** @var PaymentTransaction $transaction */
+            $transaction = PaymentTransaction::query()
+                ->where('order_id', $lockedOrder->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (
+                $lockedOrder->status !== Order::STATUS_PENDING
+                || !hash_equals(
+                    (string) $order->checkout_request_fingerprint,
+                    (string) $lockedOrder->checkout_request_fingerprint
+                )
+                || !hash_equals(
+                    (string) $order->checkout_fingerprint,
+                    (string) $lockedOrder->checkout_fingerprint
+                )
+                || ($lockedOrder->payment_intent_id && $lockedOrder->payment_intent_id !== $paymentIntent->id)
+                || ($transaction->external_id && $transaction->external_id !== $paymentIntent->id)
+                || (
+                    $transaction->provider_customer_id
+                    && $transaction->provider_customer_id !== $providerCustomerId
+                )
+            ) {
+                throw new DisplayException('This checkout can no longer accept a payment intent.');
+            }
+
+            $lockedOrder->forceFill(['payment_intent_id' => $paymentIntent->id])->saveOrFail();
+            if (!$transaction->external_id) {
+                $transaction->forceFill([
+                    'external_id' => $paymentIntent->id,
+                    'provider_customer_id' => $providerCustomerId,
+                ])->saveOrFail();
+            } elseif (!$transaction->provider_customer_id && $providerCustomerId) {
+                $transaction->forceFill([
+                    'provider_customer_id' => $providerCustomerId,
+                ])->saveOrFail();
+            }
+        });
+
+        /** @var PaymentTransaction $transaction */
+        $transaction = $order->transaction()->firstOrFail();
+        $this->integrityService->assertStripeIntent($order, $transaction, $paymentIntent);
+        $this->assertCheckoutStillPending($order);
+
+        return response()->json([
+            'id' => $paymentIntent->id,
+            'secret' => $paymentIntent->client_secret,
+        ]);
+    }
+
+    private function assertCheckoutStillPending(Order $order): void
+    {
+        if (
+            !Order::query()
+                ->whereKey($order->id)
+                ->where('status', Order::STATUS_PENDING)
+                ->where('checkout_nonce', $order->checkout_nonce)
+                ->where('checkout_request_fingerprint', $order->checkout_request_fingerprint)
+                ->where('checkout_fingerprint', $order->checkout_fingerprint)
+                ->exists()
+        ) {
+            throw new DisplayException('This checkout is no longer pending.');
         }
     }
 

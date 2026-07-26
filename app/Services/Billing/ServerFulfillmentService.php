@@ -3,6 +3,7 @@
 namespace Everest\Services\Billing;
 
 use Everest\Models\Server;
+use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Models\Billing\Order;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +34,7 @@ class ServerFulfillmentService
         private OrderProcessorService $processorService,
         private CustomDomainProvisioningService $customDomainProvisioning,
         private CreateOrderService $orderService,
+        private CheckoutReservationService $reservationService,
     ) {
     }
 
@@ -45,13 +47,10 @@ class ServerFulfillmentService
      * 3. Records coupon usage if applicable
      * 4. Updates order status to processed
      *
-     * IMPORTANT: Server creation must be committed BEFORE calling Wings to ensure
-     * the server exists in the database when Wings calls back to fetch configuration.
-     * We use optimistic concurrency control to prevent duplicate processing.
+     * The order is claimed atomically before any server or renewal side effect.
      *
      * @param Request $request The HTTP request
      * @param Order $order The order to fulfill
-     * @param object|null $paymentMetadata Optional metadata from payment processor (Stripe, PayPal)
      *
      * @return Server The created or renewed server
      *
@@ -59,84 +58,265 @@ class ServerFulfillmentService
      */
     public function fulfillOrder(Request $request, Order $order, ?object $paymentMetadata = null): Server
     {
-        // Refresh order to get latest status
-        $order->refresh();
-
-        // Idempotency check: if order is already processed, don't process again
-        // This is a normal scenario in concurrent webhook/payment systems
-        if ($order->status === Order::STATUS_PROCESSED) {
-            Log::info("Order {$order->id} already processed - idempotency check prevented duplicate processing");
-            throw new DisplayException('This order has already been processed.');
+        if (
+            $order->payment_processor !== 'free'
+            && !$order->transaction()
+                ->where(function ($query): void {
+                    $query->whereNotNull('capture_id')->orWhereNotNull('captured_at');
+                })
+                ->exists()
+        ) {
+            throw new DisplayException('Provider-backed orders require durable capture evidence before fulfillment.');
         }
 
+        return $this->executeFulfillment($request, $order, null);
+    }
+
+    /**
+     * Fulfill a Stripe order, capturing before any entitlement side effect.
+     */
+    public function fulfillStripeOrder(
+        Request $request,
+        Order $order,
+        callable $capturePayment,
+        bool $providerAlreadyCaptured,
+    ): Server {
+        return $this->executeFulfillment(
+            $request,
+            $order,
+            $capturePayment,
+            $providerAlreadyCaptured,
+        );
+    }
+
+    public function fulfillPayPalOrder(
+        Request $request,
+        Order $order,
+        callable $capturePayment,
+        bool $providerAlreadyCaptured,
+    ): Server {
+        return $this->executeFulfillment(
+            $request,
+            $order,
+            $capturePayment,
+            $providerAlreadyCaptured,
+        );
+    }
+
+    private function executeFulfillment(
+        Request $request,
+        Order $order,
+        ?callable $capturePayment,
+        bool $providerAlreadyCaptured = false,
+    ): Server {
+        [$claimedOrder, $alreadyProcessed, $staleReclaim] = $this->claim($order);
+        if ($alreadyProcessed) {
+            return Server::query()->findOrFail($claimedOrder->server_id);
+        }
+
+        $server = null;
+        $captureRecorded = $claimedOrder->transaction()
+            ->where(function ($query): void {
+                $query->whereNotNull('capture_id')->orWhereNotNull('captured_at');
+            })
+            ->exists();
+        $captureAttempted = $claimedOrder->payment_processor !== 'free'
+            && ($capturePayment === null || $providerAlreadyCaptured || $captureRecorded || $staleReclaim);
+
         try {
-            $product = Product::findOrFail($order->product_id);
+            // On crash recovery, provider success can predate our local capture
+            // record. Persist that durable financial truth before any mutable
+            // product lookup or preflight is allowed to fail and misclassify
+            // the order.
+            if ($capturePayment !== null && $providerAlreadyCaptured) {
+                $this->assertClaim($claimedOrder);
+                $capturePayment();
+                $capturePayment = null;
+            }
 
-            Log::info("Fulfilling order {$order->id} of type {$order->type}");
+            $product = Product::findOrFail($claimedOrder->product_id);
+            Log::info("Fulfilling claimed order {$claimedOrder->id} of type {$claimedOrder->type}");
 
-            // Create server or process renewal
-            // ServerCreationService has its own transaction that will be committed
-            // BEFORE calling Wings, ensuring the server exists when Wings calls back
-            if ($order->type === Order::TYPE_REN) {
-                // RENEWAL: Use existing server
-                $server = $this->processRenewal($order, $product);
+            $this->preflight($claimedOrder, $product);
+
+            // Capture every provider-backed payment before provisioning or
+            // changing an entitlement. Ambiguous provider outcomes remain in
+            // the durable fulfilling state for reconciliation.
+            if ($capturePayment !== null) {
+                $this->assertClaim($claimedOrder);
+                $captureAttempted = true;
+                $capturePayment();
+            }
+
+            $this->assertClaim($claimedOrder);
+            if ($claimedOrder->type === Order::TYPE_REN) {
+                $server = $this->processRenewal($claimedOrder, $product);
+                $completedOrder = $claimedOrder->fresh();
+                if ($completedOrder->status !== Order::STATUS_PROCESSED) {
+                    throw new DisplayException('The renewal did not complete atomically.');
+                }
             } else {
-                // NEW SERVER: Create new server
-                $server = $this->processNewServer($request, $order, $product, $paymentMetadata);
+                $server = $claimedOrder->server_id
+                    ? Server::query()->findOrFail($claimedOrder->server_id)
+                    : $this->processNewServer($request, $claimedOrder, $product);
+                $completedOrder = $this->complete($claimedOrder, $server);
             }
 
-            // Update order status and record coupon usage
-            // Use a transaction for atomicity, but this is AFTER server creation
-            DB::beginTransaction();
-            try {
-                // Optimistic concurrency control: fetch fresh order instance
-                // This ensures we're working with the latest data and prevents race conditions
-                $currentOrder = Order::where('id', $order->id)->firstOrFail();
+            $this->dispatchPaymentReceivedEmail($completedOrder, $product);
 
-                if ($currentOrder->status === Order::STATUS_PROCESSED) {
-                    DB::rollBack();
-                    Log::info("Order {$currentOrder->id} was processed by another request during fulfillment");
-
-                    // Server is created, order is marked processed - this is OK
-                    return $server;
-                }
-
-                // Record coupon usage for non-renewal orders
-                // (Renewals are handled by OrderProcessorService)
-                // Use $currentOrder (fresh instance) to ensure we're working with latest data
-                if ($currentOrder->type !== Order::TYPE_REN && $currentOrder->coupon_id) {
-                    $this->recordCouponUsage($currentOrder);
-                }
-
-                // Mark the order as processed (only for non-renewal orders)
-                // Renewal orders maintain their own status lifecycle
-                // Use $currentOrder (fresh instance) to ensure update operates on latest data
-                if ($currentOrder->type !== Order::TYPE_REN) {
-                    $currentOrder->update([
-                        'status'    => Order::STATUS_PROCESSED,
-                        'server_id' => $server->id,
-                    ]);
-                }
-
-                DB::commit();
-
-                // Dispatch PaymentReceived email event after successful fulfillment
-                $this->dispatchPaymentReceivedEmail($currentOrder, $product);
-            } catch (\Exception $e) {
-                DB::rollBack();
-                Log::error("Failed to update order status for order {$order->id}: " . $e->getMessage());
-                // Server is created successfully, but order status update failed
-                // This is not critical - the server exists and can be used
-                // Log the error but don't throw - return the server
-                Log::warning("Order {$order->id} - server {$server->id} created successfully, but status update failed. Manual intervention may be needed.");
-            }
-
-            Log::info("Successfully fulfilled order {$order->id}, server {$server->id}");
+            Log::info("Successfully fulfilled order {$completedOrder->id}, server {$server->id}");
 
             return $server;
-        } catch (\Exception $e) {
-            Log::error("Failed to fulfill order {$order->id}: " . $e->getMessage());
-            throw $e;
+        } catch (\Throwable $exception) {
+            $hasProvisioningSideEffect = $claimedOrder->type !== Order::TYPE_REN
+                && $this->hasLinkedServer($claimedOrder);
+            if (!$captureAttempted && !$hasProvisioningSideEffect) {
+                $this->failClaimAndRelease($claimedOrder);
+            } else {
+                Log::critical('Payment fulfillment requires reconciliation', [
+                    'order_id' => $claimedOrder->id,
+                    'capture_attempted' => $captureAttempted,
+                    'server_id' => $claimedOrder->fresh()->server_id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+            Log::error("Failed to fulfill order {$claimedOrder->id}: " . $exception->getMessage());
+            throw $exception;
+        }
+    }
+
+    /**
+     * @return array{0: Order, 1: bool, 2: bool}
+     */
+    private function claim(Order $order): array
+    {
+        return DB::transaction(function () use ($order) {
+            /** @var Order $locked */
+            $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->status === Order::STATUS_PROCESSED) {
+                if (!$locked->server_id) {
+                    throw new DisplayException('The processed order is missing its server.');
+                }
+
+                return [$locked, true, false];
+            }
+
+            $staleReclaim = false;
+            if ($locked->status === Order::STATUS_FULFILLING) {
+                if (
+                    $locked->fulfillment_started_at
+                    && $locked->fulfillment_started_at->isAfter(now()->subMinutes(15))
+                ) {
+                    throw new DisplayException('This order is already being processed.');
+                }
+
+                // A linked server means another worker has crossed the local
+                // provisioning boundary and may still be waiting on the daemon.
+                // Never steal that lease automatically: doing so could complete
+                // or delete a server still owned by the original worker.
+                if ($locked->type !== Order::TYPE_REN && $locked->server_id !== null) {
+                    throw new DisplayException('This provisioning attempt requires manual reconciliation.');
+                }
+
+                Log::warning('Reclaiming stale payment fulfillment', [
+                    'order_id' => $locked->id,
+                    'previous_claim' => $locked->fulfillment_claim,
+                ]);
+                $staleReclaim = true;
+            }
+
+            if (!in_array($locked->status, [Order::STATUS_PENDING, Order::STATUS_FULFILLING], true)) {
+                throw new DisplayException('This order cannot be processed in its current state.');
+            }
+
+            if (!$locked->checkout_locked_at || !$locked->checkout_fingerprint) {
+                throw new DisplayException('This checkout has not been finalized.');
+            }
+
+            $locked->forceFill([
+                'status' => Order::STATUS_FULFILLING,
+                'fulfillment_started_at' => now(),
+                'fulfillment_claim' => Str::uuid()->toString(),
+            ])->saveOrFail();
+
+            return [$locked, false, $staleReclaim];
+        });
+    }
+
+    private function complete(Order $order, Server $server): Order
+    {
+        return DB::transaction(function () use ($order, $server) {
+            /** @var Order $locked */
+            $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if ($locked->status !== Order::STATUS_FULFILLING) {
+                throw new DisplayException('The fulfillment claim is no longer active.');
+            }
+            if (!hash_equals((string) $locked->fulfillment_claim, (string) $order->fulfillment_claim)) {
+                throw new DisplayException('A newer fulfillment attempt owns this order.');
+            }
+
+            if ($locked->coupon_id) {
+                $this->recordCouponUsage($locked);
+            }
+            $this->reservationService->consume($locked, $server);
+
+            $locked->forceFill([
+                'status' => Order::STATUS_PROCESSED,
+                'server_id' => $server->id,
+                'fulfillment_claim' => null,
+            ])->saveOrFail();
+
+            return $locked;
+        });
+    }
+
+    private function failClaimAndRelease(Order $order): void
+    {
+        $this->reservationService->transitionAndRelease(
+            $order,
+            Order::STATUS_FULFILLING,
+            Order::STATUS_FAILED,
+            $order->fulfillment_claim,
+            'failed',
+        );
+    }
+
+    private function hasLinkedServer(Order $order): bool
+    {
+        return Order::query()->whereKey($order->id)->whereNotNull('server_id')->exists();
+    }
+
+    private function assertClaim(Order $order): void
+    {
+        if (
+            !Order::query()
+                ->whereKey($order->id)
+                ->where('status', Order::STATUS_FULFILLING)
+                ->where('fulfillment_claim', $order->fulfillment_claim)
+                ->exists()
+        ) {
+            throw new DisplayException('A newer fulfillment attempt owns this order.');
+        }
+    }
+
+    private function preflight(Order $order, Product $product): void
+    {
+        if ($order->type === Order::TYPE_REN) {
+            $server = Server::query()->findOrFail($order->server_id);
+            if (
+                (int) $server->owner_id !== (int) $order->user_id
+                || (int) $server->billing_product_id !== (int) $product->id
+                || $server->isDeletionScheduled()
+            ) {
+                throw new DisplayException('This server can no longer be renewed by this order.');
+            }
+
+            return;
+        }
+
+        if ($order->server_id === null) {
+            $this->serverCreation->preflight($product, $order);
         }
     }
 
@@ -163,7 +343,13 @@ class ServerFulfillmentService
         $billingDays = $order->billing_days ?? $server->billing_days ?? BillingDefaults::defaultBillingDays();
 
         // Use the unified processor service for renewal
-        $result = $this->processorService->processRenewal($server, $product, $order->coupon_id, $billingDays);
+        $result = $this->processorService->processRenewal(
+            $server,
+            $product,
+            $order->coupon_id,
+            $billingDays,
+            $order
+        );
 
         Log::info("Completed server renewal for order {$order->id}, server {$server->id}");
 
@@ -176,11 +362,10 @@ class ServerFulfillmentService
      * @param Request $request The HTTP request
      * @param Order $order The new server order
      * @param Product $product The product being purchased
-     * @param object|null $paymentMetadata Optional metadata from payment processor
      *
      * @return Server The created server
      */
-    private function processNewServer(Request $request, Order $order, Product $product, ?object $paymentMetadata = null): Server
+    private function processNewServer(Request $request, Order $order, Product $product): Server
     {
         // Set the user resolver to the order owner
         // This is needed when called from webhooks where there's no authenticated user
@@ -189,14 +374,24 @@ class ServerFulfillmentService
             return $user;
         });
 
-        // Build metadata object from order data or payment metadata
-        $metadata = $this->buildMetadata($order, $paymentMetadata);
+        // Fulfillment truth comes exclusively from the locked local snapshot.
+        $metadata = $this->buildMetadata($order);
 
         // Create the server using the centralized creation service
         $server = $this->serverCreation->process($request, $product, $metadata, $order);
 
-        $this->customDomainProvisioning->syncFromOrder($server, $order);
-        ProvisionServerCustomDomainsJob::dispatch($server->id);
+        try {
+            $this->customDomainProvisioning->syncFromOrder($server, $order);
+            ProvisionServerCustomDomainsJob::dispatch($server->id);
+        } catch (\Throwable $exception) {
+            // Optional domain setup must not roll back a captured core server
+            // entitlement. Operators can retry domain provisioning separately.
+            Log::warning('Custom domain provisioning deferred after server fulfillment', [
+                'order_id' => $order->id,
+                'server_id' => $server->id,
+                'error' => $exception->getMessage(),
+            ]);
+        }
 
         Log::info("Created new server {$server->id} for order {$order->id}");
 
@@ -206,31 +401,15 @@ class ServerFulfillmentService
     /**
      * Build metadata object for server creation.
      *
-     * Prefers payment metadata if available (Stripe), otherwise uses order data (PayPal).
+     * Provider metadata is only a reconciliation reference. It is never an
+     * alternate source of server limits or fulfillment fields.
      *
      * @param Order $order The order containing server creation data
-     * @param object|null $paymentMetadata Optional metadata from payment processor
      *
      * @return object Metadata object with required fields
      */
-    private function buildMetadata(Order $order, ?object $paymentMetadata = null): object
+    private function buildMetadata(Order $order): object
     {
-        // If payment metadata is provided (Stripe), use it
-        if ($paymentMetadata !== null) {
-            // Create a copy to avoid modifying the original
-            $metadata = clone $paymentMetadata;
-
-            // Decode variables if they're JSON encoded
-            if (isset($metadata->variables) && !empty($metadata->variables)) {
-                if (is_string($metadata->variables)) {
-                    $metadata->variables = json_decode($metadata->variables, true) ?? [];
-                }
-            }
-
-            return $metadata;
-        }
-
-        // Otherwise, build from order data (PayPal)
         return (object) [
             'product_id' => $order->product_id,
             'node_id' => $order->node_id,
@@ -251,14 +430,14 @@ class ServerFulfillmentService
     private function recordCouponUsage(Order $order): void
     {
         // Use firstOrCreate for idempotent coupon usage recording
-        CouponUsage::firstOrCreate(
-            ['order_id' => $order->id],
-            [
-                'coupon_id' => $order->coupon_id,
-                'user_id' => $order->user_id,
+        CouponUsage::query()
+            ->where('order_id', $order->id)
+            ->where('status', 'reserved')
+            ->update([
+                'status' => 'consumed',
+                'expires_at' => null,
                 'used_at' => now(),
-            ]
-        );
+            ]);
 
         Log::info("Recorded coupon usage for order {$order->id}");
     }
@@ -304,29 +483,55 @@ class ServerFulfillmentService
             ]
         );
 
-        $server = $this->serverCreation->processFree(
-            $request,
-            $product,
-            $nodeId,
-            $order,
-            $variables,
-            $serverName
-        );
-
-        $this->customDomainProvisioning->syncFromOrder($server, $order);
-        ProvisionServerCustomDomainsJob::dispatch($server->id);
-
-        if ($couponId) {
-            CouponUsage::firstOrCreate(
-                ['coupon_id' => $couponId, 'user_id' => $user->id, 'order_id' => $order->id],
-                ['used_at' => now()]
+        $server = null;
+        try {
+            $server = $this->serverCreation->processFree(
+                $request,
+                $product,
+                $nodeId,
+                $order,
+                $variables,
+                $serverName
             );
+
+            DB::transaction(function () use ($order, $server): void {
+                /** @var Order $locked */
+                $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+                $this->reservationService->consume($locked, $server);
+                $locked->forceFill([
+                    'status' => Order::STATUS_PROCESSED,
+                    'server_id' => $server->id,
+                ])->saveOrFail();
+            });
+        } catch (\Throwable $exception) {
+            if ($server === null) {
+                $this->reservationService->transitionAndRelease(
+                    $order,
+                    Order::STATUS_PENDING,
+                    Order::STATUS_FAILED,
+                );
+            } else {
+                Log::critical('Free server fulfillment requires reconciliation', [
+                    'order_id' => $order->id,
+                    'server_id' => $server->id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+            throw $exception;
         }
 
-        $order->update([
-            'status'    => Order::STATUS_PROCESSED,
-            'server_id' => $server->id,
-        ]);
+        try {
+            $this->customDomainProvisioning->syncFromOrder($server, $order);
+            ProvisionServerCustomDomainsJob::dispatch($server->id);
+        } catch (\Throwable $exception) {
+            // Custom domains are an optional post-provisioning feature. They
+            // cannot make a successfully created free server re-claimable.
+            Log::warning('Custom domain provisioning deferred after free server fulfillment', [
+                'order_id' => $order->id,
+                'server_id' => $server->id,
+                'error' => $exception->getMessage(),
+            ]);
+        }
 
         return ['server' => $server, 'order' => $order];
     }
@@ -344,7 +549,8 @@ class ServerFulfillmentService
                 return;
             }
 
-            $currency = config('modules.billing.currency.code', 'USD');
+            $currency = $order->checkout_currency
+                ?? config('modules.billing.currency.code', 'USD');
             $product = Product::find($order->product_id);
             $amount = (float) ($order->total ?? ($product ? $product->price : 0));
             $isRenewal = $order->type === Order::TYPE_REN;
@@ -355,7 +561,7 @@ class ServerFulfillmentService
                 currency: $currency,
                 reason: $reason,
                 invoiceId: (string) $order->id,
-                correlationId: \Illuminate\Support\Str::uuid()->toString(),
+                correlationId: Str::uuid()->toString(),
                 paymentMethod: ucfirst($processor),
                 isRenewal: $isRenewal,
             ));
@@ -383,7 +589,8 @@ class ServerFulfillmentService
             }
 
             // Get currency from config
-            $currency = config('modules.billing.currency.code', 'USD');
+            $currency = $order->checkout_currency
+                ?? config('modules.billing.currency.code', 'USD');
 
             // Determine payment method
             $paymentMethod = match ($order->payment_processor) {
@@ -415,7 +622,7 @@ class ServerFulfillmentService
 
             $isRenewal = $order->type === Order::TYPE_REN;
             $billingDays = $order->billing_days ?? null;
-            $correlationId = \Illuminate\Support\Str::uuid()->toString();
+            $correlationId = Str::uuid()->toString();
 
             // Dispatch the invoice generation job which will generate the PDF
             // and then fire the PaymentReceived email event.

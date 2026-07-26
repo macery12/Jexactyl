@@ -76,7 +76,7 @@ class Kernel extends ConsoleKernel
         }
 
         if (config('modules.billing.enabled')) {
-            $schedule->command(CleanupOrdersCommand::class)->hourly();
+            $schedule->command(CleanupOrdersCommand::class)->hourly()->withoutOverlapping();
             $schedule->command(SuspendBillableServersCommand::class)->daily();
             // Run near end of day so scheduled deletions occur after the full renewal date has passed.
             $schedule->command(DeleteScheduledServersCommand::class)->dailyAt('23:55');

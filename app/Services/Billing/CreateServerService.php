@@ -111,6 +111,10 @@ class CreateServerService
                 'environment' => $environment,
                 'image' => current($egg->docker_images),
                 'billing_product_id' => $product->id,
+                'billing_order_id' => $order->id,
+                'billing_fulfillment_claim' => $order->payment_processor !== 'free'
+                    ? $order->fulfillment_claim
+                    : null,
                 'billing_days' => $renewalDays, // Use renewalDays to be consistent with renewal_date
                 'billing_amount' => $order->total,
                 'renewal_date' => Carbon::now()->addDays($renewalDays)->toDateTimeString(),
@@ -133,6 +137,21 @@ class CreateServerService
         Cache::forget("billing.node_available.{$metadata->node_id}");
 
         return $server;
+    }
+
+    /**
+     * Fail deterministic server-input errors before a provider capture.
+     * Capacity is rechecked during creation because it can change concurrently.
+     */
+    public function preflight(Product $product, Order $order): void
+    {
+        $eggId = $order->egg_id ?? $product->category->getDefaultEggId();
+        Egg::query()->findOrFail($eggId);
+        $this->getAllocation((int) $order->node_id, $order->id);
+        $this->getEnvironmentWithCustomVariables(
+            $eggId,
+            $this->filterUserEditableVariables($eggId, $order->variables ?? [])
+        );
     }
 
     /**

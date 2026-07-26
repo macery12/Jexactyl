@@ -2,8 +2,12 @@ import { m } from '@/i18n';
 import { Link } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { clearAllDrafts } from '../order/draft';
+import { useEffect } from 'react';
 
 export default function SuccessPage() {
+    useEffect(clearAllDrafts, []);
+
     return (
         <div className="flex min-h-[60vh] items-center justify-center">
             <div className="w-full max-w-md rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 p-10 text-center">

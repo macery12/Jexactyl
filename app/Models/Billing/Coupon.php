@@ -210,6 +210,50 @@ class Coupon extends Model
     }
 
     /**
+     * Authoritative reservation check for use while this coupon row is locked.
+     *
+     * The explicit locking read is a current read under MySQL REPEATABLE READ;
+     * ordinary relationship counts could otherwise reuse a snapshot created
+     * before this transaction waited for the coupon lock.
+     */
+    public function canBeReserved(int $userId, float $orderTotal): array
+    {
+        if (!$this->is_active) {
+            return ['valid' => false, 'message' => 'This coupon is not active.'];
+        }
+
+        if ($this->isExpired()) {
+            return ['valid' => false, 'message' => 'This coupon has expired.'];
+        }
+
+        $usage = $this->usage()
+            ->lockForUpdate()
+            ->get(['id', 'user_id']);
+        if ($this->max_uses !== null && $usage->count() >= $this->max_uses) {
+            return ['valid' => false, 'message' => 'This coupon has reached its maximum usage limit.'];
+        }
+
+        if (
+            $this->max_uses_per_user !== null
+            && $usage->where('user_id', $userId)->count() >= $this->max_uses_per_user
+        ) {
+            return ['valid' => false, 'message' => 'You have already used this coupon the maximum number of times.'];
+        }
+
+        if ($this->min_order_total !== null && $orderTotal < $this->min_order_total) {
+            return [
+                'valid' => false,
+                'message' => sprintf(
+                    'Order total must be at least %s to use this coupon.',
+                    number_format($this->min_order_total, 2)
+                ),
+            ];
+        }
+
+        return ['valid' => true, 'message' => 'Coupon is valid.'];
+    }
+
+    /**
      * Check if this coupon is allowed for a specific order type.
      *
      * @param string $orderType The order type ('new', 'ren', 'upg')

@@ -301,12 +301,40 @@ export async function getStripeIntent(
     productId: number,
     couponId?: number,
     billingDays?: number,
+    snapshot?: CheckoutSnapshotPayload,
 ): Promise<StripeIntent> {
-    const { data } = await http.post(`/api/client/billing/products/${productId}/intent`, {
-        coupon_id: couponId,
-        billing_days: billingDays,
-    });
+    const { data } = await withCheckoutInitializationRetry(() =>
+        http.post(`/api/client/billing/products/${productId}/intent`, {
+            coupon_id: couponId,
+            billing_days: billingDays,
+            ...toCheckoutSnapshotRequest(snapshot),
+        }),
+    );
     return data;
+}
+
+export interface CheckoutSnapshotPayload {
+    nodeId?: number;
+    vars?: { key: string; value: string }[];
+    eggId?: number;
+    name?: string;
+    renewal?: boolean;
+    serverId?: number;
+    checkoutNonce?: string;
+}
+
+function toCheckoutSnapshotRequest(snapshot?: CheckoutSnapshotPayload): Record<string, unknown> {
+    if (!snapshot) return {};
+
+    return {
+        node_id: snapshot.nodeId,
+        variables: snapshot.vars,
+        egg_id: snapshot.eggId,
+        name: snapshot.name,
+        renewal: snapshot.renewal,
+        server_id: snapshot.serverId,
+        checkout_nonce: snapshot.checkoutNonce,
+    };
 }
 
 export interface UpdateStripeIntentInput {
@@ -344,6 +372,7 @@ export interface PayPalOrderStatus {
     processed: boolean;
     failed: boolean;
     pending: boolean;
+    requires_reconciliation?: boolean;
     order_id: string;
     order_status: string;
 }
@@ -360,13 +389,17 @@ export async function createPayPalOrder(
     billingDays?: number,
     returnUrl?: string,
     cancelUrl?: string,
+    snapshot?: CheckoutSnapshotPayload,
 ): Promise<PayPalOrder> {
-    const { data } = await http.post(`/api/client/billing/products/${productId}/paypal/order`, {
-        coupon_id: couponId,
-        billing_days: billingDays,
-        return_url: returnUrl,
-        cancel_url: cancelUrl,
-    });
+    const { data } = await withCheckoutInitializationRetry(() =>
+        http.post(`/api/client/billing/products/${productId}/paypal/order`, {
+            coupon_id: couponId,
+            billing_days: billingDays,
+            return_url: returnUrl,
+            cancel_url: cancelUrl,
+            ...toCheckoutSnapshotRequest(snapshot),
+        }),
+    );
     return data;
 }
 
@@ -398,6 +431,10 @@ export async function capturePayPalOrder(orderId: string): Promise<PayPalCapture
     return data;
 }
 
+export async function cancelPayPalOrder(orderId: string): Promise<void> {
+    await http.post('/api/client/billing/paypal/cancel', { order_id: orderId });
+}
+
 export async function checkPayPalOrderStatus(orderId?: string | null): Promise<PayPalOrderStatus> {
     const url = orderId
         ? `/api/client/billing/paypal/status?order_id=${orderId}`
@@ -411,6 +448,29 @@ export async function getOrderIdFromToken(
 ): Promise<{ order_id: string; status: string; product_id: number }> {
     const { data } = await http.get(`/api/client/billing/paypal/token/${token}`);
     return data;
+}
+
+async function withCheckoutInitializationRetry<T>(
+    request: () => Promise<T>,
+): Promise<T> {
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            return await request();
+        } catch (error) {
+            const response = (error as {
+                response?: { status?: number; data?: { error_code?: string } };
+            })?.response;
+            if (
+                attempt >= 20
+                || response?.status !== 409
+                || response.data?.error_code !== 'checkout_initializing'
+            ) {
+                throw error;
+            }
+
+            await new Promise(resolve => window.setTimeout(resolve, 250));
+        }
+    }
 }
 
 // ---- variable field helper --------------------------------------------------

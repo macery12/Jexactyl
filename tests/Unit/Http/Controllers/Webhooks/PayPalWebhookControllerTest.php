@@ -4,9 +4,12 @@ namespace Everest\Tests\Unit\Http\Controllers\Webhooks;
 
 use Everest\Tests\TestCase;
 use Illuminate\Http\Request;
+use Everest\Services\Billing\PayPalCaptureService;
 use Everest\Services\Billing\PayPalPaymentService;
-use Everest\Services\Billing\BillingValidationService;
+use Everest\Services\Billing\CheckoutIntegrityService;
 use Everest\Services\Billing\ServerFulfillmentService;
+use Everest\Services\Billing\PayPalWebhookEventService;
+use Everest\Services\Billing\PayPalNegativeEventService;
 use Everest\Http\Controllers\Webhooks\PayPalWebhookController;
 use Everest\Services\Billing\PayPalWebhookVerificationService;
 
@@ -32,17 +35,29 @@ class PayPalWebhookControllerTest extends TestCase
             'context' => [],
         ]);
 
-        $validationService = \Mockery::mock(BillingValidationService::class);
-        $validationService->shouldNotReceive('validateBillingEnabled');
-
         $fulfillmentService = \Mockery::mock(ServerFulfillmentService::class);
-        $fulfillmentService->shouldNotReceive('fulfillOrder');
+        $fulfillmentService->shouldNotReceive('fulfillPayPalOrder');
+
+        $integrityService = \Mockery::mock(CheckoutIntegrityService::class);
+        $integrityService->shouldNotReceive('assertPayPalOrder');
+
+        $captureService = \Mockery::mock(PayPalCaptureService::class);
+        $captureService->shouldNotReceive('record');
+
+        $eventService = \Mockery::mock(PayPalWebhookEventService::class);
+        $eventService->shouldNotReceive('begin');
+
+        $negativeEventService = \Mockery::mock(PayPalNegativeEventService::class);
+        $negativeEventService->shouldNotReceive('record');
 
         $controller = new PayPalWebhookController(
             $paypalService,
             $verificationService,
-            $validationService,
-            $fulfillmentService
+            $fulfillmentService,
+            $integrityService,
+            $captureService,
+            $eventService,
+            $negativeEventService,
         );
 
         $response = $controller->handle(Request::create('/api/webhooks/paypal', 'POST', [

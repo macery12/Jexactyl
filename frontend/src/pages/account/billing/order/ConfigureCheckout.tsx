@@ -129,6 +129,7 @@ export default function ConfigureCheckout() {
 
             // Paid: hand off to the payment step with a persisted draft.
             saveDraft({
+                checkoutNonce: crypto.randomUUID(),
                 productId: checkout.product!.id,
                 nodeId: checkout.nodeId,
                 cycleDays: checkout.cycleDays,

@@ -1,10 +1,11 @@
 import type { ValidateCouponResponse } from '@/api/accountBilling';
 
-// Checkout hand-off between the configure step and the payment step. Persisted
-// to sessionStorage (keyed by product) so the payment page survives a refresh,
-// mirroring V1's useCheckoutDraft.
+// Checkout hand-off between the configure step and the payment step. Startup
+// variables can contain passwords and tokens, so the entire draft is held only
+// in module memory. A full reload intentionally requires re-entry.
 
 export interface CheckoutDraft {
+    checkoutNonce: string;
     productId: number;
     nodeId: number;
     cycleDays: number;
@@ -15,29 +16,20 @@ export interface CheckoutDraft {
     serverName: string;
 }
 
-const key = (productId: number | string) => `v2:checkout:draft:${productId}`;
+const drafts = new Map<string, CheckoutDraft>();
 
 export function saveDraft(draft: CheckoutDraft): void {
-    try {
-        sessionStorage.setItem(key(draft.productId), JSON.stringify(draft));
-    } catch {
-        /* sessionStorage unavailable — non-fatal */
-    }
+    drafts.set(String(draft.productId), draft);
 }
 
 export function readDraft(productId: number | string): CheckoutDraft | null {
-    try {
-        const raw = sessionStorage.getItem(key(productId));
-        return raw ? (JSON.parse(raw) as CheckoutDraft) : null;
-    } catch {
-        return null;
-    }
+    return drafts.get(String(productId)) ?? null;
 }
 
 export function clearDraft(productId: number | string): void {
-    try {
-        sessionStorage.removeItem(key(productId));
-    } catch {
-        /* noop */
-    }
+    drafts.delete(String(productId));
+}
+
+export function clearAllDrafts(): void {
+    drafts.clear();
 }

@@ -10,15 +10,20 @@ class UpdateCheckoutRequest extends ClientApiRequest
     public function rules(): array
     {
         return [
+            'intent'         => ['nullable', 'string', 'max:255'],
+            'order_id'       => ['nullable', 'string', 'max:255'],
+            'checkout_nonce' => ['nullable', 'uuid'],
             'name'           => ['nullable', 'string', 'min:3', 'max:191'],
             'node_id'        => ['nullable', 'integer', 'exists:nodes,id'],
             'egg_id'         => ['nullable', 'integer', 'exists:eggs,id'],
-            'billing_days'   => ['nullable', 'integer', 'min:1'],
+            'billing_days'   => ['nullable', 'integer', 'min:1', 'max:365'],
             'coupon_id'      => ['nullable', 'integer', 'exists:coupons,id'],
             'renewal'        => ['nullable', 'boolean'],
             'server_id'      => ['nullable', 'integer', 'exists:servers,id'],
             'variables'      => ['nullable', 'array'],
             'domain_payload' => ['nullable', 'array'],
+            'return_url'     => ['nullable', 'url', 'max:2048'],
+            'cancel_url'     => ['nullable', 'url', 'max:2048'],
         ];
     }
 

@@ -7,20 +7,11 @@ import { Spinner } from '@/components/ui/Spinner';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
-import { updateRenewalStripeIntent } from '@/api/serverBilling';
 
 // Card form for a renewal. Mirrors V1's server/billing/PaymentForm: stamp the
 // renewal context onto the intent, then confirm and let Stripe redirect to the
 // processing page, which finalises the order and routes back here.
-export default function RenewalStripeForm({
-    productId,
-    intentId,
-    billingDays,
-}: {
-    productId: number;
-    intentId: string;
-    billingDays?: number;
-}) {
+export default function RenewalStripeForm() {
     const stripe = useStripe();
     const elements = useElements();
     const server = useServer();
@@ -33,13 +24,6 @@ export default function RenewalStripeForm({
         setLoading(true);
 
         try {
-            await updateRenewalStripeIntent({
-                productId,
-                intent: intentId,
-                serverId: server.internalId,
-                billingDays,
-            });
-
             const { error } = await stripe.confirmPayment({
                 elements,
                 confirmParams: {

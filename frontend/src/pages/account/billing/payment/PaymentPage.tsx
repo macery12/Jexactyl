@@ -68,7 +68,7 @@ export default function PaymentPage() {
     const [method, setMethod] = useState<Method | undefined>(undefined);
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
-        if (!method && availableMethods.length > 0) setMethod(availableMethods[0]);
+        if (!method && availableMethods.length === 1) setMethod(availableMethods[0]);
     }, [availableMethods, method]);
 
     // Re-validate the coupon against the live price (it may have changed).
@@ -94,7 +94,14 @@ export default function PaymentPage() {
         let cancelled = false;
         (async () => {
             try {
-                const intentData = await getStripeIntent(product.id, couponId, draft?.cycleDays);
+                if (!draft) return;
+                const intentData = await getStripeIntent(product.id, couponId, draft.cycleDays, {
+                    nodeId: draft.nodeId,
+                    vars: draft.vars.map(([key, value]) => ({ key, value })),
+                    eggId: draft.eggId,
+                    name: draft.serverName,
+                    checkoutNonce: draft.checkoutNonce,
+                });
                 if (cancelled) return;
                 setIntent(intentData);
                 const { key } = await getStripeKey(product.id);
@@ -218,12 +225,15 @@ export default function PaymentPage() {
                                             <button
                                                 key={m}
                                                 type="button"
-                                                onClick={() => setMethod(m)}
+                                                disabled={method !== undefined && method !== m}
+                                                onClick={() => {
+                                                    if (method === undefined) setMethod(m);
+                                                }}
                                                 className={cn(
                                                     'inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition-colors',
                                                     method === m
                                                         ? 'bg-[var(--brand)] text-[var(--color-brand-ink)]'
-                                                        : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+                                                        : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-50',
                                                 )}
                                             >
                                                 <CreditCard className="h-4 w-4" /> {m}
@@ -264,6 +274,7 @@ export default function PaymentPage() {
                                         eggId={draft.eggId}
                                         serverName={draft.serverName}
                                         billingDays={draft.cycleDays}
+                                        checkoutNonce={draft.checkoutNonce}
                                     />
                                 ) : null}
                             </div>

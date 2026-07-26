@@ -1,5 +1,5 @@
 import http from '@/lib/http';
-import type { StoreProduct } from '@/api/accountBilling';
+import { createPayPalOrder, type StoreProduct } from '@/api/accountBilling';
 
 // Per-server billing: renewal, plan changes, and egg (server type) changes.
 // Mirrors V1's api/routes/server/billing.ts plus the renewal-flavoured calls
@@ -176,12 +176,14 @@ export async function updateRenewalStripeIntent(input: {
     productId: number;
     intent: string;
     serverId: number;
+    couponId?: number;
     billingDays?: number;
 }): Promise<void> {
     await http.put(`/api/client/billing/products/${input.productId}/intent`, {
         intent: input.intent,
         server_id: input.serverId,
         renewal: true,
+        coupon_id: input.couponId,
         billing_days: input.billingDays,
     });
 }
@@ -190,15 +192,21 @@ export async function createRenewalPayPalOrder(input: {
     productId: number;
     serverId: number;
     couponId?: number;
+    billingDays?: number;
     returnUrl: string;
     cancelUrl?: string;
+    checkoutNonce: string;
 }): Promise<{ id: string; token: string; approval_url: string }> {
-    const { data } = await http.post(`/api/client/billing/products/${input.productId}/paypal/order`, {
-        coupon_id: input.couponId,
-        return_url: input.returnUrl,
-        cancel_url: input.cancelUrl,
-        server_id: input.serverId,
-        renewal: true,
-    });
-    return data;
+    return createPayPalOrder(
+        input.productId,
+        input.couponId,
+        input.billingDays,
+        input.returnUrl,
+        input.cancelUrl,
+        {
+            serverId: input.serverId,
+            renewal: true,
+            checkoutNonce: input.checkoutNonce,
+        },
+    );
 }
