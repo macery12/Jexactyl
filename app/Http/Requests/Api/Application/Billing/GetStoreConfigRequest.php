@@ -1,14 +1,14 @@
 <?php
 
-namespace Everest\Http\Requests\Api\Application\Servers;
+namespace Everest\Http\Requests\Api\Application\Billing;
 
 use Everest\Models\AdminRole;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
-class ServerWriteRequest extends ApplicationApiRequest
+class GetStoreConfigRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::SERVERS_UPDATE;
+        return AdminRole::BILLING_READ;
     }
 }

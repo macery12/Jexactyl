@@ -3,7 +3,6 @@
 namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Models\Setting;
-use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\AiUsageLog;
@@ -14,6 +13,7 @@ use Everest\Services\AI\OpenAIService;
 use Everest\Services\Email\EmailRedactor;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Requests\Api\Application\Intelligence;
+use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
 
 class IntelligenceController extends ApplicationApiController
 {
@@ -28,7 +28,7 @@ class IntelligenceController extends ApplicationApiController
     /**
      * Get the current AI settings for the admin panel.
      */
-    public function index(): JsonResponse
+    public function index(GetIntelligenceRequest $request): JsonResponse
     {
         return response()->json([
             'enabled' => boolval(config('modules.ai.enabled', false)),
@@ -81,7 +81,7 @@ class IntelligenceController extends ApplicationApiController
      * result is cached for 5 minutes so the admin overview doesn't hammer the
      * endpoint on every visit. Pass ?fresh=1 to force a live re-test.
      */
-    public function testConnection(Request $request): JsonResponse
+    public function testConnection(GetIntelligenceRequest $request): JsonResponse
     {
         $cacheKey = 'ai:health:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
 
@@ -116,7 +116,7 @@ class IntelligenceController extends ApplicationApiController
      * models with sizes, or the provider's /models listing). Cached 5 minutes;
      * pass ?fresh=1 to re-fetch.
      */
-    public function models(Request $request): JsonResponse
+    public function models(GetIntelligenceRequest $request): JsonResponse
     {
         $cacheKey = 'ai:models:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
 
@@ -260,7 +260,7 @@ class IntelligenceController extends ApplicationApiController
     /**
      * Return aggregated usage statistics from ai_usage_logs.
      */
-    public function stats(): JsonResponse
+    public function stats(GetIntelligenceRequest $request): JsonResponse
     {
         $now = now();
 
@@ -337,7 +337,7 @@ class IntelligenceController extends ApplicationApiController
     /**
      * Return the most recent 30 usage log entries for the admin log table.
      */
-    public function recentLogs(Request $request): JsonResponse
+    public function recentLogs(GetIntelligenceRequest $request): JsonResponse
     {
         $limit  = min((int) $request->query('limit', 10), 500);
         $source = $request->query('source');

@@ -7,6 +7,7 @@ use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Services\Billing\StoreConfigService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Billing\GetStoreConfigRequest;
 use Everest\Http\Requests\Api\Application\Billing\UpdateStoreConfigRequest;
 
 class StoreController extends ApplicationApiController
@@ -19,7 +20,7 @@ class StoreController extends ApplicationApiController
     /**
      * Return the current storefront configuration for the admin editor.
      */
-    public function index(): JsonResponse
+    public function index(GetStoreConfigRequest $request): JsonResponse
     {
         return new JsonResponse($this->store->get());
     }

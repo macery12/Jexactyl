@@ -31,6 +31,7 @@ use Illuminate\Foundation\Http\Middleware\ValidatePostSize;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Everest\Http\Middleware\Api\Client\SubstituteClientBindings;
 use Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull;
+use Everest\Http\Middleware\Api\Application\AuthorizeApplicationUser;
 use Everest\Http\Middleware\Api\Application\AuthenticateApplicationUser;
 use Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance;
 
@@ -72,12 +73,15 @@ class Kernel extends HttpKernel
             Middleware\UpdateUserSessionActivity::class,
         ],
         'application-api' => [
-            SubstituteBindings::class,
             AuthenticateApplicationUser::class,
+            AuthorizeApplicationUser::class,
+            SubstituteBindings::class,
         ],
         'client-api' => [
-            SubstituteClientBindings::class,
+            Middleware\SuspendedAccount::class,
+            Middleware\JGuardPendingAccount::class,
             RequireClientApiKey::class,
+            SubstituteClientBindings::class,
         ],
         'daemon' => [
             SubstituteBindings::class,

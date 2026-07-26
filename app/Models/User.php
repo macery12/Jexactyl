@@ -295,6 +295,14 @@ class User extends Model implements
     }
 
     /**
+     * Whether this account may use an authenticated application surface.
+     */
+    public function isActive(): bool
+    {
+        return !$this->isSuspended() && !$this->isPending();
+    }
+
+    /**
      * Returns all the activity logs where this user is the subject — not to
      * be confused by activity logs where this user is the _actor_.
      */

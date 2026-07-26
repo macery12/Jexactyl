@@ -46,6 +46,34 @@ class AdminAuthenticateTest extends MiddlewareTestCase
         $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
     }
 
+    public function testSuspendedAdminIsRejected(): void
+    {
+        $this->expectException(AccessDeniedHttpException::class);
+
+        $user = User::factory()->make([
+            'root_admin' => 1,
+            'state' => 'suspended',
+        ]);
+
+        $this->request->shouldReceive('user')->withNoArgs()->once()->andReturn($user);
+
+        $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
+    }
+
+    public function testPendingAdminIsRejected(): void
+    {
+        $this->expectException(AccessDeniedHttpException::class);
+
+        $user = User::factory()->make([
+            'root_admin' => 1,
+            'state' => 'pending',
+        ]);
+
+        $this->request->shouldReceive('user')->withNoArgs()->once()->andReturn($user);
+
+        $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
+    }
+
     /**
      * Return an instance of the middleware using mocked dependencies.
      */

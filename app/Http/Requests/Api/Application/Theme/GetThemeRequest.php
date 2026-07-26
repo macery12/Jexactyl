@@ -1,14 +1,14 @@
 <?php
 
-namespace Everest\Http\Requests\Api\Application\Servers;
+namespace Everest\Http\Requests\Api\Application\Theme;
 
 use Everest\Models\AdminRole;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
-class ServerWriteRequest extends ApplicationApiRequest
+class GetThemeRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::SERVERS_UPDATE;
+        return AdminRole::THEME_READ;
     }
 }

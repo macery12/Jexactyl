@@ -42,6 +42,31 @@ class AuthenticateUserTest extends MiddlewareTestCase
         $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
     }
 
+    public function testSuspendedAdminIsRejected(): void
+    {
+        $this->expectException(AccessDeniedHttpException::class);
+
+        $this->generateRequestUserModel([
+            'root_admin' => true,
+            'state' => 'suspended',
+        ]);
+
+        $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
+    }
+
+    public function testPendingDelegatedAdminIsRejected(): void
+    {
+        $this->expectException(AccessDeniedHttpException::class);
+
+        $this->generateRequestUserModel([
+            'root_admin' => false,
+            'admin_role_id' => 123,
+            'state' => 'pending',
+        ]);
+
+        $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
+    }
+
     /**
      * Return an instance of the middleware for testing.
      */

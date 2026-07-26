@@ -36,7 +36,6 @@ class UpdateUserSessionActivity
             if (!$sessionRecord) {
                 Log::info('UpdateUserSessionActivity: rejected session with no tracking record', [
                     'user_id' => $user->id,
-                    'session_id' => $sessionId,
                 ]);
 
                 return $this->rejectSession($request);
@@ -45,7 +44,7 @@ class UpdateUserSessionActivity
             if ($sessionRecord->revoked_at) {
                 Log::info('UpdateUserSessionActivity: blocked revoked session', [
                     'user_id' => $user->id,
-                    'session_id' => $sessionId,
+                    'session_db_id' => $sessionRecord->id,
                 ]);
 
                 return $this->rejectSession($request);

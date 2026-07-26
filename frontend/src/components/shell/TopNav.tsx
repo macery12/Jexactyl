@@ -7,21 +7,24 @@ import { useFlags } from '@/state/flags';
 import { BrandMark } from '@/components/ui/BrandMark';
 import { QuickTabs } from '@/components/shell/QuickTabs';
 import { CommandPalette } from '@/components/shell/CommandPalette';
-import { readCsrfToken } from '@/lib/globals';
+import http from '@/lib/http';
 import { cn } from '@/lib/cn';
+import { clearAllDrafts } from '@/pages/account/billing/order/draft';
+import { clearLegacySensitiveClientStorage } from '@/lib/sensitiveClientState';
 
-function logout() {
-    // Mirror V1: POST /auth/logout with CSRF, then bounce to the v2 login.
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/auth/logout';
-    const csrf = document.createElement('input');
-    csrf.type = 'hidden';
-    csrf.name = '_token';
-    csrf.value = readCsrfToken();
-    form.appendChild(csrf);
-    document.body.appendChild(form);
-    form.submit();
+async function logout() {
+    clearAllDrafts();
+    clearLegacySensitiveClientStorage();
+    useSession.getState().setUser(null);
+
+    try {
+        await http.post('/auth/logout');
+    } finally {
+        // A 204 form-navigation response does not unload the document. Force
+        // a hard navigation so terminal scrollback, command history, checkout
+        // variables, sockets, and every in-memory store are destroyed.
+        window.location.assign('/auth/login');
+    }
 }
 
 export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
@@ -90,7 +93,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                             </DropdownMenu.Item>
                             <DropdownMenu.Separator className="my-1 h-px bg-[var(--color-border)]" />
                             <DropdownMenu.Item
-                                onSelect={logout}
+                                onSelect={() => void logout()}
                                 className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--color-danger)] outline-none hover:bg-[var(--color-danger)]/10"
                             >
                                 <LogOut className="h-4 w-4" /> {m['nav.topnav.signOut']()}

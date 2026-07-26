@@ -7,9 +7,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Models\UserSession;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Everest\Events\Email\NewLoginDetected;
 use Illuminate\Support\Facades\Session as SessionFacade;
+use Everest\Exceptions\Http\Auth\AccountSuspendedException;
+use Everest\Exceptions\Http\Auth\AccountPendingApprovalException;
 
 class UserSessionService
 {
@@ -24,53 +27,64 @@ class UserSessionService
      */
     public function recordLogin(User $user, string $sessionId, ?string &$deviceId): UserSession
     {
-        $deviceId = $deviceId ?: Str::uuid()->toString();
-        $fingerprint = $this->fingerprint($deviceId);
-        $now = CarbonImmutable::now();
-        $existingForFingerprint = UserSession::query()
-            ->where('user_id', $user->id)
-            ->where('device_fingerprint', $fingerprint)
-            ->orderByDesc('created_at')
-            ->first();
+        return DB::transaction(function () use ($user, $sessionId, &$deviceId): UserSession {
+            /** @var User $lockedUser */
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            if ($lockedUser->isSuspended()) {
+                throw new AccountSuspendedException();
+            }
+            if ($lockedUser->isPending()) {
+                throw AccountPendingApprovalException::withConfiguredMessage();
+            }
 
-        $session = UserSession::query()->updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'device_fingerprint' => $fingerprint,
-            ],
-            [
-                'session_id' => $sessionId,
-                'device_name' => $this->deviceName(),
-                'user_agent' => $this->userAgent(),
-                'ip_address' => $this->ip(),
-                'location' => $this->location(),
-                'last_activity_at' => $now,
-                'revoked_at' => null,
-            ]
-        );
+            $deviceId = $deviceId ?: Str::uuid()->toString();
+            $fingerprint = $this->fingerprint($deviceId);
+            $now = CarbonImmutable::now();
+            $existingForFingerprint = UserSession::query()
+                ->where('user_id', $lockedUser->id)
+                ->where('device_fingerprint', $fingerprint)
+                ->orderByDesc('created_at')
+                ->first();
 
-        $shouldNotify = $this->shouldNotify($existingForFingerprint);
+            $session = UserSession::query()->updateOrCreate(
+                [
+                    'user_id' => $lockedUser->id,
+                    'device_fingerprint' => $fingerprint,
+                ],
+                [
+                    'session_id' => $sessionId,
+                    'device_name' => $this->deviceName(),
+                    'user_agent' => $this->userAgent(),
+                    'ip_address' => $this->ip(),
+                    'location' => $this->location(),
+                    'last_activity_at' => $now,
+                    'revoked_at' => null,
+                ]
+            );
 
-        if (!$shouldNotify && $existingForFingerprint && $existingForFingerprint->last_notified_at && !$session->last_notified_at) {
-            $session->forceFill(['last_notified_at' => $existingForFingerprint->last_notified_at])->save();
-        }
+            $shouldNotify = $this->shouldNotify($existingForFingerprint);
 
-        if ($shouldNotify) {
-            $session->forceFill(['last_notified_at' => $now])->save();
-            // Generate a unique correlation ID per email send to keep delivery logs distinct.
-            $correlationId = Str::uuid()->toString();
+            if (!$shouldNotify && $existingForFingerprint && $existingForFingerprint->last_notified_at && !$session->last_notified_at) {
+                $session->forceFill(['last_notified_at' => $existingForFingerprint->last_notified_at])->save();
+            }
 
-            event(new NewLoginDetected(
-                $user,
-                $this->ip(),
-                $this->userAgent(),
-                $correlationId,
-                $now,
-                $this->location()
-            ));
-        }
+            if ($shouldNotify) {
+                $session->forceFill(['last_notified_at' => $now])->save();
+                // Generate a unique correlation ID per email send to keep delivery logs distinct.
+                $correlationId = Str::uuid()->toString();
 
-        return $session;
+                event(new NewLoginDetected(
+                    $lockedUser,
+                    $this->ip(),
+                    $this->userAgent(),
+                    $correlationId,
+                    $now,
+                    $this->location()
+                ));
+            }
+
+            return $session;
+        });
     }
 
     /**
@@ -104,7 +118,7 @@ class UserSessionService
             Log::warning('UserSessionService: revokeSession blocked for mismatched user', [
                 'user_id' => $user->id,
                 'session_user_id' => $session->user_id,
-                'session_id' => $session->id,
+                'session_db_id' => $session->id,
             ]);
 
             return;
@@ -112,22 +126,12 @@ class UserSessionService
 
         $session->update(['revoked_at' => CarbonImmutable::now()]);
 
-        if ($destroy) {
-            SessionFacade::getHandler()->destroy($session->session_id);
-            if (session()->getId() === $session->session_id) {
-                $guard = auth()->guard();
-                if (method_exists($guard, 'logout')) {
-                    $guard->logout();
-                }
-                session()->invalidate();
-                session()->regenerateToken();
-            }
-        }
+        $destroyed = !$destroy || $this->destroyBackingSession($user, $session);
 
         Log::info('UserSessionService: session revoked', [
             'user_id' => $user->id,
             'session_db_id' => $session->id,
-            'destroyed' => $destroy,
+            'destroyed' => $destroyed,
         ]);
     }
 
@@ -151,20 +155,70 @@ class UserSessionService
      */
     public function revokeAll(User $user, ?string $exceptSessionId = null): void
     {
-        $sessions = UserSession::query()
-            ->where('user_id', $user->id)
-            ->when($exceptSessionId, fn ($q) => $q->where('session_id', '!=', $exceptSessionId))
-            ->get();
+        $sessions = DB::transaction(function () use ($user, $exceptSessionId) {
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
+            $query = UserSession::query()
+                ->where('user_id', $user->id)
+                ->when($exceptSessionId !== null, fn ($q) => $q->where('session_id', '!=', $exceptSessionId));
+            $sessions = (clone $query)->get();
+
+            // Mark every matching row before touching an external session
+            // handler. A Redis/filesystem failure cannot leave later rows
+            // authorized merely because their payload was destroyed second.
+            $query->update(['revoked_at' => CarbonImmutable::now()]);
+
+            return $sessions;
+        });
+
+        $destroyed = 0;
         foreach ($sessions as $session) {
-            $this->revokeSession($user, $session);
+            $destroyed += (int) $this->destroyBackingSession($user, $session);
         }
 
         Log::info('UserSessionService: revokeAll complete', [
             'user_id' => $user->id,
             'count' => $sessions->count(),
+            'destroyed' => $destroyed,
             'except_session' => $exceptSessionId,
         ]);
+    }
+
+    /**
+     * Destroy session-handler state without weakening the database revocation
+     * boundary when the handler is unavailable.
+     */
+    private function destroyBackingSession(User $user, UserSession $session): bool
+    {
+        $destroyed = false;
+        try {
+            $destroyed = SessionFacade::getHandler()->destroy($session->session_id) !== false;
+        } catch (\Throwable $exception) {
+            Log::warning('UserSessionService: backing session destroy failed', [
+                'user_id' => $user->id,
+                'session_db_id' => $session->id,
+                'exception' => $exception::class,
+            ]);
+        }
+
+        try {
+            if (session()->getId() === $session->session_id) {
+                $guard = auth()->guard();
+                if (method_exists($guard, 'logout')) {
+                    $guard->logout();
+                }
+                session()->invalidate();
+                session()->regenerateToken();
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('UserSessionService: current session cleanup failed', [
+                'user_id' => $user->id,
+                'session_db_id' => $session->id,
+                'exception' => $exception::class,
+            ]);
+        }
+
+        return $destroyed;
     }
 
     /**

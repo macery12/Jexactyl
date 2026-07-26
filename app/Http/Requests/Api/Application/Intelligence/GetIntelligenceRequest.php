@@ -1,14 +1,14 @@
 <?php
 
-namespace Everest\Http\Requests\Api\Application\Servers;
+namespace Everest\Http\Requests\Api\Application\Intelligence;
 
 use Everest\Models\AdminRole;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
-class ServerWriteRequest extends ApplicationApiRequest
+class GetIntelligenceRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::SERVERS_UPDATE;
+        return AdminRole::AI_READ;
     }
 }

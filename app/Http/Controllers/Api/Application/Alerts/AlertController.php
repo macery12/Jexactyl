@@ -4,7 +4,6 @@ namespace Everest\Http\Controllers\Api\Application\Alerts;
 
 use Everest\Models\User;
 use Everest\Models\Alert;
-use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Illuminate\Http\JsonResponse;
 use Everest\Http\Requests\Api\Application\Alerts\GetAlertsRequest;
@@ -12,6 +11,7 @@ use Everest\Http\Requests\Api\Application\Alerts\CreateAlertRequest;
 use Everest\Http\Requests\Api\Application\Alerts\DeleteAlertRequest;
 use Everest\Http\Requests\Api\Application\Alerts\UpdateAlertRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Alerts\SearchAlertUsersRequest;
 
 class AlertController extends ApplicationApiController
 {
@@ -118,7 +118,7 @@ class AlertController extends ApplicationApiController
     /**
      * Search for users by email or username.
      */
-    public function searchUsers(Request $request): JsonResponse
+    public function searchUsers(SearchAlertUsersRequest $request): JsonResponse
     {
         $query = $request->input('q', '');
         $limit = min($request->input('limit', 10), 50);

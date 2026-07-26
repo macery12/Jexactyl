@@ -2,6 +2,7 @@
 
 namespace Everest\Http\Requests\Api\Application;
 
+use Everest\Models\User;
 use Everest\Models\AdminRole;
 use Everest\Http\Requests\Api\ApiRequest;
 
@@ -13,24 +14,27 @@ abstract class ApplicationApiRequest extends ApiRequest
      */
     public function authorize(): bool
     {
-        if ($this->user()->root_admin) {
+        $user = ($this->getUserResolver())();
+        if (!$user instanceof User || !$user->isActive() || !method_exists($this, 'permission')) {
+            return false;
+        }
+
+        if ($user->root_admin) {
             return true;
         }
 
-        $id = $this->user()->admin_role_id;
-
-        if ($id) {
-            if (method_exists($this, 'permission')) {
-                $required = $this->permission();
-
-                return in_array($required, AdminRole::find($id)->permissions ?? []);
-            }
-
-            return true;
+        // ClientApiRequest historically inherits this class but overrides
+        // authorize() and does not always declare an admin-role permission.
+        // Keep this base class concrete while failing closed on the
+        // Application API authorization path.
+        if (!$user->admin_role_id) {
+            return false;
         }
 
-        return false;
+        $role = AdminRole::query()->find($user->admin_role_id);
 
+        return $role !== null
+            && in_array($this->permission(), $role->permissions ?? [], true);
     }
 
     /**

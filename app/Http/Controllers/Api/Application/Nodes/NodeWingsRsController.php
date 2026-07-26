@@ -22,7 +22,7 @@ class NodeWingsRsController extends ApplicationApiController
     /**
      * POST /api/application/nodes/{node}/detect — Detect Wings-RS and update node type.
      */
-    public function detect(WingsRsNodeReadRequest $request, Node $node): JsonResponse
+    public function detect(WingsRsNodeUpdateRequest $request, Node $node): JsonResponse
     {
         $isSupercharged = $this->detectionService->detect($node);
         $node->refresh();

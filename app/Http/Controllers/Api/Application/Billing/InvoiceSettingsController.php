@@ -2,13 +2,14 @@
 
 namespace Everest\Http\Controllers\Api\Application\Billing;
 
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Everest\Models\Billing\InvoiceSettings;
 use Everest\Services\Billing\InvoiceStorageService;
 use Everest\Services\Billing\InvoiceSettingsService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Billing\Invoices\GetInvoiceSettingsRequest;
+use Everest\Http\Requests\Api\Application\Billing\Invoices\UpdateInvoiceSettingsRequest;
 
 class InvoiceSettingsController extends ApplicationApiController
 {
@@ -22,7 +23,7 @@ class InvoiceSettingsController extends ApplicationApiController
     /**
      * Get current invoice settings.
      */
-    public function show(Request $request): JsonResponse
+    public function show(GetInvoiceSettingsRequest $request): JsonResponse
     {
         $settings = $this->settingsService->get();
 
@@ -32,7 +33,7 @@ class InvoiceSettingsController extends ApplicationApiController
     /**
      * Update invoice settings.
      */
-    public function update(Request $request): JsonResponse
+    public function update(UpdateInvoiceSettingsRequest $request): JsonResponse
     {
         $data = $request->validate([
             'company_name' => 'nullable|string|max:255',
@@ -66,7 +67,7 @@ class InvoiceSettingsController extends ApplicationApiController
     /**
      * Return current storage usage information.
      */
-    public function storageUsage(Request $request): JsonResponse
+    public function storageUsage(GetInvoiceSettingsRequest $request): JsonResponse
     {
         $settings = $this->settingsService->get();
 
@@ -107,7 +108,7 @@ class InvoiceSettingsController extends ApplicationApiController
     /**
      * Test the currently-saved storage configuration by writing and deleting a small probe file.
      */
-    public function testConnection(Request $request): JsonResponse
+    public function testConnection(UpdateInvoiceSettingsRequest $request): JsonResponse
     {
         $settings = $this->settingsService->get();
 

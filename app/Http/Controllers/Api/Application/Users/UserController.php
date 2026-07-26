@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Everest\Services\Users\UserUpdateService;
 use Everest\Services\Users\UserCreationService;
 use Everest\Services\Users\UserDeletionService;
+use Everest\Services\Users\UserSuspensionService;
 use Everest\Transformers\Api\Application\UserTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Requests\Api\Application\Users\GetUserRequest;
@@ -40,6 +41,7 @@ class UserController extends ApplicationApiController
         private UserCreationService $creationService,
         private UserDeletionService $deletionService,
         private UserUpdateService $updateService,
+        private UserSuspensionService $suspensionService,
     ) {
         parent::__construct();
     }
@@ -179,12 +181,7 @@ class UserController extends ApplicationApiController
      */
     public function suspend(SuspendUserRequest $request, User $user): Response
     {
-        if ($user->root_admin) {
-            throw new \Exception('You cannot suspend an administrator.');
-        }
-
-        $wasSuspended = $user->isSuspended();
-        $user->update(['state' => $wasSuspended ? '' : 'suspended']);
+        $user = $this->suspensionService->toggle($user);
 
         Activity::event('admin:users:suspend')
             ->property('user', $user)
@@ -222,7 +219,7 @@ class UserController extends ApplicationApiController
      */
     public function delete(DeleteUserRequest $request, User $user): Response
     {
-        $this->deletionService->handle($user);
+        $this->deletionService->handle($user, $request->user());
 
         Activity::event('admin:users:delete')
             ->property('user', $user)

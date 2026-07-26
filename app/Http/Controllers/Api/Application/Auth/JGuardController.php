@@ -8,13 +8,14 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\JGuardEntry;
 use Illuminate\Http\JsonResponse;
+use Everest\Services\Users\UserSuspensionService;
 use Everest\Http\Requests\Api\Application\Auth\GetJGuardRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Auth\UpdateAuthModuleRequest;
 
 class JGuardController extends ApplicationApiController
 {
-    public function __construct()
+    public function __construct(private UserSuspensionService $suspensionService)
     {
         parent::__construct();
     }
@@ -71,7 +72,7 @@ class JGuardController extends ApplicationApiController
             ->where('status', JGuardEntry::STATUS_PENDING)
             ->update(['status' => JGuardEntry::STATUS_APPROVED]);
 
-        $user->update(['state' => null]);
+        $user = $this->suspensionService->unsuspend($user);
 
         Activity::event('admin:jguard:approve')
             ->property('user', $user)
@@ -98,7 +99,7 @@ class JGuardController extends ApplicationApiController
             ->where('status', JGuardEntry::STATUS_PENDING)
             ->update(['status' => JGuardEntry::STATUS_REJECTED]);
 
-        $user->update(['state' => 'suspended']);
+        $user = $this->suspensionService->suspend($user);
 
         Activity::event('admin:jguard:reject')
             ->property('user', $user)

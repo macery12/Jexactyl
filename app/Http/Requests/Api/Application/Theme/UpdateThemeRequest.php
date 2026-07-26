@@ -9,6 +9,6 @@ class UpdateThemeRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::SETTINGS_UPDATE;
+        return AdminRole::THEME_UPDATE;
     }
 }

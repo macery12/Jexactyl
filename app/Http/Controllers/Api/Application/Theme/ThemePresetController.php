@@ -6,6 +6,7 @@ use Illuminate\Http\Response;
 use Everest\Models\ThemePreset;
 use Illuminate\Http\JsonResponse;
 use Everest\Contracts\Repository\ThemeRepositoryInterface;
+use Everest\Http\Requests\Api\Application\Theme\GetThemeRequest;
 use Everest\Http\Requests\Api\Application\Theme\UpdateThemeRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 
@@ -20,7 +21,7 @@ class ThemePresetController extends ApplicationApiController
     /**
      * Return all theme presets.
      */
-    public function index(UpdateThemeRequest $request): JsonResponse
+    public function index(GetThemeRequest $request): JsonResponse
     {
         $presets = ThemePreset::orderBy('is_builtin', 'desc')->orderBy('id')->get();
 

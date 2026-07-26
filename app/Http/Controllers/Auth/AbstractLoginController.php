@@ -301,11 +301,10 @@ abstract class AbstractLoginController extends Controller
         $deviceId = $request->cookie(UserSessionService::DEVICE_COOKIE);
         $shouldSetCookie = $deviceId === null;
 
-        $this->sessionService->recordLogin($user, $request->session()->getId(), $deviceId);
+        $trackedSession = $this->sessionService->recordLogin($user, $request->session()->getId(), $deviceId);
         Log::info('AbstractLoginController: login response generated', [
             'user_id' => $user->id,
-            'session_id' => $request->session()->getId(),
-            'device_id' => $deviceId,
+            'session_db_id' => $trackedSession->id,
             'set_cookie' => $shouldSetCookie,
         ]);
 

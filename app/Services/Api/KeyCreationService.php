@@ -2,7 +2,10 @@
 
 namespace Everest\Services\Api;
 
+use Everest\Models\User;
 use Everest\Models\ApiKey;
+use Illuminate\Support\Facades\DB;
+use Everest\Exceptions\DisplayException;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Everest\Contracts\Repository\ApiKeyRepositoryInterface;
 
@@ -37,16 +40,29 @@ class KeyCreationService
      */
     public function handle(array $data, array $permissions = []): ApiKey
     {
-        $data = array_merge($data, [
-            'key_type' => $this->keyType,
-            'identifier' => ApiKey::generateTokenIdentifier($this->keyType),
-            'token' => $this->encrypter->encrypt(str_random(ApiKey::KEY_LENGTH)),
-        ]);
+        return DB::transaction(function () use ($data, $permissions): ApiKey {
+            if (isset($data['user_id'])) {
+                /** @var User $owner */
+                $owner = User::query()
+                    ->whereKey($data['user_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                if (!$owner->isActive()) {
+                    throw new DisplayException('This account cannot create API keys in its current state.');
+                }
+            }
 
-        if ($this->keyType === ApiKey::TYPE_APPLICATION) {
-            $data = array_merge($data, $permissions);
-        }
+            $attributes = array_merge($data, [
+                'key_type' => $this->keyType,
+                'identifier' => ApiKey::generateTokenIdentifier($this->keyType),
+                'token' => $this->encrypter->encrypt(str_random(ApiKey::KEY_LENGTH)),
+            ]);
 
-        return $this->repository->create($data, true, true);
+            if ($this->keyType === ApiKey::TYPE_APPLICATION) {
+                $attributes = array_merge($attributes, $permissions);
+            }
+
+            return $this->repository->create($attributes, true, true);
+        });
     }
 }

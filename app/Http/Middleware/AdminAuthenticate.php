@@ -20,7 +20,7 @@ class AdminAuthenticate
             throw new AccessDeniedHttpException();
         }
 
-        if (!$user->root_admin && empty($user->admin_role_id)) {
+        if (!$user->isActive() || (!$user->root_admin && empty($user->admin_role_id))) {
             throw new AccessDeniedHttpException();
         }
 

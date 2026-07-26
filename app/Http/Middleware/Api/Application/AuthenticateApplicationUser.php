@@ -16,7 +16,7 @@ class AuthenticateApplicationUser
     {
         /** @var \Everest\Models\User|null $user */
         $user = $request->user();
-        if (!$user || (!$user->root_admin && !$user->admin_role_id)) {
+        if (!$user || !$user->isActive() || (!$user->root_admin && !$user->admin_role_id)) {
             throw new AccessDeniedHttpException('This account does not have permission to access the API.');
         }
 

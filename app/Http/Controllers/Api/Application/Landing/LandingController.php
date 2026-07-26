@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Everest\Services\Landing\LandingConfigService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Landing\UpdateLandingConfigRequest;
+use Everest\Http\Requests\Api\Application\Settings\GetApplicationSettingsRequest;
 
 class LandingController extends ApplicationApiController
 {
@@ -19,7 +20,7 @@ class LandingController extends ApplicationApiController
     /**
      * Return the current landing page configuration for the admin editor.
      */
-    public function index(): JsonResponse
+    public function index(GetApplicationSettingsRequest $request): JsonResponse
     {
         return new JsonResponse($this->landing->get());
     }
