@@ -75,42 +75,42 @@ class InitiateBackupService
      */
     public function handle(Server $server, ?string $name = null, bool $override = false): Backup
     {
-        $limit = config('backups.throttles.limit');
-        $period = config('backups.throttles.period');
-        if ($period > 0) {
-            $previous = $this->repository->getBackupsGeneratedDuringTimespan($server->id, $period);
-            if ($previous->count() >= $limit) {
-                $message = sprintf('Only %d backups may be generated within a %d second span of time.', $limit, $period);
+        return $this->connection->transaction(function () use ($server, $name, $override) {
+            /** @var Server $lockedServer */
+            $lockedServer = Server::query()->whereKey($server->id)->lockForUpdate()->firstOrFail();
 
-                throw new TooManyRequestsHttpException(CarbonImmutable::now()->diffInSeconds($previous->last()->created_at->addSeconds($period)), $message);
-            }
-        }
+            $limit = config('backups.throttles.limit');
+            $period = config('backups.throttles.period');
+            if ($period > 0) {
+                $previous = $this->repository->getBackupsGeneratedDuringTimespan($lockedServer->id, $period);
+                if ($previous->count() >= $limit) {
+                    $message = sprintf('Only %d backups may be generated within a %d second span of time.', $limit, $period);
 
-        // Check if the server has reached or exceeded its backup limit.
-        // completed_at == null will cover any ongoing backups, while is_successful == true will cover any completed backups.
-        $successful = $this->repository->getNonFailedBackups($server);
-        if (!$server->backup_limit || $successful->count() >= $server->backup_limit) {
-            // Do not allow the user to continue if this server is already at its limit and can't override.
-            if (!$override || $server->backup_limit <= 0) {
-                throw new TooManyBackupsException($server->backup_limit);
+                    throw new TooManyRequestsHttpException(CarbonImmutable::now()->diffInSeconds($previous->last()->created_at->addSeconds($period)), $message);
+                }
             }
 
-            // Get the oldest backup the server has that is not "locked" (indicating a backup that should
-            // never be automatically purged). If we find a backup we will delete it and then continue with
-            // this process. If no backup is found that can be used an exception is thrown.
-            $oldest = $successful->where('is_locked', false)->orderBy('created_at')->first();
-            if (!$oldest) {
-                throw new TooManyBackupsException($server->backup_limit);
+            // Re-check the quota while holding a stable per-server row lock.
+            // Every path through this service is serialized until the durable
+            // backup reservation has been created.
+            $successful = $this->repository->getNonFailedBackups($lockedServer);
+            if (!$lockedServer->backup_limit || $successful->count() >= $lockedServer->backup_limit) {
+                if (!$override || $lockedServer->backup_limit <= 0) {
+                    throw new TooManyBackupsException($lockedServer->backup_limit);
+                }
+
+                $oldest = $successful->where('is_locked', false)->orderBy('created_at')->first();
+                if (!$oldest) {
+                    throw new TooManyBackupsException($lockedServer->backup_limit);
+                }
+
+                /* @var Backup $oldest */
+                $this->deleteBackupService->handle($oldest);
             }
 
-            /* @var Backup $oldest */
-            $this->deleteBackupService->handle($oldest);
-        }
-
-        return $this->connection->transaction(function () use ($server, $name) {
             /** @var Backup $backup */
             $backup = $this->repository->create([
-                'server_id' => $server->id,
+                'server_id' => $lockedServer->id,
                 'uuid' => Uuid::uuid4()->toString(),
                 'name' => trim($name) ?: sprintf('Backup at %s', CarbonImmutable::now()->toDateTimeString()),
                 'ignored_files' => array_values($this->ignoredFiles),
@@ -118,7 +118,7 @@ class InitiateBackupService
                 'is_locked' => $this->isLocked,
             ], true, true);
 
-            $this->daemonBackupRepository->setServer($server)
+            $this->daemonBackupRepository->setServer($lockedServer)
                 ->setBackupAdapter($this->backupManager->getDefaultAdapter())
                 ->backup($backup);
 

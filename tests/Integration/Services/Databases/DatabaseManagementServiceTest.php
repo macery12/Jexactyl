@@ -68,6 +68,24 @@ class DatabaseManagementServiceTest extends IntegrationTestCase
         $this->getService()->create($server, []);
     }
 
+    public function testDatabaseQuotaIsRecheckedUsingFreshLockedServerState(): void
+    {
+        $server = $this->createServerModel(['database_limit' => 2]);
+        $staleServer = $server->fresh();
+        $host = DatabaseHost::factory()->create();
+        Database::factory()->create([
+            'server_id' => $server->id,
+            'database_host_id' => $host->id,
+        ]);
+        $server->newQuery()->whereKey($server->id)->update(['database_limit' => 1]);
+
+        $this->expectException(TooManyDatabasesException::class);
+        $this->getService()->create($staleServer, [
+            'database' => DatabaseManagementService::generateUniqueDatabaseName('locked', $server->id),
+            'database_host_id' => $host->id,
+        ]);
+    }
+
     /**
      * Test that a missing or invalid database name format causes an exception to be thrown.
      **/

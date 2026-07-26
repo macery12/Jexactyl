@@ -142,6 +142,25 @@ class RouteServiceProvider extends ServiceProvider
             )->by('ext-admin:' . $extensionId . ':' . $key);
         });
 
+        RateLimiter::for('file.diff', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+
+            return Limit::perMinutes(
+                max(1, (int) config('http.rate_limit.file_diff_period', 1)),
+                max(1, (int) config('http.rate_limit.file_diff', 10))
+            )->by('file-diff:' . $key)->response(function () {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => 'Too many file diff requests. Please wait before saving again.',
+                        ],
+                    ],
+                ], 429);
+            });
+        });
+
         RateLimiter::for('password-reset-ip', fn (Request $request) => Limit::perMinutes(3, 20)->by($request->ip()));
 
         RateLimiter::for('password-reset-email', function (Request $request) {

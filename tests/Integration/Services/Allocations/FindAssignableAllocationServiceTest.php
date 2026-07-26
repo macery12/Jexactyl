@@ -3,7 +3,10 @@
 namespace Everest\Tests\Integration\Services\Allocations;
 
 use Everest\Models\Allocation;
+use Everest\Exceptions\DisplayException;
+use Illuminate\Database\ConnectionInterface;
 use Everest\Tests\Integration\IntegrationTestCase;
+use Everest\Services\Allocations\AssignmentService;
 use Everest\Services\Allocations\FindAssignableAllocationService;
 use Everest\Exceptions\Service\Allocation\AutoAllocationNotEnabledException;
 use Everest\Exceptions\Service\Allocation\NoAutoAllocationSpaceAvailableException;
@@ -28,7 +31,7 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
      */
     public function testExistingAllocationIsPreferred()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
 
         $created = Allocation::factory()->create([
             'node_id' => $server->node_id,
@@ -37,11 +40,34 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
 
         $response = $this->getService()->handle($server);
 
-        $this->assertSame($created->id, $response->id);
+        $this->assertSame($created->getKey(), $response->id);
         $this->assertSame($server->allocation->ip, $response->ip);
         $this->assertSame($server->node_id, $response->node_id);
         $this->assertSame($server->id, $response->server_id);
         $this->assertNotSame($server->allocation_id, $response->id);
+    }
+
+    public function testQuotaIsRecheckedUsingFreshLockedServerState(): void
+    {
+        $server = $this->createServerModel(['allocation_limit' => 2]);
+        $staleServer = $server->fresh();
+
+        $server->newQuery()->whereKey($server->id)->update(['allocation_limit' => 1]);
+        $free = Allocation::factory()->create([
+            'node_id' => $server->node_id,
+            'ip' => $server->allocation->ip,
+        ]);
+
+        $this->expectException(DisplayException::class);
+        $this->expectExceptionMessage('limit has been reached');
+
+        try {
+            $this->getService()->handle($staleServer);
+        } finally {
+            $this->assertNull(
+                Allocation::query()->findOrFail($free->getKey())->server_id
+            );
+        }
     }
 
     /**
@@ -49,7 +75,7 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
      */
     public function testNewAllocationIsCreatedIfOneIsNotFound()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
         config()->set('everest.client_features.allocations.range_start', 5000);
         config()->set('everest.client_features.allocations.range_end', 5005);
 
@@ -66,7 +92,7 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
      */
     public function testOnlyPortNotInUseIsCreated()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
         $server2 = $this->createServerModel(['node_id' => $server->node_id]);
 
         config()->set('everest.client_features.allocations.range_start', 5000);
@@ -83,9 +109,50 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
         $this->assertSame(5001, $response->port);
     }
 
+    public function testDynamicPortCollisionNeverStealsTheWinningAllocation(): void
+    {
+        $server = $this->createServerModel(['allocation_limit' => 2]);
+        $winner = $this->createServerModel(['node_id' => $server->node_id]);
+        config()->set('everest.client_features.allocations.range_start', 5000);
+        config()->set('everest.client_features.allocations.range_end', 5000);
+
+        $assignment = \Mockery::mock(AssignmentService::class);
+        $assignment->shouldReceive('handle')
+            ->once()
+            ->andReturnUsing(function ($node, array $data) use ($server, $winner): void {
+                Allocation::factory()->create([
+                    'node_id' => $node->id,
+                    'ip' => $server->allocation->ip,
+                    'port' => $data['allocation_ports'][0],
+                    'server_id' => $winner->id,
+                ]);
+            });
+
+        $service = new class ($assignment, $this->app->make(ConnectionInterface::class)) extends FindAssignableAllocationService {
+            public function createForTest(\Everest\Models\Server $server, \Everest\Models\Node $node): Allocation
+            {
+                return $this->createNewAllocation($server, $node);
+            }
+        };
+
+        try {
+            $service->createForTest($server, $server->node);
+            $this->fail('The collision must exhaust the one-port range.');
+        } catch (NoAutoAllocationSpaceAvailableException) {
+            $this->assertSame(
+                $winner->id,
+                Allocation::query()
+                    ->where('node_id', $server->node_id)
+                    ->where('ip', $server->allocation->ip)
+                    ->where('port', 5000)
+                    ->value('server_id')
+            );
+        }
+    }
+
     public function testExceptionIsThrownIfNoMoreAllocationsCanBeCreatedInRange()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
         $server2 = $this->createServerModel(['node_id' => $server->node_id]);
         config()->set('everest.client_features.allocations.range_start', 5000);
         config()->set('everest.client_features.allocations.range_end', 5005);
@@ -111,7 +178,7 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
      */
     public function testExceptionIsThrownIfOnlyFreePortIsOnADifferentIp()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
 
         Allocation::factory()->times(5)->create(['node_id' => $server->node_id]);
 
@@ -123,7 +190,7 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
 
     public function testExceptionIsThrownIfStartOrEndRangeIsNotDefined()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
 
         $this->expectException(NoAutoAllocationSpaceAvailableException::class);
         $this->expectExceptionMessage('Cannot assign additional allocation: no more space available on node.');
@@ -133,7 +200,7 @@ class FindAssignableAllocationServiceTest extends IntegrationTestCase
 
     public function testExceptionIsThrownIfStartOrEndRangeIsNotNumeric()
     {
-        $server = $this->createServerModel();
+        $server = $this->createServerModel(['allocation_limit' => 2]);
         config()->set('everest.client_features.allocations.range_start', 'hodor');
         config()->set('everest.client_features.allocations.range_end', 10);
 
