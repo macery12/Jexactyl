@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Everest\Models\ActivityLogSubject;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Request;
+use Everest\Services\Security\LogSanitizer;
 use Illuminate\Database\ConnectionInterface;
 use Everest\Services\Webhooks\WebhookEventService;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
@@ -125,10 +126,13 @@ class ActivityLogService
      */
     public function property($key, $value = null): self
     {
-        $properties = $this->getActivity()->properties;
-        $this->activity->properties = is_array($key)
-            ? $properties->merge($key)
-            : $properties->put($key, $value);
+        $properties = $this->getActivity()->properties->all();
+        if (is_array($key)) {
+            $properties = array_merge($properties, $key);
+        } else {
+            $properties[(string) $key] = $value;
+        }
+        $this->activity->properties = collect(LogSanitizer::redactSensitivePayload($properties));
 
         return $this;
     }
@@ -309,6 +313,9 @@ class ActivityLogService
         $properties = $activity->properties instanceof Collection
             ? $activity->properties
             : Collection::make($activity->properties ?? []);
+        $properties = Collection::make(
+            LogSanitizer::redactSensitivePayload($properties->toArray())
+        );
 
         $context = $activity->is_admin ? 'admin' : 'client';
         if (!$properties->has('context')) {

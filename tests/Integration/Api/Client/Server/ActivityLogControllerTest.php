@@ -32,6 +32,7 @@ class ActivityLogControllerTest extends ClientApiIntegrationTestCase
     public function testServerActivityIncludesAdminLogs(): void
     {
         $user = User::factory()->create();
+        $sentinel = 'M12-HISTORICAL-SECRET-SENTINEL';
 
         DB::table('nodes')->insert([
             'id' => 1,
@@ -101,6 +102,11 @@ class ActivityLogControllerTest extends ClientApiIntegrationTestCase
             'server_id' => $server->id,
             'is_admin' => false,
             'scope' => 'server',
+            'properties' => [
+                'nested' => [
+                    'password' => $sentinel,
+                ],
+            ],
             'timestamp' => now(),
         ]);
 
@@ -125,6 +131,8 @@ class ActivityLogControllerTest extends ClientApiIntegrationTestCase
         $response->assertJsonFragment(['event' => 'admin:event']);
         $response->assertJsonFragment(['event' => 'server:task']);
         $response->assertJsonFragment(['scope' => 'server']);
+        $response->assertJsonFragment(['password' => '[REDACTED]']);
+        $this->assertStringNotContainsString($sentinel, $response->getContent());
     }
 
     protected function setUpDatabase(): void

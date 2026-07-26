@@ -5,6 +5,7 @@ namespace Everest\Http\Controllers\Api\Client\Servers;
 use Everest\Models\Server;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
+use Everest\Services\Security\LogSanitizer;
 use GuzzleHttp\Exception\BadResponseException;
 use Everest\Repositories\Wings\DaemonCommandRepository;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -43,7 +44,12 @@ class CommandController extends ClientApiController
             throw $exception;
         }
 
-        Activity::event('server:console.command')->property('command', $request->input('command'))->log();
+        // Commands commonly contain passwords and tokens. Retain useful event
+        // metadata without persisting reusable command text.
+        Activity::event('server:console.command')
+            ->property('command', LogSanitizer::REDACTED_VALUE)
+            ->property('input_length', strlen((string) $request->input('command')))
+            ->log();
 
         return $this->returnNoContent();
     }

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Database\Eloquent\Model;
 use Everest\Transformers\Api\Transformer;
 use League\Fractal\Resource\NullResource;
+use Everest\Services\Security\LogSanitizer;
 
 class ActivityLogTransformer extends Transformer
 {
@@ -59,9 +60,11 @@ class ActivityLogTransformer extends Transformer
      */
     protected function properties(ActivityLog $model): object
     {
-        $propertiesCollection = $model->properties instanceof \Illuminate\Support\Collection
-            ? $model->properties
-            : collect($model->properties ?? []);
+        $propertiesCollection = collect(LogSanitizer::redactSensitivePayload(
+            $model->properties instanceof \Illuminate\Support\Collection
+                ? $model->properties->toArray()
+                : (array) ($model->properties ?? [])
+        ));
 
         if ($propertiesCollection->isEmpty()) {
             return (object) [];
@@ -112,7 +115,8 @@ class ActivityLogTransformer extends Transformer
             return false;
         }
 
-        $str = trans('activity.' . str_replace(':', '.', $model->event));
+        $translation = trans('activity.' . str_replace(':', '.', $model->event));
+        $str = is_string($translation) ? $translation : '';
         preg_match_all('/:(?<key>[\w.-]+\w)(?:[^\w:]?|$)/', $str, $matches);
 
         $exclude = array_merge($matches['key'], ['ip', 'useragent', 'using_sftp']);
