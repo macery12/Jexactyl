@@ -109,7 +109,9 @@ class SshActivityProcessingTest extends ClientApiIntegrationTestCase
                 'ip' => '192.168.1.100',
                 'actor_id' => $user->id,
                 'actor_type' => $user->getMorphClass(),
-                'properties' => json_encode(['source' => 'ssh', 'type' => 'shell']),
+                'server_id' => $server->id,
+                'scope' => 'server',
+                'properties' => ['source' => 'ssh', 'type' => 'shell'],
                 'timestamp' => now(),
             ]);
 
@@ -200,6 +202,7 @@ class SshActivityProcessingTest extends ClientApiIntegrationTestCase
             $table->unsignedInteger('server_id')->nullable();
             $table->unsignedInteger('api_key_id')->nullable();
             $table->boolean('is_admin')->default(false);
+            $table->string('scope')->nullable();
             $table->json('properties')->nullable();
             $table->timestamp('timestamp')->useCurrent();
         });

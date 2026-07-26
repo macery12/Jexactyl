@@ -11,6 +11,7 @@ use Everest\Models\ActivityLog;
 use Illuminate\Support\Facades\Log;
 use Everest\Models\ActivityLogSubject;
 use Everest\Http\Controllers\Controller;
+use Everest\Services\Security\LogSanitizer;
 use Everest\Http\Requests\Api\Remote\ActivityEventRequest;
 
 class ActivityProcessingController extends Controller
@@ -49,7 +50,7 @@ class ActivityProcessingController extends Controller
                 $datum['metadata'] = array_merge($datum['metadata'] ?? [], ['original_timestamp' => $datum['timestamp']]);
             }
 
-            $properties = $datum['metadata'] ?? [];
+            $properties = LogSanitizer::redactSensitivePayload($datum['metadata'] ?? []);
             if (!isset($properties['context'])) {
                 $properties['context'] = 'client';
             }

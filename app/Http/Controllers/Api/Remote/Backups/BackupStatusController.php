@@ -11,6 +11,8 @@ use Everest\Exceptions\DisplayException;
 use Everest\Http\Controllers\Controller;
 use Everest\Extensions\Backups\BackupManager;
 use Everest\Extensions\Filesystem\S3Filesystem;
+use Everest\Extensions\Backups\S3MultipartUploadLimits;
+use Everest\Http\Middleware\Api\Daemon\DaemonBackupAuthorization;
 use Everest\Http\Requests\Api\Remote\ReportBackupCompleteRequest;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 
@@ -31,7 +33,7 @@ class BackupStatusController extends Controller
     public function index(ReportBackupCompleteRequest $request, string $backup): JsonResponse
     {
         /** @var Backup $model */
-        $model = Backup::query()->where('uuid', $backup)->firstOrFail();
+        $model = $request->attributes->get(DaemonBackupAuthorization::BACKUP_ATTRIBUTE);
 
         if ($model->is_successful) {
             throw new BadRequestHttpException('Cannot update the status of a backup that is already marked as completed.');
@@ -78,7 +80,7 @@ class BackupStatusController extends Controller
     public function restore(Request $request, string $backup): JsonResponse
     {
         /** @var Backup $model */
-        $model = Backup::query()->where('uuid', $backup)->firstOrFail();
+        $model = $request->attributes->get(DaemonBackupAuthorization::BACKUP_ATTRIBUTE);
 
         $model->server->update(['status' => null]);
 
@@ -131,7 +133,12 @@ class BackupStatusController extends Controller
         ];
 
         if (is_null($parts)) {
-            $params['MultipartUpload']['Parts'] = $client->execute($client->getCommand('ListParts', $params))['Parts'];
+            $listedParts = $client->execute($client->getCommand('ListParts', $params))['Parts'];
+            if (count($listedParts) > S3MultipartUploadLimits::maximumCompletionParts()) {
+                throw new DisplayException('Cannot complete backup request: multipart part count exceeds the configured limit.');
+            }
+
+            $params['MultipartUpload']['Parts'] = $listedParts;
         } else {
             foreach ($parts as $part) {
                 $params['MultipartUpload']['Parts'][] = [

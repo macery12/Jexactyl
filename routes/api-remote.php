@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Everest\Http\Controllers\Api\Remote;
+use Everest\Http\Middleware\Api\Daemon\DaemonBackupAuthorization;
 
 // Routes for the Wings daemon.
 Route::post('/sftp/auth', Remote\SftpAuthenticationController::class);
@@ -21,7 +22,7 @@ Route::group(['prefix' => '/servers/{uuid}'], function () {
     Route::post('/transfer/success', [Remote\Servers\ServerTransferController::class, 'success']);
 });
 
-Route::group(['prefix' => '/backups'], function () {
+Route::group(['prefix' => '/backups', 'middleware' => DaemonBackupAuthorization::class], function () {
     Route::get('/{backup}', Remote\Backups\BackupRemoteUploadController::class);
     Route::post('/{backup}', [Remote\Backups\BackupStatusController::class, 'index']);
     Route::post('/{backup}/restore', [Remote\Backups\BackupStatusController::class, 'restore']);
