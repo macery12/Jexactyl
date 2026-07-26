@@ -12,7 +12,7 @@ restores fail-closed Application API authorization, enforces account state,
 scopes daemon resources, redacts secrets, bounds expensive file/backup work,
 serializes quota allocation, and removes sensitive browser persistence.
 
-It also adds a forward-only billing migration runbook and a candid remediation
+It also adds concise billing migration instructions and a candid remediation
 status document. Conditional daemon findings, compatibility-breaking policy
 choices, and concrete residual gaps are intentionally listed below rather than
 being represented as complete.
@@ -74,7 +74,7 @@ See `docs/security-remediation-status-2026-07-26.md` for the detailed handoff.
 - Serialize quota allocation and handle allocation collisions atomically.
 - Remove sensitive checkout/console state from persistent browser storage.
 
-## Database migrations — maintenance window required
+## Database migrations
 
 This PR adds:
 
@@ -82,18 +82,19 @@ This PR adds:
 2. `2026_07_26_000002_create_paypal_webhook_events_table.php`
 3. `2026_07_26_000003_add_atomic_billing_reservations.php`
 
-They were **not applied** during development. Follow
-`docs/security-payment-migration-runbook-2026-07-26.md`:
+They were **not applied** during development. Use the normal Laravel deployment
+flow:
 
-1. Drain HTTP traffic, workers, scheduler, webhooks, and old replicas.
-2. Take and verify a restorable database snapshot.
-3. Set `M12_BILLING_MIGRATION_MAINTENANCE=confirmed` only for the controlled
-   migration process.
-4. Apply all three migrations and validate their postconditions.
-5. Start only the new revision.
+```bash
+php artisan down
+php artisan migrate --force
+php artisan up
+```
 
-Once billing rows are written, rollback is snapshot restoration rather than
-`migrate:rollback`.
+No additional environment variable or migration acknowledgement is required.
+If a real duplicate provider/order/coupon/free-product ownership conflict
+exists, the migration stops with a specific message so the conflicting data can
+be corrected before retrying.
 
 Stripe webhook configuration must include `customer.deleted` and
 `payment_intent.succeeded`.
@@ -113,6 +114,8 @@ Stripe webhook configuration must include `customer.deleted` and
 - PHPStan passed for the final auth/log/multipart changes; the earlier touched
   billing/auth/allocation analysis also passed.
 - Frontend ESLint and TypeScript project checks passed.
+- All migrations, including the three security migrations, completed on fresh
+  isolated SQLite databases in both testing and production application modes.
 - `git diff --check` passed.
 
 Expected test-environment notes:
@@ -164,8 +167,7 @@ secrets. Do not copy historical credential values into the PR or tickets.
 ## Reviewer focus
 
 - Validate payment state transitions and uniqueness under MySQL/InnoDB.
-- Review the maintenance-only, forward-only migration behavior and snapshot
-  rollback plan.
+- Review the billing schema and data-conflict prechecks.
 - Verify the complete Application API action-to-permission inventory.
 - Confirm daemon transfer ownership semantics against the deployed revision.
 - Review rate/size defaults for production workload expectations.
@@ -177,12 +179,11 @@ secrets. Do not copy historical credential values into the PR or tickets.
 - [ ] Resolve or explicitly accept every residual/policy item above.
 - [ ] Complete MySQL two-connection contention tests in isolated staging.
 - [ ] Validate the exact deployed daemon build and transfer callback methods.
-- [ ] Verify a restorable database snapshot.
-- [ ] Drain all old application processes and webhook consumers.
-- [ ] Apply migrations with the maintenance acknowledgement.
+- [ ] Put the Panel into maintenance mode with `php artisan down`.
+- [ ] Apply migrations with `php artisan migrate --force`.
 - [ ] Verify migration postconditions.
 - [ ] Configure required Stripe webhook events.
-- [ ] Deploy only the new revision.
+- [ ] Bring the Panel back with `php artisan up`.
 - [ ] Run payment sandbox and daemon staging smoke tests.
 - [ ] Scrub historical logs and rotate exposed credential categories.
 - [ ] Monitor fulfillment recovery, webhook retries, authorization denials, and

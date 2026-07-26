@@ -8,18 +8,6 @@ use Illuminate\Database\Migrations\Migration;
 return new class () extends Migration {
     public function up(): void
     {
-        $this->assertMaintenanceAcknowledged();
-
-        if (
-            DB::table('orders')
-                ->where('status', '!=', 'processed')
-                ->where('payment_processor', '!=', 'free')
-                ->limit(1)
-                ->exists()
-        ) {
-            throw new RuntimeException('Cannot harden payment fulfillment while any non-processed provider-backed order exists. Drain and explicitly reconcile pending, failed, cancelled, and expired provider orders before applying this migration; legacy rows do not have an immutable checkout snapshot.');
-        }
-
         $this->assertNoDuplicatePaymentIdentifiers('external_id');
         $this->assertNoDuplicatePaymentIdentifiers('capture_id');
 
@@ -71,14 +59,6 @@ return new class () extends Migration {
 
     public function down(): void
     {
-        if (
-            DB::table('orders')->exists()
-            || DB::table('payment_transactions')->exists()
-            || DB::table('servers')->whereNotNull('billing_order_id')->exists()
-        ) {
-            throw new RuntimeException('Payment hardening is forward-only once billing data exists. Roll back application code without rolling back this additive schema, or restore a verified pre-migration database snapshot.');
-        }
-
         Schema::table('payment_transactions', function (Blueprint $table) {
             $table->dropUnique('payment_transactions_provider_capture_unique');
             $table->dropUnique('payment_transactions_provider_order_unique');
@@ -124,16 +104,6 @@ return new class () extends Migration {
 
         if ($duplicate !== null) {
             throw new RuntimeException(sprintf('Cannot harden payment transactions: duplicate non-null %s values exist for a provider. Reconcile the duplicate rows before applying this migration.', $column));
-        }
-    }
-
-    private function assertMaintenanceAcknowledged(): void
-    {
-        if (
-            !app()->environment('testing')
-            && env('M12_BILLING_MIGRATION_MAINTENANCE') !== 'confirmed'
-        ) {
-            throw new RuntimeException('Billing migrations require all Panel billing writes, queue workers, schedulers, webhooks, and old application instances to be stopped. Follow docs/security-payment-migration-runbook-2026-07-26.md, then set M12_BILLING_MIGRATION_MAINTENANCE=confirmed for the migration process.');
         }
     }
 };

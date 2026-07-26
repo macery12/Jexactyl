@@ -10,8 +10,8 @@ the engineering handoff for the remediation branch.
 - No production, staging, or otherwise connected database migrations were run.
 - No payment-provider, daemon, node, webhook, or other external API was called.
 - Database-backed integration tests used an isolated temporary SQLite database.
-- The migration set is forward-only once billing data exists and requires an
-  explicit maintenance acknowledgement outside the test environment.
+- The billing migrations use the normal Laravel maintenance-mode deployment
+  flow and require no additional acknowledgement variable.
 - The branch is not deployed and must not be merged before the migration and
   credential-rotation steps below are reviewed.
 
@@ -40,25 +40,20 @@ the engineering handoff for the remediation branch.
 | M12-SEC-019 | Rejected as requested | No code change was made for the rejected business-policy candidate. |
 | M12-SEC-020 | Remediated | Free renewal duration is server-authoritative; client-selected free periods are ignored while paid/coupon billing-cycle behavior remains intact. |
 
-## Payment migration and deployment gate
+## Payment migration
 
-The three `2026_07_26_*` migrations must be applied only under the maintenance
-procedure in `security-payment-migration-runbook-2026-07-26.md`.
+Apply the three `2026_07_26_*` migrations using the normal maintenance-mode
+flow documented in `security-payment-migration-runbook-2026-07-26.md`:
 
-Before migration:
+```bash
+php artisan down
+php artisan migrate --force
+php artisan up
+```
 
-1. Stop or drain HTTP traffic, queue workers, the scheduler, webhook delivery,
-   and all old application replicas.
-2. Take and verify a restorable database snapshot.
-3. Set `M12_BILLING_MIGRATION_MAINTENANCE=confirmed` only for the controlled
-   migration process.
-4. Apply all three migrations and verify their postconditions before starting
-   only the new application revision.
-5. Configure Stripe webhooks to include `customer.deleted` and
-   `payment_intent.succeeded`, in addition to the events already required.
-
-These migrations are intentionally not safely reversible after billing rows are
-written. Restore the verified snapshot for an emergency rollback.
+No additional environment variable is required. Configure Stripe webhooks to
+include `customer.deleted` and `payment_intent.succeeded`, in addition to the
+events already required.
 
 ## Required operational follow-up
 

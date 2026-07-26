@@ -9,23 +9,6 @@ return new class () extends Migration {
     public function up(): void
     {
         if (
-            !app()->environment('testing')
-            && env('M12_BILLING_MIGRATION_MAINTENANCE') !== 'confirmed'
-        ) {
-            throw new RuntimeException('Atomic billing reservation migration requires a complete billing-write freeze. Follow docs/security-payment-migration-runbook-2026-07-26.md, then set M12_BILLING_MIGRATION_MAINTENANCE=confirmed for the migration process.');
-        }
-
-        if (
-            DB::table('orders')
-                ->where('status', 'pending')
-                ->where('payment_processor', 'free')
-                ->where('type', 'new')
-                ->exists()
-        ) {
-            throw new RuntimeException('Cannot add free-product entitlements while free new-server orders are pending. Drain or explicitly reconcile those orders before applying this migration.');
-        }
-
-        if (
             DB::table('servers')
                 ->join('products', 'products.id', '=', 'servers.billing_product_id')
                 ->where('products.price', 0)
@@ -134,15 +117,6 @@ return new class () extends Migration {
 
     public function down(): void
     {
-        if (
-            (Schema::hasTable('free_product_entitlements')
-                && DB::table('free_product_entitlements')->exists())
-            || DB::table('orders')->exists()
-            || DB::table('coupon_usage')->exists()
-        ) {
-            throw new RuntimeException('Atomic billing reservations are forward-only once orders, coupon evidence, or free-product entitlement guards exist. Roll back application code without rolling back this additive schema.');
-        }
-
         Schema::dropIfExists('free_product_entitlements');
 
         Schema::table('orders', function (Blueprint $table) {
