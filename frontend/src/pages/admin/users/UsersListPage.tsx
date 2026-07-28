@@ -21,6 +21,7 @@ import {
     getAdminUsers,
     deleteUser,
     suspendUser,
+    unsuspendUser,
     verifyUserEmail,
     type AdminUserRow,
 } from '@/api/adminUsers';
@@ -83,7 +84,7 @@ function RowActions({
                                     <Item
                                         icon={Power}
                                         label={m['admin.users.unsuspend']()}
-                                        onSelect={() => act(() => suspendUser(user.id), m['admin.users.unsuspended']())}
+                                        onSelect={() => act(() => unsuspendUser(user.id), m['admin.users.unsuspended']())}
                                     />
                                 ) : (
                                     <Item

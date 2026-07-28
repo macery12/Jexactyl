@@ -175,17 +175,34 @@ class UserController extends ApplicationApiController
     }
 
     /**
-     * Toggles the suspension state of a user account.
+     * Idempotently suspend a user account.
      *
      * @throws \Throwable
      */
     public function suspend(SuspendUserRequest $request, User $user): Response
     {
-        $user = $this->suspensionService->toggle($user);
+        $user = $this->suspensionService->suspend($user);
 
         Activity::event('admin:users:suspend')
             ->property('user', $user)
             ->description('A user was suspended')
+            ->log();
+
+        return $this->returnNoContent();
+    }
+
+    /**
+     * Idempotently restore a suspended user account.
+     *
+     * @throws \Throwable
+     */
+    public function unsuspend(SuspendUserRequest $request, User $user): Response
+    {
+        $user = $this->suspensionService->unsuspend($user);
+
+        Activity::event('admin:users:unsuspend')
+            ->property('user', $user)
+            ->description('A user was unsuspended')
             ->log();
 
         return $this->returnNoContent();

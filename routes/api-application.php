@@ -632,6 +632,7 @@ Route::middleware([AdminSubject::class])->group(function () {
 
         Route::post('/', [Application\Users\UserController::class, 'store']);
         Route::post('/{user:id}/suspend', [Application\Users\UserController::class, 'suspend']);
+        Route::post('/{user:id}/unsuspend', [Application\Users\UserController::class, 'unsuspend']);
         Route::post('/{user:id}/verify-email', [Application\Users\UserController::class, 'verifyEmail']);
 
         Route::patch('/{user:id}', [Application\Users\UserController::class, 'update']);

@@ -9,8 +9,8 @@ use Everest\Facades\Activity;
 use Illuminate\Support\Facades\Event;
 use Everest\Events\Email\PasswordChanged;
 use Illuminate\Auth\Events\PasswordReset;
-use Everest\Services\Auth\UserSessionService;
 use Everest\Listeners\Auth\PasswordResetListener;
+use Everest\Services\Users\UserCredentialRevocationService;
 
 class PasswordResetListenerTest extends TestCase
 {
@@ -20,8 +20,8 @@ class PasswordResetListenerTest extends TestCase
         $user = new User();
         $user->id = 42;
 
-        $sessions = $this->createMock(UserSessionService::class);
-        $sessions->expects($this->once())
+        $credentials = $this->createMock(UserCredentialRevocationService::class);
+        $credentials->expects($this->once())
             ->method('revokeAll')
             ->with($user);
 
@@ -33,7 +33,7 @@ class PasswordResetListenerTest extends TestCase
         Activity::shouldReceive('subject')->once()->with($user)->andReturnSelf();
         Activity::shouldReceive('log')->once()->andReturnNull();
 
-        (new PasswordResetListener(Request::create('/reset', 'POST'), $sessions))
+        (new PasswordResetListener(Request::create('/reset', 'POST'), $credentials))
             ->handle(new PasswordReset($user));
 
         Event::assertDispatched(

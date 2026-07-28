@@ -6,16 +6,17 @@ use Everest\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\RedirectResponse;
 use Everest\Exceptions\DisplayException;
 use Everest\Services\Email\EmailManager;
 use Illuminate\Validation\Rules\Password;
 use Everest\Models\EmailNotificationSetting;
-use Everest\Services\Auth\UserSessionService;
 use Everest\Services\Users\UserUpdateService;
 use Everest\Services\Auth\PasswordResetService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Everest\Services\Users\UserCredentialRevocationService;
 
 class ForgotPasswordController extends AbstractLoginController
 {
@@ -25,7 +26,7 @@ class ForgotPasswordController extends AbstractLoginController
     public function __construct(
         private UserUpdateService $updateService,
         private PasswordResetService $passwordResetService,
-        private UserSessionService $sessions,
+        private UserCredentialRevocationService $credentials,
     ) {
         parent::__construct();
     }
@@ -56,26 +57,34 @@ class ForgotPasswordController extends AbstractLoginController
             throw new DisplayException('The information provided was incorrect.');
         }
 
-        // The recovery code is stored hashed (irreversible). Hash::check performs a
-        // constant-time comparison. An empty/legacy stored value fails closed.
-        if (empty($user->recovery_code) || !Hash::check((string) $request->input('code'), $user->recovery_code)) {
+        $user = DB::transaction(function () use ($user, $request): ?User {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+
+            // Recheck only after taking the row lock so one recovery code cannot
+            // win two concurrent password resets.
+            if (
+                empty($lockedUser->recovery_code)
+                || !Hash::check((string) $request->input('code'), $lockedUser->recovery_code)
+            ) {
+                return null;
+            }
+
+            // Revoke before establishing the replacement login. These database
+            // mutations share this transaction with the password and recovery
+            // code rotation, so a failure cannot leave the new password paired
+            // with old sessions or API keys.
+            $this->credentials->revokeAll($lockedUser);
+
+            return $this->updateService->handle($lockedUser, [
+                'password' => $request->input('password'),
+                'recovery_code' => Hash::make(Str::random(32)),
+                'recovery_code_seen' => false,
+            ]);
+        });
+
+        if (!$user) {
             throw new DisplayException('The information provided was incorrect.');
         }
-
-        // Rotate the recovery code immediately so it cannot be replayed. It is stored
-        // hashed; the fresh plaintext is intentionally discarded here — the user must
-        // regenerate from account settings to obtain a new one.
-        $user = $this->updateService->handle($user, [
-            'password' => $request->input('password'),
-            'recovery_code' => Hash::make(Str::random(32)),
-            'recovery_code_seen' => false,
-        ]);
-
-        // Recovery-code reset is an account-compromise path, so it has to evict every
-        // existing session the way the token reset does. This one dispatches no
-        // PasswordReset event, so PasswordResetListener does not cover it. Revoke before
-        // sendLoginResponse() so the session it establishes is not caught in the sweep.
-        $this->sessions->revokeAll($user);
 
         if (!$user->use_totp) {
             return $this->sendLoginResponse($user, $request);

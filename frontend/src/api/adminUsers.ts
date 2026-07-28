@@ -167,9 +167,14 @@ export async function deleteUser(id: number): Promise<void> {
     await http.delete(`/api/application/users/${id}`);
 }
 
-// POST /api/application/users/{id}/suspend — toggles the suspension state.
+// POST /api/application/users/{id}/suspend — idempotently suspends the account.
 export async function suspendUser(id: number): Promise<void> {
     await http.post(`/api/application/users/${id}/suspend`);
+}
+
+// POST /api/application/users/{id}/unsuspend — idempotently restores the account.
+export async function unsuspendUser(id: number): Promise<void> {
+    await http.post(`/api/application/users/${id}/unsuspend`);
 }
 
 // POST /api/application/users/{id}/verify-email — manually set/clear verification.

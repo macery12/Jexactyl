@@ -5,6 +5,7 @@ namespace Everest\Http\Controllers\Auth;
 use Everest\Models\User;
 use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Everest\Exceptions\DisplayException;
 use Everest\Http\Controllers\Controller;
 use Illuminate\Contracts\Hashing\Hasher;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Password;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Contracts\Events\Dispatcher;
 use Everest\Services\Auth\UserSessionService;
+use Illuminate\Auth\Passwords\PasswordBroker;
 use Illuminate\Foundation\Auth\ResetsPasswords;
 use Everest\Http\Requests\Auth\ResetPasswordRequest;
 use Everest\Contracts\Repository\UserRepositoryInterface;
@@ -82,20 +84,43 @@ class ResetPasswordController extends Controller
      */
     protected function resetPassword(User $user, $password)
     {
-        $user = $this->userRepository->update($user->id, [
-            'password' => $this->hasher->make($password),
-            $user->getRememberTokenName() => Str::random(60),
-        ]);
+        if ($this->resetRequest === null) {
+            throw new \LogicException('The reset request is unavailable.');
+        }
 
-        $this->dispatcher->dispatch(new PasswordReset($user));
+        $broker = $this->broker();
+        if (!$broker instanceof PasswordBroker) {
+            throw new \LogicException('The configured password broker does not support atomic token revocation.');
+        }
+
+        $token = (string) $this->resetRequest->input('token');
+        $user = DB::transaction(function () use ($user, $password, $broker, $token): User {
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+
+            // PasswordBroker validates before invoking this callback. Recheck
+            // after taking the user lock so concurrent reset requests cannot
+            // both consume the same token.
+            if (!$broker->tokenExists($lockedUser, $token)) {
+                throw new DisplayException(trans(Password::INVALID_TOKEN));
+            }
+
+            $updatedUser = $this->userRepository->update($lockedUser->id, [
+                'password' => $this->hasher->make($password),
+                $lockedUser->getRememberTokenName() => Str::random(60),
+            ]);
+
+            // The synchronous listener revokes sessions and every API key.
+            // Keeping it inside this transaction means a database revocation
+            // failure also rolls back the password and remember-token change.
+            $this->dispatcher->dispatch(new PasswordReset($updatedUser));
+            $broker->getRepository()->delete($updatedUser);
+
+            return $updatedUser;
+        });
 
         // If the user is not using 2FA log them in, otherwise skip this step and force a
         // fresh login where they'll be prompted to enter a token.
         if (!$user->use_totp) {
-            if ($this->resetRequest === null) {
-                throw new \LogicException('The reset request is unavailable.');
-            }
-
             // The PasswordReset listener has synchronously destroyed every
             // previously tracked session. Establish the replacement login
             // first because SessionGuard::login() migrates the session ID; the

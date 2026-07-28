@@ -3,15 +3,12 @@
 namespace Everest\Services\Users;
 
 use Everest\Models\User;
-use Everest\Models\ApiKey;
-use Everest\Models\UserSession;
 use Illuminate\Support\Facades\DB;
 use Everest\Exceptions\DisplayException;
-use Everest\Services\Auth\UserSessionService;
 
 class UserSuspensionService
 {
-    public function __construct(private UserSessionService $sessionService)
+    public function __construct(private UserCredentialRevocationService $credentials)
     {
     }
 
@@ -34,46 +31,59 @@ class UserSuspensionService
     }
 
     /**
-     * Toggle using the state re-read under a row lock.
+     * Clear a pending/suspended state after jGuard has explicitly approved the
+     * account. The public unsuspend API deliberately cannot approve a pending
+     * account as a side effect.
      */
-    public function toggle(int|User $user): User
+    public function approve(int|User $user): User
     {
-        return $this->changeState($user, null);
+        return $this->changeState($user, false, true);
     }
 
-    private function changeState(int|User $user, ?bool $suspend): User
+    /**
+     * Move a pending account to suspended after jGuard explicitly rejects it.
+     */
+    public function reject(int|User $user): User
+    {
+        return $this->changeState($user, true, true);
+    }
+
+    private function changeState(int|User $user, bool $suspend, bool $allowPendingTransition = false): User
     {
         $userId = $user instanceof User ? $user->id : $user;
 
-        [$lockedUser, $didSuspend] = DB::transaction(function () use ($userId, $suspend) {
+        [$lockedUser, $didSuspend, $pendingApprovalRequired] = DB::transaction(function () use ($userId, $suspend, $allowPendingTransition) {
             $lockedUser = User::query()->whereKey($userId)->lockForUpdate()->firstOrFail();
-            $didSuspend = $suspend ?? !$lockedUser->isSuspended();
 
-            if ($didSuspend && $lockedUser->root_admin) {
+            if ($suspend && $lockedUser->root_admin) {
                 throw new DisplayException('You cannot suspend a root administrator.');
             }
 
-            $lockedUser->forceFill([
-                'state' => $didSuspend ? 'suspended' : null,
-            ])->save();
-
-            if ($didSuspend) {
-                UserSession::query()
-                    ->where('user_id', $lockedUser->id)
-                    ->update(['revoked_at' => now()]);
-
-                // User::apiKeys() intentionally filters to account keys. A
-                // suspension must revoke account and Application API keys.
-                ApiKey::query()->where('user_id', $lockedUser->id)->delete();
+            if ($allowPendingTransition && !$lockedUser->isPending()) {
+                return [$lockedUser, false, true];
             }
 
-            return [$lockedUser, $didSuspend];
+            if (!$allowPendingTransition && $lockedUser->isPending()) {
+                return [$lockedUser, false, true];
+            }
+
+            if (!$suspend && !$lockedUser->isSuspended() && !$lockedUser->isPending()) {
+                return [$lockedUser, false, false];
+            }
+
+            $lockedUser->forceFill([
+                'state' => $suspend ? 'suspended' : null,
+            ])->save();
+
+            return [$lockedUser, $suspend, false];
         });
 
+        if ($pendingApprovalRequired) {
+            throw new DisplayException($allowPendingTransition ? 'Only a pending account can be approved or rejected through jGuard.' : 'A pending account must be approved or rejected through jGuard.');
+        }
+
         if ($didSuspend) {
-            // The database revocation above is the authorization boundary.
-            // Also destroy any backing web-session payloads after commit.
-            $this->sessionService->revokeAll($lockedUser);
+            $this->credentials->revokeAll($lockedUser);
         }
 
         return $lockedUser;

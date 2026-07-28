@@ -15,6 +15,7 @@ use Everest\Services\Auth\UserSessionService;
 use Everest\Services\Users\UserSuspensionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Everest\Exceptions\Http\Auth\AccountSuspendedException;
+use Everest\Services\Users\UserCredentialRevocationService;
 
 class UserSuspensionServiceTest extends TestCase
 {
@@ -45,7 +46,7 @@ class UserSuspensionServiceTest extends TestCase
             ->once()
             ->with(\Mockery::on(fn (User $revokedUser) => $revokedUser->id === $user->id));
 
-        $suspended = (new UserSuspensionService($sessions))->suspend($user);
+        $suspended = $this->suspensionService($sessions)->suspend($user);
 
         $this->assertTrue($suspended->isSuspended());
         $this->assertSame($roleId, $suspended->admin_role_id);
@@ -71,13 +72,42 @@ class UserSuspensionServiceTest extends TestCase
 
         $sessions = \Mockery::mock(UserSessionService::class);
         $sessions->shouldReceive('revokeAll')->once();
-        $service = new UserSuspensionService($sessions);
+        $service = $this->suspensionService($sessions);
 
         $service->suspend($user);
         $active = $service->unsuspend($user);
 
         $this->assertTrue($active->isActive());
         $this->assertSame(0, DB::table('api_keys')->where('user_id', $user->id)->count());
+    }
+
+    public function testCredentialRevocationDeletesAccountAndApplicationKeysAndRevokesSessions(): void
+    {
+        [$user] = $this->createUser();
+        DB::table('api_keys')->insert([
+            $this->apiKey($user->id, ApiKey::TYPE_ACCOUNT, 'reset-account-01'),
+            $this->apiKey($user->id, ApiKey::TYPE_APPLICATION, 'reset-app-00001'),
+        ]);
+        DB::table('user_sessions')->insert([
+            $this->sessionRow($user->id, 'reset-session-1', null),
+            $this->sessionRow($user->id, 'reset-session-2', null),
+        ]);
+
+        $sessions = \Mockery::mock(UserSessionService::class);
+        $sessions->shouldReceive('revokeAll')
+            ->once()
+            ->with(\Mockery::on(fn (User $revokedUser) => $revokedUser->id === $user->id));
+
+        (new UserCredentialRevocationService($sessions))->revokeAll($user);
+
+        $this->assertSame(0, DB::table('api_keys')->where('user_id', $user->id)->count());
+        $this->assertSame(
+            0,
+            DB::table('user_sessions')
+                ->where('user_id', $user->id)
+                ->whereNull('revoked_at')
+                ->count()
+        );
     }
 
     public function testRootAdministratorCannotBeSuspended(): void
@@ -89,7 +119,7 @@ class UserSuspensionServiceTest extends TestCase
 
         $this->expectException(DisplayException::class);
 
-        (new UserSuspensionService($sessions))->suspend($user);
+        $this->suspensionService($sessions)->suspend($user);
     }
 
     public function testSuspendedAccountCannotIssueAnAccountApiKey(): void
@@ -100,6 +130,86 @@ class UserSuspensionServiceTest extends TestCase
         $this->expectException(DisplayException::class);
 
         $user->createToken('blocked', []);
+    }
+
+    public function testUnsuspendIsIdempotent(): void
+    {
+        [$user] = $this->createUser();
+        $sessions = \Mockery::mock(UserSessionService::class);
+        $sessions->shouldNotReceive('revokeAll');
+        $service = $this->suspensionService($sessions);
+
+        $active = $service->unsuspend($user);
+        $this->assertTrue($active->isActive());
+    }
+
+    public function testPublicSuspensionOperationsCannotBypassPendingApproval(): void
+    {
+        [$user] = $this->createUser();
+        $user->forceFill(['state' => 'pending'])->saveOrFail();
+        $sessions = \Mockery::mock(UserSessionService::class);
+        $sessions->shouldNotReceive('revokeAll');
+        $service = $this->suspensionService($sessions);
+
+        foreach (['suspend', 'unsuspend'] as $operation) {
+            try {
+                $service->{$operation}($user);
+                $this->fail(sprintf('Pending accounts must not be changed through %s().', $operation));
+            } catch (DisplayException $exception) {
+                $this->assertSame(
+                    'A pending account must be approved or rejected through jGuard.',
+                    $exception->getMessage()
+                );
+            }
+        }
+
+        $this->assertSame('pending', User::query()->findOrFail($user->id)->state);
+    }
+
+    public function testJGuardApprovalCanExplicitlyClearPendingState(): void
+    {
+        [$user] = $this->createUser();
+        $user->forceFill(['state' => 'pending'])->saveOrFail();
+        $sessions = \Mockery::mock(UserSessionService::class);
+        $sessions->shouldNotReceive('revokeAll');
+
+        $active = $this->suspensionService($sessions)->approve($user);
+
+        $this->assertTrue($active->isActive());
+    }
+
+    public function testJGuardRejectionCanExplicitlySuspendPendingAccount(): void
+    {
+        [$user] = $this->createUser();
+        $user->forceFill(['state' => 'pending'])->saveOrFail();
+        $sessions = \Mockery::mock(UserSessionService::class);
+        $sessions->shouldReceive('revokeAll')->once();
+
+        $suspended = $this->suspensionService($sessions)->reject($user);
+
+        $this->assertTrue($suspended->isSuspended());
+    }
+
+    public function testJGuardTransitionsCannotChangeANonPendingAccount(): void
+    {
+        [$user] = $this->createUser();
+        $sessions = \Mockery::mock(UserSessionService::class);
+        $sessions->shouldNotReceive('revokeAll');
+        $service = $this->suspensionService($sessions);
+
+        foreach (['approve', 'reject'] as $operation) {
+            try {
+                $service->{$operation}($user);
+                $this->fail(sprintf('A non-pending account must not be changed through %s().', $operation));
+            } catch (DisplayException $exception) {
+                $this->assertSame(
+                    'Only a pending account can be approved or rejected through jGuard.',
+                    $exception->getMessage()
+                );
+            }
+        }
+
+        $this->assertTrue(User::query()->findOrFail($user->id)->isActive());
     }
 
     public function testSuspendedAccountCannotRecordANewLoginSession(): void
@@ -240,5 +350,10 @@ class UserSuspensionServiceTest extends TestCase
                 $table->timestamps();
             });
         }
+    }
+
+    private function suspensionService(UserSessionService $sessions): UserSuspensionService
+    {
+        return new UserSuspensionService(new UserCredentialRevocationService($sessions));
     }
 }

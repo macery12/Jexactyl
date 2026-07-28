@@ -251,6 +251,46 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
         });
     }
 
+    public function testSuspendAndUnsuspendAreExplicitIdempotentOperations(): void
+    {
+        $user = User::factory()->create();
+
+        $this->postJson('/api/application/users/' . $user->id . '/suspend')
+            ->assertNoContent();
+        $this->assertTrue($user->fresh()->isSuspended());
+
+        // A retry must preserve the requested state, not toggle it.
+        $this->postJson('/api/application/users/' . $user->id . '/suspend')
+            ->assertNoContent();
+        $this->assertTrue($user->fresh()->isSuspended());
+
+        $this->postJson('/api/application/users/' . $user->id . '/unsuspend')
+            ->assertNoContent();
+        $this->assertTrue($user->fresh()->isActive());
+
+        $this->postJson('/api/application/users/' . $user->id . '/unsuspend')
+            ->assertNoContent();
+        $this->assertTrue($user->fresh()->isActive());
+    }
+
+    public function testSuspendEndpointCannotReplacePendingApproval(): void
+    {
+        $user = User::factory()->create(['state' => 'pending']);
+
+        $this->postJson('/api/application/users/' . $user->id . '/suspend')
+            ->assertBadRequest()
+            ->assertJsonPath('errors.0.detail', 'A pending account must be approved or rejected through jGuard.');
+    }
+
+    public function testUnsuspendEndpointCannotReplacePendingApproval(): void
+    {
+        $user = User::factory()->create(['state' => 'pending']);
+
+        $this->postJson('/api/application/users/' . $user->id . '/unsuspend')
+            ->assertBadRequest()
+            ->assertJsonPath('errors.0.detail', 'A pending account must be approved or rejected through jGuard.');
+    }
+
     /**
      * Test that a user can be deleted from the database.
      */
