@@ -1,89 +1,134 @@
 # PR title
 
-`security: harden billing, authorization, daemon boundaries, logs, and quotas`
+`security: complete 2026-07-26 audit remediation`
 
 # PR description
 
 ## Summary
 
-This PR implements the independently verified portions of the 2026-07-26
-M12Labs Panel security audit. It hardens payment and fulfillment integrity,
-restores fail-closed Application API authorization, enforces account state,
-scopes daemon resources, redacts secrets, bounds expensive file/backup work,
-serializes quota allocation, and removes sensitive browser persistence.
+This PR remediates every confirmed application finding from the independently
+validated 2026-07-26 M12Labs Panel security audit.
 
-It also adds concise billing migration instructions and a candid remediation
-status document. Conditional daemon findings, compatibility-breaking policy
-choices, and concrete residual gaps are intentionally listed below rather than
-being represented as complete.
+The work hardens payment integrity and idempotency, delegated-administrator
+authorization, account recovery, daemon ownership boundaries, secret logging,
+file permissions and request costs, atomic quota/entitlement handling, browser
+secret cleanup, and multipart backup completion.
 
-No migration was applied, no deployment was performed, and no payment provider,
-daemon, node, webhook, or other external service was contacted while preparing
-this branch.
+M12-SEC-017 remains an exact-deployment validation item. M12-SEC-018 is
+restricted at the Panel boundary so Wings-RS executable upgrades require an
+active root administrator, while exact daemon installation behavior still
+requires staging evidence. M12-SEC-019 remains rejected because deferred
+plan-change charging is an explicit business policy.
+
+No connected database migration, deployment, provider request, webhook,
+daemon/node call, credential rotation, or destructive external action was
+performed while preparing this branch.
 
 ## Audit coverage
 
-| Finding | PR state |
+| Finding | PR disposition |
 | --- | --- |
-| M12-SEC-001 | Implemented: immutable checkout snapshots, signed integrity fields, stable provider idempotency, and provider/local amount, currency, metadata, and customer validation. |
-| M12-SEC-002 | Implemented: PayPal order creation and fulfillment use durable immutable local state. |
-| M12-SEC-003 | Implemented: capture/order uniqueness and locking unify redirect/webhook renewal processing. |
-| M12-SEC-004 | Core path implemented: atomic pre-provision claim, fencing, compensation, and stale captured-order recovery. Long-outage PayPal evidence retention remains a follow-up. |
-| M12-SEC-005 | Implemented: explicit fail-closed Application API permission resolver and middleware ordering. |
-| M12-SEC-006 | Partially implemented: server, transfer, and backup resources are node-scoped. Remote activity actor scoping and bounds remain. |
-| M12-SEC-007 | Implemented for new/read data: recursive write/read sanitization, contextual secret detection, URL redaction, and removal of raw session IDs from ordinary logs. Historical data requires an offline scrub and credential rotation. |
-| M12-SEC-008 | Access boundary implemented: suspended users lose admin/API access, tracked sessions, and API keys. Toggle-to-idempotent endpoint semantics remain a product/API decision. |
-| M12-SEC-009 | Browser-session revocation implemented and made database-first. API-key revocation on password reset remains a policy decision. |
-| M12-SEC-010 | Implemented: root, self, final-active-root, ownership, and quota deletion guards under locks. |
-| M12-SEC-011 | Partially implemented: atomic checkout reservations/uniqueness are in place. Plan/admin/product transitions still need entitlement synchronization. |
-| M12-SEC-012 | Intentionally unchanged pending create-versus-overwrite authorization and daemon API decision. |
-| M12-SEC-013 | Computation bounded: raw/field/line/cell/work/output/log budgets plus user rate limiting. A dedicated pre-JSON-parser body cap remains. |
-| M12-SEC-014 | Partially implemented: canonical limits, bounded signing loops, node throttling, ownership checks, and locked multipart upload reuse. Enforceable provider-side byte limits remain. |
-| M12-SEC-015 | Implemented: locked/atomic database, backup, allocation, and subuser quota decisions. MySQL multi-connection staging validation remains. |
-| M12-SEC-016 | Implemented: checkout secrets and console history are memory-only, legacy storage is removed, and logout clears state on failure. |
-| M12-SEC-017 | Conditional and not claimed; exact deployed daemon evidence is required. |
-| M12-SEC-018 | Conditional and not claimed; `nodes.update` host-administrator policy and deployed daemon evidence are required. |
-| M12-SEC-019 | Rejected as directed; no change. |
-| M12-SEC-020 | Implemented: free-renewal duration is server-authoritative while paid/coupon cycles remain intact. |
+| M12-SEC-001 | Immutable checkout snapshots, mandatory retry nonce, unique provider identifiers, and provider/local integrity checks. |
+| M12-SEC-002 | PayPal creation and fulfillment use one immutable server-side snapshot. |
+| M12-SEC-003 | PayPal redirect/webhook renewal processing is idempotent. |
+| M12-SEC-004 | Fulfillment is claimed before provisioning; stale captured work and correlated verified PayPal evidence are recoverable/retained. |
+| M12-SEC-005 | Application API actions fail closed without explicit delegated-role permission. |
+| M12-SEC-006 | Daemon resources and activity actors are scoped to the authenticated node/server. |
+| M12-SEC-007 | Activity payloads and URLs are recursively redacted at write and read boundaries. |
+| M12-SEC-008 | Suspension uses explicit idempotent suspend/unsuspend operations and revokes every credential. |
+| M12-SEC-009 | All password-recovery paths transactionally revoke sessions plus Account and Application API keys. |
+| M12-SEC-010 | Root, self, final-root, ownership, and quota deletion invariants are lock-protected. |
+| M12-SEC-011 | Coupon/free-product reservations and owner/product/plan transitions are atomic. |
+| M12-SEC-012 | Overwrite-capable daemon operations require both `file.create` and `file.update`; wipes also require `file.delete`. |
+| M12-SEC-013 | File diff input and algorithmic work are capped before JSON transformation and rate-limited. |
+| M12-SEC-014 | Multipart work is bounded and completed only from provider-authoritative parts matching the authorized exact size. |
+| M12-SEC-015 | Database, backup, allocation, and subuser quota consumption is serialized or collision-safe. |
+| M12-SEC-016 | Checkout secrets and console history are memory-only and cleared on sensitive lifecycle paths. |
+| M12-SEC-017 | Deployment validation only; exact running daemon evidence is still required. |
+| M12-SEC-018 | Panel policy resolved as active-root-only executable upgrade; exact daemon behavior still needs staging validation. |
+| M12-SEC-019 | Rejected explicit deferred-charging policy; unchanged. |
+| M12-SEC-020 | Free-renewal duration is server-authoritative. |
 
-See `docs/security-remediation-status-2026-07-26.md` for the detailed handoff.
+See `docs/security-remediation-completion-2026-07-28.md` for the complete
+finding disposition, resolved decisions, compatibility notes, validation
+evidence, and remaining deployment-only risks.
 
-## Important implementation changes
+## Key implementation changes
 
-- Persist the local order and immutable payment snapshot before provider
-  creation; store the exact provider-create payload for retry stability.
-- Enforce unique provider transaction/capture/order identities and atomically
-  claim fulfillment before provisioning.
-- Verify Stripe and PayPal completion against the durable local snapshot, and
-  route provider retries through idempotent capture/fulfillment services.
-- Record verified PayPal webhook attempts and negative financial events; make
-  Stripe webhook processing retryable on recovery failure.
-- Recover stale captured `fulfilling` orders from the scheduler without
-  overlapping cleanup processes.
-- Add explicit per-action Application API permission declarations and fail
-  closed for undeclared actions, including correct auth-before-binding order.
-- Recheck active user state while issuing keys/sessions; revoke sessions
-  database-first so backing-store failure cannot leave later rows authorized.
-- Add centralized daemon server/backup authorization for current-node and
-  transfer-state relationships.
-- Recursively sanitize activity payloads and URLs at both persistence and
-  transformation boundaries.
-- Add bounded file-diff algorithms and output/log budgets, plus request and
-  per-user work limits.
-- Bound multipart presigning and safely reuse a persisted upload ID on retries.
-- Serialize quota allocation and handle allocation collisions atomically.
-- Remove sensitive checkout/console state from persistent browser storage.
+### Payment and fulfillment
+
+- Persist immutable local order state before provider creation.
+- Require a UUID `checkout_nonce` for Stripe and PayPal create calls so a lost
+  response can be retried without creating a second logical order.
+- Enforce unique provider order, transaction, and capture identities.
+- Verify amount, currency, customer, product metadata, and local integrity
+  before capture/fulfillment.
+- Atomically claim fulfillment before provisioning and recover stale captured
+  claims.
+- Correlate verified PayPal event type/order evidence and retain failed or
+  processing reconciliation records.
+
+### Authorization and account recovery
+
+- Fail closed on undeclared Application API permissions.
+- Enforce active account state across admin, API-key, and session issuance.
+- Replace the suspension toggle with separate retry-safe suspend and unsuspend
+  endpoints.
+- Prevent public suspension operations from bypassing pending jGuard approval;
+  jGuard transitions require an actual pending entry/account.
+- Revoke browser sessions, Account API keys, and Application API keys on
+  suspension and every password-recovery surface.
+- Make password mutation, reset-token consumption, and database credential
+  revocation transactional.
+
+### Daemon, files, and availability
+
+- Scope remote server, transfer, backup, and activity resources to the
+  authenticated node.
+- Remove unused state-changing GET transfer callbacks; POST remains.
+- Restrict Wings-RS executable upgrades to active root administrators.
+- Require create plus update permission for raw/diff writes, uploads, pulls,
+  extraction, mod downloads/retries, and modpack installation.
+- Cap daemon activity before JSON parsing, bound events/metadata, resolve only
+  owner/subuser actors, and apply a per-node rate limit.
+- Cap file-diff bodies before JSON parsing and retain existing bounded
+  byte/line/cell/output work limits.
+
+### Entitlements, quotas, and backups
+
+- Synchronize free-product entitlements in the same transaction as plan,
+  product, or owner changes.
+- Serialize paid-to-free product conversion against checkout creation.
+- Reject a plan whose resource definition changes during downgrade validation.
+- Persist the expected multipart byte size and reject retry size changes.
+- Complete multipart uploads from a bounded, paginated provider `ListParts`
+  result, ignoring caller ETags and part numbers.
+- Verify the provider byte total and daemon-reported total exactly match the
+  authorized size; safely reconcile uploads begun before the size column.
+
+## Compatibility notes
+
+- Third-party provider-create clients must send a UUID `checkout_nonce`, reuse
+  it for retries of the same logical checkout, and generate a new UUID for a
+  new purchase. The bundled frontend already does this.
+- Create-only subusers can no longer invoke operations whose daemon API might
+  overwrite an existing path; grant `file.update` when intended.
+- Deployed daemons must use POST transfer success/failure callbacks.
+- Wings-RS executable upgrades are no longer available to delegated
+  `nodes.update` users.
 
 ## Database migrations
 
-This PR adds:
+This branch adds:
 
 1. `2026_07_26_000001_harden_payment_fulfillment.php`
 2. `2026_07_26_000002_create_paypal_webhook_events_table.php`
 3. `2026_07_26_000003_add_atomic_billing_reservations.php`
+4. `2026_07_28_000001_add_expected_size_to_backups.php`
+5. `2026_07_28_000002_correlate_paypal_webhook_events.php`
 
-They were **not applied** during development. Use the normal Laravel deployment
-flow:
+They were not applied to a connected environment. Deployment uses only the
+normal Laravel maintenance flow:
 
 ```bash
 php artisan down
@@ -91,100 +136,57 @@ php artisan migrate --force
 php artisan up
 ```
 
-No additional environment variable or migration acknowledgement is required.
-If a real duplicate provider/order/coupon/free-product ownership conflict
-exists, the migration stops with a specific message so the conflicting data can
-be corrected before retrying.
+No extra acknowledgement environment variable is required. Migration
+prechecks stop on real provider/order/coupon/free-entitlement conflicts so
+operators can reconcile the data before retrying.
 
 Stripe webhook configuration must include `customer.deleted` and
 `payment_intent.succeeded`.
 
 ## Verification
 
-- `78 passed (208 assertions)` across the final focused security unit suite.
-- `12 passed (36 assertions)` for the focused log-sanitization/session
-  failure-path suite before the consolidated run.
-- Earlier broad focused run: `110 passed (291 assertions)`.
-- Isolated temporary-SQLite integration run: `52 passed (212 assertions)`;
-  the original dynamic-allocation tests that require a non-SQLite
-  `insertIgnore` path could not prove MySQL locking. The corrected allocation
-  collision test passed separately.
-- PHP syntax check passed for every changed/untracked PHP file.
-- PHP-CS-Fixer dry run passed for every changed PHP file.
-- PHPStan passed for the final auth/log/multipart changes; the earlier touched
-  billing/auth/allocation analysis also passed.
+- 89 changed unit tests passed, 202 assertions.
+- 35 remote/backup/activity integration tests passed, 175 assertions.
+- 3 suspension API integration tests passed, 16 assertions.
+- Fresh isolated SQLite migration and seed passed with all five security
+  migrations.
+- PHPStan passed across every changed PHP source/configuration/route/migration.
+- PHP-CS-Fixer dry-run passed across every changed PHP file.
 - Frontend ESLint and TypeScript project checks passed.
-- All migrations, including the three security migrations, completed on fresh
-  isolated SQLite databases in both testing and production application modes.
 - `git diff --check` passed.
 
-Expected test-environment notes:
+Expected environment notes:
 
-- PHPUnit reports that the repository XML configuration uses a deprecated
-  schema.
-- Invoking the backup integration test without the isolated migrated database
-  stops in setup with `no such table: users` and zero assertions; this is a test
-  harness/database initialization issue, not a provider or connected-database
-  run.
-- SQLite cannot demonstrate InnoDB row-lock contention. Run two-connection
-  MySQL staging tests before production rollout.
+- PHPUnit reports the repository's existing XML-schema deprecation.
+- The full pre-existing `UserControllerTest` has one unrelated exact-JSON
+  assertion that omits existing transformer fields; all new suspension
+  regressions pass.
+- SQLite cannot prove MySQL/InnoDB multi-connection locking. Exercise the
+  fulfillment, quota, and entitlement contention paths against isolated MySQL
+  before production.
 
-## Known residual work / decisions
+## Remaining deployment validation
 
-1. Add transactional free-entitlement synchronization to plan changes and
-   administrative owner/product updates; reject or atomically backfill
-   paid-to-free product conversion when servers reference the product.
-2. Scope remote activity actors to users related to the authenticated
-   node/server, minimize exposed actor fields, and add body/item/metadata and
-   per-node rate limits.
-3. Install a pre-JSON-parser body cap for the file-diff route.
-4. Correlate the PayPal webhook ledger with sanitized provider order/event
-   fields and retain failed/processing provider evidence until terminal
-   reconciliation.
-5. Design provider-enforceable multipart byte limits. The AWS SDK does not sign
-   `Content-Length` for `UploadPart`, so request metadata alone is insufficient.
-6. Decide whether overwrite-capable write/upload/pull/decompress/extract paths
-   require both `file.create` and `file.update`, or first add daemon-level atomic
-   exclusive create.
-7. Decide whether suspension becomes idempotent suspend plus separately
-   authorized unsuspend.
-8. Decide whether password recovery revokes Account and Application API keys.
-9. Decide whether `checkout_nonce` becomes mandatory for all API clients and
-   whether CPU/RAM/disk are frozen in the checkout snapshot.
-10. Supply the exact deployed Wings/Wings-RS revision, binary hash, build
-    provenance, config, egress controls, and safe staging target for M12-SEC-017
-    and M12-SEC-018. Confirm whether `nodes.update` intentionally confers
-    host-administrator authority and whether legacy transfer GET callbacks can
-    be removed.
-
-## Operational security follow-up
-
-Scrub historical activity/application logs offline and rotate potentially
-exposed database/RCON credentials, payment and webhook secrets, signed or
-credential-bearing pull URLs, API/access/signing keys, and command/environment
-secrets. Do not copy historical credential values into the PR or tickets.
+- [ ] Record the exact deployed Wings/Wings-RS revision, binary hash, build
+      provenance, downloader/redirect/DNS behavior, blocked CIDRs, TLS config,
+      and egress policy for every node.
+- [ ] Confirm every deployed daemon uses POST transfer callbacks.
+- [ ] Run payment sandbox, object-storage, daemon, and two-connection MySQL
+      contention tests in isolated staging.
+- [ ] Configure an object-storage `AbortIncompleteMultipartUpload` lifecycle;
+      presigned `UploadPart` requests do not cryptographically bind
+      `Content-Length`.
+- [ ] Add or document object-storage reconciliation for the rare case where
+      provider completion succeeds but the following local DB commit fails.
+- [ ] Review the original audit's H-01 through H-06 non-vulnerability hardening
+      observations as separate product/deployment work.
 
 ## Reviewer focus
 
-- Validate payment state transitions and uniqueness under MySQL/InnoDB.
-- Review the billing schema and data-conflict prechecks.
-- Verify the complete Application API action-to-permission inventory.
-- Confirm daemon transfer ownership semantics against the deployed revision.
-- Review rate/size defaults for production workload expectations.
-- Confirm all open policy decisions above before claiming the corresponding
-  findings fully closed.
-
-## Deployment checklist
-
-- [ ] Resolve or explicitly accept every residual/policy item above.
-- [ ] Complete MySQL two-connection contention tests in isolated staging.
-- [ ] Validate the exact deployed daemon build and transfer callback methods.
-- [ ] Put the Panel into maintenance mode with `php artisan down`.
-- [ ] Apply migrations with `php artisan migrate --force`.
-- [ ] Verify migration postconditions.
-- [ ] Configure required Stripe webhook events.
-- [ ] Bring the Panel back with `php artisan up`.
-- [ ] Run payment sandbox and daemon staging smoke tests.
-- [ ] Scrub historical logs and rotate exposed credential categories.
-- [ ] Monitor fulfillment recovery, webhook retries, authorization denials, and
-      multipart-upload errors.
+- Payment state transitions, provider identity uniqueness, and stale-claim
+  recovery under MySQL/InnoDB.
+- Application API action-to-role permission inventory.
+- Pending-account and credential-revocation transactions.
+- Free-product entitlement transitions during concurrent checkout/admin work.
+- Deployed daemon callback methods and downloader configuration.
+- Multipart lifecycle cleanup and provider/local completion reconciliation.
