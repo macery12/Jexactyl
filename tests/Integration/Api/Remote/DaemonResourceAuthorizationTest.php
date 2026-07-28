@@ -32,9 +32,7 @@ class DaemonResourceAuthorizationTest extends IntegrationTestCase
     public static function foreignTransferRouteProvider(): array
     {
         return [
-            'GET failure' => ['GET', 'failure'],
             'POST failure' => ['POST', 'failure'],
-            'GET success' => ['GET', 'success'],
             'POST success' => ['POST', 'success'],
         ];
     }
@@ -60,13 +58,12 @@ class DaemonResourceAuthorizationTest extends IntegrationTestCase
     public static function failureParticipantProvider(): array
     {
         return [
-            'source using legacy GET' => ['source', 'GET'],
+            'source using POST' => ['source', 'POST'],
             'target using POST' => ['target', 'POST'],
         ];
     }
 
-    #[DataProvider('httpMethodProvider')]
-    public function testOnlyTargetNodeCanCompleteTransfer(string $method): void
+    public function testOnlyTargetNodeCanCompleteTransfer(): void
     {
         $server = $this->createServerModel();
         $target = Node::factory()->create();
@@ -84,11 +81,11 @@ class DaemonResourceAuthorizationTest extends IntegrationTestCase
         $daemon->expects('delete')->once();
 
         $this->authorizeNode($server->node);
-        $this->json($method, "/api/remote/servers/{$server->uuid}/transfer/success")
+        $this->postJson("/api/remote/servers/{$server->uuid}/transfer/success")
             ->assertForbidden();
 
         $this->authorizeNode($target);
-        $this->json($method, "/api/remote/servers/{$server->uuid}/transfer/success")
+        $this->postJson("/api/remote/servers/{$server->uuid}/transfer/success")
             ->assertNoContent();
 
         $this->assertTrue($transfer->fresh()->successful);
@@ -103,11 +100,26 @@ class DaemonResourceAuthorizationTest extends IntegrationTestCase
         ]);
     }
 
-    public static function httpMethodProvider(): array
+    #[DataProvider('transferCallbackProvider')]
+    public function testTransferCallbacksRejectStateChangingGetRequests(string $callback): void
+    {
+        $server = $this->createServerModel();
+        $target = Node::factory()->create();
+        $transfer = $this->createTransfer($server, $target);
+
+        $this->authorizeNode($target);
+        $this->getJson("/api/remote/servers/{$server->uuid}/transfer/{$callback}")
+            ->assertMethodNotAllowed();
+
+        $this->assertNull($transfer->fresh()->successful);
+        $this->assertSame($server->node_id, $server->fresh()->node_id);
+    }
+
+    public static function transferCallbackProvider(): array
     {
         return [
-            'legacy GET' => ['GET'],
-            'POST' => ['POST'],
+            'failure' => ['failure'],
+            'success' => ['success'],
         ];
     }
 

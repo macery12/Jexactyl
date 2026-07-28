@@ -2,17 +2,8 @@
 
 namespace Everest\Http\Requests\Api\Client\Servers\Files;
 
-use Everest\Models\Permission;
-use Everest\Contracts\Http\ClientPermissionsRequest;
-use Everest\Http\Requests\Api\Client\ClientApiRequest;
-
-class PullFileRequest extends ClientApiRequest implements ClientPermissionsRequest
+class PullFileRequest extends OverwriteCapableFileRequest
 {
-    public function permission(): string
-    {
-        return Permission::ACTION_FILE_CREATE;
-    }
-
     public function rules(): array
     {
         return [

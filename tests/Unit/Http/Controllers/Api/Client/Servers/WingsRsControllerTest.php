@@ -113,15 +113,15 @@ class WingsRsControllerTest extends TestCase
     // ─── Fix 5: TLS verify ────────────────────────────────────────────────
 
     /**
-     * Confirm DaemonRepository uses environment('production') for TLS verify.
+     * Confirm DaemonRepository uses the explicit Wings TLS verification setting.
      */
-    public function testDaemonRepositoryUsesEnvironmentCheckForVerify()
+    public function testDaemonRepositoryUsesConfiguredTlsVerification()
     {
         $source = file_get_contents(
             base_path('app/Repositories/Wings/DaemonRepository.php')
         );
 
-        $this->assertStringContainsString("environment('production')", $source);
+        $this->assertStringContainsString("config('everest.wings.verify_tls')", $source);
     }
 
     // ─── Fix 6: operationId validation ────────────────────────────────────

@@ -2,13 +2,8 @@
 
 namespace Everest\Http\Requests\Api\Client\Servers\Mods;
 
-use Everest\Models\Permission;
-use Everest\Http\Requests\Api\Client\ClientApiRequest;
+use Everest\Http\Requests\Api\Client\Servers\Files\OverwriteCapableFileRequest;
 
-class DownloadModRequest extends ClientApiRequest
+class DownloadModRequest extends OverwriteCapableFileRequest
 {
-    public function permission(): string
-    {
-        return Permission::ACTION_FILE_CREATE;
-    }
 }

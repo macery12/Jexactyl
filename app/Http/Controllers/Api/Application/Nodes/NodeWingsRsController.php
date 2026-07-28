@@ -9,6 +9,7 @@ use Everest\Repositories\Wings\DaemonWingsRsRepository;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Nodes\WingsRsNodeReadRequest;
 use Everest\Http\Requests\Api\Application\Nodes\WingsRsNodeUpdateRequest;
+use Everest\Http\Requests\Api\Application\Nodes\WingsRsNodeUpgradeRequest;
 
 class NodeWingsRsController extends ApplicationApiController
 {
@@ -106,7 +107,7 @@ class NodeWingsRsController extends ApplicationApiController
      * must use its own hardcoded restart mechanism. The "headers" field is also removed so
      * callers cannot inject credentials or bypass daemon-side download security.
      */
-    public function upgrade(WingsRsNodeUpdateRequest $request, Node $node): JsonResponse
+    public function upgrade(WingsRsNodeUpgradeRequest $request, Node $node): JsonResponse
     {
         if (!$node->isSupercharged()) {
             return new JsonResponse(['error' => 'This node is not running Wings-RS.'], 400);

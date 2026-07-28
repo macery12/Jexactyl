@@ -45,6 +45,8 @@ class Kernel extends HttpKernel
         HandleCors::class,
         PreventRequestsDuringMaintenance::class,
         ValidatePostSize::class,
+        Middleware\RejectOversizedFileDiffRequest::class,
+        Middleware\Api\Daemon\RejectOversizedActivityRequest::class,
         TrimStrings::class,
         ConvertEmptyStringsToNull::class,
     ];

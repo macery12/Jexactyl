@@ -161,6 +161,24 @@ class RouteServiceProvider extends ServiceProvider
             });
         });
 
+        RateLimiter::for('daemon.activity', function (Request $request) {
+            /** @var \Everest\Models\Node|null $node */
+            $node = $request->attributes->get('node');
+            $key = $node?->getKey();
+
+            // DaemonAuthenticate runs before this route limiter. The fallback is
+            // fail-safe for an unexpectedly reordered middleware stack and does
+            // not store the bearer token itself in a cache key.
+            if ($key === null) {
+                $key = hash('sha256', (string) ($request->bearerToken() ?? $request->ip()));
+            }
+
+            return Limit::perMinutes(
+                max(1, (int) config('http.rate_limit.daemon_activity_period', 1)),
+                max(1, (int) config('http.rate_limit.daemon_activity', 60))
+            )->by('daemon-activity:' . $key);
+        });
+
         RateLimiter::for('password-reset-ip', fn (Request $request) => Limit::perMinutes(3, 20)->by($request->ip()));
 
         RateLimiter::for('password-reset-email', function (Request $request) {

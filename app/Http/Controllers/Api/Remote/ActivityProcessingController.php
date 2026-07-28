@@ -23,8 +23,15 @@ class ActivityProcessingController extends Controller
         /** @var \Everest\Models\Node $node */
         $node = $request->attributes->get('node');
 
-        $servers = $node->servers()->whereIn('uuid', $request->servers())->get()->keyBy('uuid');
-        $users = User::query()->whereIn('uuid', $request->users())->get()->keyBy('uuid');
+        $servers = $node->servers()
+            ->whereIn('uuid', $request->servers())
+            ->with([
+                'user:id,uuid',
+                'subusers:id,server_id,user_id',
+                'subusers.user:id,uuid',
+            ])
+            ->get()
+            ->keyBy('uuid');
 
         $logs = [];
         foreach ($request->input('data') as $datum) {
@@ -68,7 +75,7 @@ class ActivityProcessingController extends Controller
                 'timestamp' => $when->setTimezone($tz),
             ];
 
-            if ($user = $users->get($datum['user'])) {
+            if ($user = $this->actorForServer($server, $datum['user'] ?? null)) {
                 $log['actor_id'] = $user->id;
                 $log['actor_type'] = $user->getMorphClass();
             }
@@ -97,6 +104,29 @@ class ActivityProcessingController extends Controller
 
             ActivityLogSubject::insert($batch);
         }
+    }
+
+    /**
+     * A daemon may attribute activity only to an owner or subuser of the same
+     * server. Never resolve a submitted UUID against the global users table.
+     */
+    private function actorForServer(Server $server, ?string $uuid): ?User
+    {
+        if ($uuid === null || $uuid === '') {
+            return null;
+        }
+
+        if ($server->user->uuid === $uuid) {
+            return $server->user;
+        }
+
+        foreach ($server->subusers as $subuser) {
+            if ($subuser->user->uuid === $uuid) {
+                return $subuser->user;
+            }
+        }
+
+        return null;
     }
 
     /**

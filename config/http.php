@@ -28,5 +28,10 @@ return [
         // per-user budget in addition to the global client API limiter.
         'file_diff_period' => 1,
         'file_diff' => env('APP_API_FILE_DIFF_RATELIMIT', 10),
+
+        // Daemons batch activity events. Keep a per-node budget so one
+        // compromised or malfunctioning node cannot exhaust Panel workers.
+        'daemon_activity_period' => 1,
+        'daemon_activity' => env('APP_API_DAEMON_ACTIVITY_RATELIMIT', 60),
     ],
 ];

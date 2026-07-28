@@ -2,13 +2,10 @@
 
 namespace Everest\Http\Requests\Api\Client\Servers\Files;
 
-use Everest\Models\Permission;
 use Illuminate\Validation\Validator;
 use Illuminate\Validation\ValidationException;
-use Everest\Contracts\Http\ClientPermissionsRequest;
-use Everest\Http\Requests\Api\Client\ClientApiRequest;
 
-class WriteFileWithDiffRequest extends ClientApiRequest implements ClientPermissionsRequest
+class WriteFileWithDiffRequest extends OverwriteCapableFileRequest
 {
     /**
      * The JSON body contains both the previous and replacement contents, so keep
@@ -28,16 +25,6 @@ class WriteFileWithDiffRequest extends ClientApiRequest implements ClientPermiss
     public const MAX_CONTENT_LINES = 20000;
 
     public const MAX_FILE_PATH_LENGTH = 4096;
-
-    /**
-     * Returns the permissions string indicating which permission should be used to
-     * validate that the authenticated user has permission to perform this action against
-     * the given resource (server).
-     */
-    public function permission(): string
-    {
-        return Permission::ACTION_FILE_CREATE;
-    }
 
     /**
      * Authorize the server action before inspecting an attacker-controlled body,
