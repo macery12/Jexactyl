@@ -5,6 +5,7 @@ namespace Everest\Http\Controllers\Api\Remote\Backups;
 use Everest\Models\Backup;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
+use Aws\S3\S3ClientInterface;
 use Everest\Facades\Activity;
 use Illuminate\Http\JsonResponse;
 use Everest\Exceptions\DisplayException;
@@ -60,7 +61,12 @@ class BackupStatusController extends Controller
             // being completed in S3 correctly.
             $adapter = $this->backupManager->adapter();
             if ($adapter instanceof S3Filesystem) {
-                $this->completeMultipartUpload($model, $adapter, $successful, $request->input('parts'));
+                $this->completeMultipartUpload(
+                    $model,
+                    $adapter,
+                    $successful,
+                    (int) $request->input('size', 0),
+                );
             }
         });
 
@@ -99,8 +105,12 @@ class BackupStatusController extends Controller
      * @throws \Exception
      * @throws DisplayException
      */
-    protected function completeMultipartUpload(Backup $backup, S3Filesystem $adapter, bool $successful, ?array $parts): void
-    {
+    protected function completeMultipartUpload(
+        Backup $backup,
+        S3Filesystem $adapter,
+        bool $successful,
+        int $reportedSize,
+    ): void {
         // This should never really happen, but if it does don't let us fall victim to Amazon's
         // wildly fun error messaging. Just stop the process right here.
         if (empty($backup->upload_id)) {
@@ -127,27 +137,102 @@ class BackupStatusController extends Controller
             return;
         }
 
-        // Otherwise send a CompleteMultipartUpload request.
-        $params['MultipartUpload'] = [
-            'Parts' => [],
-        ];
+        [$listedParts, $actualSize] = $this->listMultipartParts($client, $params);
+        if ($backup->upload_size === null) {
+            // Uploads initialized before upload_size existed have no durable
+            // expectation to compare against. Backfill only from the provider's
+            // authoritative part total, and only when the daemon independently
+            // reports that exact total. The surrounding status transaction
+            // already holds the backup row through the preceding update.
+            if ($reportedSize !== $actualSize) {
+                throw new DisplayException('Cannot complete backup request: uploaded size does not match the reported size.');
+            }
+            $backup->forceFill(['upload_size' => $actualSize])->saveOrFail();
+        }
 
-        if (is_null($parts)) {
-            $listedParts = $client->execute($client->getCommand('ListParts', $params))['Parts'];
-            if (count($listedParts) > S3MultipartUploadLimits::maximumCompletionParts()) {
+        $expectedSize = (int) $backup->upload_size;
+        if ($reportedSize !== $expectedSize || $actualSize !== $expectedSize) {
+            throw new DisplayException('Cannot complete backup request: uploaded size does not match the authorized size.');
+        }
+
+        // Complete using the provider's authoritative part list. Caller-supplied
+        // ETags and part numbers are retained in the API only for daemon
+        // compatibility and are never trusted as the completion authority.
+        $params['MultipartUpload'] = ['Parts' => $listedParts];
+        $client->execute($client->getCommand('CompleteMultipartUpload', $params));
+    }
+
+    /**
+     * Return the bounded provider-authoritative part list and its exact byte sum.
+     *
+     * @return array{0: array<int, array{ETag: string, PartNumber: int}>, 1: int}
+     */
+    private function listMultipartParts(S3ClientInterface $client, array $params): array
+    {
+        $maximumParts = S3MultipartUploadLimits::maximumCompletionParts();
+        $parts = [];
+        $totalSize = 0;
+        $marker = null;
+
+        while (true) {
+            $remaining = $maximumParts - count($parts);
+            if ($remaining <= 0) {
                 throw new DisplayException('Cannot complete backup request: multipart part count exceeds the configured limit.');
             }
 
-            $params['MultipartUpload']['Parts'] = $listedParts;
-        } else {
-            foreach ($parts as $part) {
-                $params['MultipartUpload']['Parts'][] = [
-                    'ETag' => $part['etag'],
-                    'PartNumber' => $part['part_number'],
-                ];
+            $listParams = $params;
+            $listParams['MaxParts'] = min(1000, $remaining);
+            if ($marker !== null) {
+                $listParams['PartNumberMarker'] = $marker;
             }
+
+            $result = $client->execute($client->getCommand('ListParts', $listParams));
+            $batch = $result['Parts'] ?? [];
+            if (!is_array($batch)) {
+                throw new DisplayException('Cannot complete backup request: object storage returned an invalid part list.');
+            }
+
+            foreach ($batch as $part) {
+                $partNumber = (int) ($part['PartNumber'] ?? 0);
+                $etag = $part['ETag'] ?? null;
+                $size = $part['Size'] ?? null;
+                if (
+                    $partNumber < 1
+                    || $partNumber > S3MultipartUploadLimits::MAX_MULTIPART_PARTS
+                    || !is_string($etag)
+                    || $etag === ''
+                    || !is_int($size)
+                    || $size < 1
+                ) {
+                    throw new DisplayException('Cannot complete backup request: object storage returned invalid part metadata.');
+                }
+
+                $parts[] = ['ETag' => $etag, 'PartNumber' => $partNumber];
+                $totalSize += $size;
+                if (
+                    count($parts) > $maximumParts
+                    || $totalSize > S3MultipartUploadLimits::maximumObjectSize()
+                ) {
+                    throw new DisplayException('Cannot complete backup request: multipart upload exceeds the configured limit.');
+                }
+            }
+
+            $truncated = (bool) ($result['IsTruncated'] ?? false);
+            if (!$truncated) {
+                break;
+            }
+
+            $nextMarker = (int) ($result['NextPartNumberMarker'] ?? 0);
+            if ($nextMarker <= (int) ($marker ?? 0)) {
+                throw new DisplayException('Cannot complete backup request: object storage returned an invalid pagination marker.');
+            }
+            $marker = $nextMarker;
         }
 
-        $client->execute($client->getCommand('CompleteMultipartUpload', $params));
+        if ($parts === []) {
+            throw new DisplayException('Cannot complete backup request: multipart upload contains no parts.');
+        }
+
+        return [$parts, $totalSize];
     }
 }

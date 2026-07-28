@@ -94,12 +94,13 @@ class BackupRemoteUploadController extends Controller
         }
 
         $uploadId = null;
-        $createdUpload = false;
+        $createdProviderUploadId = null;
+        $uploadStatePersisted = false;
         try {
             // Serialize initialization on the backup row. Lost responses and
             // concurrent retries must reuse the durable upload identifier rather
             // than creating an untracked multipart upload.
-            [$uploadId, $createdUpload] = $this->connection->transaction(function () use ($backup, $client, $params): array {
+            [$uploadId] = $this->connection->transaction(function () use ($backup, $client, $params, $size, &$createdProviderUploadId): array {
                 /** @var Backup $locked */
                 $locked = Backup::query()->whereKey($backup->id)->lockForUpdate()->firstOrFail();
                 if (!is_null($locked->completed_at)) {
@@ -107,7 +108,14 @@ class BackupRemoteUploadController extends Controller
                 }
 
                 if (is_string($locked->upload_id) && $locked->upload_id !== '') {
-                    return [$locked->upload_id, false];
+                    if ($locked->upload_size !== null && (int) $locked->upload_size !== $size) {
+                        throw new ConflictHttpException('This multipart upload is already bound to a different size.');
+                    }
+                    if ($locked->upload_size === null) {
+                        $locked->forceFill(['upload_size' => $size])->saveOrFail();
+                    }
+
+                    return [$locked->upload_id];
                 }
 
                 $result = $client->execute($client->getCommand('CreateMultipartUpload', $params));
@@ -115,11 +123,19 @@ class BackupRemoteUploadController extends Controller
                 if (!is_string($identifier) || $identifier === '') {
                     throw new \UnexpectedValueException('Object storage did not return a multipart upload identifier.');
                 }
+                // A failed save or transaction commit prevents the closure's
+                // return value from reaching the outer scope, but the provider
+                // upload already exists and must still be aborted.
+                $createdProviderUploadId = $identifier;
 
-                $locked->update(['upload_id' => $identifier]);
+                $locked->forceFill([
+                    'upload_id' => $identifier,
+                    'upload_size' => $size,
+                ])->saveOrFail();
 
-                return [$identifier, true];
+                return [$identifier];
             });
+            $uploadStatePersisted = true;
             $params['UploadId'] = $uploadId;
 
             $parts = [];
@@ -130,10 +146,11 @@ class BackupRemoteUploadController extends Controller
                 )->getUri()->__toString();
             }
         } catch (\Throwable $exception) {
-            // Never abort a pre-existing upload merely because re-signing a URL
-            // batch failed. It may already contain successfully uploaded parts.
-            if ($createdUpload && !is_null($uploadId)) {
-                $this->abortIncompleteUpload($backup, $adapter, $path, $uploadId);
+            // Abort only when provider creation escaped a failed database
+            // transaction. Once the identifier is durable, a concurrent retry
+            // may already be using it and signing failures must remain retryable.
+            if ($createdProviderUploadId !== null && !$uploadStatePersisted) {
+                $this->abortIncompleteUpload($backup, $adapter, $path, $createdProviderUploadId);
             }
 
             throw $exception;
@@ -216,8 +233,9 @@ class BackupRemoteUploadController extends Controller
             Backup::query()
                 ->whereKey($backup->id)
                 ->where('upload_id', $uploadId)
-                ->update(['upload_id' => null]);
+                ->update(['upload_id' => null, 'upload_size' => null]);
             $backup->upload_id = null;
+            $backup->upload_size = null;
         } catch (\Throwable $exception) {
             Log::warning('Multipart upload was aborted but its backup state could not be cleared.', [
                 'backup_uuid' => $backup->uuid,

@@ -122,6 +122,7 @@ class BackupRemoteUploadSecurityTest extends IntegrationTestCase
 
         $this->assertSame(range(1, $expectedParts), $partNumbers);
         $this->assertSame('upload-123', $this->backup->fresh()->upload_id);
+        $this->assertSame($size, $this->backup->fresh()->upload_size);
     }
 
     public static function partCountProvider(): array
@@ -132,12 +133,11 @@ class BackupRemoteUploadSecurityTest extends IntegrationTestCase
         ];
     }
 
-    public function testSigningFailureAbortsUploadAndClearsPersistedIdentifier(): void
+    public function testSigningFailureRetainsPersistedUploadForRetry(): void
     {
         $client = \Mockery::mock(S3ClientInterface::class);
         $create = \Mockery::mock(CommandInterface::class);
         $uploadPart = \Mockery::mock(CommandInterface::class);
-        $abort = \Mockery::mock(CommandInterface::class);
 
         $client->expects('getCommand')
             ->once()
@@ -152,11 +152,8 @@ class BackupRemoteUploadSecurityTest extends IntegrationTestCase
             ->once()
             ->with($uploadPart, \Mockery::type(\DateTimeInterface::class))
             ->andThrow(new \RuntimeException('Signing failed.'));
-        $client->expects('getCommand')
-            ->once()
-            ->with('AbortMultipartUpload', \Mockery::on(fn (array $params) => $params['UploadId'] === 'upload-123'))
-            ->andReturn($abort);
-        $client->expects('execute')->once()->with($abort)->andReturn(new Result());
+        $client->shouldNotReceive('getCommand')
+            ->with('AbortMultipartUpload', \Mockery::type('array'));
 
         $filesystem = new S3Filesystem($client, 'backups');
         $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
@@ -167,7 +164,266 @@ class BackupRemoteUploadSecurityTest extends IntegrationTestCase
         $this->getJson("/api/remote/backups/{$this->backup->uuid}?size=1")
             ->assertInternalServerError();
 
+        $this->assertSame('upload-123', $this->backup->fresh()->upload_id);
+        $this->assertSame(1, $this->backup->fresh()->upload_size);
+    }
+
+    public function testProviderUploadIsAbortedWhenItsDatabaseStateCannotBePersisted(): void
+    {
+        Backup::updating(function (Backup $backup): void {
+            if ($backup->upload_id === 'orphan-candidate') {
+                throw new \RuntimeException('Simulated database write failure.');
+            }
+        });
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $create = \Mockery::mock(CommandInterface::class);
+        $abort = \Mockery::mock(CommandInterface::class);
+        $client->expects('getCommand')
+            ->once()
+            ->with('CreateMultipartUpload', \Mockery::type('array'))
+            ->andReturn($create);
+        $client->expects('execute')
+            ->once()
+            ->with($create)
+            ->andReturn(new Result(['UploadId' => 'orphan-candidate']));
+        $client->expects('getCommand')
+            ->once()
+            ->with('AbortMultipartUpload', \Mockery::on(
+                fn (array $params) => $params['UploadId'] === 'orphan-candidate'
+            ))
+            ->andReturn($abort);
+        $client->expects('execute')->once()->with($abort)->andReturn(new Result());
+        $client->shouldNotReceive('createPresignedRequest');
+
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+
+        $this->getJson("/api/remote/backups/{$this->backup->uuid}?size=10")
+            ->assertInternalServerError();
+
         $this->assertNull($this->backup->fresh()->upload_id);
+        $this->assertNull($this->backup->fresh()->upload_size);
+    }
+
+    public function testRetryCannotChangeSizeBoundToExistingUpload(): void
+    {
+        $this->backup->forceFill([
+            'upload_id' => 'existing-upload',
+            'upload_size' => 10,
+        ])->saveOrFail();
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+        $client->shouldNotReceive('execute');
+        $client->shouldNotReceive('createPresignedRequest');
+
+        $this->getJson("/api/remote/backups/{$this->backup->uuid}?size=11")
+            ->assertConflict();
+
+        $this->assertSame(10, $this->backup->fresh()->upload_size);
+    }
+
+    public function testCompletionUsesProviderPartsAndExactAuthorizedSize(): void
+    {
+        $this->backup->forceFill([
+            'upload_id' => 'upload-123',
+            'upload_size' => 10,
+        ])->saveOrFail();
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $list = \Mockery::mock(CommandInterface::class);
+        $complete = \Mockery::mock(CommandInterface::class);
+        $client->expects('getCommand')
+            ->once()
+            ->with('ListParts', \Mockery::on(fn (array $params) => $params['UploadId'] === 'upload-123'))
+            ->andReturn($list);
+        $client->expects('execute')
+            ->once()
+            ->with($list)
+            ->andReturn(new Result([
+                'Parts' => [['ETag' => '"etag-1"', 'PartNumber' => 1, 'Size' => 10]],
+                'IsTruncated' => false,
+            ]));
+        $client->expects('getCommand')
+            ->once()
+            ->with('CompleteMultipartUpload', \Mockery::on(function (array $params): bool {
+                return $params['MultipartUpload']['Parts'] === [
+                    ['ETag' => '"etag-1"', 'PartNumber' => 1],
+                ];
+            }))
+            ->andReturn($complete);
+        $client->expects('execute')->once()->with($complete)->andReturn(new Result());
+
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+
+        $this->postJson("/api/remote/backups/{$this->backup->uuid}", [
+            'successful' => true,
+            'checksum' => 'checksum',
+            'checksum_type' => 'sha256',
+            'size' => 10,
+            // Deliberately bogus caller metadata: provider state is authoritative.
+            'parts' => [['etag' => 'caller-etag', 'part_number' => 9]],
+        ])->assertNoContent();
+
+        $this->assertSame(10, $this->backup->fresh()->bytes);
+        $this->assertTrue($this->backup->fresh()->is_successful);
+    }
+
+    public function testLegacyUploadBackfillsExpectedSizeFromProviderParts(): void
+    {
+        $this->backup->forceFill([
+            'upload_id' => 'legacy-upload',
+            'upload_size' => null,
+        ])->saveOrFail();
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $list = \Mockery::mock(CommandInterface::class);
+        $complete = \Mockery::mock(CommandInterface::class);
+        $client->expects('getCommand')->once()->with('ListParts', \Mockery::type('array'))->andReturn($list);
+        $client->expects('execute')->once()->with($list)->andReturn(new Result([
+            'Parts' => [['ETag' => '"legacy-etag"', 'PartNumber' => 1, 'Size' => 10]],
+            'IsTruncated' => false,
+        ]));
+        $client->expects('getCommand')
+            ->once()
+            ->with('CompleteMultipartUpload', \Mockery::type('array'))
+            ->andReturn($complete);
+        $client->expects('execute')->once()->with($complete)->andReturn(new Result());
+
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+
+        $this->postJson("/api/remote/backups/{$this->backup->uuid}", [
+            'successful' => true,
+            'checksum' => 'checksum',
+            'checksum_type' => 'sha256',
+            'size' => 10,
+        ])->assertNoContent();
+
+        $fresh = $this->backup->fresh();
+        $this->assertSame(10, $fresh->upload_size);
+        $this->assertSame(10, $fresh->bytes);
+        $this->assertTrue($fresh->is_successful);
+    }
+
+    public function testCompletionRejectsProviderSizeMismatch(): void
+    {
+        $this->backup->forceFill([
+            'upload_id' => 'upload-123',
+            'upload_size' => 10,
+        ])->saveOrFail();
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $list = \Mockery::mock(CommandInterface::class);
+        $client->expects('getCommand')->once()->with('ListParts', \Mockery::type('array'))->andReturn($list);
+        $client->expects('execute')->once()->with($list)->andReturn(new Result([
+            'Parts' => [['ETag' => '"etag-1"', 'PartNumber' => 1, 'Size' => 11]],
+            'IsTruncated' => false,
+        ]));
+        $client->shouldNotReceive('CompleteMultipartUpload');
+
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+
+        $this->postJson("/api/remote/backups/{$this->backup->uuid}", [
+            'successful' => true,
+            'checksum' => 'checksum',
+            'checksum_type' => 'sha256',
+            'size' => 10,
+        ])->assertStatus(400);
+
+        $this->assertNull($this->backup->fresh()->completed_at);
+        $this->assertFalse($this->backup->fresh()->is_successful);
+    }
+
+    public function testCompletionPaginatesThroughProviderPartListings(): void
+    {
+        $this->backup->forceFill([
+            'upload_id' => 'paged-upload',
+            'upload_size' => 10,
+        ])->saveOrFail();
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $firstList = \Mockery::mock(CommandInterface::class);
+        $secondList = \Mockery::mock(CommandInterface::class);
+        $complete = \Mockery::mock(CommandInterface::class);
+        $markers = [];
+        $client->expects('getCommand')
+            ->twice()
+            ->with('ListParts', \Mockery::on(function (array $params) use (&$markers): bool {
+                $markers[] = $params['PartNumberMarker'] ?? null;
+
+                return true;
+            }))
+            ->andReturn($firstList, $secondList);
+        $client->expects('execute')->once()->with($firstList)->andReturn(new Result([
+            'Parts' => [['ETag' => '"etag-1"', 'PartNumber' => 1, 'Size' => 5]],
+            'IsTruncated' => true,
+            'NextPartNumberMarker' => 1,
+        ]));
+        $client->expects('execute')->once()->with($secondList)->andReturn(new Result([
+            'Parts' => [['ETag' => '"etag-2"', 'PartNumber' => 2, 'Size' => 5]],
+            'IsTruncated' => false,
+        ]));
+        $client->expects('getCommand')
+            ->once()
+            ->with('CompleteMultipartUpload', \Mockery::on(
+                fn (array $params) => count($params['MultipartUpload']['Parts']) === 2
+            ))
+            ->andReturn($complete);
+        $client->expects('execute')->once()->with($complete)->andReturn(new Result());
+
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+
+        $this->postJson("/api/remote/backups/{$this->backup->uuid}", [
+            'successful' => true,
+            'checksum' => 'checksum',
+            'checksum_type' => 'sha256',
+            'size' => 10,
+        ])->assertNoContent();
+
+        $this->assertSame([null, 1], $markers);
+    }
+
+    public function testCompletionRejectsANonProgressingProviderPaginationMarker(): void
+    {
+        $this->backup->forceFill([
+            'upload_id' => 'stuck-upload',
+            'upload_size' => 10,
+        ])->saveOrFail();
+
+        $client = \Mockery::mock(S3ClientInterface::class);
+        $list = \Mockery::mock(CommandInterface::class);
+        $client->expects('getCommand')->once()->with('ListParts', \Mockery::type('array'))->andReturn($list);
+        $client->expects('execute')->once()->with($list)->andReturn(new Result([
+            'Parts' => [['ETag' => '"etag-1"', 'PartNumber' => 1, 'Size' => 5]],
+            'IsTruncated' => true,
+            'NextPartNumberMarker' => 0,
+        ]));
+        $client->shouldNotReceive('CompleteMultipartUpload');
+
+        $filesystem = new S3Filesystem($client, 'backups');
+        $this->instance(BackupManager::class, $manager = \Mockery::mock(BackupManager::class));
+        $manager->expects('adapter')->once()->andReturn($filesystem);
+
+        $this->postJson("/api/remote/backups/{$this->backup->uuid}", [
+            'successful' => true,
+            'checksum' => 'checksum',
+            'checksum_type' => 'sha256',
+            'size' => 10,
+        ])->assertStatus(400);
+
+        $this->assertNull($this->backup->fresh()->completed_at);
     }
 
     public function testSigningWorkIsRateLimitedPerAuthenticatedNode(): void

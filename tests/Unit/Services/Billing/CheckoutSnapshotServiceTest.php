@@ -172,4 +172,24 @@ class CheckoutSnapshotServiceTest extends TestCase
             $paypalFingerprint,
         );
     }
+
+    public function testProviderCheckoutCannotBeCreatedWithoutNonce(): void
+    {
+        $user = new User();
+        $user->id = 7;
+        $product = new Product();
+        $product->id = 11;
+        $request = Request::create('/checkout', 'POST', ['name' => 'Server']);
+
+        $this->expectException(DisplayException::class);
+        $this->expectExceptionMessage('checkout identifier is required');
+
+        $this->service->existingForRequest(
+            $request,
+            $user,
+            $product,
+            'stripe',
+            $this->service->requestFingerprint($request, $user, $product, 'stripe'),
+        );
+    }
 }

@@ -150,9 +150,9 @@ class CheckoutSnapshotService
     }
 
     /**
-     * Resolve an optional client idempotency nonce to the one pending checkout
-     * it names. A nonce can never be reused for a different processor or
-     * logical request.
+     * Resolve the required client idempotency nonce to the one pending checkout
+     * it names. A nonce can never be reused for a different processor or logical
+     * request.
      */
     public function existingForRequest(
         Request $request,
@@ -163,7 +163,7 @@ class CheckoutSnapshotService
     ): ?Order {
         $nonce = trim((string) $request->input('checkout_nonce', ''));
         if ($nonce === '') {
-            return null;
+            throw new DisplayException('A checkout identifier is required. Refresh the checkout page and try again.');
         }
 
         /** @var Order|null $order */

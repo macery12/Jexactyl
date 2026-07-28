@@ -9,10 +9,16 @@ class UpdateCheckoutRequest extends ClientApiRequest
 {
     public function rules(): array
     {
+        $createsProviderOrder = $this->isMethod('POST')
+            && (
+                $this->is('api/client/billing/products/*/intent')
+                || $this->is('api/client/billing/products/*/paypal/order')
+            );
+
         return [
             'intent'         => ['nullable', 'string', 'max:255'],
             'order_id'       => ['nullable', 'string', 'max:255'],
-            'checkout_nonce' => ['nullable', 'uuid'],
+            'checkout_nonce' => [$createsProviderOrder ? 'required' : 'nullable', 'uuid'],
             'name'           => ['nullable', 'string', 'min:3', 'max:191'],
             'node_id'        => ['nullable', 'integer', 'exists:nodes,id'],
             'egg_id'         => ['nullable', 'integer', 'exists:eggs,id'],
