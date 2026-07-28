@@ -10,6 +10,7 @@ use Everest\Services\Security\LogSanitizer;
 use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\PayPalCaptureService;
 use Everest\Services\Billing\PayPalPaymentService;
+use Everest\Services\Billing\PaymentWebhookRegistry;
 use Everest\Services\Billing\CheckoutIntegrityService;
 use Everest\Services\Billing\ServerFulfillmentService;
 use Everest\Services\Billing\PayPalWebhookEventService;
@@ -18,17 +19,6 @@ use Everest\Services\Billing\PayPalWebhookVerificationService;
 
 class PayPalWebhookController
 {
-    private const POSITIVE_EVENTS = [
-        'PAYMENT.CAPTURE.COMPLETED',
-        'CHECKOUT.ORDER.COMPLETED',
-    ];
-
-    private const NEGATIVE_EVENTS = [
-        'PAYMENT.CAPTURE.DENIED',
-        'PAYMENT.CAPTURE.REFUNDED',
-        'PAYMENT.CAPTURE.REVERSED',
-    ];
-
     public function __construct(
         private PayPalPaymentService $paypalService,
         private PayPalWebhookVerificationService $verificationService,
@@ -99,7 +89,7 @@ class PayPalWebhookController
                 return response()->json(['ok' => true]);
             }
 
-            if (in_array($eventType, self::NEGATIVE_EVENTS, true)) {
+            if (in_array($eventType, PaymentWebhookRegistry::PAYPAL_NEGATIVE_EVENTS, true)) {
                 $negative = $this->negativeEventService->record(
                     $order,
                     $transaction,
@@ -118,7 +108,7 @@ class PayPalWebhookController
                 return response()->json(['ok' => true]);
             }
 
-            if (!in_array($eventType, self::POSITIVE_EVENTS, true)) {
+            if (!in_array($eventType, PaymentWebhookRegistry::PAYPAL_POSITIVE_EVENTS, true)) {
                 Log::info('PayPal webhook requires no fulfillment action', [
                     'event_type' => $eventType,
                     'order_id' => $order->id,

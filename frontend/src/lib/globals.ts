@@ -73,6 +73,21 @@ export interface BillingConfig {
     currency: { symbol: string; code: string };
     links: { terms: string; privacy: string };
     require_billing_address?: boolean;
+    webhook_setup?: {
+        stripe: {
+            url: string;
+            events: string[];
+            signing_secret_configured: boolean;
+        };
+        paypal: {
+            url: string;
+            events: string[];
+        };
+    };
+    paypal_standalone?: {
+        mode?: 'sandbox' | 'live';
+        credentials_configured?: boolean;
+    };
     // Operator-customisable storefront (section builder). Injected inside the
     // everest billing block by EverestComposer; edited via /admin/billing/store.
     store?: StoreConfiguration;

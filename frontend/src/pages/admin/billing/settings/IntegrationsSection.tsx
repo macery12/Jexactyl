@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { CreditCard, KeyRound, Power, Wallet } from 'lucide-react';
+import { Check, Copy, CreditCard, KeyRound, Power, TriangleAlert, Wallet, Webhook } from 'lucide-react';
 import { m } from '@/i18n';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { useBilling } from '@/state/billing';
+import type { BillingConfig } from '@/lib/globals';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -14,6 +15,122 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { updateBillingSetting, deleteStripeKeys } from '@/api/adminBillingSettings';
 import { SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { patchBilling } from './patchBilling';
+
+type WebhookSetupData = NonNullable<BillingConfig['webhook_setup']>;
+
+export function WebhookSetup({
+    provider,
+    url,
+    events,
+    description,
+    note,
+    signingSecretConfigured,
+}: {
+    provider: string;
+    url: string;
+    events: string[];
+    description: string;
+    note?: string;
+    signingSecretConfigured?: boolean;
+}) {
+    const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+    const copy = async () => {
+        try {
+            if (!navigator.clipboard) throw new Error('Clipboard API unavailable');
+            await navigator.clipboard.writeText(url);
+            setCopyState('copied');
+        } catch {
+            setCopyState('failed');
+        }
+    };
+
+    return (
+        <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/40 p-4">
+            <div className="flex items-start gap-2.5">
+                <Webhook className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+                <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-[var(--color-ink)]">
+                        {m['admin.billing.integrations.webhook.title']()}
+                    </h3>
+                    <p className="mt-0.5 text-xs leading-relaxed text-[var(--color-ink-faint)]">{description}</p>
+                </div>
+            </div>
+
+            <div className="mt-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
+                    {m['admin.billing.integrations.webhook.url']()}
+                </span>
+                <div className="mt-1.5 flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+                    <code className="min-w-0 flex-1 select-all overflow-x-auto whitespace-nowrap text-xs text-[var(--color-ink)]">
+                        {url}
+                    </code>
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={copy}
+                        aria-label={m['admin.billing.integrations.webhook.copyUrl']({ provider })}
+                    >
+                        {copyState === 'copied' ? (
+                            <Check className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+                        ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                        )}
+                        {copyState === 'copied' ? m['common.states.copied']() : m['common.actions.copy']()}
+                    </Button>
+                </div>
+                <p className={copyState === 'failed' ? 'mt-1.5 text-xs text-[var(--color-danger)]' : 'sr-only'} role="status" aria-live="polite">
+                    {copyState === 'copied'
+                        ? m['admin.billing.integrations.webhook.copied']({ provider })
+                        : copyState === 'failed'
+                          ? m['admin.billing.integrations.webhook.copyFailed']()
+                          : ''}
+                </p>
+            </div>
+
+            <div className="mt-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-ink-faint)]">
+                    {m['admin.billing.integrations.webhook.events']()}
+                </span>
+                <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {events.map(event => (
+                        <li key={event}>
+                            <code className="inline-flex rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-ink-muted)]">
+                                {event}
+                            </code>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+
+            {signingSecretConfigured !== undefined && (
+                <div
+                    className={
+                        'mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-xs leading-relaxed ' +
+                        (signingSecretConfigured
+                            ? 'border-[var(--color-accent)]/25 bg-[var(--color-accent)]/8 text-[var(--color-ink-muted)]'
+                            : 'border-[var(--color-warning)]/30 bg-[var(--color-warning)]/8 text-[var(--color-warning)]')
+                    }
+                >
+                    {signingSecretConfigured ? (
+                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
+                    ) : (
+                        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span>
+                        {signingSecretConfigured
+                            ? m['admin.billing.integrations.webhook.stripeSecretConfigured']()
+                            : m['admin.billing.integrations.webhook.stripeSecretMissing']()}
+                    </span>
+                </div>
+            )}
+
+            {note && <p className="mt-3 text-xs leading-relaxed text-[var(--color-ink-faint)]">{note}</p>}
+        </div>
+    );
+}
 
 function StatusChip({ ok }: { ok: boolean }) {
     return (
@@ -43,7 +160,14 @@ function StripeKeysModal({ open, onClose }: { open: boolean; onClose: () => void
         },
         onSuccess: () => {
             patchBilling({
-                processors: { ...((billing.processors ?? {}) as any), stripe: { available: true, enabled: true } },
+                keys: { publishable: true, secret: true },
+                processors: {
+                    ...((billing.processors ?? {}) as any),
+                    stripe: {
+                        available: Boolean(billing.processors?.stripe?.enabled),
+                        enabled: Boolean(billing.processors?.stripe?.enabled),
+                    },
+                },
             });
             push({ type: 'success', message: m['admin.billing.integrations.stripe.saved']() });
             onClose();
@@ -82,11 +206,20 @@ function StripeKeysModal({ open, onClose }: { open: boolean; onClose: () => void
     );
 }
 
-function PayPalKeysModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function PayPalKeysModal({
+    open,
+    onClose,
+    initialMode,
+}: {
+    open: boolean;
+    onClose: () => void;
+    initialMode: 'sandbox' | 'live';
+}) {
     const { push } = useFlashes();
+    const { billing } = useBilling();
     const [clientId, setClientId] = useState('');
     const [clientSecret, setClientSecret] = useState('');
-    const [mode, setMode] = useState<'sandbox' | 'live'>('sandbox');
+    const [mode, setMode] = useState<'sandbox' | 'live'>(initialMode);
 
     const save = useMutation({
         mutationFn: async () => {
@@ -95,6 +228,16 @@ function PayPalKeysModal({ open, onClose }: { open: boolean; onClose: () => void
             await updateBillingSetting('paypal_standalone:mode', mode);
         },
         onSuccess: () => {
+            patchBilling({
+                paypal_standalone: { ...billing.paypal_standalone, mode, credentials_configured: true },
+                processors: {
+                    ...((billing.processors ?? {}) as any),
+                    paypal: {
+                        available: Boolean(billing.processors?.paypal?.enabled),
+                        enabled: Boolean(billing.processors?.paypal?.enabled),
+                    },
+                },
+            });
             push({ type: 'success', message: m['admin.billing.integrations.paypal.saved']() });
             onClose();
         },
@@ -149,10 +292,14 @@ export default function IntegrationsSection() {
     const [deleteKeysOpen, setDeleteKeysOpen] = useState(false);
     const [disableOpen, setDisableOpen] = useState(false);
 
-    const stripeConfigured = Boolean(raw.processors?.stripe?.available ?? (raw.keys?.publishable && raw.keys?.secret));
+    const webhookSetup = raw.webhook_setup as WebhookSetupData | undefined;
+    const stripeConfigured = Boolean(raw.keys?.publishable && raw.keys?.secret);
     const stripeEnabled = Boolean(raw.integrations?.stripe?.enabled);
-    const paypalStandaloneConfigured = Boolean(raw.processors?.paypal?.available);
+    const paypalStandaloneConfigured = Boolean(
+        raw.paypal_standalone?.credentials_configured ?? raw.processors?.paypal?.available,
+    );
     const paypalStandaloneEnabled = Boolean(raw.integrations?.paypal?.enabled);
+    const paypalMode: 'sandbox' | 'live' = raw.paypal_standalone?.mode === 'live' ? 'live' : 'sandbox';
     const paypalViaStripe = Boolean(raw.paypal);
     const linkEnabled = Boolean(raw.link);
 
@@ -231,6 +378,15 @@ export default function IntegrationsSection() {
                         onChange={next => toggleFlat.mutate({ key: 'link', value: next })}
                     />
                 </ToggleGroup>
+                {webhookSetup?.stripe && (
+                    <WebhookSetup
+                        provider="Stripe"
+                        url={webhookSetup.stripe.url}
+                        events={webhookSetup.stripe.events}
+                        description={m['admin.billing.integrations.webhook.stripeDescription']()}
+                        signingSecretConfigured={webhookSetup.stripe.signing_secret_configured}
+                    />
+                )}
                 <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => setStripeOpen(true)}>
                         <KeyRound className="h-4 w-4" />
@@ -255,6 +411,15 @@ export default function IntegrationsSection() {
                         onChange={next => toggleIntegration.mutate({ id: 'paypal', value: next })}
                     />
                 </ToggleGroup>
+                {webhookSetup?.paypal && (
+                    <WebhookSetup
+                        provider="PayPal"
+                        url={webhookSetup.paypal.url}
+                        events={webhookSetup.paypal.events}
+                        description={m['admin.billing.integrations.webhook.paypalDescription']()}
+                        note={m['admin.billing.integrations.webhook.paypalNote']()}
+                    />
+                )}
                 <Button variant="outline" size="sm" className="self-start" onClick={() => setPaypalOpen(true)}>
                     <KeyRound className="h-4 w-4" />
                     {paypalStandaloneConfigured ? m['admin.billing.integrations.paypal.update']() : m['admin.billing.integrations.paypal.add']()}
@@ -271,7 +436,7 @@ export default function IntegrationsSection() {
             </div>
 
             <StripeKeysModal open={stripeOpen} onClose={() => setStripeOpen(false)} />
-            <PayPalKeysModal open={paypalOpen} onClose={() => setPaypalOpen(false)} />
+            <PayPalKeysModal open={paypalOpen} onClose={() => setPaypalOpen(false)} initialMode={paypalMode} />
 
             <ConfirmDialog
                 open={deleteKeysOpen}

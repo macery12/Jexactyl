@@ -85,6 +85,9 @@ hardening or deployment-policy items, not confirmed vulnerabilities.
   share product row locks so a paid-to-free race cannot bypass the guard.
 - Verified PayPal ledger rows store sanitized event type and provider order
   correlation. Cleanup retains failed or processing correlated evidence.
+- Billing integration settings expose server-generated Stripe and PayPal
+  webhook URLs, the exact handled event subscriptions, accessible copy
+  feedback, Stripe signing-secret status, and PayPal Sandbox/Live guidance.
 - Multipart completion ignores caller ETags/part numbers, lists every provider
   part with bounded pagination, verifies the exact authorized size, and safely
   supports uploads started before the new size column existed.
@@ -127,7 +130,7 @@ No additional migration acknowledgement variable is required.
 
 ## Verification completed
 
-- 89 changed unit tests passed with 202 assertions.
+- The complete unit suite passed with 451 tests and 1,043 assertions.
 - 35 remote/backup/activity integration tests passed with 175 assertions on an
   isolated SQLite database.
 - 3 suspension API integration tests passed with 16 assertions on the same
@@ -162,15 +165,18 @@ These items cannot be completed truthfully from this repository alone:
 2. Confirm the deployed daemon sends POST transfer callbacks before rollout.
 3. Run payment-provider sandbox, object-storage, daemon, and two-connection
    MySQL contention tests in an isolated staging environment.
-4. Configure an object-storage `AbortIncompleteMultipartUpload` lifecycle.
+4. Register the canonical URLs and every event shown under Billing → Settings →
+   Integrations in the matching Stripe and PayPal environments. Set the Stripe
+   endpoint signing secret as `STRIPE_WEBHOOK_SECRET`.
+5. Configure an object-storage `AbortIncompleteMultipartUpload` lifecycle.
    Presigned `UploadPart` URLs do not cryptographically bind `Content-Length`,
    so a compromised node can leave oversized incomplete parts until provider
    lifecycle cleanup removes them.
-5. Reconcile the rare two-phase storage edge where
+6. Reconcile the rare two-phase storage edge where
    `CompleteMultipartUpload` succeeds but the later local database commit
    fails. Use provider object metadata/`HeadObject` during manual or future
    automated reconciliation.
-6. Review the original audit's H-01 through H-06 hardening observations:
+7. Review the original audit's H-01 through H-06 hardening observations:
    Cloudflare secret-view policy, remote AI images, production browser headers,
    invoice orphan cleanup, architectural secret-at-rest handling, and deployed
    daemon transport settings.

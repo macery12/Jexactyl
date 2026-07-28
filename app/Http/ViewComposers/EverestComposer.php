@@ -6,9 +6,10 @@ use Illuminate\View\View;
 use Everest\Models\Setting;
 use Everest\Models\ExtensionConfig;
 use Everest\Services\Email\EmailManager;
-use Everest\Services\Email\EmailVerificationGate;
 use Everest\Services\Billing\StoreConfigService;
+use Everest\Services\Email\EmailVerificationGate;
 use Everest\Services\Billing\InvoiceSettingsService;
+use Everest\Services\Billing\PaymentWebhookRegistry;
 use Everest\Services\Billing\PaymentProcessorConfigService;
 
 class EverestComposer
@@ -18,6 +19,7 @@ class EverestComposer
         private EmailVerificationGate $emailVerificationGate,
         private InvoiceSettingsService $invoiceSettingsService,
         private StoreConfigService $storeConfigService,
+        private PaymentWebhookRegistry $paymentWebhookRegistry,
     ) {
     }
 
@@ -161,12 +163,20 @@ class EverestComposer
 
         return [
             'billing' => [
+                'webhook_setup' => $this->paymentWebhookRegistry->adminConfiguration(),
                 'keys' => [
                     'publishable' => boolval(config('modules.billing.keys.publishable')),
                     'secret' => boolval(config('modules.billing.keys.secret')),
                 ],
                 'paypal_standalone' => [
                     'mode' => config('modules.billing.paypal_standalone.mode', 'sandbox'),
+                    'credentials_configured' => !empty(Setting::get(
+                        'settings::modules:billing:paypal_standalone:client_id',
+                        config('modules.billing.paypal_standalone.client_id', '')
+                    )) && !empty(Setting::get(
+                        'settings::modules:billing:paypal_standalone:client_secret',
+                        config('modules.billing.paypal_standalone.client_secret', '')
+                    )),
                 ],
                 'renewal' => [
                     'days' => config('modules.billing.renewal.days', 30),

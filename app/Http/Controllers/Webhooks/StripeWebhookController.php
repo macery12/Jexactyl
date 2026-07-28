@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Stripe\Webhook as StripeWebhook;
 use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\StripeCaptureService;
+use Everest\Services\Billing\PaymentWebhookRegistry;
 use Everest\Services\Billing\ServerFulfillmentService;
 
 /**
@@ -90,8 +91,8 @@ class StripeWebhookController
     private function dispatch(\Stripe\Event $event): void
     {
         match ($event->type) {
-            'customer.deleted' => $this->handleCustomerDeleted($event),
-            'payment_intent.succeeded' => $this->handlePaymentIntentSucceeded($event),
+            PaymentWebhookRegistry::STRIPE_CUSTOMER_DELETED => $this->handleCustomerDeleted($event),
+            PaymentWebhookRegistry::STRIPE_PAYMENT_INTENT_SUCCEEDED => $this->handlePaymentIntentSucceeded($event),
             default => null, // Unhandled events are silently ignored
         };
     }

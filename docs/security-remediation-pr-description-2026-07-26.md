@@ -67,6 +67,9 @@ evidence, and remaining deployment-only risks.
   claims.
 - Correlate verified PayPal event type/order evidence and retain failed or
   processing reconciliation records.
+- Restore provider webhook setup guidance in the admin billing UI using the
+  canonical named-route URLs, exact handled event subscriptions, one-click
+  copy feedback, Stripe signing-secret status, and PayPal environment guidance.
 
 ### Authorization and account recovery
 
@@ -140,12 +143,15 @@ No extra acknowledgement environment variable is required. Migration
 prechecks stop on real provider/order/coupon/free-entitlement conflicts so
 operators can reconcile the data before retrying.
 
-Stripe webhook configuration must include `customer.deleted` and
-`payment_intent.succeeded`.
+Billing → Settings → Integrations now displays the exact canonical webhook URL
+and complete event subscription list for each provider. Stripe requires
+`customer.deleted` and `payment_intent.succeeded`, plus a configured
+`STRIPE_WEBHOOK_SECRET`. Standalone PayPal lists both completion events and the
+denial/refund/reversal events used for financial reconciliation.
 
 ## Verification
 
-- 89 changed unit tests passed, 202 assertions.
+- The complete unit suite passed: 451 tests, 1,043 assertions.
 - 35 remote/backup/activity integration tests passed, 175 assertions.
 - 3 suspension API integration tests passed, 16 assertions.
 - Fresh isolated SQLite migration and seed passed with all five security
@@ -173,6 +179,9 @@ Expected environment notes:
 - [ ] Confirm every deployed daemon uses POST transfer callbacks.
 - [ ] Run payment sandbox, object-storage, daemon, and two-connection MySQL
       contention tests in isolated staging.
+- [ ] Register the displayed Stripe and PayPal webhook URLs with every event
+      shown in Billing → Settings → Integrations; install the Stripe endpoint
+      signing secret as `STRIPE_WEBHOOK_SECRET`.
 - [ ] Configure an object-storage `AbortIncompleteMultipartUpload` lifecycle;
       presigned `UploadPart` requests do not cryptographically bind
       `Content-Length`.
