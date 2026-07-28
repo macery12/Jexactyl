@@ -66,4 +66,61 @@ class PayPalWebhookControllerTest extends TestCase
 
         $this->assertSame(401, $response->getStatusCode());
     }
+
+    public function testCorrelatesVerifiedEventBeforeReturningConcurrentRetry(): void
+    {
+        $payload = [
+            'id' => 'WH-1',
+            'event_type' => 'PAYMENT.CAPTURE.COMPLETED',
+            'resource' => [
+                'supplementary_data' => [
+                    'related_ids' => ['order_id' => 'PAYPAL-ORDER-1'],
+                ],
+            ],
+        ];
+        $request = Request::create(
+            '/api/webhooks/paypal',
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode($payload, JSON_THROW_ON_ERROR),
+        );
+
+        $paypalService = \Mockery::mock(PayPalPaymentService::class);
+        $paypalService->shouldNotReceive('getOrder');
+        $verificationService = \Mockery::mock(PayPalWebhookVerificationService::class);
+        $verificationService->shouldReceive('validate')->once()->andReturn([
+            'valid' => true,
+            'transmission_id' => 'TRANS-1',
+        ]);
+        $fulfillmentService = \Mockery::mock(ServerFulfillmentService::class);
+        $fulfillmentService->shouldNotReceive('fulfillPayPalOrder');
+        $integrityService = \Mockery::mock(CheckoutIntegrityService::class);
+        $integrityService->shouldNotReceive('assertPayPalOrder');
+        $captureService = \Mockery::mock(PayPalCaptureService::class);
+        $captureService->shouldNotReceive('record');
+        $eventService = \Mockery::mock(PayPalWebhookEventService::class);
+        $eventService->shouldReceive('begin')
+            ->once()
+            ->with('TRANS-1', $payload, 'PAYPAL-ORDER-1')
+            ->andReturn(PayPalWebhookEventService::RESULT_RETRY);
+        $negativeEventService = \Mockery::mock(PayPalNegativeEventService::class);
+        $negativeEventService->shouldNotReceive('record');
+
+        $controller = new PayPalWebhookController(
+            $paypalService,
+            $verificationService,
+            $fulfillmentService,
+            $integrityService,
+            $captureService,
+            $eventService,
+            $negativeEventService,
+        );
+
+        $response = $controller->handle($request);
+
+        $this->assertSame(503, $response->getStatusCode());
+    }
 }

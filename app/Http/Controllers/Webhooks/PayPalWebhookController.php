@@ -55,17 +55,24 @@ class PayPalWebhookController
             }
 
             $transmissionId = (string) $verification['transmission_id'];
-            $eventResult = $this->eventService->begin($transmissionId, $request->json()->all());
+            $eventType = (string) $request->input('event_type');
+            $resource = $request->input('resource', []);
+            $paypalOrderId = $this->extractOrderId($eventType, is_array($resource) ? $resource : []);
+
+            // Persist the provider-order correlation before any local lookup or
+            // fulfillment work. Cleanup can then retain the matching local
+            // order while a verified event is processing or awaiting retry.
+            $eventResult = $this->eventService->begin(
+                $transmissionId,
+                $request->json()->all(),
+                $paypalOrderId,
+            );
             if ($eventResult === PayPalWebhookEventService::RESULT_COMPLETED) {
                 return response()->json(['ok' => true]);
             }
             if ($eventResult === PayPalWebhookEventService::RESULT_RETRY) {
                 return response()->json(['ok' => false], 503);
             }
-
-            $eventType = (string) $request->input('event_type');
-            $resource = $request->input('resource', []);
-            $paypalOrderId = $this->extractOrderId($eventType, is_array($resource) ? $resource : []);
 
             if ($paypalOrderId === null) {
                 Log::warning('PayPal webhook did not contain an order identifier', [

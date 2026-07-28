@@ -21,6 +21,7 @@ class PlanChangeService
     public function __construct(
         private BuildModificationService $buildModificationService,
         private DaemonServerRepository $daemonRepository,
+        private FreeProductEntitlementService $entitlementService,
     ) {
     }
 
@@ -44,6 +45,8 @@ class PlanChangeService
      */
     public function changePlan(Server $server, Product $newProduct, bool $force = false, ?int $billingDays = null): Server
     {
+        $validatedProductState = $this->validationState($newProduct);
+
         // Ensure the new product is in the same category as the current one
         $currentProduct = $server->billing_product_id ? Product::find($server->billing_product_id) : null;
 
@@ -89,7 +92,56 @@ class PlanChangeService
         }
 
         // Update server resources to match the new product
-        return DB::transaction(function () use ($server, $newProduct, $billingDays) {
+        return DB::transaction(function () use ($server, $newProduct, $billingDays, $cooldownHours, $validatedProductState) {
+            /** @var Server $server */
+            $server = Server::query()->whereKey($server->id)->lockForUpdate()->firstOrFail();
+            $productIds = array_values(array_unique(array_filter([
+                $server->billing_product_id,
+                $newProduct->id,
+            ], static fn ($id): bool => $id !== null)));
+            sort($productIds);
+            $lockedProducts = Product::query()
+                ->whereIn('id', $productIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+            /** @var Product $newProduct */
+            $newProduct = $lockedProducts->get($newProduct->id)
+                ?? throw new DisplayException('The selected billing product no longer exists.');
+            /** @var Product|null $currentProduct */
+            $currentProduct = $server->billing_product_id
+                ? $lockedProducts->get($server->billing_product_id)
+                : null;
+
+            if ($this->validationState($newProduct) !== $validatedProductState) {
+                throw new DisplayException('The selected plan changed while its resource limits were being validated. Review the updated plan and try again.');
+            }
+
+            // Re-check mutable policy fields while holding the server/product
+            // locks. The earlier checks provide a fast failure path, while
+            // these checks close the race before the entitlement is moved.
+            if ($currentProduct && $currentProduct->category_uuid !== $newProduct->category_uuid) {
+                throw new DisplayException('Cannot change to a plan in a different category.');
+            }
+            if (!$server->renewal_date) {
+                throw new DisplayException('Server must have a renewal date to change plans.');
+            }
+            if ($cooldownHours > 0 && $server->last_plan_change_at) {
+                $hoursSinceLastChange = \Carbon\Carbon::parse($server->last_plan_change_at)
+                    ->diffInHours(\Carbon\Carbon::now());
+                if ($hoursSinceLastChange < $cooldownHours) {
+                    $hoursRemaining = $cooldownHours - $hoursSinceLastChange;
+                    throw new DisplayException("Plan changes are limited to once every {$cooldownHours} hours. Please wait {$hoursRemaining} more hours before changing plans again.");
+                }
+            }
+
+            $this->entitlementService->synchronizeLocked(
+                $server,
+                $server->owner_id,
+                $newProduct->id,
+            );
+
             // Update the billing product ID and track the change time
             $server->billing_product_id = $newProduct->id;
             $server->last_plan_change_at = \Carbon\Carbon::now();
@@ -116,7 +168,26 @@ class PlanChangeService
             }
 
             return $this->buildModificationService->handle($server, $buildData);
-        });
+        }, 5);
+    }
+
+    /**
+     * Capture every mutable product field that influences downgrade validation,
+     * entitlement classification, or the limits applied to Wings.
+     */
+    private function validationState(Product $product): array
+    {
+        return [
+            'category_uuid' => $product->category_uuid,
+            'price' => (float) $product->price,
+            'memory_limit' => $product->memory_limit,
+            'disk_limit' => $product->disk_limit,
+            'cpu_limit' => $product->cpu_limit,
+            'backup_limit' => $product->backup_limit,
+            'database_limit' => $product->database_limit,
+            'allocation_limit' => $product->allocation_limit,
+            'subdomain_limit' => $product->subdomain_limit,
+        ];
     }
 
     /**

@@ -8,7 +8,9 @@ use Illuminate\Console\Command;
 use Everest\Models\Billing\Order;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Everest\Models\Billing\PaymentTransaction;
 use Everest\Services\Billing\ServerFulfillmentService;
+use Everest\Services\Billing\PayPalWebhookEventService;
 use Everest\Services\Billing\CheckoutReservationService;
 
 class CleanupOrdersCommand extends Command
@@ -85,11 +87,8 @@ class CleanupOrdersCommand extends Command
 
                             $transaction = $locked->transaction()->lockForUpdate()->first();
                             if (
-                                $transaction?->capture_id
-                                || $transaction?->captured_at
-                                || $transaction?->provider_negative_status
-                                || $transaction?->provider_negative_at
-                                || !empty($transaction?->provider_negative_events)
+                                $this->hasTransactionPaymentEvidence($transaction)
+                                || $this->hasUnresolvedPayPalWebhookEvidence($transaction)
                             ) {
                                 Log::critical('CleanupOrdersCommand: pending order contains payment evidence and requires reconciliation', [
                                     'order_id' => $locked->id,
@@ -139,11 +138,8 @@ class CleanupOrdersCommand extends Command
                         $transaction = $locked->transaction()->lockForUpdate()->first();
                         if (
                             $locked->server_id !== null
-                            || $transaction?->capture_id
-                            || $transaction?->captured_at
-                            || $transaction?->provider_negative_status
-                            || $transaction?->provider_negative_at
-                            || !empty($transaction?->provider_negative_events)
+                            || $this->hasTransactionPaymentEvidence($transaction)
+                            || $this->hasUnresolvedPayPalWebhookEvidence($transaction)
                         ) {
                             Log::critical('CleanupOrdersCommand: expired order contains reconciliation evidence and was retained', [
                                 'order_id' => $locked->id,
@@ -172,5 +168,37 @@ class CleanupOrdersCommand extends Command
             'expired' => $expiredCount,
             'deleted' => $deleteCount,
         ]);
+    }
+
+    private function hasTransactionPaymentEvidence(?PaymentTransaction $transaction): bool
+    {
+        return $transaction !== null && (
+            (bool) $transaction->capture_id
+            || $transaction->captured_at !== null
+            || (bool) $transaction->provider_negative_status
+            || $transaction->provider_negative_at !== null
+            || !empty($transaction->provider_negative_events)
+        );
+    }
+
+    private function hasUnresolvedPayPalWebhookEvidence(?PaymentTransaction $transaction): bool
+    {
+        if (
+            $transaction === null
+            || $transaction->processor !== 'paypal'
+            || !is_string($transaction->external_id)
+            || $transaction->external_id === ''
+        ) {
+            return false;
+        }
+
+        return DB::table('paypal_webhook_events')
+            ->where('paypal_order_id', $transaction->external_id)
+            ->whereIn('status', [
+                PayPalWebhookEventService::STATUS_PROCESSING,
+                PayPalWebhookEventService::STATUS_FAILED,
+            ])
+            ->lockForUpdate()
+            ->first(['id']) !== null;
     }
 }

@@ -42,11 +42,25 @@ class CleanupOrdersCommandTest extends TestCase
         Schema::create('payment_transactions', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('order_id');
+            $table->string('processor')->nullable();
+            $table->string('external_id')->nullable();
+            $table->string('status')->nullable();
             $table->string('capture_id')->nullable();
             $table->timestamp('captured_at')->nullable();
             $table->string('provider_negative_status')->nullable();
             $table->timestamp('provider_negative_at')->nullable();
             $table->json('provider_negative_events')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('paypal_webhook_events', function (Blueprint $table): void {
+            $table->id();
+            $table->string('transmission_id')->unique();
+            $table->char('payload_hash', 64);
+            $table->string('event_type')->nullable();
+            $table->string('paypal_order_id')->nullable()->index();
+            $table->string('status');
+            $table->unsignedInteger('attempts')->default(1);
+            $table->text('last_error')->nullable();
             $table->timestamps();
         });
     }
@@ -155,5 +169,76 @@ class CleanupOrdersCommandTest extends TestCase
             );
 
         $this->artisan('p:billing:cleanup-orders')->assertExitCode(0);
+    }
+
+    public function testUnresolvedVerifiedPayPalEventsPreventExpirationAndDeletion(): void
+    {
+        $this->fulfillmentService->shouldNotReceive('fulfillOrder');
+        $old = now()->subDays(60);
+
+        DB::table('orders')->insert([
+            [
+                'id' => 5,
+                'status' => Order::STATUS_PENDING,
+                'user_id' => 9,
+                'server_id' => null,
+                'fulfillment_started_at' => null,
+                'created_at' => $old,
+                'updated_at' => $old,
+            ],
+            [
+                'id' => 6,
+                'status' => Order::STATUS_EXPIRED,
+                'user_id' => 9,
+                'server_id' => null,
+                'fulfillment_started_at' => null,
+                'created_at' => $old,
+                'updated_at' => $old,
+            ],
+        ]);
+        DB::table('payment_transactions')->insert([
+            [
+                'order_id' => 5,
+                'processor' => 'paypal',
+                'external_id' => 'PAYPAL-ORDER-5',
+                'created_at' => $old,
+                'updated_at' => $old,
+            ],
+            [
+                'order_id' => 6,
+                'processor' => 'paypal',
+                'external_id' => 'PAYPAL-ORDER-6',
+                'created_at' => $old,
+                'updated_at' => $old,
+            ],
+        ]);
+        DB::table('paypal_webhook_events')->insert([
+            [
+                'transmission_id' => 'TRANS-5',
+                'payload_hash' => hash('sha256', 'event-5'),
+                'paypal_order_id' => 'PAYPAL-ORDER-5',
+                'status' => 'failed',
+                'attempts' => 1,
+                'created_at' => $old,
+                'updated_at' => $old,
+            ],
+            [
+                'transmission_id' => 'TRANS-6',
+                'payload_hash' => hash('sha256', 'event-6'),
+                'paypal_order_id' => 'PAYPAL-ORDER-6',
+                'status' => 'processing',
+                'attempts' => 1,
+                'created_at' => $old,
+                'updated_at' => $old,
+            ],
+        ]);
+
+        $this->artisan('p:billing:cleanup-orders', [
+            '--hours' => 24,
+            '--delete-after' => 24,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('orders', ['id' => 5, 'status' => Order::STATUS_PENDING]);
+        $this->assertDatabaseHas('orders', ['id' => 6, 'status' => Order::STATUS_EXPIRED]);
     }
 }

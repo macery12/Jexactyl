@@ -22,6 +22,8 @@ class PayPalWebhookEventServiceTest extends TestCase
             $table->bigIncrements('id');
             $table->string('transmission_id')->unique();
             $table->string('payload_hash', 64);
+            $table->string('event_type')->nullable();
+            $table->string('paypal_order_id')->nullable()->index();
             $table->string('status');
             $table->unsignedInteger('attempts')->default(0);
             $table->text('last_error')->nullable();
@@ -93,5 +95,38 @@ class PayPalWebhookEventServiceTest extends TestCase
         $this->expectExceptionMessage('reused with a different payload');
 
         $this->service->begin('transmission-4', ['id' => 'WH-TAMPERED']);
+    }
+
+    public function testVerifiedEventIsCorrelatedToItsPayPalOrderBeforeProcessing(): void
+    {
+        $result = $this->service->begin(
+            'transmission-5',
+            ['id' => 'WH-5', 'event_type' => 'PAYMENT.CAPTURE.COMPLETED'],
+            'PAYPAL-ORDER-5',
+        );
+
+        $this->assertSame(PayPalWebhookEventService::RESULT_PROCESS, $result);
+        $this->assertDatabaseHas('paypal_webhook_events', [
+            'transmission_id' => 'transmission-5',
+            'event_type' => 'PAYMENT.CAPTURE.COMPLETED',
+            'paypal_order_id' => 'PAYPAL-ORDER-5',
+            'status' => PayPalWebhookEventService::STATUS_PROCESSING,
+        ]);
+    }
+
+    public function testLegacyUncorrelatedRetryIsBackfilledWithItsPayPalOrder(): void
+    {
+        $payload = ['id' => 'WH-6'];
+        $this->service->begin('transmission-6', $payload);
+        $this->service->fail('transmission-6', new \RuntimeException('temporary outage'));
+
+        $this->assertSame(
+            PayPalWebhookEventService::RESULT_PROCESS,
+            $this->service->begin('transmission-6', $payload, 'PAYPAL-ORDER-6')
+        );
+        $this->assertDatabaseHas('paypal_webhook_events', [
+            'transmission_id' => 'transmission-6',
+            'paypal_order_id' => 'PAYPAL-ORDER-6',
+        ]);
     }
 }

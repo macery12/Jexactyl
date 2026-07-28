@@ -40,6 +40,7 @@ class CreateOrderService
     ): Order {
         $order = new Order();
         $uuid = uuid_create();
+        $expectsFreeProduct = $product->isFree();
 
         // Get billing days from additional data or default from settings
         $billingDays = $additionalData['billing_days'] ?? BillingDefaults::defaultBillingDays();
@@ -87,7 +88,7 @@ class CreateOrderService
         $order->node_multiplier_used = $nodeMultiplierUsed;
         $order->status = $status ?? Order::STATUS_EXPIRED;
         $order->product_id = $product->id;
-        $order->requires_free_product_entitlement = $product->isFree() && $type === Order::TYPE_NEW;
+        $order->requires_free_product_entitlement = $expectsFreeProduct && $type === Order::TYPE_NEW;
         $order->product_name = $product->name;
         $order->coupon_id = $couponId;
         $order->egg_id = $eggId;
@@ -108,7 +109,16 @@ class CreateOrderService
         $order->payment_token = $additionalData['payment_token'] ?? null;
 
         try {
-            DB::transaction(function () use ($order, $paymentProcessor, $intent, $additionalData, $product, $user, $couponId, $subtotal, $type, $afterCreate): void {
+            DB::transaction(function () use ($order, $paymentProcessor, $intent, $additionalData, $product, $expectsFreeProduct, $user, $couponId, $subtotal, $type, $afterCreate): void {
+                /** @var Product $lockedProduct */
+                $lockedProduct = Product::query()
+                    ->whereKey($product->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                if ($lockedProduct->isFree() !== $expectsFreeProduct) {
+                    throw new DisplayException('This product changed between free and paid while checkout was being prepared. Refresh and try again.');
+                }
+
                 if ($couponId !== null) {
                     /** @var Coupon $coupon */
                     $coupon = Coupon::query()->whereKey($couponId)->lockForUpdate()->firstOrFail();
@@ -131,10 +141,10 @@ class CreateOrderService
                     ]);
                 }
 
-                if ($product->isFree() && $type === Order::TYPE_NEW) {
+                if ($lockedProduct->isFree() && $type === Order::TYPE_NEW) {
                     FreeProductEntitlement::query()->create([
                         'user_id' => $user->id,
-                        'product_id' => $product->id,
+                        'product_id' => $lockedProduct->id,
                         'order_id' => $order->id,
                         'status' => 'reserved',
                         'expires_at' => now()->addDay(),
