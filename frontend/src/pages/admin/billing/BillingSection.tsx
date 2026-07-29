@@ -37,7 +37,8 @@ export default function BillingSection() {
                                 <Route path="invoices" element={<InvoicesPage />} />
                                 <Route path="coupons" element={<CouponsPage />} />
                                 <Route path="exceptions" element={<ExceptionsPage />} />
-                                <Route path="settings" element={<SettingsPage />} />
+                                {/* Splat: billing settings owns four routed tabs of its own. */}
+                                <Route path="settings/*" element={<SettingsPage />} />
                                 <Route path="invoice-settings" element={<InvoiceSettingsPage />} />
                             </Routes>
                         </div>

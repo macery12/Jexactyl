@@ -55,10 +55,33 @@ function priceAdjustmentLabel(multiplier: number): string {
     return pct > 0 ? `+${pct}%` : `${pct}%`;
 }
 
-export default function BillingRulesSection() {
+// Reference plan price the node-pricing examples are computed from. A concrete
+// "10 → 12" beats the bare multiplier: 1.20 doesn't read as money to anyone.
+const EXAMPLE_BASE = 10;
+
+const isStandard = (multiplier: number) => Math.abs(multiplier - 1) < 0.001;
+
+function AdjustmentBadge({ multiplier }: { multiplier: number }) {
+    const tone = isStandard(multiplier)
+        ? 'border-[var(--color-border)] text-[var(--color-ink-faint)]'
+        : multiplier > 1
+          ? 'border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 text-[var(--color-warning)]'
+          : 'border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 text-[var(--color-accent)]';
+
+    return (
+        <span className={'inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ' + tone}>
+            {priceAdjustmentLabel(multiplier)}
+        </span>
+    );
+}
+
+// Tab 2 — the two inputs to one price formula: the cycle-length multiplier and
+// the per-node multiplier that stacks on top of it. They only make sense read
+// together, so they stay on one tab.
+export default function PricingTab() {
     const qc = useQueryClient();
     const { push } = useFlashes();
-    const { billing } = useBilling();
+    const { billing, money } = useBilling();
     const renewal = (billing as Record<string, any>).renewal ?? {};
 
     const [defaultDays, setDefaultDays] = useState(String(renewal.default_billing_days ?? 30));
@@ -155,7 +178,9 @@ export default function BillingRulesSection() {
                                     <td className="px-3 py-2">
                                         <Input type="number" step={0.01} value={s.multiplier} className="h-9 max-w-[110px]" onChange={e => setStep(s.id, { multiplier: e.target.value })} />
                                     </td>
-                                    <td className="px-3 py-2 text-sm text-[var(--color-ink-muted)]">{priceAdjustmentLabel(parseFloat(s.multiplier) || 1)}</td>
+                                    <td className="px-3 py-2">
+                                        <AdjustmentBadge multiplier={parseFloat(s.multiplier) || 1} />
+                                    </td>
                                     <td className="px-3 py-2 text-right">
                                         <Button variant="ghost" size="icon" aria-label={m['common.actions.delete']()} disabled={steps.length === 1} onClick={() => removeStep(s.id)}>
                                             <Trash2 className="h-4 w-4 text-[var(--color-danger)]" />
@@ -195,23 +220,71 @@ export default function BillingRulesSection() {
                 ) : (nodes ?? []).length === 0 ? (
                     <p className="py-6 text-center text-sm text-[var(--color-ink-muted)]">{m['admin.billing.rules.nodesEmpty']()}</p>
                 ) : (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                        {(nodes ?? []).map(n => (
-                            <div key={n.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/30 px-3 py-2">
-                                <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium text-[var(--color-ink)]">{n.name}</p>
-                                    <p className="text-xs text-[var(--color-ink-faint)]">{priceAdjustmentLabel(parseFloat(nodeValue(n)) || 1)}</p>
-                                </div>
-                                <Input
-                                    type="number"
-                                    step={0.01}
-                                    value={nodeValue(n)}
-                                    className="h-9 w-20 shrink-0 px-2 text-center"
-                                    onChange={e => setNodeEdits(prev => ({ ...prev, [n.id]: e.target.value }))}
-                                />
-                            </div>
-                        ))}
-                    </div>
+                    <>
+                        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/30 px-4 py-3">
+                            <p className="text-xs leading-relaxed text-[var(--color-ink-muted)]">
+                                {m['admin.billing.rules.nodesExplainer']()}
+                            </p>
+                            <p className="mt-1.5 text-xs leading-relaxed text-[var(--color-ink-faint)]">
+                                {m['admin.billing.rules.nodesScale']()}{' '}
+                                {m['admin.billing.rules.nodesExampleNote']({ base: money(EXAMPLE_BASE) })}
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                            {(nodes ?? []).map(n => {
+                                const multiplier = parseFloat(nodeValue(n)) || 1;
+
+                                return (
+                                    <div
+                                        key={n.id}
+                                        className="flex flex-col gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/30 p-3"
+                                    >
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <p className="truncate text-sm font-medium text-[var(--color-ink)]">{n.name}</p>
+                                                {n.priceMultiplierDescription && (
+                                                    <p className="truncate text-xs text-[var(--color-ink-faint)]">
+                                                        {n.priceMultiplierDescription}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <AdjustmentBadge multiplier={multiplier} />
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                type="number"
+                                                step={0.01}
+                                                min={0}
+                                                max={5}
+                                                value={nodeValue(n)}
+                                                aria-label={m['admin.billing.rules.nodeMultiplierAria']({ node: n.name })}
+                                                className="h-9 w-20 shrink-0 px-2 text-center"
+                                                onChange={e => setNodeEdits(prev => ({ ...prev, [n.id]: e.target.value }))}
+                                            />
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                title={m['admin.billing.rules.nodeReset']()}
+                                                aria-label={m['admin.billing.rules.nodeReset']()}
+                                                disabled={isStandard(multiplier)}
+                                                onClick={() => setNodeEdits(prev => ({ ...prev, [n.id]: '1.00' }))}
+                                            >
+                                                <RotateCcw className="h-4 w-4" />
+                                            </Button>
+                                            <p className="ml-auto truncate text-right text-xs text-[var(--color-ink-faint)]">
+                                                {m['admin.billing.rules.nodeExample']({
+                                                    base: money(EXAMPLE_BASE),
+                                                    total: money(EXAMPLE_BASE * multiplier),
+                                                })}
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
             </SectionCard>
         </div>

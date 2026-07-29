@@ -807,8 +807,6 @@
   "admin.billing.integrations.webhook.paypalDescription": "Føj dette slutpunkt til den PayPal-app, der bruger disse legitimationsoplysninger, og abonnér på alle hændelserne nedenfor.",
   "admin.billing.integrations.webhook.paypalNote": "Sandbox- og Live-webhooks er separate. Registrer præcis denne URL i den tilsvarende app; panelet finder automatisk dens webhook-id.",
   "admin.billing.integrations.webhook.stripeDescription": "Tilføj dette slutpunkt i dit Stripe-dashboard, og send alle hændelserne nedenfor.",
-  "admin.billing.integrations.webhook.stripeSecretConfigured": "Stripe-slutpunktets signeringshemmelighed er konfigureret i dette panel.",
-  "admin.billing.integrations.webhook.stripeSecretMissing": "Slutpunktets signeringshemmelighed mangler. Indstil STRIPE_WEBHOOK_SECRET på panelværten, før du bruger denne webhook.",
   "admin.billing.integrations.webhook.title": "Webhookopsætning",
   "admin.billing.integrations.webhook.url": "Webhook-URL",
   "admin.billing.invoiceSettings.company.address": "Adresse",

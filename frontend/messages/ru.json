@@ -791,8 +791,6 @@
   "admin.billing.integrations.webhook.paypalDescription": "Добавьте эту конечную точку в приложение PayPal с указанными учетными данными и подпишитесь на все события ниже.",
   "admin.billing.integrations.webhook.paypalNote": "Вебхуки Sandbox и Live настраиваются отдельно. Зарегистрируйте этот точный URL в соответствующем приложении; панель автоматически определит идентификатор вебхука.",
   "admin.billing.integrations.webhook.stripeDescription": "Добавьте эту конечную точку в панели Stripe и включите отправку всех перечисленных ниже событий.",
-  "admin.billing.integrations.webhook.stripeSecretConfigured": "Секрет подписи конечной точки Stripe настроен в этой панели.",
-  "admin.billing.integrations.webhook.stripeSecretMissing": "Секрет подписи конечной точки не задан. Установите STRIPE_WEBHOOK_SECRET на хосте панели, прежде чем использовать этот вебхук.",
   "admin.billing.integrations.webhook.title": "Настройка вебхука",
   "admin.billing.integrations.webhook.url": "URL вебхука",
   "admin.billing.invoiceSettings.company.address": "Адрес",
