@@ -5,6 +5,7 @@ namespace Everest\Http\Middleware\Api\Application;
 use Illuminate\Http\Request;
 use Everest\Models\AdminRole;
 use Illuminate\Routing\Route;
+use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Services\Authorization\ApplicationApiPermissionResolver;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
@@ -38,16 +39,22 @@ class AuthorizeApplicationUser
             throw new AccessDeniedHttpException();
         }
 
-        if ($required === null || $user->root_admin) {
-            return $next($request);
+        if ($required !== null && !$user->root_admin) {
+            $role = $user->admin_role_id
+                ? AdminRole::query()->find($user->admin_role_id)
+                : null;
+
+            if (!$role || !in_array($required, $role->permissions ?? [], true)) {
+                throw new AccessDeniedHttpException('This account does not have permission to perform this action.');
+            }
         }
 
-        $role = $user->admin_role_id
-            ? AdminRole::query()->find($user->admin_role_id)
-            : null;
-
-        if (!$role || !in_array($required, $role->permissions ?? [], true)) {
-            throw new AccessDeniedHttpException('This account does not have permission to perform this action.');
+        $scope = $this->permissions->scopeFor($route, $required);
+        if (
+            $scope !== null
+            && !AdminAcl::keyPermits($user->currentAccessToken(), $scope['resource'], $scope['action'])
+        ) {
+            throw new AccessDeniedHttpException('This API key does not have permission to perform this action.');
         }
 
         return $next($request);

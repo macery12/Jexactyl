@@ -5,6 +5,7 @@ namespace Everest\Services\Api;
 use Everest\Models\User;
 use Everest\Models\ApiKey;
 use Illuminate\Support\Facades\DB;
+use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Everest\Contracts\Repository\ApiKeyRepositoryInterface;
@@ -59,7 +60,13 @@ class KeyCreationService
             ]);
 
             if ($this->keyType === ApiKey::TYPE_APPLICATION) {
-                $attributes = array_merge($attributes, $permissions);
+                $scopedPermissions = [];
+                foreach (AdminAcl::getResourceList() as $resource) {
+                    $column = AdminAcl::COLUMN_IDENTIFIER . $resource;
+                    $scopedPermissions[$column] = $permissions[$column] ?? AdminAcl::NONE;
+                }
+
+                $attributes = array_merge($attributes, $scopedPermissions, ['acl_enforced' => true]);
             }
 
             return $this->repository->create($attributes, true, true);

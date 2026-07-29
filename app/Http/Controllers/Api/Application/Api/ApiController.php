@@ -7,9 +7,11 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Services\Api\KeyCreationService;
 use Everest\Transformers\Api\Application\ApiKeyTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Api\GetApplicationApiKeysRequest;
 use Everest\Http\Requests\Api\Application\Api\StoreApplicationApiKeyRequest;
@@ -52,12 +54,15 @@ class ApiController extends ApplicationApiController
      */
     public function store(StoreApplicationApiKeyRequest $request): JsonResponse
     {
-        // Application-API access is governed by the owning user's AdminRole/root_admin,
-        // not by per-key resource grants — so no permission set is collected or stored.
+        $permissions = $request->keyPermissions();
+        if (!AdminAcl::canDelegate($request->user()->currentAccessToken(), $permissions)) {
+            throw new AccessDeniedHttpException('An API key cannot create a key with broader resource permissions than its own.');
+        }
+
         $apiKey = $this->keyCreationService->setKeyType(ApiKey::TYPE_APPLICATION)->handle([
             'memo' => $request->input('memo'),
             'user_id' => $request->user()->id,
-        ]);
+        ], $permissions);
 
         Activity::event('admin:api-keys:create')
             ->property('api-key', $apiKey)
@@ -74,6 +79,10 @@ class ApiController extends ApplicationApiController
      */
     public function delete(DeleteApplicationApiKeyRequest $request, ApiKey $key): Response
     {
+        if ($key->key_type !== ApiKey::TYPE_APPLICATION) {
+            return response('', Response::HTTP_NOT_FOUND);
+        }
+
         Activity::event('admin:api-keys:delete')
             ->property('api-key', $key)
             ->description('An Application API key was deleted')

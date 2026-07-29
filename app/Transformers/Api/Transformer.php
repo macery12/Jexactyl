@@ -80,18 +80,19 @@ abstract class Transformer extends TransformerAbstract
             return false;
         }
 
-        if ($user->root_admin) {
-            return true;
-        }
-
         $required = self::INCLUDE_PERMISSIONS[$resource] ?? null;
-        if ($required === null || $user->admin_role_id === null) {
+        if ($required === null) {
             return false;
         }
 
-        // Mirror ApplicationApiRequest::authorize()/canViewPassword(): resolve the
-        // actor's role and test membership of the required read-permission.
-        return in_array($required, AdminRole::find($user->admin_role_id)->permissions ?? [], true);
+        $roleAllows = $user->root_admin
+            || (
+                $user->admin_role_id !== null
+                && in_array($required, AdminRole::find($user->admin_role_id)->permissions ?? [], true)
+            );
+
+        return $roleAllows
+            && AdminAcl::keyPermits($user->currentAccessToken(), $resource, AdminAcl::READ);
     }
 
     /**

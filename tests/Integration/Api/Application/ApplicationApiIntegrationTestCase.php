@@ -76,6 +76,7 @@ abstract class ApplicationApiIntegrationTestCase extends IntegrationTestCase
         return ApiKey::factory()->create(array_merge([
             'user_id' => $user->id,
             'key_type' => ApiKey::TYPE_APPLICATION,
+            'acl_enforced' => true,
             'r_servers' => AdminAcl::READ | AdminAcl::WRITE,
             'r_nodes' => AdminAcl::READ | AdminAcl::WRITE,
             'r_allocations' => AdminAcl::READ | AdminAcl::WRITE,

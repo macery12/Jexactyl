@@ -42,11 +42,34 @@ class PterodactylProfile extends ImportProfile
      */
     protected function tablePlans(): array
     {
+        $apiKeyResources = [
+            'r_servers',
+            'r_nodes',
+            'r_allocations',
+            'r_users',
+            'r_locations',
+            'r_nests',
+            'r_eggs',
+            'r_database_hosts',
+            'r_server_databases',
+        ];
+        $apiKeyTransforms = [
+            'token' => fn ($v, $row, ImportContext $ctx) => $ctx->rewrap($v),
+        ];
+        foreach ($apiKeyResources as $column) {
+            $apiKeyTransforms[$column] = static fn ($value) => (int) $value === 2 ? 3 : $value;
+        }
+
         return [
             'users' => $this->usersPlan(),
             'api_keys' => new TablePlan(
                 table: 'api_keys',
-                transforms: ['token' => fn ($v, $row, ImportContext $ctx) => $ctx->rewrap($v)],
+                defaults: [
+                    'acl_enforced' => static function (array $row): bool {
+                        return (int) ($row['key_type'] ?? 0) === 2;
+                    },
+                ],
+                transforms: $apiKeyTransforms,
             ),
             'recovery_tokens' => new TablePlan(table: 'recovery_tokens'),
             'user_ssh_keys' => new TablePlan(table: 'user_ssh_keys'),

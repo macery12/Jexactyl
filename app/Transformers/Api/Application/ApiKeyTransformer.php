@@ -3,6 +3,7 @@
 namespace Everest\Transformers\Api\Application;
 
 use Everest\Models\ApiKey;
+use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Transformers\Api\Transformer;
 
 class ApiKeyTransformer extends Transformer
@@ -17,6 +18,11 @@ class ApiKeyTransformer extends Transformer
      */
     public function transform(ApiKey $model): array
     {
+        $permissions = [];
+        foreach (AdminAcl::getResourceList() as $resource) {
+            $permissions[$resource] = AdminAcl::grantName($model->getAttribute(AdminAcl::COLUMN_IDENTIFIER . $resource));
+        }
+
         return [
             'id' => $model->id,
             'identifier' => $model->identifier,
@@ -24,6 +30,8 @@ class ApiKeyTransformer extends Transformer
             'allowed_ips' => $model->allowed_ips,
             'created_at' => $model->created_at->toIso8601String(),
             'last_used_at' => $model->last_used_at ? $model->last_used_at : null,
+            'legacy' => !$model->acl_enforced,
+            'permissions' => $permissions,
         ];
     }
 }

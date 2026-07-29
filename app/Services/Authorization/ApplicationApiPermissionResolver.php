@@ -4,6 +4,7 @@ namespace Everest\Services\Authorization;
 
 use Everest\Models\AdminRole;
 use Illuminate\Routing\Route;
+use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 use Everest\Http\Controllers\Api\Application\PermissionsController;
 use Everest\Http\Controllers\Api\Application\Billing\BillingCycleController;
@@ -19,6 +20,22 @@ use Everest\Http\Controllers\Api\Application\Billing\BillingCycleController;
  */
 class ApplicationApiPermissionResolver
 {
+    /**
+     * Legacy API-key resources keyed by the module portion of an AdminRole
+     * permission. Nested resources that share a role module are handled by the
+     * route-aware overrides in scopeFor().
+     *
+     * @var array<string, string>
+     */
+    private const KEY_RESOURCES = [
+        'servers' => AdminAcl::RESOURCE_SERVERS,
+        'nodes' => AdminAcl::RESOURCE_NODES,
+        'users' => AdminAcl::RESOURCE_USERS,
+        'nests' => AdminAcl::RESOURCE_NESTS,
+        'eggs' => AdminAcl::RESOURCE_EGGS,
+        'databases' => AdminAcl::RESOURCE_DATABASE_HOSTS,
+    ];
+
     /**
      * This endpoint only returns the authenticated administrator's own
      * effective role permissions. It does not expose another subject.
@@ -98,6 +115,41 @@ class ApplicationApiPermissionResolver
     public function authenticationOnlyActions(): array
     {
         return self::AUTHENTICATION_ONLY_ACTIONS;
+    }
+
+    /**
+     * Resolve the legacy API-key resource and read/write action for a route.
+     * Modules outside the nine-resource ACL vocabulary remain role-only.
+     *
+     * @return array{resource: string, action: int}|null
+     */
+    public function scopeFor(Route $route, ?string $permission): ?array
+    {
+        if ($permission === null || !str_contains($permission, '.')) {
+            return null;
+        }
+
+        [$module] = explode('.', $permission, 2);
+        $uri = trim($route->uri(), '/');
+
+        if (preg_match('#^api/application/nodes/\{[^}]+}/allocations(?:/|$)#', $uri)) {
+            $resource = AdminAcl::RESOURCE_ALLOCATIONS;
+        } elseif (preg_match('#^api/application/servers/\{[^}]+}/databases(?:/|$)#', $uri)) {
+            $resource = AdminAcl::RESOURCE_SERVER_DATABASES;
+        } else {
+            $resource = self::KEY_RESOURCES[$module] ?? null;
+        }
+
+        if ($resource === null) {
+            return null;
+        }
+
+        return [
+            'resource' => $resource,
+            'action' => array_intersect(['GET', 'HEAD'], $route->methods()) !== []
+                ? AdminAcl::READ
+                : AdminAcl::WRITE,
+        ];
     }
 
     private function actionName(Route $route): string

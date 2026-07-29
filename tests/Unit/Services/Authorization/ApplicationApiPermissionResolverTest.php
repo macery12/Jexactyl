@@ -7,6 +7,7 @@ use Everest\Tests\TestCase;
 use Illuminate\Http\Request;
 use Everest\Models\AdminRole;
 use Illuminate\Routing\Route;
+use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 use Everest\Http\Requests\Api\Application\Theme\GetThemeRequest;
@@ -30,7 +31,7 @@ class ApplicationApiPermissionResolverTest extends TestCase
         $failures = [];
         $checked = 0;
 
-        foreach ($this->app['router']->getRoutes() as $route) {
+        foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
             if (!str_starts_with($route->uri(), 'api/application')) {
                 continue;
             }
@@ -128,6 +129,43 @@ class ApplicationApiPermissionResolverTest extends TestCase
         ]));
 
         $this->assertFalse($request->authorize());
+    }
+
+    public function testKeyScopeUsesExactNestedResourcesAndHttpMethod(): void
+    {
+        $resolver = new ApplicationApiPermissionResolver();
+
+        $this->assertSame([
+            'resource' => AdminAcl::RESOURCE_ALLOCATIONS,
+            'action' => AdminAcl::READ,
+        ], $resolver->scopeFor(
+            new Route(['GET'], '/api/application/nodes/{node}/allocations', static fn () => null),
+            AdminRole::NODES_READ
+        ));
+
+        $this->assertSame([
+            'resource' => AdminAcl::RESOURCE_SERVER_DATABASES,
+            'action' => AdminAcl::WRITE,
+        ], $resolver->scopeFor(
+            new Route(['POST'], '/api/application/servers/{server}/databases', static fn () => null),
+            AdminRole::SERVERS_UPDATE
+        ));
+
+        $this->assertSame([
+            'resource' => AdminAcl::RESOURCE_EGGS,
+            'action' => AdminAcl::READ,
+        ], $resolver->scopeFor(
+            new Route(['GET'], '/api/application/eggs/{egg}/export', static fn () => null),
+            AdminRole::EGGS_EXPORT
+        ));
+    }
+
+    public function testKeyScopeLeavesModulesOutsideLegacyVocabularyRoleOnly(): void
+    {
+        $this->assertNull((new ApplicationApiPermissionResolver())->scopeFor(
+            new Route(['PATCH'], '/api/application/settings', static fn () => null),
+            AdminRole::SETTINGS_UPDATE
+        ));
     }
 
     private function route(string $controller, string $method, string $httpMethod = 'GET'): Route

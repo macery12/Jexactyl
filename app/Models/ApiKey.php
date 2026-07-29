@@ -21,6 +21,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Illuminate\Support\Carbon|null $expires_at
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property bool $acl_enforced
  * @property int $r_servers
  * @property int $r_nodes
  * @property int $r_allocations
@@ -102,6 +103,7 @@ class ApiKey extends Model
         'expires_at' => 'datetime',
         self::CREATED_AT => 'datetime',
         self::UPDATED_AT => 'datetime',
+        'acl_enforced' => 'bool',
         'r_' . AdminAcl::RESOURCE_USERS => 'int',
         'r_' . AdminAcl::RESOURCE_ALLOCATIONS => 'int',
         'r_' . AdminAcl::RESOURCE_DATABASE_HOSTS => 'int',
@@ -144,6 +146,7 @@ class ApiKey extends Model
         'allowed_ips.*' => 'string',
         'last_used_at' => 'nullable|date',
         'expires_at' => 'nullable|date',
+        'acl_enforced' => 'boolean',
         'r_' . AdminAcl::RESOURCE_USERS => 'integer|min:0|max:3',
         'r_' . AdminAcl::RESOURCE_ALLOCATIONS => 'integer|min:0|max:3',
         'r_' . AdminAcl::RESOURCE_DATABASE_HOSTS => 'integer|min:0|max:3',

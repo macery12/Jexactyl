@@ -3,8 +3,38 @@ import http from '@/lib/http';
 // Administrative (application) API keys, backed by /api/application/api
 // (Fractal collection of ApiKeyTransformer). These are the panel-wide keys that
 // authenticate against the application API, gated behind api.read/create/delete.
-// Access is governed by the owner's AdminRole/root_admin — there is no per-key
-// resource scoping, so the create form only collects a memo.
+// Effective access is the intersection of the owner's AdminRole and the key's
+// per-resource scope.
+
+export const ADMIN_API_KEY_RESOURCES = [
+    'servers',
+    'nodes',
+    'allocations',
+    'users',
+    'locations',
+    'nests',
+    'eggs',
+    'database_hosts',
+    'server_databases',
+] as const;
+
+export type AdminApiKeyResource = (typeof ADMIN_API_KEY_RESOURCES)[number];
+export type AdminApiKeyGrant = 'none' | 'read' | 'write';
+export type AdminApiKeyPermissions = Record<AdminApiKeyResource, AdminApiKeyGrant>;
+
+export function emptyAdminApiKeyPermissions(): AdminApiKeyPermissions {
+    return Object.fromEntries(ADMIN_API_KEY_RESOURCES.map(resource => [resource, 'none'])) as AdminApiKeyPermissions;
+}
+
+function normalizePermissions(input?: Partial<AdminApiKeyPermissions>): AdminApiKeyPermissions {
+    const permissions = emptyAdminApiKeyPermissions();
+    for (const resource of ADMIN_API_KEY_RESOURCES) {
+        const grant = input?.[resource];
+        permissions[resource] = grant === 'read' || grant === 'write' ? grant : 'none';
+    }
+
+    return permissions;
+}
 
 export interface AdminApiKey {
     id: number;
@@ -13,6 +43,8 @@ export interface AdminApiKey {
     allowedIps: string[];
     createdAt: string;
     lastUsedAt: string | null;
+    legacy: boolean;
+    permissions: AdminApiKeyPermissions;
 }
 
 export interface AdminApiKeyPagination {
@@ -35,6 +67,8 @@ interface RawApiKeyRow {
         allowed_ips?: string[] | null;
         created_at: string;
         last_used_at?: string | null;
+        legacy?: boolean;
+        permissions?: Partial<AdminApiKeyPermissions>;
     };
 }
 
@@ -56,6 +90,8 @@ export async function getAdminApiKeys(page = 1, perPage = 25): Promise<AdminApiK
                 allowedIps: a.allowed_ips ?? [],
                 createdAt: a.created_at,
                 lastUsedAt: lastUsed,
+                legacy: a.legacy ?? true,
+                permissions: normalizePermissions(a.permissions),
             };
         }),
         pagination: {
@@ -68,8 +104,8 @@ export async function getAdminApiKeys(page = 1, perPage = 25): Promise<AdminApiK
 }
 
 // POST /api/application/api — create a key; returns the full token, shown once.
-export async function createAdminApiKey(memo: string): Promise<string> {
-    const { data } = await http.post('/api/application/api', { memo });
+export async function createAdminApiKey(memo: string, permissions: AdminApiKeyPermissions): Promise<string> {
+    const { data } = await http.post('/api/application/api', { memo, permissions });
     return data.token as string;
 }
 

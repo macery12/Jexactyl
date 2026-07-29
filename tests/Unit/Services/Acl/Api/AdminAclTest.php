@@ -4,6 +4,7 @@ namespace Everest\Tests\Unit\Services\Acl\Api;
 
 use Everest\Models\ApiKey;
 use Everest\Tests\TestCase;
+use Laravel\Sanctum\TransientToken;
 use Everest\Services\Acl\Api\AdminAcl;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -26,6 +27,51 @@ class AdminAclTest extends TestCase
         $model = ApiKey::factory()->make(['r_servers' => AdminAcl::READ | AdminAcl::WRITE]);
 
         $this->assertTrue(AdminAcl::check($model, AdminAcl::RESOURCE_SERVERS, AdminAcl::WRITE));
+    }
+
+    public function testScopedApplicationKeyIsEnforced(): void
+    {
+        $key = ApiKey::factory()->make([
+            'key_type' => ApiKey::TYPE_APPLICATION,
+            'acl_enforced' => true,
+            'r_nodes' => AdminAcl::READ,
+        ]);
+
+        $this->assertTrue(AdminAcl::keyPermits($key, AdminAcl::RESOURCE_NODES, AdminAcl::READ));
+        $this->assertFalse(AdminAcl::keyPermits($key, AdminAcl::RESOURCE_NODES, AdminAcl::WRITE));
+        $this->assertFalse(AdminAcl::keyPermits($key, 'unknown', AdminAcl::READ));
+    }
+
+    public function testLegacyKeyAndSessionTokenBypassResourceGate(): void
+    {
+        $legacy = ApiKey::factory()->make([
+            'key_type' => ApiKey::TYPE_APPLICATION,
+            'acl_enforced' => false,
+            'r_nodes' => AdminAcl::NONE,
+        ]);
+
+        $this->assertTrue(AdminAcl::keyPermits($legacy, AdminAcl::RESOURCE_NODES, AdminAcl::WRITE));
+        $this->assertTrue(AdminAcl::keyPermits(new TransientToken(), AdminAcl::RESOURCE_NODES, AdminAcl::WRITE));
+        $this->assertFalse(AdminAcl::keyPermits(null, AdminAcl::RESOURCE_NODES, AdminAcl::READ));
+        $this->assertTrue(AdminAcl::keyPermits(null, null, AdminAcl::READ));
+    }
+
+    public function testScopedKeyCannotDelegateBroaderPermissions(): void
+    {
+        $key = ApiKey::factory()->make([
+            'key_type' => ApiKey::TYPE_APPLICATION,
+            'acl_enforced' => true,
+            'r_nodes' => AdminAcl::READ,
+            'r_servers' => AdminAcl::READ | AdminAcl::WRITE,
+        ]);
+
+        $this->assertTrue(AdminAcl::canDelegate($key, [
+            'r_nodes' => AdminAcl::READ,
+            'r_servers' => AdminAcl::READ,
+        ]));
+        $this->assertFalse(AdminAcl::canDelegate($key, [
+            'r_nodes' => AdminAcl::READ | AdminAcl::WRITE,
+        ]));
     }
 
     /**

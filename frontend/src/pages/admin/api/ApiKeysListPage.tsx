@@ -2,7 +2,13 @@ import { m } from '@/i18n';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Info, KeyRound, Plus, Trash2 } from 'lucide-react';
-import { getAdminApiKeys, deleteAdminApiKey, type AdminApiKey } from '@/api/adminApiKeys';
+import {
+    ADMIN_API_KEY_RESOURCES,
+    getAdminApiKeys,
+    deleteAdminApiKey,
+    type AdminApiKey,
+    type AdminApiKeyResource,
+} from '@/api/adminApiKeys';
 import { timeAgo } from '@/lib/format';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
@@ -11,6 +17,22 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import ApiKeyFormModal from './ApiKeyFormModal';
+
+function resourceLabel(resource: AdminApiKeyResource): string {
+    const labels: Record<AdminApiKeyResource, () => string> = {
+        servers: m['admin.api.resource.r_servers'],
+        nodes: m['admin.api.resource.r_nodes'],
+        allocations: m['admin.api.resource.r_allocations'],
+        users: m['admin.api.resource.r_users'],
+        locations: m['admin.api.resource.r_locations'],
+        nests: m['admin.api.resource.r_nests'],
+        eggs: m['admin.api.resource.r_eggs'],
+        database_hosts: m['admin.api.resource.r_database_hosts'],
+        server_databases: m['admin.api.resource.r_server_databases'],
+    };
+
+    return labels[resource]();
+}
 
 // A single key in the settings-style list: identifier + description on the left,
 // a meta line beneath, and an always-visible Delete control on the right.
@@ -43,6 +65,30 @@ function ApiKeyRow({
                     {' · '}
                     {apiKey.allowedIps.length > 0 ? apiKey.allowedIps.join(', ') : m['admin.api.anyIp']()}
                 </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                    {apiKey.legacy ? (
+                        <span className="rounded-full border border-[var(--color-warning)]/35 bg-[var(--color-warning)]/10 px-2 py-0.5 text-xs text-[var(--color-warning)]">
+                            {m['admin.api.scopeLegacy']()}
+                        </span>
+                    ) : ADMIN_API_KEY_RESOURCES.some(resource => apiKey.permissions[resource] !== 'none') ? (
+                        ADMIN_API_KEY_RESOURCES.filter(resource => apiKey.permissions[resource] !== 'none').map(resource => (
+                            <span
+                                key={resource}
+                                className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 text-xs text-[var(--color-ink-muted)]"
+                            >
+                                {resourceLabel(resource)}
+                                {' · '}
+                                {apiKey.permissions[resource] === 'write'
+                                    ? m['admin.api.grant.readWrite']()
+                                    : m['admin.api.grant.read']()}
+                            </span>
+                        ))
+                    ) : (
+                        <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 text-xs text-[var(--color-ink-faint)]">
+                            {m['admin.api.scopeNone']()}
+                        </span>
+                    )}
+                </div>
             </div>
             {canDelete && (
                 <Button variant="danger" size="sm" onClick={() => onDelete(apiKey)} className="shrink-0">
