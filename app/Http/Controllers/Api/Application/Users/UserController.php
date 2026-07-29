@@ -15,6 +15,7 @@ use Everest\Services\Users\UserUpdateService;
 use Everest\Services\Users\UserCreationService;
 use Everest\Services\Users\UserDeletionService;
 use Everest\Services\Users\UserSuspensionService;
+use Everest\Services\Users\UserAccessProfileService;
 use Everest\Transformers\Api\Application\UserTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Requests\Api\Application\Users\GetUserRequest;
@@ -42,6 +43,7 @@ class UserController extends ApplicationApiController
         private UserDeletionService $deletionService,
         private UserUpdateService $updateService,
         private UserSuspensionService $suspensionService,
+        private UserAccessProfileService $accessProfiles,
     ) {
         parent::__construct();
     }
@@ -111,22 +113,13 @@ class UserController extends ApplicationApiController
      */
     public function update(UpdateUserRequest $request, User $user): array
     {
-        if (
-            !$request->user()->root_admin
-            && (
-                $request->input('root_admin')
-                || $request->input('admin_role_id') !== $user->admin_role_id
-            )
-        ) {
-            throw new DisplayException('You must be a root administrator to grant another user permissions.');
-        }
-
-        if (!$request->user()->root_admin && ($user->root_admin && !$request->input('root_admin'))) {
-            throw new DisplayException('You cannot remove rootAdmin without the same level of permission.');
-        }
-
         $this->updateService->setUserLevel(User::USER_LEVEL_ADMIN);
-        $user = $this->updateService->handle($user, $request->validated());
+        $user = $this->accessProfiles->update(
+            $request->user(),
+            $user,
+            $request->validated(),
+            $this->updateService
+        );
 
         $newData = collect($request->all())
             ->except(self::SENSITIVE_UPDATE_FIELDS)
@@ -152,17 +145,11 @@ class UserController extends ApplicationApiController
      */
     public function store(StoreUserRequest $request): JsonResponse
     {
-        if (
-            !$request->user()->root_admin
-            && (
-                $request->input('root_admin')
-                || !is_null($request->input('admin_role_id'))
-            )
-        ) {
-            throw new DisplayException('You must be a root administrator to grant another user permissions.');
-        }
-
-        $user = $this->creationService->handle($request->validated());
+        $user = $this->accessProfiles->create(
+            $request->user(),
+            $request->validated(),
+            $this->creationService
+        );
 
         Activity::event('admin:users:create')
             ->property('user', $user)

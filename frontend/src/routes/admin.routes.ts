@@ -18,8 +18,6 @@ import {
     Bell,
     Database,
     Server,
-    Users,
-    UserCog,
     Egg,
     ToggleRight,
     Link2,
@@ -28,6 +26,11 @@ import { lazy } from 'react';
 import { route, type RouteDef } from './registry';
 import { extensionAdminRoutes } from './extensionAdmin.routes';
 import { NodesRedirect, ServersRedirect } from '@/pages/admin/infrastructure/InfraRedirect';
+import {
+    ApiKeysAccessRedirect,
+    RolesAccessRedirect,
+    UsersAccessRedirect,
+} from '@/pages/admin/access/AccessRedirect';
 
 const SettingsSection = lazy(() => import('@/pages/admin/settings/SettingsSection'));
 const InfrastructureSection = lazy(() => import('@/pages/admin/infrastructure/InfrastructureSection'));
@@ -37,11 +40,9 @@ const BillingSection = lazy(() => import('@/pages/admin/billing/BillingSection')
 const LandingSection = lazy(() => import('@/pages/admin/landing/LandingSection'));
 const EmailSection = lazy(() => import('@/pages/admin/email/EmailSection'));
 const TicketsSection = lazy(() => import('@/pages/admin/tickets/TicketsSection'));
-const UsersSection = lazy(() => import('@/pages/admin/users/UsersSection'));
-const RolesSection = lazy(() => import('@/pages/admin/roles/RolesSection'));
+const AccessSection = lazy(() => import('@/pages/admin/access/AccessSection'));
 const MarketplaceSection = lazy(() => import('@/pages/admin/marketplace/MarketplaceSection'));
 const AdminActivityPage = lazy(() => import('@/pages/admin/activity/AdminActivityPage'));
-const ApiKeysSection = lazy(() => import('@/pages/admin/api/ApiKeysSection'));
 const NestsSection = lazy(() => import('@/pages/admin/nests/NestsSection'));
 const ApiDocsPage = lazy(() => import('@/pages/admin/apidocs/ApiDocsPage'));
 const AuthSection = lazy(() => import('@/pages/admin/auth/AuthSection'));
@@ -53,18 +54,26 @@ const DatabasesSection = lazy(() => import('@/pages/admin/databases/DatabasesSec
 const FeaturesSection = lazy(() => import('@/pages/admin/features/FeaturesSection'));
 const AiSection = lazy(() => import('@/pages/admin/ai/AiSection'));
 const LinksSection = lazy(() => import('@/pages/admin/links/LinksSection'));
+const AdminIndexRedirect = lazy(() => import('@/pages/admin/overview/AdminIndexRedirect'));
 
 // Admin area (/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
 export const adminRoutes: RouteDef[] = [
-    route('', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true, element: OverviewPage }),
+    route('', { element: AdminIndexRedirect }),
+    route('overview', { name: 'Overview', icon: LayoutDashboard, category: 'general', permission: 'overview.read', end: true, element: OverviewPage }),
     route('settings/*', { name: 'Settings', icon: Settings, category: 'general', permission: 'settings.read', element: SettingsSection }),
     route('features', { name: 'Features', icon: ToggleRight, category: 'general', permission: 'settings.read', element: FeaturesSection }),
     route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
-    route('api/*', { name: 'API Keys', icon: KeyRound, category: 'general', permission: 'api.read', element: ApiKeysSection }),
+    route('access/*', {
+        name: 'Access Control',
+        icon: KeyRound,
+        category: 'general',
+        permission: ['users.read', 'roles.read', 'api.read'],
+        element: AccessSection,
+    }),
 
-    route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', element: ApiDocsPage }),
+    route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', permission: 'api.read', element: ApiDocsPage }),
 
     route('auth/*', { name: 'Auth', icon: ShieldCheck, category: 'modules', permission: 'auth.read', element: AuthSection }),
     route('billing/*', { name: 'Billing', icon: CreditCard, category: 'modules', permission: 'billing.read', condition: f => f.billing.enabled, element: BillingSection }),
@@ -87,8 +96,11 @@ export const adminRoutes: RouteDef[] = [
     // Legacy paths redirect into the merged Infrastructure section (hidden from nav).
     route('nodes/*', { element: NodesRedirect }),
     route('servers/*', { element: ServersRedirect }),
-    route('users/*', { name: 'Users', icon: Users, category: 'management', permission: 'users.read', element: UsersSection }),
-    route('roles/*', { name: 'Roles', icon: UserCog, category: 'management', permission: 'roles.read', element: RolesSection }),
+    // Compatibility redirects for bookmarks and integrations targeting the
+    // previous standalone access-management pages.
+    route('users/*', { element: UsersAccessRedirect }),
+    route('roles/*', { element: RolesAccessRedirect }),
+    route('api/*', { element: ApiKeysAccessRedirect }),
 
     route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read', element: NestsSection }),
 

@@ -26,6 +26,9 @@ class AdminRoleTransformer extends Transformer
             'description' => $model->description,
             'color' => $model->color,
             'permissions' => $model->permissions ? $model->permissions : [],
+            'is_system' => $model->isProtected(),
+            'is_owner' => $model->isOwner(),
+            'api_eligible' => (bool) $model->api_eligible,
         ];
     }
 }

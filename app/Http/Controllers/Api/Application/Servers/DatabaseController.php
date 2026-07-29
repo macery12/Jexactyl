@@ -14,6 +14,7 @@ use Everest\Http\Requests\Api\Application\Servers\Databases\GetServerDatabaseReq
 use Everest\Http\Requests\Api\Application\Servers\Databases\GetServerDatabasesRequest;
 use Everest\Http\Requests\Api\Application\Servers\Databases\ServerDatabaseWriteRequest;
 use Everest\Http\Requests\Api\Application\Servers\Databases\StoreServerDatabaseRequest;
+use Everest\Http\Requests\Api\Application\Servers\Databases\DeleteServerDatabaseRequest;
 
 class DatabaseController extends ApplicationApiController
 {
@@ -81,7 +82,7 @@ class DatabaseController extends ApplicationApiController
      *
      * @throws \Exception
      */
-    public function delete(ServerDatabaseWriteRequest $request, Database $database): Response
+    public function delete(DeleteServerDatabaseRequest $request, Database $database): Response
     {
         $this->databaseManagementService->delete($database);
 

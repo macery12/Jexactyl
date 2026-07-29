@@ -1,45 +1,24 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, TriangleAlert } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, Info, TriangleAlert } from 'lucide-react';
 import { m } from '@/i18n';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Textarea } from '@/components/ui/Textarea';
 import { Spinner } from '@/components/ui/Spinner';
 import { firstError } from '@/lib/apiError';
-import {
-    ADMIN_API_KEY_RESOURCES,
-    createAdminApiKey,
-    emptyAdminApiKeyPermissions,
-    type AdminApiKeyGrant,
-    type AdminApiKeyPermissions,
-    type AdminApiKeyResource,
-} from '@/api/adminApiKeys';
+import { createAdminApiKey } from '@/api/adminApiKeys';
+import { getApiEligibleAccessProfiles } from '@/api/adminRoles';
 
 // Create dialog for an application API key. On success the full token is shown
 // exactly once (it can never be recovered), with copy-to-clipboard.
-function resourceLabel(resource: AdminApiKeyResource): string {
-    const labels: Record<AdminApiKeyResource, () => string> = {
-        servers: m['admin.api.resource.r_servers'],
-        nodes: m['admin.api.resource.r_nodes'],
-        allocations: m['admin.api.resource.r_allocations'],
-        users: m['admin.api.resource.r_users'],
-        locations: m['admin.api.resource.r_locations'],
-        nests: m['admin.api.resource.r_nests'],
-        eggs: m['admin.api.resource.r_eggs'],
-        database_hosts: m['admin.api.resource.r_database_hosts'],
-        server_databases: m['admin.api.resource.r_server_databases'],
-    };
-
-    return labels[resource]();
-}
-
-const GRANTS: AdminApiKeyGrant[] = ['none', 'read', 'write'];
-
-function grantLabel(grant: AdminApiKeyGrant): string {
-    if (grant === 'read') return m['admin.api.grant.read']();
-    if (grant === 'write') return m['admin.api.grant.readWrite']();
-    return m['admin.api.grant.none']();
+function permissionLabel(permission: string): string {
+    return permission
+        .split(/[.-]/)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' · ');
 }
 
 export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -49,7 +28,17 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
     const [error, setError] = useState<string | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
-    const [permissions, setPermissions] = useState<AdminApiKeyPermissions>(emptyAdminApiKeyPermissions);
+    const [accessProfileId, setAccessProfileId] = useState('');
+    const [allowedIps, setAllowedIps] = useState('');
+    const [expiresAt, setExpiresAt] = useState('');
+    const [now, setNow] = useState(() => Date.now());
+
+    const profilesQuery = useQuery({
+        queryKey: ['admin', 'api-keys', 'access-profiles'],
+        queryFn: getApiEligibleAccessProfiles,
+        enabled: open && token === null,
+        staleTime: 30_000,
+    });
 
     useEffect(() => {
         if (!open) return;
@@ -58,11 +47,23 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
         setError(null);
         setToken(null);
         setCopied(false);
-        setPermissions(emptyAdminApiKeyPermissions());
+        setAccessProfileId('');
+        setAllowedIps('');
+        setExpiresAt('');
+        setNow(Date.now());
     }, [open]);
 
     const mutation = useMutation({
-        mutationFn: () => createAdminApiKey(memo.trim(), permissions),
+        mutationFn: () =>
+            createAdminApiKey({
+                memo: memo.trim(),
+                accessProfileId: Number(accessProfileId),
+                allowedIps: allowedIps
+                    .split('\n')
+                    .map(ip => ip.trim())
+                    .filter(Boolean),
+                expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+            }),
         onSuccess: async newToken => {
             setToken(newToken);
             await qc.invalidateQueries({ queryKey: ['admin', 'api-keys'] });
@@ -70,7 +71,17 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
         onError: err => setError(firstError(err) ?? m['common.states.genericError']()),
     });
 
-    const canSubmit = memo.trim().length >= 3;
+    const canSubmit =
+        memo.trim().length >= 3 &&
+        Number.isInteger(Number(accessProfileId)) &&
+        Number(accessProfileId) > 0 &&
+        (!expiresAt || new Date(expiresAt).getTime() > now);
+
+    const profileOptions = (profilesQuery.data ?? []).map(profile => ({
+        value: String(profile.id),
+        label: profile.name,
+    }));
+    const selectedProfile = (profilesQuery.data ?? []).find(profile => String(profile.id) === accessProfileId);
 
     // Token-reveal view — replaces the form once the key is minted.
     if (token) {
@@ -157,47 +168,102 @@ export default function ApiKeyFormModal({ open, onClose }: { open: boolean; onCl
                     />
                 </Field>
 
-                <div className="flex flex-col gap-2">
-                    <div>
-                        <h3 className="text-sm font-medium text-[var(--color-ink-muted)]">
-                            {m['admin.api.form.permissions']()}
-                        </h3>
-                        <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">
-                            {m['admin.api.permissionsHint']()}
-                        </p>
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-2">
-                        {ADMIN_API_KEY_RESOURCES.map(resource => (
-                            <fieldset
-                                key={resource}
-                                className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3"
-                            >
-                                <legend className="px-1 text-xs font-medium text-[var(--color-ink-muted)]">
-                                    {resourceLabel(resource)}
-                                </legend>
-                                <div className="grid grid-cols-3 gap-1">
-                                    {GRANTS.map(grant => (
-                                        <label key={grant} className="cursor-pointer">
-                                            <input
-                                                className="peer sr-only"
-                                                type="radio"
-                                                name={`permission-${resource}`}
-                                                value={grant}
-                                                checked={permissions[resource] === grant}
-                                                onChange={() =>
-                                                    setPermissions(current => ({ ...current, [resource]: grant }))
-                                                }
-                                            />
-                                            <span className="flex min-h-8 items-center justify-center rounded-md px-1.5 text-center text-xs text-[var(--color-ink-faint)] transition-colors peer-checked:bg-[var(--color-surface)] peer-checked:text-[var(--color-ink)] peer-focus-visible:ring-1 peer-focus-visible:ring-[var(--color-focus-ring)]">
-                                                {grantLabel(grant)}
-                                            </span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </fieldset>
-                        ))}
-                    </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                    <Field
+                        htmlFor="admin-api-key-profile"
+                        label={m['admin.access.keys.form.profile']()}
+                        hint={m['admin.access.keys.form.profileHint']()}
+                        error={
+                            profilesQuery.isError
+                                ? m['admin.access.keys.form.profileLoadError']()
+                                : !profilesQuery.isLoading && profileOptions.length === 0
+                                  ? m['admin.access.keys.form.noProfiles']()
+                                  : undefined
+                        }
+                    >
+                        <Select
+                            id="admin-api-key-profile"
+                            value={accessProfileId || undefined}
+                            onChange={setAccessProfileId}
+                            options={profileOptions}
+                            placeholder={
+                                profilesQuery.isLoading
+                                    ? m['admin.access.keys.form.loadingProfiles']()
+                                    : m['admin.access.keys.form.selectProfile']()
+                            }
+                            disabled={profilesQuery.isLoading || profilesQuery.isError || profileOptions.length === 0}
+                            invalid={profilesQuery.isError}
+                        />
+                    </Field>
+
+                    <Field
+                        htmlFor="admin-api-key-expiry"
+                        label={m['admin.access.keys.form.expires']()}
+                        hint={m['admin.access.keys.form.expiresHint']()}
+                    >
+                        <Input
+                            id="admin-api-key-expiry"
+                            type="datetime-local"
+                            value={expiresAt}
+                            min={new Date(now + 60_000).toISOString().slice(0, 16)}
+                            onChange={event => setExpiresAt(event.target.value)}
+                        />
+                    </Field>
                 </div>
+
+                <Field
+                    htmlFor="admin-api-key-allowed-ips"
+                    label={m['admin.access.keys.form.allowedIps']()}
+                    hint={m['admin.access.keys.form.allowedIpsHint']()}
+                >
+                    <Textarea
+                        id="admin-api-key-allowed-ips"
+                        value={allowedIps}
+                        onChange={event => setAllowedIps(event.target.value)}
+                        rows={3}
+                        spellCheck={false}
+                        placeholder={'203.0.113.10\n2001:db8::/48'}
+                    />
+                </Field>
+
+                <p className="flex items-start gap-2 rounded-lg border border-[var(--brand)]/25 bg-[var(--brand-soft)] px-3 py-2 text-xs text-[var(--color-ink-muted)]">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--brand)]" />
+                    {m['admin.access.keys.form.authorityHint']()}
+                </p>
+
+                {selectedProfile && (
+                    <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-sm font-semibold text-[var(--color-ink)]">{selectedProfile.name}</h3>
+                                <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">
+                                    {selectedProfile.description || m['admin.access.keys.form.capabilitiesFallback']()}
+                                </p>
+                            </div>
+                            <span className="shrink-0 text-xs font-medium text-[var(--color-ink-muted)]">
+                                {m['admin.access.keys.form.capabilityCount']({
+                                    count: selectedProfile.permissions.length,
+                                })}
+                            </span>
+                        </div>
+                        {selectedProfile.permissions.length > 0 ? (
+                            <div className="mt-3 flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
+                                {selectedProfile.permissions.map(permission => (
+                                    <span
+                                        key={permission}
+                                        className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs text-[var(--color-ink-muted)]"
+                                    >
+                                        {permissionLabel(permission)}
+                                    </span>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="mt-3 text-xs text-[var(--color-warning)]">
+                                {m['admin.access.keys.form.noCapabilities']()}
+                            </p>
+                        )}
+                    </section>
+                )}
             </div>
         </Modal>
     );

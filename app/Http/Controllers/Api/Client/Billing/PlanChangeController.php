@@ -244,7 +244,7 @@ class PlanChangeController extends ClientApiController
      */
     private function assertOwner(User $user, Server $server): void
     {
-        if ($user->id !== $server->owner_id && !$user->root_admin) {
+        if ($user->id !== $server->owner_id && !$user->isOwner()) {
             throw new AccessDeniedHttpException('Only the server owner can change the billing plan.');
         }
     }

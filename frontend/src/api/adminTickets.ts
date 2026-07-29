@@ -63,7 +63,7 @@ function mapParticipant(u: RawUser | null | undefined): TicketParticipant | null
         id: u.id,
         username: u.username,
         email: u.email,
-        admin: Boolean(u.root_admin) || Boolean(u.admin_role_id),
+        admin: Boolean(u.admin_role_id),
         avatarUrl: u.avatar_url ?? null,
     };
 }

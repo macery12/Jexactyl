@@ -9,6 +9,6 @@ class DeleteAllAllocationsRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::NODES_DELETE;
+        return AdminRole::ALLOCATIONS_DELETE;
     }
 }

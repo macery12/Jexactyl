@@ -5,7 +5,6 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { useSession } from '@/state/session';
@@ -13,9 +12,9 @@ import { firstError } from '@/lib/apiError';
 import { createUser, updateUser, type AdminUserRow, type CreateUserInput } from '@/api/adminUsers';
 import { getAdminRoles } from '@/api/adminRoles';
 
-// Create / edit dialog for an admin user. Assigning an admin role or root-admin
-// status is restricted to root administrators (the backend rejects otherwise),
-// so those controls are disabled for everyone else.
+// Create / edit dialog for a user. Assigning an Access Profile is restricted to
+// an interactive Owner (the backend rejects otherwise), so the selector is
+// hidden from every other administrator.
 export default function UserFormModal({
     open,
     onClose,
@@ -28,13 +27,12 @@ export default function UserFormModal({
     const editing = user !== null;
     const push = useFlashes(s => s.push);
     const qc = useQueryClient();
-    const isRoot = useSession(s => Boolean(s.user?.root_admin));
+    const isOwner = useSession(s => Boolean(s.user?.access_profile?.is_owner));
 
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [externalId, setExternalId] = useState('');
-    const [rootAdmin, setRootAdmin] = useState(false);
     const [roleId, setRoleId] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +44,6 @@ export default function UserFormModal({
         setEmail(user?.email ?? '');
         setPassword('');
         setExternalId(user?.externalId ?? '');
-        setRootAdmin(user?.rootAdmin ?? false);
         setRoleId(user?.adminRoleId != null ? String(user.adminRoleId) : '');
         setError(null);
     }, [open, user]);
@@ -54,24 +51,33 @@ export default function UserFormModal({
     const { data: rolesData } = useQuery({
         queryKey: ['admin', 'roles', 'all'],
         queryFn: () => getAdminRoles({ perPage: 100 }),
-        enabled: open && isRoot,
+        enabled: open && isOwner,
     });
 
     const roleOptions = useMemo(
         () => [
-            { value: '', label: m['admin.users.form.noRole']() },
-            ...(rolesData?.items ?? []).map(r => ({ value: String(r.id), label: r.name })),
+            { value: 'none', label: m['admin.access.people.noAccess']() },
+            ...(rolesData?.items ?? [])
+                .map(profile => ({
+                    value: `profile:${profile.id}`,
+                    label: profile.isOwner
+                        ? m['admin.access.people.ownerOption']({ name: profile.name })
+                        : profile.name,
+                })),
         ],
         [rolesData],
     );
+
+    const accessProfile = roleId ? `profile:${roleId}` : 'none';
+    const setAccessProfile = (value: string) => {
+        setRoleId(value.startsWith('profile:') ? value.slice('profile:'.length) : '');
+    };
 
     const mutation = useMutation({
         mutationFn: () => {
             const base: Partial<CreateUserInput> = { username, email, externalId: externalId || null };
             if (password) base.password = password;
-            // Only root admins may change role / root-admin; still send current
-            // values so the backend's "unchanged" check passes for other admins.
-            base.rootAdmin = rootAdmin;
+            // Access profiles are the only source of administrator authority.
             base.adminRoleId = roleId ? Number(roleId) : null;
             return editing ? updateUser(user!.id, base) : createUser(base as CreateUserInput);
         },
@@ -136,26 +142,16 @@ export default function UserFormModal({
                     <Input value={externalId} onChange={e => setExternalId(e.target.value)} autoComplete="off" />
                 </Field>
 
-                {isRoot ? (
-                    <>
-                        <Field label={m['admin.users.form.role']()} hint={m['admin.users.form.roleHint']()}>
-                            <Select value={roleId} onChange={setRoleId} options={roleOptions} disabled={rootAdmin} />
-                        </Field>
-                        <label className="flex items-start gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/50 p-3">
-                            <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-medium text-[var(--color-ink)]">
-                                    {m['admin.users.form.rootAdmin']()}
-                                </span>
-                                <span className="mt-0.5 block text-xs text-[var(--color-ink-muted)]">
-                                    {m['admin.users.form.rootAdminHint']()}
-                                </span>
-                            </span>
-                            <Switch checked={rootAdmin} onChange={setRootAdmin} className="mt-0.5" />
-                        </label>
-                    </>
+                {isOwner ? (
+                    <Field
+                        label={m['admin.access.people.profileField']()}
+                        hint={m['admin.access.people.profileHint']()}
+                    >
+                        <Select value={accessProfile} onChange={setAccessProfile} options={roleOptions} />
+                    </Field>
                 ) : (
                     <p className="rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-xs text-[var(--color-ink-muted)]">
-                        {m['admin.users.form.roleRootOnly']()}
+                        {m['admin.access.people.onlyOwner']()}
                     </p>
                 )}
             </div>

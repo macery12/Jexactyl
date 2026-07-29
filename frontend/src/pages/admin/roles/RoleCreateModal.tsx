@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
+import { Switch } from '@/components/ui/Switch';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { createRole } from '@/api/adminRoles';
@@ -22,6 +23,7 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [color, setColor] = useState(DEFAULT_COLOR);
+    const [apiEligible, setApiEligible] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -30,16 +32,17 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
         setName('');
         setDescription('');
         setColor(DEFAULT_COLOR);
+        setApiEligible(false);
         setError(null);
     }, [open]);
 
     const mutation = useMutation({
-        mutationFn: () => createRole({ name, description: description || null, color }),
+        mutationFn: () => createRole({ name, description: description || null, color, apiEligible }),
         onSuccess: async role => {
-            push({ type: 'success', message: m['admin.roles.created']() });
+            push({ type: 'success', message: m['admin.access.profiles.created']() });
             await qc.invalidateQueries({ queryKey: ['admin', 'roles'] });
             onClose();
-            navigate(`/admin/roles/${role.id}`);
+            navigate(`/admin/access/profiles/${role.id}`);
         },
         onError: err => setError(firstError(err) ?? m['common.states.genericError']()),
     });
@@ -48,8 +51,8 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
         <Modal
             open={open}
             onClose={onClose}
-            title={m['admin.roles.createTitle']()}
-            description={m['admin.roles.createSubtitle']()}
+            title={m['admin.access.profiles.createTitle']()}
+            description={m['admin.access.profiles.createSubtitle']()}
             footer={
                 <>
                     <Button variant="ghost" size="sm" onClick={onClose} disabled={mutation.isPending}>
@@ -57,7 +60,7 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
                     </Button>
                     <Button size="sm" onClick={() => mutation.mutate()} disabled={!name.trim() || mutation.isPending}>
                         {mutation.isPending && <Spinner className="h-4 w-4" />}
-                        {m['admin.roles.create']()}
+                        {m['admin.access.profiles.create']()}
                     </Button>
                 </>
             }
@@ -86,6 +89,17 @@ export default function RoleCreateModal({ open, onClose }: { open: boolean; onCl
                         <Input value={color} onChange={e => setColor(e.target.value)} maxLength={9} className="font-mono" />
                     </div>
                 </Field>
+                <label className="flex items-start gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]/50 p-3">
+                    <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium text-[var(--color-ink)]">
+                            {m['admin.access.profiles.apiAvailable']()}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-[var(--color-ink-muted)]">
+                            {m['admin.access.profiles.apiAvailableHint']()}
+                        </span>
+                    </span>
+                    <Switch checked={apiEligible} onChange={setApiEligible} className="mt-0.5" />
+                </label>
             </div>
         </Modal>
     );

@@ -2,17 +2,21 @@
 
 namespace Everest\Http\Middleware\Api\Application;
 
+use Everest\Models\ApiKey;
 use Illuminate\Http\Request;
-use Everest\Models\AdminRole;
 use Illuminate\Routing\Route;
-use Everest\Services\Acl\Api\AdminAcl;
+use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\Authorization\ApplicationApiPermissionResolver;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 class AuthorizeApplicationUser
 {
-    public function __construct(private ApplicationApiPermissionResolver $permissions)
-    {
+    public function __construct(
+        private ApplicationApiPermissionResolver $permissions,
+        private ApplicationApiAccessProfileService $profiles,
+        private AdminAuthorizer $authorizer,
+    ) {
     }
 
     /**
@@ -39,22 +43,16 @@ class AuthorizeApplicationUser
             throw new AccessDeniedHttpException();
         }
 
-        if ($required !== null && !$user->root_admin) {
-            $role = $user->admin_role_id
-                ? AdminRole::query()->find($user->admin_role_id)
-                : null;
-
-            if (!$role || !in_array($required, $role->permissions ?? [], true)) {
-                throw new AccessDeniedHttpException('This account does not have permission to perform this action.');
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            if (
+                $token->key_type !== ApiKey::TYPE_APPLICATION
+                || ($required !== null && !$this->profiles->allows($token, $required))
+            ) {
+                throw new AccessDeniedHttpException('This API key does not have permission to perform this action.');
             }
-        }
-
-        $scope = $this->permissions->scopeFor($route, $required);
-        if (
-            $scope !== null
-            && !AdminAcl::keyPermits($user->currentAccessToken(), $scope['resource'], $scope['action'])
-        ) {
-            throw new AccessDeniedHttpException('This API key does not have permission to perform this action.');
+        } elseif ($required !== null && !$this->authorizer->hasCapability($user, $required)) {
+            throw new AccessDeniedHttpException('This account does not have permission to perform this action.');
         }
 
         return $next($request);

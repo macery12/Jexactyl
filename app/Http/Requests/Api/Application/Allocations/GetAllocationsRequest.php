@@ -9,6 +9,6 @@ class GetAllocationsRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::NODES_READ;
+        return AdminRole::ALLOCATIONS_READ;
     }
 }

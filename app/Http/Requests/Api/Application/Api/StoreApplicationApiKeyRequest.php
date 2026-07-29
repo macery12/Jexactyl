@@ -2,8 +2,10 @@
 
 namespace Everest\Http\Requests\Api\Application\Api;
 
+use IPTools\Range;
 use Everest\Models\AdminRole;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
@@ -16,6 +18,10 @@ class StoreApplicationApiKeyRequest extends ApplicationApiRequest
      */
     protected function prepareForValidation(): void
     {
+        if ($this->filled('admin_role_id') && !$this->filled('access_profile_id')) {
+            $this->merge(['access_profile_id' => $this->input('admin_role_id')]);
+        }
+
         $permissions = $this->input('permissions');
         if (!is_array($permissions)) {
             return;
@@ -51,14 +57,68 @@ class StoreApplicationApiKeyRequest extends ApplicationApiRequest
         $resources = AdminAcl::getResourceList();
         $rules = [
             'memo' => 'required|string|min:3|max:191',
-            'permissions' => ['required', 'array:' . implode(',', $resources)],
+            'access_profile_id' => ['required_without:permissions', 'integer', 'exists:admin_roles,id'],
+            'admin_role_id' => ['nullable', 'integer', 'exists:admin_roles,id'],
+            'permissions' => ['required_without:access_profile_id', 'array:' . implode(',', $resources)],
+            'allowed_ips' => ['nullable', 'array', 'max:50'],
+            'allowed_ips.*' => ['string'],
+            'expires_at' => ['nullable', 'date', 'after:now'],
         ];
 
         foreach ($resources as $resource) {
-            $rules['permissions.' . $resource] = ['required', 'string', Rule::in(['none', 'read', 'write'])];
+            $rules['permissions.' . $resource] = [
+                'required_with:permissions',
+                'string',
+                Rule::in(['none', 'read', 'write']),
+            ];
         }
 
         return $rules;
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            if (
+                $this->filled('access_profile_id')
+                && $this->filled('admin_role_id')
+                && (int) $this->input('access_profile_id') !== (int) $this->input('admin_role_id')
+            ) {
+                $validator->errors()->add(
+                    'access_profile_id',
+                    'The access_profile_id and admin_role_id fields must identify the same profile.'
+                );
+            }
+
+            if ($this->filled('access_profile_id') && $this->has('permissions')) {
+                $validator->errors()->add(
+                    'permissions',
+                    'Legacy resource permissions cannot be combined with an access profile.'
+                );
+            }
+
+            $ips = $this->input('allowed_ips');
+            if (!is_array($ips)) {
+                return;
+            }
+
+            foreach ($ips as $index => $ip) {
+                $valid = false;
+                try {
+                    $valid = Range::parse($ip)->valid();
+                } catch (\Exception $exception) {
+                    if ($exception->getMessage() !== 'Invalid IP address format') {
+                        throw $exception;
+                    }
+                } finally {
+                    $validator->errors()->addIf(
+                        !$valid,
+                        "allowed_ips.{$index}",
+                        '"' . $ip . '" is not a valid IP address or CIDR range.'
+                    );
+                }
+            }
+        });
     }
 
     /**
@@ -69,6 +129,10 @@ class StoreApplicationApiKeyRequest extends ApplicationApiRequest
      */
     public function keyPermissions(): array
     {
+        if (!$this->has('permissions')) {
+            return [];
+        }
+
         $grants = [
             'none' => AdminAcl::NONE,
             'read' => AdminAcl::READ,
@@ -81,6 +145,13 @@ class StoreApplicationApiKeyRequest extends ApplicationApiRequest
         }
 
         return $permissions;
+    }
+
+    public function accessProfileId(): ?int
+    {
+        $id = $this->validated('access_profile_id');
+
+        return $id === null ? null : (int) $id;
     }
 
     public function permission(): string

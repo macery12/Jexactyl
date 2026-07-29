@@ -13,6 +13,12 @@ export interface PterodactylUser {
     avatar_url: string;
     admin_role_name: string;
     admin_role_id?: number;
+    access_profile?: {
+        id: number;
+        name: string;
+        color?: string | null;
+        is_owner?: boolean;
+    } | null;
     state: string;
     email_verified?: boolean;
     email_verified_at?: string | null;

@@ -314,6 +314,7 @@ Route::middleware([AdminSubject::class])->group(function () {
     */
     Route::group(['prefix' => '/api'], function () {
         Route::get('/', [Application\Api\ApiController::class, 'index']);
+        Route::get('/access-profiles', [Application\Api\ApiController::class, 'accessProfiles']);
         Route::post('/', [Application\Api\ApiController::class, 'store']);
         Route::delete('/{key:id}', [Application\Api\ApiController::class, 'delete']);
     });

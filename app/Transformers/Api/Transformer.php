@@ -3,6 +3,7 @@
 namespace Everest\Transformers\Api;
 
 use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Illuminate\Http\Request;
 use Webmozart\Assert\Assert;
 use Everest\Models\AdminRole;
@@ -11,6 +12,8 @@ use Illuminate\Container\Container;
 use Everest\Services\Acl\Api\AdminAcl;
 use League\Fractal\Resource\Collection;
 use League\Fractal\TransformerAbstract;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 /**
  * @method array transform(\Everest\Models\Model $model)
@@ -57,13 +60,13 @@ abstract class Transformer extends TransformerAbstract
     protected const INCLUDE_PERMISSIONS = [
         AdminAcl::RESOURCE_SERVERS => AdminRole::SERVERS_READ,
         AdminAcl::RESOURCE_NODES => AdminRole::NODES_READ,
-        AdminAcl::RESOURCE_ALLOCATIONS => AdminRole::NODES_READ,
-        AdminAcl::RESOURCE_LOCATIONS => AdminRole::NODES_READ,
+        AdminAcl::RESOURCE_ALLOCATIONS => AdminRole::ALLOCATIONS_READ,
+        AdminAcl::RESOURCE_LOCATIONS => AdminRole::LOCATIONS_READ,
         AdminAcl::RESOURCE_USERS => AdminRole::USERS_READ,
         AdminAcl::RESOURCE_NESTS => AdminRole::NESTS_READ,
         AdminAcl::RESOURCE_EGGS => AdminRole::EGGS_READ,
         AdminAcl::RESOURCE_DATABASE_HOSTS => AdminRole::DATABASES_READ,
-        AdminAcl::RESOURCE_SERVER_DATABASES => AdminRole::DATABASES_READ,
+        AdminAcl::RESOURCE_SERVER_DATABASES => AdminRole::SERVER_DATABASES_READ,
     ];
 
     /**
@@ -85,14 +88,12 @@ abstract class Transformer extends TransformerAbstract
             return false;
         }
 
-        $roleAllows = $user->root_admin
-            || (
-                $user->admin_role_id !== null
-                && in_array($required, AdminRole::find($user->admin_role_id)->permissions ?? [], true)
-            );
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            return app(ApplicationApiAccessProfileService::class)->allows($token, $required);
+        }
 
-        return $roleAllows
-            && AdminAcl::keyPermits($user->currentAccessToken(), $resource, AdminAcl::READ);
+        return app(AdminAuthorizer::class)->hasCapability($user, $required);
     }
 
     /**

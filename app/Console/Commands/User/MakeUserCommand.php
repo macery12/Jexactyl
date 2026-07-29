@@ -2,6 +2,7 @@
 
 namespace Everest\Console\Commands\User;
 
+use Everest\Models\AdminRole;
 use Illuminate\Console\Command;
 use Everest\Services\Users\UserCreationService;
 
@@ -37,12 +38,18 @@ class MakeUserCommand extends Command
             $password = $this->secret(trans('command/messages.user.ask_password'));
         }
 
-        $user = $this->creationService->handle(compact('email', 'username', 'password', 'root_admin'));
+        $data = compact('email', 'username', 'password');
+        if ((bool) $root_admin) {
+            $data['admin_role_id'] = AdminRole::query()->where('is_owner', true)->value('id');
+            $data['root_admin'] = true;
+        }
+
+        $user = $this->creationService->handle($data);
         $this->table(['Field', 'Value'], [
             ['UUID', $user->uuid],
             ['Email', $user->email],
             ['Username', $user->username],
-            ['Admin', $user->root_admin ? 'Yes' : 'No'],
+            ['Owner', $user->isOwner() ? 'Yes' : 'No'],
         ]);
     }
 }

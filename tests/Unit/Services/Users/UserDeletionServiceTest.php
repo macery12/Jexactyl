@@ -5,6 +5,7 @@ namespace Everest\Tests\Unit\Services\Users;
 use Everest\Models\User;
 use Everest\Tests\TestCase;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\TransientToken;
 use Illuminate\Support\Facades\Schema;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Database\Schema\Blueprint;
@@ -30,14 +31,15 @@ class UserDeletionServiceTest extends TestCase
         $actor = $this->createUser(root: false);
 
         // Simulate stale/tampered route-model state. The service must re-read
-        // root_admin under its transaction lock.
-        $target->root_admin = false;
+        // Owner profile membership under its transaction lock.
+        $target->admin_role_id = null;
+        $target->unsetRelation('adminRole');
 
         $repository = \Mockery::mock(UserRepositoryInterface::class);
         $repository->shouldNotReceive('delete');
 
         $this->expectException(DisplayException::class);
-        $this->expectExceptionMessage('Only an active root administrator');
+        $this->expectExceptionMessage('Only an active Owner');
 
         $this->service($repository)->handle($target, $actor);
     }
@@ -74,7 +76,7 @@ class UserDeletionServiceTest extends TestCase
         $repository->shouldNotReceive('delete');
 
         $this->expectException(DisplayException::class);
-        $this->expectExceptionMessage('final active root');
+        $this->expectExceptionMessage('final active Owner');
 
         $this->service($repository)->handle($target);
     }
@@ -114,12 +116,14 @@ class UserDeletionServiceTest extends TestCase
     private function createUser(bool $root): User
     {
         $suffix = bin2hex(random_bytes(4));
+        $ownerId = DB::table('admin_roles')->where('is_owner', true)->value('id');
         $id = DB::table('users')->insertGetId([
             'uuid' => '00000000-0000-4000-8000-' . str_pad((string) random_int(1, 999999999999), 12, '0', STR_PAD_LEFT),
             'username' => 'delete-' . $suffix,
             'email' => 'delete-' . $suffix . '@example.test',
             'password' => 'unused',
             'root_admin' => $root,
+            'admin_role_id' => $root ? $ownerId : null,
             'use_totp' => false,
             'state' => null,
             'language' => 'en',
@@ -127,11 +131,38 @@ class UserDeletionServiceTest extends TestCase
             'updated_at' => now(),
         ]);
 
-        return User::query()->findOrFail($id);
+        $user = User::query()->findOrFail($id);
+        if ($root) {
+            $user->withAccessToken(new TransientToken());
+        }
+
+        return $user;
     }
 
     private function createTables(): void
     {
+        if (!Schema::hasTable('admin_roles')) {
+            Schema::create('admin_roles', function (Blueprint $table) {
+                $table->increments('id');
+                $table->string('name');
+                $table->integer('sort_id')->default(0);
+                $table->json('permissions')->nullable();
+                $table->boolean('is_system')->default(false);
+                $table->boolean('is_owner')->default(false);
+                $table->boolean('api_eligible')->default(true);
+            });
+        }
+        if (!DB::table('admin_roles')->where('is_owner', true)->exists()) {
+            DB::table('admin_roles')->insert([
+                'name' => 'Owner',
+                'sort_id' => -1,
+                'permissions' => '[]',
+                'is_system' => true,
+                'is_owner' => true,
+                'api_eligible' => false,
+            ]);
+        }
+
         if (!Schema::hasTable('users')) {
             Schema::create('users', function (Blueprint $table) {
                 $table->increments('id');

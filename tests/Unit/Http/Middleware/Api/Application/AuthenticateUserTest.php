@@ -2,8 +2,12 @@
 
 namespace Everest\Tests\Unit\Http\Middleware\Api\Application;
 
+use Everest\Models\AdminRole;
+use Laravel\Sanctum\TransientToken;
 use Everest\Tests\Unit\Http\Middleware\MiddlewareTestCase;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 use Everest\Http\Middleware\Api\Application\AuthenticateApplicationUser;
 
 class AuthenticateUserTest extends MiddlewareTestCase
@@ -27,7 +31,8 @@ class AuthenticateUserTest extends MiddlewareTestCase
     {
         $this->expectException(AccessDeniedHttpException::class);
 
-        $this->generateRequestUserModel(['root_admin' => false]);
+        $this->generateRequestUserModel(['root_admin' => false])
+            ->withAccessToken(new TransientToken());
 
         $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
     }
@@ -37,7 +42,9 @@ class AuthenticateUserTest extends MiddlewareTestCase
      */
     public function testAdminUser()
     {
-        $this->generateRequestUserModel(['root_admin' => true]);
+        $user = $this->generateRequestUserModel(['root_admin' => true, 'admin_role_id' => 1]);
+        $user->setRelation('adminRole', $this->profile());
+        $user->withAccessToken(new TransientToken());
 
         $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
     }
@@ -46,10 +53,13 @@ class AuthenticateUserTest extends MiddlewareTestCase
     {
         $this->expectException(AccessDeniedHttpException::class);
 
-        $this->generateRequestUserModel([
+        $user = $this->generateRequestUserModel([
             'root_admin' => true,
+            'admin_role_id' => 1,
             'state' => 'suspended',
         ]);
+        $user->setRelation('adminRole', $this->profile());
+        $user->withAccessToken(new TransientToken());
 
         $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
     }
@@ -62,7 +72,7 @@ class AuthenticateUserTest extends MiddlewareTestCase
             'root_admin' => false,
             'admin_role_id' => 123,
             'state' => 'pending',
-        ]);
+        ])->withAccessToken(new TransientToken());
 
         $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
     }
@@ -72,6 +82,21 @@ class AuthenticateUserTest extends MiddlewareTestCase
      */
     private function getMiddleware(): AuthenticateApplicationUser
     {
-        return new AuthenticateApplicationUser();
+        return new AuthenticateApplicationUser(
+            new ApplicationApiAccessProfileService(new AdminCapabilityRegistry())
+        );
+    }
+
+    private function profile(): AdminRole
+    {
+        $profile = new AdminRole();
+        $profile->forceFill([
+            'id' => 1,
+            'permissions' => [],
+            'is_owner' => true,
+            'api_eligible' => false,
+        ]);
+
+        return $profile;
     }
 }

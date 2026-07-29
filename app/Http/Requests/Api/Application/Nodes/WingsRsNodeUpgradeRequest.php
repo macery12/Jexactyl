@@ -2,7 +2,9 @@
 
 namespace Everest\Http\Requests\Api\Application\Nodes;
 
+use Everest\Models\ApiKey;
 use Everest\Models\AdminRole;
+use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 /**
@@ -22,7 +24,10 @@ class WingsRsNodeUpgradeRequest extends ApplicationApiRequest
     {
         $user = $this->user();
 
-        return $user->isActive()
-            && $user->root_admin;
+        if ($user->currentAccessToken() instanceof ApiKey) {
+            return false;
+        }
+
+        return app(AdminAuthorizer::class)->isInteractiveOwner($user);
     }
 }

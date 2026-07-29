@@ -32,7 +32,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
     const site = useFlags(s => s.site);
     const location = useLocation();
     const inAdmin = location.pathname.startsWith('/admin');
-    const isAdmin = !!user?.root_admin || !!user?.admin_role_id;
+    const isAdmin = Boolean(user?.admin_role_id);
 
     return (
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--color-border)] bg-[var(--canvas)]/80 px-4 backdrop-blur">

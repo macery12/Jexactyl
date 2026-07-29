@@ -4,18 +4,20 @@ namespace Everest\Http\Controllers\Api\Application\Api;
 
 use Everest\Models\ApiKey;
 use Everest\Facades\Activity;
+use Everest\Models\AdminRole;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Spatie\QueryBuilder\QueryBuilder;
-use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Services\Api\KeyCreationService;
 use Everest\Transformers\Api\Application\ApiKeyTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Everest\Transformers\Api\Application\AdminRoleTransformer;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 use Everest\Http\Requests\Api\Application\Api\GetApplicationApiKeysRequest;
 use Everest\Http\Requests\Api\Application\Api\StoreApplicationApiKeyRequest;
 use Everest\Http\Requests\Api\Application\Api\DeleteApplicationApiKeyRequest;
+use Everest\Http\Requests\Api\Application\Api\GetDelegableAccessProfilesRequest;
 
 class ApiController extends ApplicationApiController
 {
@@ -24,6 +26,7 @@ class ApiController extends ApplicationApiController
      */
     public function __construct(
         private KeyCreationService $keyCreationService,
+        private ApplicationApiAccessProfileService $profiles,
     ) {
         parent::__construct();
     }
@@ -38,7 +41,7 @@ class ApiController extends ApplicationApiController
             throw new QueryValueOutOfRangeHttpException('per_page', 1, 100);
         }
 
-        $apiKeys = QueryBuilder::for(ApiKey::query())
+        $apiKeys = QueryBuilder::for(ApiKey::query()->with(['accessProfile', 'user']))
             ->where('key_type', 2)
             ->allowedFilters(...['id', 'identifier', 'last_used_at'])
             ->allowedSorts(...['id', 'identifier', 'last_used_at'])
@@ -50,22 +53,41 @@ class ApiController extends ApplicationApiController
     }
 
     /**
+     * Return only API-eligible profiles whose canonical capabilities are no
+     * broader than the requesting human or service principal.
+     */
+    public function accessProfiles(GetDelegableAccessProfilesRequest $request): array
+    {
+        return $this->fractal->collection($this->profiles->delegableProfiles($request->user()))
+            ->transformWith(AdminRoleTransformer::class)
+            ->toArray();
+    }
+
+    /**
      * Create a new Admin API key for the Panel.
      */
     public function store(StoreApplicationApiKeyRequest $request): JsonResponse
     {
         $permissions = $request->keyPermissions();
-        if (!AdminAcl::canDelegate($request->user()->currentAccessToken(), $permissions)) {
-            throw new AccessDeniedHttpException('An API key cannot create a key with broader resource permissions than its own.');
+        $profileId = $request->accessProfileId();
+        if ($profileId !== null) {
+            $profile = AdminRole::query()->findOrFail($profileId);
+            $this->profiles->assertCanDelegate($request->user(), $profile);
+        } else {
+            $profile = $this->profiles->createLegacyProfile($request->user(), $permissions);
         }
 
         $apiKey = $this->keyCreationService->setKeyType(ApiKey::TYPE_APPLICATION)->handle([
             'memo' => $request->input('memo'),
             'user_id' => $request->user()->id,
+            'admin_role_id' => $profile->id,
+            'allowed_ips' => $request->input('allowed_ips', []),
+            'expires_at' => $request->input('expires_at'),
         ], $permissions);
 
         Activity::event('admin:api-keys:create')
             ->property('api-key', $apiKey)
+            ->property('access-profile-id', $profile->id)
             ->description('A new Application API key was created')
             ->log();
 

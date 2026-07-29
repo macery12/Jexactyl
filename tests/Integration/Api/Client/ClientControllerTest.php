@@ -5,6 +5,7 @@ namespace Everest\Tests\Integration\Api\Client;
 use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Models\Subuser;
+use Everest\Models\AdminRole;
 use Everest\Models\Allocation;
 use Everest\Models\Permission;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -48,7 +49,9 @@ class ClientControllerTest extends ClientApiIntegrationTestCase
     {
         /** @var User[] $users */
         $users = User::factory()->times(2)->create();
-        $users[0]->update(['root_admin' => true]);
+        $users[0]->update([
+            'admin_role_id' => AdminRole::query()->where('is_owner', true)->value('id'),
+        ]);
 
         /** @var Server[] $servers */
         $servers = [
@@ -226,7 +229,9 @@ class ClientControllerTest extends ClientApiIntegrationTestCase
     {
         /** @var User[] $users */
         $users = User::factory()->times(4)->create();
-        $users[0]->update(['root_admin' => true]);
+        $users[0]->update([
+            'admin_role_id' => AdminRole::query()->where('is_owner', true)->value('id'),
+        ]);
 
         $servers = [
             $this->createServerModel(['user_id' => $users[0]->id]),
@@ -261,7 +266,9 @@ class ClientControllerTest extends ClientApiIntegrationTestCase
     {
         /** @var User[] $users */
         $users = User::factory()->times(4)->create();
-        $users[0]->update(['root_admin' => true]);
+        $users[0]->update([
+            'admin_role_id' => AdminRole::query()->where('is_owner', true)->value('id'),
+        ]);
 
         $servers = [
             $this->createServerModel(['user_id' => $users[0]->id]),

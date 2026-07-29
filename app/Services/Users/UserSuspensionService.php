@@ -55,8 +55,8 @@ class UserSuspensionService
         [$lockedUser, $didSuspend, $pendingApprovalRequired] = DB::transaction(function () use ($userId, $suspend, $allowPendingTransition) {
             $lockedUser = User::query()->whereKey($userId)->lockForUpdate()->firstOrFail();
 
-            if ($suspend && $lockedUser->root_admin) {
-                throw new DisplayException('You cannot suspend a root administrator.');
+            if ($suspend && $lockedUser->isOwner()) {
+                throw new DisplayException('You cannot suspend an Owner.');
             }
 
             if ($allowPendingTransition && !$lockedUser->isPending()) {

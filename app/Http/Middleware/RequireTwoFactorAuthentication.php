@@ -3,6 +3,7 @@
 namespace Everest\Http\Middleware;
 
 use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Exceptions\Http\TwoFactorAuthRequiredException;
@@ -35,6 +36,14 @@ class RequireTwoFactorAuthentication
 
         // Must be logged in
         if (!$user instanceof User) {
+            return $next($request);
+        }
+
+        // Application API keys are non-interactive service credentials. Their
+        // authority comes from an API-eligible Access Profile, not from the
+        // creator's current human 2FA state.
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey && $token->key_type === ApiKey::TYPE_APPLICATION) {
             return $next($request);
         }
 

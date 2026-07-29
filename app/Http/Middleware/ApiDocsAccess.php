@@ -29,7 +29,7 @@ class ApiDocsAccess
                 );
             }
 
-            if (!$user->root_admin && empty($user->admin_role_id)) {
+            if (!$user->isAdministrator()) {
                 return $this->errorResponse(
                     $request,
                     403,

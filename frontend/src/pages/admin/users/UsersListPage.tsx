@@ -79,7 +79,7 @@ function RowActions({
                     {canUpdate && (
                         <>
                             <Item icon={Pencil} label={m['common.actions.edit']()} onSelect={onEdit} />
-                            {!user.rootAdmin &&
+                            {!user.accessProfile?.isOwner &&
                                 (user.suspended ? (
                                     <Item
                                         icon={Power}
@@ -207,8 +207,10 @@ export default function UsersListPage() {
         <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h1 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.users.title']()}</h1>
-                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.users.subtitle']()}</p>
+                    <h2 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.access.people.title']()}</h2>
+                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+                        {m['admin.access.people.subtitle']()}
+                    </p>
                 </div>
                 {canCreate && (
                     <Button onClick={openCreate}>
@@ -246,7 +248,9 @@ export default function UsersListPage() {
                             <tr className="border-b border-[var(--color-border)] text-left text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">
                                 <th className="px-4 py-2.5 font-medium">{m['admin.users.col.user']()}</th>
                                 <th className="hidden px-4 py-2.5 font-medium md:table-cell">{m['admin.users.col.email']()}</th>
-                                <th className="hidden px-4 py-2.5 font-medium lg:table-cell">{m['admin.users.col.role']()}</th>
+                                <th className="hidden px-4 py-2.5 font-medium lg:table-cell">
+                                    {m['admin.access.people.profileColumn']()}
+                                </th>
                                 <th className="px-4 py-2.5 font-medium">{m['admin.users.col.status']()}</th>
                                 <th className="hidden px-4 py-2.5 font-medium sm:table-cell">{m['admin.users.col.created']()}</th>
                                 <th className="w-8 px-4 py-2.5" />
@@ -270,7 +274,7 @@ export default function UsersListPage() {
                                             <div className="min-w-0">
                                                 <span className="flex items-center gap-1.5 font-medium text-[var(--color-ink)]">
                                                     <span className="truncate">{u.username}</span>
-                                                    {u.rootAdmin && (
+                                                    {u.accessProfile?.isOwner && (
                                                         <ShieldCheck
                                                             className="h-3.5 w-3.5 shrink-0 text-[var(--brand)]"
                                                             aria-label={m['admin.users.rootAdmin']()}
@@ -285,7 +289,22 @@ export default function UsersListPage() {
                                     </td>
                                     <td className="hidden px-4 py-3 text-[var(--color-ink-muted)] md:table-cell">{u.email}</td>
                                     <td className="hidden px-4 py-3 text-[var(--color-ink-muted)] lg:table-cell">
-                                        {u.rootAdmin ? m['admin.users.rootAdmin']() : u.adminRoleId ? u.roleName : '—'}
+                                        {u.accessProfile?.isOwner ? (
+                                            <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--brand)]/30 bg-[var(--brand-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--brand)]">
+                                                <span className="h-2 w-2 rounded-full bg-[var(--brand)]" />
+                                                {m['admin.access.owner']()}
+                                            </span>
+                                        ) : u.adminRoleId ? (
+                                            <span className="inline-flex items-center gap-1.5">
+                                                <span
+                                                    className="h-2.5 w-2.5 rounded-full"
+                                                    style={{ backgroundColor: u.accessProfile?.color ?? 'var(--color-ink-faint)' }}
+                                                />
+                                                {u.roleName}
+                                            </span>
+                                        ) : (
+                                            m['admin.access.people.noAccess']()
+                                        )}
                                     </td>
                                     <td className="px-4 py-3">
                                         <StatusPill user={u} />

@@ -8,10 +8,9 @@ import { getAdminPermissions } from '@/api/adminPermissions';
 // the ~15 pages that hide write controls behind `can()`. See
 // docs/v1-cutover/01-audit-findings.md #11.
 //
-// Stable module-level constants: these arrays are returned as-is so consumers'
+// Stable module-level constant: this array is returned as-is so consumers'
 // `useMemo(..., [held])` stays referentially stable. Never build a fresh array
 // per render here — an unstable snapshot is React #185 (infinite re-render).
-const ROOT_HELD: string[] = ['*'];
 const NO_HELD: string[] = [];
 
 export interface AdminPermissions {
@@ -24,9 +23,10 @@ export interface AdminPermissions {
 /**
  * The current admin's held-permission set.
  *
- * Root admins bypass the request entirely (V1 parity: `useAdminPermissions`
- * passes a null SWR key for them). Non-admins never reach an admin surface, so
- * they resolve to the empty set without a request either.
+ * Every administrator, including the protected Owner profile, resolves its
+ * capabilities from the assigned access profile. `root_admin` is compatibility
+ * display data and is intentionally not an authorization source in this UI.
+ * Non-admins resolve to the empty set without a request.
  *
  * Fails **closed**: `held` is empty until the real set arrives, so a caller that
  * ignores `isLoading` hides controls rather than leaking them. Route gating must
@@ -36,20 +36,18 @@ export interface AdminPermissions {
  * permission means "not yet proven".
  */
 export function useAdminPermissions(): AdminPermissions {
-    const rootAdmin = useSession(s => Boolean(s.user?.root_admin));
     const roleAdmin = useSession(s => Boolean(s.user?.admin_role_id));
 
     const { data, isLoading } = useQuery({
         queryKey: ['admin', 'permissions'],
         queryFn: getAdminPermissions,
-        // Root admins already know the answer; non-admins have no set to fetch.
-        enabled: roleAdmin && !rootAdmin,
+        // Only accounts with an assigned access profile have a set to fetch.
+        enabled: roleAdmin,
         // The set only changes when an operator edits the role, which forces a
         // reload anyway — no need to re-fetch it per page.
         staleTime: Infinity,
     });
 
-    if (rootAdmin) return { held: ROOT_HELD, isLoading: false };
     if (!roleAdmin) return { held: NO_HELD, isLoading: false };
     return { held: data ?? NO_HELD, isLoading };
 }

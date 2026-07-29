@@ -1,10 +1,9 @@
-# Admin (Application) API Keys — Per-Resource Read/Write Scoping
+# Application API Keys — Access Profiles
 
 **Status:** Implemented · **Updated:** 2026-07-29
 
-> **Deployment action:** run the migration before creating or relying on scoped
-> keys. Existing all-zero Application API keys remain legacy unrestricted for
-> compatibility and should be replaced with explicitly scoped keys.
+> **Deployment action:** place the panel in maintenance mode and run the
+> migrations before using Application API keys.
 >
 > ```bash
 > php artisan down
@@ -12,73 +11,218 @@
 > php artisan up
 > ```
 
-Application API keys (`ptla_…`, `ApiKey::TYPE_APPLICATION`) have a second
-authorization layer in addition to the owning administrator's live role:
+Application API keys (`ptla_…`, `ApiKey::TYPE_APPLICATION`) are non-interactive
+panel service identities. Every key is bound to exactly one API-eligible Access
+Profile, and that profile's canonical capabilities are the key's complete
+runtime authority.
 
 ```text
-effective access = owner role allows the action
-                AND key scope allows the resource/action
+key authority = capabilities in the key's Access Profile
 ```
 
-A key cannot gain privileges its owner does not currently hold. A root
-administrator's role check remains unrestricted, but a root-owned API key is
-still constrained by that key's scope.
+The user who creates a key is retained as its creator for authentication
+plumbing, revocation, and audit attribution. The key does not inherit that
+user's Access Profile and does not become more or less powerful when the
+creator's human permissions change.
 
-## Scope vocabulary
+## Security model
 
-The restored ACL intentionally keeps the nine historical Pterodactyl resource
-columns. It does not add scopes for this panel's newer modules.
+- A key must reference one Access Profile with `api_eligible = true`.
+- Custom profiles are not API eligible by default; an Owner must explicitly
+  enable them for service credentials.
+- The built-in Owner profile can never be assigned to a key.
+- A caller may assign only a profile whose capabilities are a subset of the
+  caller's own effective capabilities.
+- A key with `api.create` may create another key only with an equal or narrower
+  profile.
+- Owner-only human operations are never available to a service key. In
+  particular, a key cannot perform a Wings/system daemon upgrade merely because
+  its creator is an Owner.
+- Unknown capability IDs fail closed.
+- Application API actions without an explicit capability declaration fail
+  closed.
+- Key expiry is enforced by Sanctum before the Application API middleware runs.
+- Optional IPv4, IPv6, and CIDR restrictions are enforced by the shared API IP
+  middleware.
+- The creator account must continue to exist and remain active. This is a
+  deliberate emergency-revocation boundary, not an authority source.
 
-| API resource | Stored column | Live endpoint mapping |
-|---|---|---|
-| Servers | `r_servers` | `servers.*`, except server presets and nested server databases |
-| Nodes | `r_nodes` | `nodes.*`, except nested allocations |
-| Allocations | `r_allocations` | `/nodes/{node}/allocations/**` |
-| Users | `r_users` | `users.*` |
-| Locations | `r_locations` | Compatibility-only; this panel currently has no location endpoint or include |
-| Nests | `r_nests` | `nests.*` |
-| Eggs | `r_eggs` | `eggs.*`, including egg import under a nest |
-| Database hosts | `r_database_hosts` | `/databases/**` |
-| Server databases | `r_server_databases` | `/servers/{server}/databases/**` |
-
-`GET` and `HEAD` require read access. Every other HTTP method requires write
-access. This matters for operations such as egg export: its role permission is
-`eggs.export`, but its `GET` route is correctly treated as a read.
-
-Modules outside this table (billing, tickets, settings, AI, email, API-key
-management, and others) remain role-only. This is a faithful restoration of the
-legacy nine-resource ACL, not full scope coverage for the expanded application
-API.
-
-## Stored values and public API values
-
-The database uses a bit mask:
+The same canonical capability IDs are used by human Access Profiles and service
+profiles, for example:
 
 ```text
-NONE = 0
-READ = 1
-WRITE = 2
-READ + WRITE = 3
+servers.read
+servers.update
+allocations.read
+allocations.create
+server-databases.read
+server-databases.delete
+billing.orders
 ```
 
-The supported product-level grants are `none`, `read`, and `write`, where
-`write` means read and write and is stored as `3`. New APIs do not expose raw
-bit arithmetic.
+Allocations, locations, and server databases have their own capabilities.
+Granting allocation access does not grant general node editing, and granting
+server-database access does not grant general server editing.
 
-### Create request
+## Selecting a profile
 
-`POST /api/application/api` accepts a complete resource map:
+The key form obtains selectable profiles from:
+
+```http
+GET /api/application/api/access-profiles
+```
+
+This endpoint requires `api.create`. It returns only profiles that:
+
+1. are API eligible;
+2. are not Owner; and
+3. do not exceed the requesting human or service identity's authority.
+
+This avoids exposing or offering profiles the caller cannot safely delegate.
+
+## Creating a key
+
+```http
+POST /api/application/api
+```
+
+Example:
 
 ```json
 {
   "memo": "Provisioning integration",
+  "access_profile_id": 12,
+  "allowed_ips": [
+    "203.0.113.10",
+    "2001:db8::/48"
+  ],
+  "expires_at": "2027-01-01T00:00:00Z"
+}
+```
+
+Fields:
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `memo` | Yes | Human-readable purpose of the credential. |
+| `access_profile_id` | Yes | API-eligible, non-Owner Access Profile within the caller's delegation ceiling. |
+| `allowed_ips` | No | Up to 50 valid IP addresses or CIDR ranges. Empty means any IP. |
+| `expires_at` | No | Future date/time after which authentication stops. |
+
+`admin_role_id` is accepted as a temporary alias for
+`access_profile_id`. If both are supplied, they must match.
+
+The canonical profile contract and the historical `permissions` contract are
+mutually exclusive. A request containing both is rejected so clients cannot
+mistakenly assume two authorization layers are active.
+
+The secret token is returned only in the create response. It cannot be retrieved
+again; replace the key if the secret is lost.
+
+## Listing keys
+
+```http
+GET /api/application/api
+```
+
+Each key includes its bound profile, creator, IP restrictions, expiry, creation
+time, and last-use time:
+
+```json
+{
+  "id": 42,
+  "identifier": "ptla_…",
+  "description": "Provisioning integration",
+  "allowed_ips": ["203.0.113.10"],
+  "expires_at": "2027-01-01T00:00:00+00:00",
+  "access_profile_id": 12,
+  "access_profile": {
+    "id": 12,
+    "name": "Provisioning",
+    "api_eligible": true,
+    "is_owner": false,
+    "permissions": ["servers.read", "servers.create"]
+  },
+  "creator": {
+    "id": 3,
+    "username": "operator",
+    "email": "operator@example.test"
+  }
+}
+```
+
+The historical `permissions` resource map may remain in responses during the
+transition for old clients. Once `access_profile_id` is present, those stored
+`r_*` values are dormant and are not evaluated.
+
+Profiles are live policy objects. Editing an API-eligible profile changes the
+authority of every key assigned to it. Use separate profiles when integrations
+need independent policy or lifecycle.
+
+## Revoking or changing access
+
+Key scopes are changed through their Access Profile:
+
+- edit the profile to change all identities using it;
+- assign integrations separate profiles for independent control; or
+- create a replacement key and delete the old key for credential rotation.
+
+Delete a key with:
+
+```http
+DELETE /api/application/api/{id}
+```
+
+The endpoint rejects client/account keys even when their numeric ID is supplied.
+
+## Historical key migration
+
+Migration
+`2026_07_29_000004_bind_application_keys_to_access_profiles.php` converts every
+existing Application API key to a profile-backed identity.
+
+Each existing key receives an ordinary, editable, API-eligible profile named
+from its key identifier. It is not an Owner or protected system profile.
+
+The conversion never broadens authority:
+
+- the creator's effective human capabilities form the upper bound;
+- an enforced legacy `r_*` mask further limits its mapped capabilities;
+- legacy modules that were previously role-only retain only the creator's
+  existing capabilities;
+- nested allocation, location, and server-database masks map to their new
+  granular capabilities rather than to broader node/server capabilities;
+- unknown stored permission IDs are discarded;
+- a key whose creator has no valid Access Profile receives an empty profile and
+  fails closed.
+
+Historical all-zero keys that previously behaved as role-only keys are converted
+from the creator's authority at migration time. They are no longer silently
+unrestricted and no longer track later creator-profile changes.
+
+The old `r_*` columns and `acl_enforced` marker remain as dormant rollback and
+forensics data. Runtime authorization does not consult them after a profile is
+bound.
+
+Pterodactyl-family imports run the same conversion after copying keys, so
+imported Application API keys cannot enter the system without a profile.
+
+## Compatibility create contract
+
+Older automation may temporarily create a key with a complete historical
+`permissions` map and no `access_profile_id`. The backend translates that map
+into a new, editable API-eligible profile:
+
+```json
+{
+  "memo": "Legacy integration",
   "permissions": {
     "servers": "read",
-    "nodes": "write",
-    "allocations": "none",
+    "nodes": "none",
+    "allocations": "write",
     "users": "none",
     "locations": "none",
-    "nests": "read",
+    "nests": "none",
     "eggs": "read",
     "database_hosts": "none",
     "server_databases": "none"
@@ -86,213 +230,56 @@ bit arithmetic.
 }
 ```
 
-All nine keys are required and unknown keys or grant names are rejected.
+The generated capability set is intersected with the caller's authority. It
+contains only capabilities representable by the historical map; it does not
+silently add access to newer modules. Historical complete `r_*` numeric payloads
+are also normalized (`2` and `3` both mean read and write).
 
-For backward compatibility, the historical complete payload using `r_*` names
-and numeric strings is also accepted:
+New clients should always select an Access Profile instead.
 
-```json
-{
-  "permissions": {
-    "r_servers": "0",
-    "r_nodes": "2",
-    "r_allocations": "0",
-    "r_users": "0",
-    "r_locations": "0",
-    "r_nests": "0",
-    "r_eggs": "0",
-    "r_database_hosts": "0",
-    "r_server_databases": "0"
-  }
-}
-```
+## Authorization flow
 
-The former UI described historical value `2` as “Read & Write,” even though the
-bitwise ACL requires `3` for that result. The compatibility parser therefore
-normalizes legacy `2` (and `3`) to canonical `write`/stored `3`.
+For each Application API request:
 
-### List response
+1. Sanctum authenticates the token and rejects an expired key.
+2. Shared API middleware checks any configured IP restrictions.
+3. `AuthenticateApplicationUser` requires an active creator and a valid
+   API-eligible, non-Owner key profile.
+4. `ApplicationApiPermissionResolver` resolves the action's explicit canonical
+   capability.
+5. `AuthorizeApplicationUser` checks that capability against the key profile.
+6. Transformer includes independently require the corresponding canonical read
+   capability before related data is expanded.
 
-`ApiKeyTransformer` returns:
-
-```json
-{
-  "legacy": false,
-  "permissions": {
-    "servers": "read",
-    "nodes": "write",
-    "allocations": "none"
-  }
-}
-```
-
-The real response contains all nine resources. `legacy: true` means the key is
-intentionally using the compatibility behavior described below; its stored
-zeroes must not be interpreted or displayed as “no access.”
-
-Scopes are immutable. Re-scope a key by creating a replacement and revoking the
-old key.
-
-## Enforcement
-
-### Endpoint requests
-
-`AuthorizeApplicationUser` is the route-wide authorization gate. It:
-
-1. Resolves the action's required `AdminRole` permission with
-   `ApplicationApiPermissionResolver`.
-2. Enforces that role permission (root administrators bypass only this step).
-3. Resolves the legacy key resource, including route-aware overrides for
-   allocations and server databases.
-4. Calls `AdminAcl::keyPermits()` for the required read/write action.
-
-Central middleware enforcement is required because not every action relies on
-the base `ApplicationApiRequest::authorize()` implementation.
-
-### Included relationships
-
-`Transformer::authorize()` independently intersects the owner's read permission
-with the key's read grant before expanding a related resource. A denied include
-is omitted/null according to the transformer's existing include behavior; it
-does not turn the entire endpoint response into a 403.
-
-### Sessions and unexpected tokens
-
-Admin UI requests carry Laravel Sanctum's `TransientToken` and bypass the key
-gate; their existing role checks still apply. A missing or unexpected token type
-fails closed whenever a mapped key resource is being checked.
-
-### Delegating new keys
-
-The API-key management module is outside the legacy resource vocabulary. To
-prevent a narrow key from escaping its scope through `api.create`, a scoped
-application key may create only a key whose nine grants are a subset of its own.
-Session requests and unrestricted legacy keys are not limited by this delegation
-check. The new key is still intersected with the owner's role.
-
-The delete endpoint also verifies that its route-bound target is an application
-key, so it cannot delete a client key by ID.
-
-## Legacy and migration behavior
-
-A fixed `created_at` cutoff is not safe:
-
-- Older native keys may already contain intentional scopes.
-- Imported Pterodactyl keys retain their original timestamps.
-- A source/deployment timestamp creates a race during rollout.
-- `created_at` is nullable.
-
-Migration `2026_07_29_000001_mark_scoped_api_keys.php` adds the deterministic
-`acl_enforced` marker instead.
-
-For keys already in this panel when the migration runs:
-
-- Application keys with any nonzero `r_*` grant are marked enforced, restoring
-  their stored restrictions.
-- Historical stored value `2` is normalized to `3`.
-- All-zero application keys remain `acl_enforced = false` and retain their
-  previous role-only behavior. These are shown as legacy unrestricted keys and
-  should be rotated when practical.
-
-For keys created after the migration:
-
-- `KeyCreationService` always writes all nine grants.
-- `acl_enforced` is always true.
-- An all-`none` key is a genuine no-resource-access key, not a legacy key.
-
-For `p:migrate:import`:
-
-- Every imported Pterodactyl-family application key is marked enforced,
-  including an all-zero/no-access key.
-- Historical value `2` is normalized to `3`.
-- Account/client keys are not subject to the application ACL.
-
-This marker adds schema metadata but does not add or widen the resource
-vocabulary.
-
-## User interface
-
-The create modal presents nine accessible `None / Read / Read & write` radio
-groups and defaults each resource to `None`. The key list displays each scoped
-grant, distinguishes a scoped all-none key from a legacy unrestricted key, and
-never exposes the secret token after its one-time creation response.
-
-English, Danish, and Russian catalogs contain the resource/grant/legacy labels.
-The UI also states that:
-
-- the owner's current role is always intersected with the key;
-- the nine controls cover only the legacy resource vocabulary;
-- other application API modules remain role-only.
+Browser sessions continue to use the signed-in human's Access Profile.
+Application keys bypass human 2FA state because they are non-interactive
+credentials, but remain subject to profile, expiry, IP, active-creator, and audit
+controls.
 
 ## Main implementation files
 
-- `app/Services/Acl/Api/AdminAcl.php`
-- `app/Services/Authorization/ApplicationApiPermissionResolver.php`
+- `app/Services/Authorization/ApplicationApiAccessProfileService.php`
+- `app/Services/Authorization/AdminCapabilityRegistry.php`
+- `app/Http/Middleware/Api/Application/AuthenticateApplicationUser.php`
 - `app/Http/Middleware/Api/Application/AuthorizeApplicationUser.php`
-- `app/Transformers/Api/Transformer.php`
 - `app/Http/Requests/Api/Application/Api/StoreApplicationApiKeyRequest.php`
 - `app/Http/Controllers/Api/Application/Api/ApiController.php`
 - `app/Services/Api/KeyCreationService.php`
+- `app/Services/Api/LegacyApplicationKeyProfileMigrationService.php`
 - `app/Transformers/Api/Application/ApiKeyTransformer.php`
-- `database/migrations/2026_07_29_000001_mark_scoped_api_keys.php`
-- `app/Services/Migration/Profiles/PterodactylProfile.php`
-- `frontend/src/api/adminApiKeys.ts`
-- `frontend/src/pages/admin/api/ApiKeyFormModal.tsx`
-- `frontend/src/pages/admin/api/ApiKeysListPage.tsx`
+- `database/migrations/2026_07_29_000004_bind_application_keys_to_access_profiles.php`
 
-`KeyCreationService` calls repository creation with `forceFill`, so the `r_*`
-columns do not need to be added to `ApiKey::$fillable`.
-
-## Verification
-
-Focused backend tests cover:
-
-- bit-mask enforcement and legacy/session behavior;
-- route-aware allocation and server-database mapping;
-- GET/read versus non-GET/write mapping;
-- root-owned narrow keys;
-- subset-only key delegation;
-- canonical and historical create payloads;
-- persistence and list serialization.
-
-Run them with:
+## Focused verification
 
 ```bash
 vendor/bin/phpunit \
-  tests/Unit/Services/Acl/Api/AdminAclTest.php \
-  tests/Unit/Services/Authorization/ApplicationApiPermissionResolverTest.php \
+  tests/Unit/Services/Authorization/ApplicationApiAccessProfileServiceTest.php \
   tests/Unit/Http/Middleware/Api/Application/AuthorizeApplicationUserTest.php
 ```
 
-Integration tests require a file-backed SQLite database whose filename contains
-`test`, with migrations enabled:
+Integration tests require the project's test database configuration:
 
 ```bash
-DB_DATABASE=/tmp/m12labs_admin_acl_test.sqlite \
-SKIP_MIGRATIONS=false \
-vendor/bin/phpunit tests/Integration/Api/Application/Api/ApiKeyControllerTest.php
+vendor/bin/phpunit \
+  tests/Integration/Api/Application/Api/ApiKeyControllerTest.php
 ```
-
-Frontend verification:
-
-```bash
-pnpm --dir frontend run lint
-pnpm --dir frontend run build
-```
-
-The build compiles Paraglide, TypeScript, and the production Vite bundle. The
-current Paraglide project directly compiles only the configured English locale,
-so keep the Danish and Russian JSON keys in parity explicitly.
-
-## Deployment
-
-Run the database migration before relying on scoped key creation:
-
-```bash
-php artisan down
-php artisan migrate --force
-php artisan up
-```
-
-After deployment, review keys marked “Legacy unrestricted” in the admin key list
-and rotate them to explicit scopes as integrations permit.

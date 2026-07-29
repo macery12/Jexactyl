@@ -4,7 +4,9 @@ namespace Everest\Services\Users;
 
 use Everest\Models\User;
 use Everest\Models\Server;
+use Everest\Models\AdminRole;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\TransientToken;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Contracts\Translation\Translator;
 use Everest\Contracts\Repository\UserRepositoryInterface;
@@ -29,12 +31,17 @@ class UserDeletionService
     {
         $userId = $user instanceof User ? $user->id : $user;
         $actorId = $actor?->id;
+        $actorHasInteractiveToken = $actor?->currentAccessToken() instanceof TransientToken;
 
-        DB::transaction(function () use ($userId, $actorId) {
-            // Lock every root row first so two concurrent deletions cannot both
-            // conclude that another active root will remain.
-            $rootUsers = User::query()
-                ->where('root_admin', true)
+        DB::transaction(function () use ($userId, $actorId, $actorHasInteractiveToken) {
+            // Lock Owner profile membership first so concurrent delete/demotion
+            // operations cannot both conclude that another active Owner remains.
+            $owner = AdminRole::query()
+                ->where('is_owner', true)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $ownerUsers = User::query()
+                ->where('admin_role_id', $owner->id)
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get()
@@ -64,11 +71,11 @@ class UserDeletionService
                 throw new DisplayException('The acting administrator is no longer active.');
             }
 
-            if ($target->root_admin) {
-                $rootUsers->put($target->id, $target);
+            if ((int) $target->admin_role_id === (int) $owner->id) {
+                $ownerUsers->put($target->id, $target);
             }
-            if ($lockedActor?->root_admin) {
-                $rootUsers->put($lockedActor->id, $lockedActor);
+            if ((int) $lockedActor?->admin_role_id === (int) $owner->id) {
+                $ownerUsers->put($lockedActor->id, $lockedActor);
             }
 
             if ($lockedActor && $lockedActor->id === $target->id) {
@@ -77,16 +84,22 @@ class UserDeletionService
 
             // A null actor is reserved for the trusted console command. HTTP
             // callers always pass the freshly authenticated administrator.
-            if ($target->root_admin && $lockedActor && !$lockedActor->root_admin) {
-                throw new DisplayException('Only an active root administrator can delete another root administrator.');
+            $targetIsOwner = (int) $target->admin_role_id === (int) $owner->id;
+            $actorIsInteractiveOwner = $lockedActor
+                && (int) $lockedActor->admin_role_id === (int) $owner->id
+                && $actorHasInteractiveToken;
+            if ($targetIsOwner && $lockedActor && !$actorIsInteractiveOwner) {
+                throw new DisplayException('Only an active Owner can delete another Owner.');
             }
 
             if (
-                $target->root_admin
-                && $target->isActive()
-                && $rootUsers->filter(fn (User $root) => $root->isActive())->count() <= 1
+                $targetIsOwner
+                && $ownerUsers
+                    ->reject(fn (User $ownerUser) => $ownerUser->id === $target->id)
+                    ->filter(fn (User $ownerUser) => $ownerUser->isActive())
+                    ->isEmpty()
             ) {
-                throw new DisplayException('You cannot delete the final active root administrator.');
+                throw new DisplayException('You cannot delete the final active Owner.');
             }
 
             $ownedServer = Server::query()

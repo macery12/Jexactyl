@@ -22,7 +22,7 @@ class AccountTransformer extends Transformer
     {
         return [
             'id' => $model->id,
-            'admin' => $model->root_admin,
+            'admin' => $model->isOwner(),
             'username' => $model->username,
             'email' => $model->email,
             'language' => $model->language,

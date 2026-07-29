@@ -16,10 +16,10 @@ changes are applied by the registered
 `p:billing:apply-scheduled-plan-changes` command. The task is protected against
 overlap and retries a blocked change after 15 minutes.
 
-> Existing Application API keys whose nine resource permissions are all stored
-> as zero remain legacy unrestricted keys after migration. This avoids silently
-> breaking an existing integration, but those keys must be replaced with new,
-> explicitly scoped keys before relying on per-key restrictions.
+The migrations also convert every existing Application API key to an Access
+Profile. The conversion preserves the key's previous effective access: enforced
+legacy read/write restrictions remain restrictions, while older unrestricted
+keys receive only the capabilities their creator held at migration time.
 
 Stripe webhooks must include:
 
@@ -38,16 +38,21 @@ PayPal webhooks must include:
 
 This PR closes the confirmed Panel-side security issues found during the July
 26 review. The changes cover payment integrity, prorated plan upgrades,
-scheduled downgrades, Application API key scopes, administrator authorization,
+scheduled downgrades, unified Access Profiles, Application API key
+authorization, administrator authorization,
 account recovery, daemon ownership boundaries, secret redaction, file-operation
 permissions and limits, quota enforcement, browser secret cleanup, and
 multipart backup completion.
 
 The most visible behavior changes are:
 
-- Application API keys again enforce separate read/write access for each of the
-  nine legacy resources. A key is always limited by both its own scope and its
-  owner's current administrator role.
+- Administrators and Application API keys now use the same Access Profile
+  capability model. A human has one assigned profile; an Application API key
+  has one separately assigned API-eligible profile.
+- The built-in Owner profile replaces `root_admin` as the source of unrestricted
+  human authority. Owner cannot be edited, deleted, or assigned to an API key.
+- Custom Access Profiles can be named, renamed, described, colored, and marked
+  as available to API keys. No sample Support or Billing profiles are imposed.
 - Moving to a more expensive plan charges only the prorated price difference
   for the server's remaining prepaid time. Its renewal date and billing cycle
   do not change.
@@ -60,8 +65,8 @@ The most visible behavior changes are:
   creating duplicates.
 - Password recovery and suspension revoke all browser sessions and both Account
   and Application API keys.
-- Wings-RS executable upgrades can be requested only by an active root
-  administrator. The Panel no longer accepts a caller-supplied restart command
+- Wings-RS executable upgrades can be requested only by an active interactive
+  Owner. The Panel no longer accepts a caller-supplied restart command
   or download headers.
 
 ## Plan changes and charging
@@ -104,45 +109,56 @@ checkout while it is still uncaptured. Renewals, scheduled changes, and paid
 plan-change checkouts are mutually exclusive so that the old plan cannot be
 renewed while another plan is about to take effect.
 
-## Application API key read/write scopes
+## Unified Access Profiles
 
-Application API keys now have a second authorization layer:
+Access Profiles are now the single administrative authorization model:
 
 ```text
-effective access = owner role permits the action
-                AND API key scope permits the resource/action
+human administrator authority = assigned Access Profile
+Application API key authority = key's assigned Access Profile
 ```
 
-`GET` and `HEAD` requests require read access. Other methods require write
-access. A `write` grant includes read access.
+The human who creates a key remains its creator for audit and emergency
+revocation, but the key does not inherit that person's profile at request time.
+Changing the creator's human permissions therefore cannot silently broaden or
+narrow the key.
 
-The restored resource scopes are:
+There is one built-in profile: **Owner**. It provides unrestricted interactive
+administrator access and is protected from renaming, permission changes,
+deletion, and API-key assignment. Existing root administrators are migrated to
+Owner. The old `root_admin` database value is retained only as compatibility
+output for older clients; it is no longer consulted for authorization.
 
-- servers
-- nodes
-- allocations
-- users
-- locations
-- nests
-- eggs
-- database hosts
-- server databases
+All other profiles are operator-created or migrated custom profiles. Their
+names, descriptions, colors, capabilities, and API eligibility can be changed.
+The Panel does not create opinionated defaults such as Support or Billing
+Viewer. Existing custom administrator roles retain their names during
+migration and remain human-only until an Owner explicitly enables API
+eligibility.
 
-Nested allocation and server-database routes are mapped to their own scopes,
-and included relationships are filtered by the same read rules. Root-owned keys
-are scoped too; root status bypasses the owner's role check, not the key's
-scope. A scoped key may create another key only when every new grant is a subset
-of its own grants.
+New Application API keys select one API-eligible custom profile instead of
+configuring a separate nine-resource scope matrix. This makes the key's
+authority visible and reusable in the same place as human access. The key form
+also supports an expiry and IP/CIDR allowlist.
 
-New keys always store explicit scopes, including an all-`none` key. Existing
-keys with any nonzero scope become enforced during migration, and historical
-stored write value `2` is normalized to read-and-write value `3`. Existing
-all-zero keys remain visibly marked as legacy unrestricted until replaced.
+Delegation is bounded: a caller can assign a key only a profile whose
+capabilities are no broader than the caller's own. A key that can create another
+key is subject to the same rule. Unknown capabilities and Application API
+routes without an explicit capability declaration fail closed.
 
-These controls restore the historical nine-resource Application API ACL.
-Newer modules such as billing, tickets, settings, AI, email, and API-key
-management remain governed by administrator roles because they do not have
-legacy resource columns.
+The legacy nine-resource key fields remain only for one-way compatibility.
+During migration:
+
+- a previously enforced read/write grant is translated to the corresponding
+  granular capabilities;
+- the result is intersected with the creator's profile, so migration cannot add
+  authority;
+- capabilities outside the old nine-resource vocabulary are preserved only
+  when the creator already held them;
+- every migrated key receives an editable, API-eligible custom profile.
+
+Allocations, locations, and server databases now have dedicated capabilities.
+They no longer rely on broad node or server permissions for new profiles.
 
 ## Payment and fulfillment integrity
 
@@ -168,8 +184,13 @@ legacy resource columns.
 
 ## Authorization and account recovery
 
-- Application API permissions fail closed when a delegated administrator's role
-  does not explicitly allow the action.
+- Application API permissions fail closed unless the human or key's Access
+  Profile explicitly allows the action.
+- Access Profile creation and updates cannot grant capabilities above the
+  caller's own authority. A profile cannot be deleted while it is assigned to a
+  person or API key.
+- Only an interactive Owner can assign Access Profiles to people, and
+  transactional checks prevent removing or deleting the final active Owner.
 - Admin login, API-key issuance, and session issuance require an active account.
 - Suspension uses separate, idempotent suspend and unsuspend operations.
 - Public suspension approval cannot bypass a required pending approval record.
@@ -177,8 +198,8 @@ legacy resource columns.
   API keys, and Application API keys.
 - Password mutation, reset-token consumption, and credential revocation occur
   in one transaction.
-- User deletion is row-locked and rejects root deletion, self-deletion,
-  deletion of the final active root, remaining server ownership, and quota
+- User deletion is row-locked and rejects unauthorized Owner deletion,
+  self-deletion, deletion of the final active Owner, remaining server ownership, and quota
   conflicts.
 
 ## Daemon, file, and availability boundaries
@@ -204,7 +225,7 @@ legacy resource columns.
 
 ## Wings-RS upgrade behavior
 
-The Panel's Wings-RS self-upgrade endpoint is now active-root-only. Its request
+The Panel's Wings-RS self-upgrade endpoint is now active-Owner-only. Its request
 accepts the binary URL and SHA-256 digest, while download headers and the restart
 command come from trusted Panel configuration. The Panel sends every field
 required by the daemon and now distinguishes an accepted upgrade from a daemon
@@ -248,12 +269,12 @@ controls.
 | M12-SEC-002 | PayPal creation and fulfillment use the same immutable server-side order snapshot instead of later browser input. |
 | M12-SEC-003 | PayPal redirects and webhooks can repeat safely without renewing or charging the same order twice. |
 | M12-SEC-004 | Provisioning is atomically claimed, stale captured work is recoverable, and verified provider evidence is retained for reconciliation. |
-| M12-SEC-005 | Application API requests require the owning administrator's live role permission and, for the nine legacy resources, the key's read/write scope. |
+| M12-SEC-005 | Humans and Application API keys now authorize through one canonical Access Profile capability registry. Each key has its own API-eligible profile, delegation cannot exceed the caller, and old resource masks are migrated without broadening access. |
 | M12-SEC-006 | A daemon credential can access only resources belonging to its authenticated node/server; activity actors are also server-scoped. |
 | M12-SEC-007 | Secrets in activity metadata and URLs are recursively redacted at write and response boundaries. |
 | M12-SEC-008 | Suspend and unsuspend are separate retry-safe actions, and suspension revokes every session and API credential. |
 | M12-SEC-009 | Every password-recovery path transactionally revokes sessions plus Account and Application API keys. |
-| M12-SEC-010 | User deletion protects roots, self, the final active root, owned servers, and quota invariants under row locks. |
+| M12-SEC-010 | User deletion protects Owners, self-deletion, the final active Owner, owned servers, and quota invariants under row locks. Access Profile reassignment has the same final-Owner protection. |
 | M12-SEC-011 | Coupon/free-product reservations and entitlement changes are atomic with order, product, plan, and owner transitions. |
 | M12-SEC-012 | Operations that may overwrite a path require create and update permission; destructive wipes also require delete permission. |
 | M12-SEC-013 | File-diff input and computational work are limited before the expensive comparison and response transformation. |
@@ -261,7 +282,7 @@ controls.
 | M12-SEC-015 | Database, backup, allocation, and subuser quotas use locks or unique conflicts so parallel requests cannot oversubscribe them. |
 | M12-SEC-016 | Checkout secrets and console history are memory-only and cleared on logout and other sensitive lifecycle paths. |
 | M12-SEC-017 | Panel-side permissions and limits are improved, but the specific outbound file-pull protections listed above still require a Wings-RS change. |
-| M12-SEC-018 | Panel-initiated Wings-RS executable upgrades require an active root administrator, trusted server-side restart configuration, a matching SHA-256 digest, and an explicit daemon acceptance response. |
+| M12-SEC-018 | Panel-initiated Wings-RS executable upgrades require an active interactive Owner, trusted server-side restart configuration, a matching SHA-256 digest, and an explicit daemon acceptance response. Application API keys cannot perform this operation. |
 | M12-SEC-019 | Immediate uncharged plan changes were replaced: higher-priced plans require a prorated payment now; equal/lower-priced plans are scheduled at renewal with no immediate resources or refund. |
 | M12-SEC-020 | Free-renewal duration is selected by the server's product configuration, not by the browser request. |
 
@@ -273,8 +294,11 @@ controls.
 - Create-only subusers can no longer invoke a daemon operation that may
   overwrite an existing path. Grant `file.update` when replacement is intended.
 - Daemons must use POST transfer success/failure callbacks.
-- Delegated administrators with `nodes.update` can no longer initiate a
+- Delegated administrators and API keys with `nodes.update` can no longer initiate a
   Wings-RS executable replacement.
+- Clients creating Application API keys should send `access_profile_id`.
+  `admin_role_id` is accepted as a temporary alias, but the historical
+  `permissions` payload cannot be combined with either field.
 - Plan changes cannot also change billing cycle, use a coupon, or proceed while
   a renewal, paid plan change, or scheduled plan change conflicts.
 
@@ -289,13 +313,16 @@ This branch adds:
 5. `2026_07_28_000002_correlate_paypal_webhook_events.php`
 6. `2026_07_29_000001_mark_scoped_api_keys.php`
 7. `2026_07_29_000002_add_scheduled_plan_changes.php`
+8. `2026_07_29_000003_create_owner_access_profile.php`
+9. `2026_07_29_000004_bind_application_keys_to_access_profiles.php`
 
 ## Verification performed
 
 - Focused unit and isolated SQLite integration tests cover checkout locking,
   amount/currency integrity, retry idempotency, reservation release, fulfillment
   claims, proration beyond one cycle, the renewal safety window, scheduled
-  apply/cancel behavior, API-key scope mapping, and legacy-key migration.
+  apply/cancel behavior, API-key Access Profile delegation, and legacy-key
+  migration.
 - PHP static analysis and formatting checks pass for the changed backend.
 - Frontend type checking, linting, and build pass.
 - The Wings-RS checkout remains unchanged.

@@ -38,6 +38,7 @@ export interface AdminUserRow {
     rootAdmin: boolean;
     adminRoleId: number | null;
     roleName: string;
+    accessProfile: { id: number; name: string; color: string | null; isOwner: boolean } | null;
     twoFactor: boolean;
     avatarUrl: string | null;
     /** Backend stores 'suspended' or an empty/null value. */
@@ -68,7 +69,20 @@ interface RawUserAttributes {
     language: string;
     root_admin: boolean;
     admin_role_id: number | null;
+    access_profile_id?: number | null;
     role_name: string;
+    access_profile?: {
+        id: number;
+        name: string;
+        color?: string | null;
+        is_owner?: boolean;
+    } | null;
+    profile?: {
+        id: number;
+        name: string;
+        color?: string | null;
+        is_owner?: boolean;
+    } | null;
     '2fa': boolean;
     avatar_url: string | null;
     state: string | null;
@@ -79,6 +93,8 @@ interface RawUserAttributes {
 
 function mapUser(row: { attributes?: RawUserAttributes } & Partial<RawUserAttributes>): AdminUserRow {
     const a = (row.attributes ?? row) as RawUserAttributes;
+    const profile = a.access_profile ?? a.profile ?? null;
+    const profileId = profile?.id ?? a.access_profile_id ?? a.admin_role_id ?? null;
     return {
         id: a.id,
         uuid: a.uuid,
@@ -87,8 +103,17 @@ function mapUser(row: { attributes?: RawUserAttributes } & Partial<RawUserAttrib
         email: a.email,
         language: a.language,
         rootAdmin: Boolean(a.root_admin),
-        adminRoleId: a.admin_role_id ?? null,
-        roleName: a.role_name,
+        adminRoleId: profileId,
+        roleName: profile?.name ?? a.role_name ?? '',
+        accessProfile:
+            profileId !== null
+                ? {
+                      id: profileId,
+                      name: profile?.name ?? a.role_name ?? 'Unknown profile',
+                      color: profile?.color ?? null,
+                      isOwner: Boolean(profile?.is_owner ?? a.root_admin),
+                  }
+                : null,
         twoFactor: Boolean(a['2fa']),
         avatarUrl: a.avatar_url ?? null,
         suspended: a.state === 'suspended',

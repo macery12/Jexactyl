@@ -259,6 +259,9 @@ class UserSuspensionServiceTest extends TestCase
             'name' => 'role-' . $suffix,
             'sort_id' => 0,
             'permissions' => '[]',
+            'is_system' => $root,
+            'is_owner' => $root,
+            'api_eligible' => !$root,
         ]);
 
         $userId = DB::table('users')->insertGetId([
@@ -311,6 +314,9 @@ class UserSuspensionServiceTest extends TestCase
                 $table->integer('sort_id')->default(0);
                 $table->json('permissions')->nullable();
                 $table->string('color')->nullable();
+                $table->boolean('is_system')->default(false);
+                $table->boolean('is_owner')->default(false);
+                $table->boolean('api_eligible')->default(true);
             });
         }
 

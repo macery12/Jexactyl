@@ -3,8 +3,10 @@
 namespace Everest\Http\Requests\Api\Application;
 
 use Everest\Models\User;
-use Everest\Models\AdminRole;
+use Everest\Models\ApiKey;
 use Everest\Http\Requests\Api\ApiRequest;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 abstract class ApplicationApiRequest extends ApiRequest
 {
@@ -19,22 +21,13 @@ abstract class ApplicationApiRequest extends ApiRequest
             return false;
         }
 
-        if ($user->root_admin) {
-            return true;
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            return $token->key_type === ApiKey::TYPE_APPLICATION
+                && app(ApplicationApiAccessProfileService::class)->allows($token, $this->permission());
         }
 
-        // ClientApiRequest historically inherits this class but overrides
-        // authorize() and does not always declare an admin-role permission.
-        // Keep this base class concrete while failing closed on the
-        // Application API authorization path.
-        if (!$user->admin_role_id) {
-            return false;
-        }
-
-        $role = AdminRole::query()->find($user->admin_role_id);
-
-        return $role !== null
-            && in_array($this->permission(), $role->permissions ?? [], true);
+        return app(AdminAuthorizer::class)->hasCapability($user, $this->permission());
     }
 
     /**

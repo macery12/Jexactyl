@@ -4,10 +4,12 @@ namespace Everest\Tests\Integration\Api\Application;
 
 use Everest\Models\User;
 use Everest\Models\ApiKey;
+use Everest\Models\AdminRole;
 use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Tests\Traits\Integration\CreatesTestModels;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 use Everest\Tests\Traits\Http\IntegrationJsonRequestAssertions;
 
 abstract class ApplicationApiIntegrationTestCase extends IntegrationTestCase
@@ -63,7 +65,10 @@ abstract class ApplicationApiIntegrationTestCase extends IntegrationTestCase
      */
     protected function createApiUser(): User
     {
+        $owner = AdminRole::query()->where('is_owner', true)->firstOrFail();
+
         return User::factory()->create([
+            'admin_role_id' => $owner->id,
             'root_admin' => true,
         ]);
     }
@@ -73,8 +78,25 @@ abstract class ApplicationApiIntegrationTestCase extends IntegrationTestCase
      */
     protected function createApiKey(User $user, array $permissions = []): ApiKey
     {
+        $profileId = $permissions['admin_role_id'] ?? null;
+        unset($permissions['admin_role_id']);
+
+        if ($profileId === null) {
+            $profileId = AdminRole::query()->forceCreate([
+                'name' => 'Integration API ' . bin2hex(random_bytes(6)),
+                'description' => 'Application API integration test profile.',
+                'sort_id' => 999,
+                'permissions' => app(AdminCapabilityRegistry::class)->all(),
+                'color' => null,
+                'is_system' => false,
+                'is_owner' => false,
+                'api_eligible' => true,
+            ])->id;
+        }
+
         return ApiKey::factory()->create(array_merge([
             'user_id' => $user->id,
+            'admin_role_id' => $profileId,
             'key_type' => ApiKey::TYPE_APPLICATION,
             'acl_enforced' => true,
             'r_servers' => AdminAcl::READ | AdminAcl::WRITE,

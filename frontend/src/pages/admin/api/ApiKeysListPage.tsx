@@ -1,13 +1,11 @@
 import { m } from '@/i18n';
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Info, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, Info, KeyRound, Plus, ShieldCheck, Trash2, UserRound } from 'lucide-react';
 import {
-    ADMIN_API_KEY_RESOURCES,
     getAdminApiKeys,
     deleteAdminApiKey,
     type AdminApiKey,
-    type AdminApiKeyResource,
 } from '@/api/adminApiKeys';
 import { timeAgo } from '@/lib/format';
 import { can } from '@/lib/can';
@@ -18,32 +16,18 @@ import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import ApiKeyFormModal from './ApiKeyFormModal';
 
-function resourceLabel(resource: AdminApiKeyResource): string {
-    const labels: Record<AdminApiKeyResource, () => string> = {
-        servers: m['admin.api.resource.r_servers'],
-        nodes: m['admin.api.resource.r_nodes'],
-        allocations: m['admin.api.resource.r_allocations'],
-        users: m['admin.api.resource.r_users'],
-        locations: m['admin.api.resource.r_locations'],
-        nests: m['admin.api.resource.r_nests'],
-        eggs: m['admin.api.resource.r_eggs'],
-        database_hosts: m['admin.api.resource.r_database_hosts'],
-        server_databases: m['admin.api.resource.r_server_databases'],
-    };
-
-    return labels[resource]();
-}
-
 // A single key in the settings-style list: identifier + description on the left,
 // a meta line beneath, and an always-visible Delete control on the right.
 function ApiKeyRow({
     apiKey,
     canDelete,
     onDelete,
+    now,
 }: {
     apiKey: AdminApiKey;
     canDelete: boolean;
     onDelete: (k: AdminApiKey) => void;
+    now: number;
 }) {
     return (
         <div className="flex items-start justify-between gap-4 px-4 py-4">
@@ -65,30 +49,41 @@ function ApiKeyRow({
                     {' · '}
                     {apiKey.allowedIps.length > 0 ? apiKey.allowedIps.join(', ') : m['admin.api.anyIp']()}
                 </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                    {apiKey.legacy ? (
-                        <span className="rounded-full border border-[var(--color-warning)]/35 bg-[var(--color-warning)]/10 px-2 py-0.5 text-xs text-[var(--color-warning)]">
-                            {m['admin.api.scopeLegacy']()}
-                        </span>
-                    ) : ADMIN_API_KEY_RESOURCES.some(resource => apiKey.permissions[resource] !== 'none') ? (
-                        ADMIN_API_KEY_RESOURCES.filter(resource => apiKey.permissions[resource] !== 'none').map(resource => (
-                            <span
-                                key={resource}
-                                className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 text-xs text-[var(--color-ink-muted)]"
-                            >
-                                {resourceLabel(resource)}
-                                {' · '}
-                                {apiKey.permissions[resource] === 'write'
-                                    ? m['admin.api.grant.readWrite']()
-                                    : m['admin.api.grant.read']()}
-                            </span>
-                        ))
-                    ) : (
-                        <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 text-xs text-[var(--color-ink-faint)]">
-                            {m['admin.api.scopeNone']()}
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--color-ink-muted)]">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5">
+                        <ShieldCheck className="h-3 w-3" />
+                        {apiKey.accessProfile?.name ?? m['admin.access.keys.profileUnavailable']()}
+                    </span>
+                    {apiKey.creator && (
+                        <span className="inline-flex items-center gap-1">
+                            <UserRound className="h-3 w-3" />
+                            {m['admin.access.keys.createdBy']({ name: apiKey.creator.username })}
                         </span>
                     )}
+                    <span
+                        className={
+                            apiKey.expiresAt && new Date(apiKey.expiresAt).getTime() <= now
+                                ? 'inline-flex items-center gap-1 text-[var(--color-danger)]'
+                                : 'inline-flex items-center gap-1'
+                        }
+                    >
+                        <Clock3 className="h-3 w-3" />
+                        {apiKey.expiresAt
+                            ? new Date(apiKey.expiresAt).getTime() <= now
+                                ? m['admin.access.keys.expired']({ date: new Date(apiKey.expiresAt).toLocaleString() })
+                                : m['admin.access.keys.expires']({ date: new Date(apiKey.expiresAt).toLocaleString() })
+                            : m['admin.access.keys.neverExpires']()}
+                    </span>
                 </div>
+                {!apiKey.accessProfile && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded-full border border-[var(--color-warning)]/35 bg-[var(--color-warning)]/10 px-2 py-0.5 text-xs text-[var(--color-warning)]">
+                            {apiKey.legacy
+                                ? m['admin.access.keys.legacyUnbound']()
+                                : m['admin.access.keys.missingProfile']()}
+                        </span>
+                    </div>
+                )}
             </div>
             {canDelete && (
                 <Button variant="danger" size="sm" onClick={() => onDelete(apiKey)} className="shrink-0">
@@ -111,6 +106,7 @@ export default function ApiKeysListPage() {
     const [page, setPage] = useState(1);
     const [formOpen, setFormOpen] = useState(false);
     const [toDelete, setToDelete] = useState<AdminApiKey | null>(null);
+    const [now] = useState(() => Date.now());
 
     const { data, isLoading, isError, isFetching } = useQuery({
         queryKey: ['admin', 'api-keys', { page }],
@@ -135,8 +131,10 @@ export default function ApiKeysListPage() {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h1 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.api.title']()}</h1>
-                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.api.subtitle']()}</p>
+                    <h2 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.access.keys.title']()}</h2>
+                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+                        {m['admin.access.keys.subtitle']()}
+                    </p>
                 </div>
                 {canCreate && (
                     <Button onClick={() => setFormOpen(true)}>
@@ -148,7 +146,7 @@ export default function ApiKeysListPage() {
 
             <p className="flex items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5 text-sm text-[var(--color-ink-muted)]">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-ink-faint)]" />
-                {m['admin.api.permissionsHint']()}
+                {m['admin.access.keys.hint']()}
             </p>
 
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]">
@@ -166,7 +164,7 @@ export default function ApiKeysListPage() {
                 ) : (
                     <div className="divide-y divide-[var(--color-border)]">
                         {items.map(key => (
-                            <ApiKeyRow key={key.id} apiKey={key} canDelete={canDelete} onDelete={setToDelete} />
+                            <ApiKeyRow key={key.id} apiKey={key} canDelete={canDelete} onDelete={setToDelete} now={now} />
                         ))}
                     </div>
                 )}

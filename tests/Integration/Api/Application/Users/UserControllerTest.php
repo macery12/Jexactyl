@@ -26,8 +26,8 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
         $response->assertJsonStructure([
             'object',
             'data' => [
-                ['object', 'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'state', 'created_at', 'updated_at']],
-                ['object', 'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'state', 'created_at', 'updated_at']],
+                ['object', 'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'access_profile', 'state', 'created_at', 'updated_at']],
+                ['object', 'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'access_profile', 'state', 'created_at', 'updated_at']],
             ],
         ]);
 
@@ -44,13 +44,16 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
                     'uuid' => $this->getApiUser()->uuid,
                     'username' => $this->getApiUser()->username,
                     'email' => $this->getApiUser()->email,
+                    'stripe_id' => $this->getApiUser()->stripe_id,
                     'language' => $this->getApiUser()->language,
                     'admin_role_id' => $this->getApiUser()->admin_role_id,
                     'root_admin' => $this->getApiUser()->root_admin,
                     '2fa' => $this->getApiUser()->use_totp,
                     'avatar_url' => $this->getApiUser()->avatar_url,
                     'role_name' => $this->getApiUser()->admin_role_name,
+                    'access_profile' => $this->getApiUser()->accessProfileData(),
                     'state' => $this->getApiUser()->state,
+                    'email_verified' => $this->getApiUser()->email_verified,
                     'created_at' => $this->getApiUser()->created_at->toIso8601String(),
                     'updated_at' => $this->getApiUser()->updated_at->toIso8601String(),
                 ],
@@ -63,13 +66,16 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
                     'uuid' => $user->uuid,
                     'username' => $user->username,
                     'email' => $user->email,
+                    'stripe_id' => $user->stripe_id,
                     'language' => $user->language,
                     'admin_role_id' => $user->admin_role_id,
                     'root_admin' => (bool) $user->root_admin,
                     '2fa' => (bool) $user->use_totp,
                     'avatar_url' => $user->avatar_url,
                     'role_name' => $user->admin_role_name,
+                    'access_profile' => $user->accessProfileData(),
                     'state' => $user->state,
+                    'email_verified' => $user->email_verified,
                     'created_at' => $user->created_at->toIso8601String(),
                     'updated_at' => $user->updated_at->toIso8601String(),
                 ],
@@ -88,7 +94,7 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
         $response->assertJsonCount(2);
         $response->assertJsonStructure([
             'object',
-            'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'state', 'created_at', 'updated_at'],
+            'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'access_profile', 'state', 'created_at', 'updated_at'],
         ]);
 
         $response->assertJson([
@@ -105,6 +111,7 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
                 '2fa' => (bool) $user->use_totp,
                 'avatar_url' => $user->avatar_url,
                 'role_name' => $user->admin_role_name,
+                'access_profile' => $user->accessProfileData(),
                 'state' => $user->state,
                 'created_at' => $user->created_at->toIso8601String(),
                 'updated_at' => $user->updated_at->toIso8601String(),
@@ -126,7 +133,7 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
         $response->assertJsonStructure([
             'object',
             'attributes' => [
-                'id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'state', 'created_at', 'updated_at',
+                'id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'access_profile', 'state', 'created_at', 'updated_at',
                 'relationships' => ['servers' => ['object', 'data' => [['object', 'attributes' => []]]]],
             ],
         ]);
@@ -183,7 +190,7 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
         $response->assertJsonCount(2);
         $response->assertJsonStructure([
             'object',
-            'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'state', 'created_at', 'updated_at'],
+            'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'access_profile', 'state', 'created_at', 'updated_at'],
         ]);
 
         $this->assertDatabaseHas('users', ['username' => 'testuser', 'email' => 'test@example.com']);
@@ -210,7 +217,7 @@ class UserControllerTest extends ApplicationApiIntegrationTestCase
         $response->assertJsonCount(2);
         $response->assertJsonStructure([
             'object',
-            'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'state', 'created_at', 'updated_at'],
+            'attributes' => ['id', 'external_id', 'uuid', 'username', 'email', 'language', 'admin_role_id', 'root_admin', '2fa', 'avatar_url', 'role_name', 'access_profile', 'state', 'created_at', 'updated_at'],
         ]);
 
         $this->assertDatabaseHas('users', ['username' => 'new.test.name', 'email' => 'new@emailtest.com']);

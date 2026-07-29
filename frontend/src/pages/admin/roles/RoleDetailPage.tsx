@@ -2,12 +2,11 @@ import { m } from '@/i18n';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft, Check, LockKeyhole } from 'lucide-react';
 import {
     getAdminRole,
     getPermissionGroups,
     updateRole,
-    updateRolePermissions,
     type AdminPermissionGroups,
 } from '@/api/adminRoles';
 import { can } from '@/lib/can';
@@ -18,6 +17,7 @@ import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
+import { Switch } from '@/components/ui/Switch';
 
 // Display grouping for the permission namespaces returned by the API. Any groups
 // the API returns that aren't listed here are collected into a trailing "Other"
@@ -25,7 +25,10 @@ import { Spinner } from '@/components/ui/Spinner';
 const SECTIONS: { labelKey: string; keys: string[] }[] = [
     { labelKey: 'admin.roles.section.system', keys: ['overview', 'settings', 'activity', 'api', 'auth'] },
     { labelKey: 'admin.roles.section.communication', keys: ['email', 'webhooks', 'alerts', 'tickets', 'ai'] },
-    { labelKey: 'admin.roles.section.infrastructure', keys: ['nodes', 'databases', 'mounts'] },
+    {
+        labelKey: 'admin.roles.section.infrastructure',
+        keys: ['nodes', 'allocations', 'locations', 'databases', 'server-databases', 'mounts'],
+    },
     { labelKey: 'admin.roles.section.content', keys: ['nests', 'eggs', 'extensions', 'mods'] },
     { labelKey: 'admin.roles.section.servers', keys: ['servers', 'server-presets'] },
     { labelKey: 'admin.roles.section.access', keys: ['users', 'roles'] },
@@ -181,6 +184,7 @@ export default function RoleDetailPage() {
     const [description, setDescription] = useState('');
     const [color, setColor] = useState('#6366f1');
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [apiEligible, setApiEligible] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Seed local edit state once the role loads (and whenever it is refetched
@@ -192,12 +196,17 @@ export default function RoleDetailPage() {
         setDescription(role.description ?? '');
         setColor(role.color ?? '#6366f1');
         setSelected(new Set(role.permissions));
+        setApiEligible(role.apiEligible);
     }, [role]);
 
     const sections = useMemo(() => (permsQuery.data ? buildSections(permsQuery.data) : []), [permsQuery.data]);
 
     const metaDirty =
-        !!role && (name !== role.name || description !== (role.description ?? '') || color !== (role.color ?? '#6366f1'));
+        !!role &&
+        (name !== role.name ||
+            description !== (role.description ?? '') ||
+            color !== (role.color ?? '#6366f1') ||
+            apiEligible !== role.apiEligible);
     const permsDirty = useMemo(() => {
         if (!role) return false;
         const original = new Set(role.permissions);
@@ -210,8 +219,24 @@ export default function RoleDetailPage() {
     const toggle = (perm: string) =>
         setSelected(prev => {
             const next = new Set(prev);
-            if (next.has(perm)) next.delete(perm);
-            else next.add(perm);
+            const [namespace, action] = perm.split('.', 2);
+            if (!namespace || !action) return next;
+            const readPermission = `${namespace}.read`;
+            const namespaceHasRead = Boolean(permsQuery.data?.[namespace]?.keys.read);
+
+            if (next.has(perm)) {
+                next.delete(perm);
+                // Without the section's read capability, write-only grants are
+                // unreachable through both the UI and most API resources.
+                if (action === 'read') {
+                    [...next].forEach(id => {
+                        if (id.startsWith(`${namespace}.`)) next.delete(id);
+                    });
+                }
+            } else {
+                next.add(perm);
+                if (action !== 'read' && namespaceHasRead) next.add(readPermission);
+            }
             return next;
         });
 
@@ -223,13 +248,17 @@ export default function RoleDetailPage() {
         });
 
     const save = useMutation({
-        mutationFn: async () => {
-            if (metaDirty) await updateRole(roleId, { name, description: description || null, color });
-            if (permsDirty) await updateRolePermissions(roleId, [...selected]);
-        },
+        mutationFn: () =>
+            updateRole(roleId, {
+                name,
+                description: description || null,
+                color,
+                apiEligible,
+                permissions: [...selected],
+            }),
         onSuccess: async () => {
             setError(null);
-            push({ type: 'success', message: m['admin.roles.saved']() });
+            push({ type: 'success', message: m['admin.access.profiles.saved']() });
             await qc.invalidateQueries({ queryKey: ['admin', 'roles'] });
         },
         onError: err => setError(firstError(err) ?? m['common.states.genericError']()),
@@ -241,6 +270,7 @@ export default function RoleDetailPage() {
         setDescription(role.description ?? '');
         setColor(role.color ?? '#6366f1');
         setSelected(new Set(role.permissions));
+        setApiEligible(role.apiEligible);
         setError(null);
     };
 
@@ -255,7 +285,7 @@ export default function RoleDetailPage() {
     if (roleQuery.isError || !role) {
         return (
             <div className="flex flex-col gap-4">
-                <BackLink onClick={() => navigate('/admin/roles')} />
+                <BackLink onClick={() => navigate('/admin/access/profiles')} />
                 <p className="py-10 text-center text-sm text-[var(--color-danger)]">{m['admin.roles.loadError']()}</p>
             </div>
         );
@@ -263,7 +293,7 @@ export default function RoleDetailPage() {
 
     return (
         <div className="flex flex-col gap-6 pb-24">
-            <BackLink onClick={() => navigate('/admin/roles')} />
+            <BackLink onClick={() => navigate('/admin/access/profiles')} />
 
             <header className="flex items-center gap-3">
                 <span
@@ -271,6 +301,12 @@ export default function RoleDetailPage() {
                     style={{ background: color || 'var(--color-ink-faint)' }}
                 />
                 <h1 className="text-xl font-semibold text-[var(--color-ink)]">{role.name}</h1>
+                {role.isOwner && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--brand)]/30 bg-[var(--brand-soft)] px-2 py-1 text-xs font-semibold text-[var(--brand)]">
+                        <LockKeyhole className="h-3.5 w-3.5" />
+                        {m['admin.access.profiles.protectedOwner']()}
+                    </span>
+                )}
             </header>
 
             {error && (
@@ -281,10 +317,12 @@ export default function RoleDetailPage() {
 
             {/* Metadata */}
             <div className="rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-5">
-                <h2 className="mb-4 text-sm font-semibold text-[var(--color-ink)]">{m['admin.roles.detailsHeading']()}</h2>
+                <h2 className="mb-4 text-sm font-semibold text-[var(--color-ink)]">
+                    {m['admin.access.profiles.details']()}
+                </h2>
                 <div className="grid gap-4 md:grid-cols-2">
                     <Field label={m['admin.roles.form.name']()}>
-                        <Input value={name} onChange={e => setName(e.target.value)} maxLength={64} disabled={readOnly} />
+                            <Input value={name} onChange={e => setName(e.target.value)} maxLength={64} disabled={readOnly || role.isSystem || role.isOwner} />
                     </Field>
                     <Field label={m['admin.roles.form.color']()}>
                         <div className="flex items-center gap-3">
@@ -292,24 +330,53 @@ export default function RoleDetailPage() {
                                 type="color"
                                 value={color}
                                 onChange={e => setColor(e.target.value)}
-                                disabled={readOnly}
+                                disabled={readOnly || role.isSystem || role.isOwner}
                                 className="h-11 w-14 shrink-0 cursor-pointer rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-1 disabled:opacity-50"
                                 aria-label={m['admin.roles.form.color']()}
                             />
-                            <Input value={color} onChange={e => setColor(e.target.value)} maxLength={9} disabled={readOnly} className="font-mono" />
+                            <Input
+                                value={color}
+                                onChange={e => setColor(e.target.value)}
+                                maxLength={9}
+                                disabled={readOnly || role.isSystem || role.isOwner}
+                                className="font-mono"
+                            />
                         </div>
                     </Field>
                     <div className="md:col-span-2">
                         <Field label={m['admin.roles.form.description']()}>
-                            <Input value={description} onChange={e => setDescription(e.target.value)} maxLength={255} disabled={readOnly} />
+                            <Input value={description} onChange={e => setDescription(e.target.value)} maxLength={255} disabled={readOnly || role.isSystem || role.isOwner} />
                         </Field>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className="flex items-start gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 p-3">
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-medium text-[var(--color-ink)]">
+                                    {m['admin.access.profiles.apiAvailable']()}
+                                </span>
+                                <span className="mt-0.5 block text-xs text-[var(--color-ink-muted)]">
+                                    {m['admin.access.profiles.apiDetailHint']()}
+                                </span>
+                            </span>
+                            <Switch
+                                checked={role.isOwner ? false : apiEligible}
+                                onChange={setApiEligible}
+                                disabled={readOnly || role.isSystem || role.isOwner}
+                                className="mt-0.5"
+                            />
+                        </label>
                     </div>
                 </div>
             </div>
 
             {/* Permission matrix */}
             <div className="flex flex-col gap-5">
-                <h2 className="text-sm font-semibold text-[var(--color-ink)]">{m['admin.roles.permissionsHeading']()}</h2>
+                <div>
+                    <h2 className="text-sm font-semibold text-[var(--color-ink)]">{m['admin.roles.permissionsHeading']()}</h2>
+                    <p className="mt-1 text-xs text-[var(--color-ink-faint)]">
+                        {m['admin.access.profiles.dependencyHint']()}
+                    </p>
+                </div>
                 {sections.map(section => (
                     <section key={section.labelKey} className="flex flex-col gap-2.5">
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-ink-faint)]">
@@ -325,7 +392,7 @@ export default function RoleDetailPage() {
                                         groupKey={groupKey}
                                         group={group}
                                         selected={selected}
-                                        readOnly={readOnly}
+                                        readOnly={readOnly || role.isSystem || role.isOwner}
                                         onToggle={toggle}
                                         onToggleAll={toggleAll}
                                     />
@@ -337,7 +404,7 @@ export default function RoleDetailPage() {
             </div>
 
             {/* Sticky save bar — only when the operator can edit and has changes. */}
-            {!readOnly && dirty && (
+            {!readOnly && !role.isSystem && !role.isOwner && dirty && (
                 <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--color-border-strong)] bg-[var(--color-surface)]/95 backdrop-blur">
                     <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
                         <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.roles.unsavedChanges']()}</p>
@@ -365,7 +432,7 @@ function BackLink({ onClick }: { onClick: () => void }) {
             className="inline-flex w-fit items-center gap-1.5 text-sm text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)]"
         >
             <ArrowLeft className="h-4 w-4" />
-            {m['admin.roles.backToList']()}
+            {m['admin.access.profiles.back']()}
         </button>
     );
 }

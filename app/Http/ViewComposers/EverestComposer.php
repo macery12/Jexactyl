@@ -146,7 +146,7 @@ class EverestComposer
 
         // Merge admin-only configuration if user is authenticated admin
         $user = auth()->user();
-        if ($user && ($user->root_admin || $user->admin_role_id)) {
+        if ($user && $user->isAdministrator()) {
             $configuration = array_merge_recursive($configuration, $this->getAdminConfiguration());
         }
 

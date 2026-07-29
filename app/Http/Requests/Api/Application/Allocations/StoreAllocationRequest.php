@@ -19,6 +19,6 @@ class StoreAllocationRequest extends ApplicationApiRequest
 
     public function permission(): string
     {
-        return AdminRole::NODES_UPDATE;
+        return AdminRole::ALLOCATIONS_CREATE;
     }
 }

@@ -9,13 +9,15 @@ use Illuminate\Http\Request;
 use Everest\Models\AdminRole;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
-use Everest\Services\Acl\Api\AdminAcl;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 use Everest\Http\Controllers\Api\Application\Nodes\NodeController;
 use Everest\Services\Authorization\ApplicationApiPermissionResolver;
 use Everest\Http\Middleware\Api\Application\AuthorizeApplicationUser;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 use Everest\Http\Controllers\Api\Application\Settings\FeaturesController;
 
 class AuthorizeApplicationUserTest extends TestCase
@@ -107,14 +109,16 @@ class AuthorizeApplicationUserTest extends TestCase
         );
     }
 
-    public function testRootAdministratorApplicationKeyIsStillResourceScoped(): void
+    public function testApplicationKeyUsesItsBoundProfileRatherThanCreatorAuthority(): void
     {
         $user = User::factory()->make(['root_admin' => true]);
-        $user->withAccessToken(ApiKey::factory()->make([
+        $profile = $this->profile([AdminRole::NODES_READ]);
+        $key = ApiKey::factory()->make([
             'key_type' => ApiKey::TYPE_APPLICATION,
-            'acl_enforced' => true,
-            'r_nodes' => AdminAcl::READ,
-        ]));
+            'admin_role_id' => $profile->id,
+        ]);
+        $key->setRelation('accessProfile', $profile);
+        $user->withAccessToken($key);
 
         $called = false;
         $this->middleware()->handle(
@@ -134,31 +138,45 @@ class AuthorizeApplicationUserTest extends TestCase
         );
     }
 
-    public function testLegacyApplicationKeyRetainsRoleOnlyAccess(): void
+    public function testUnboundApplicationKeyFailsClosed(): void
     {
         $user = User::factory()->make(['root_admin' => true]);
         $user->withAccessToken(ApiKey::factory()->make([
             'key_type' => ApiKey::TYPE_APPLICATION,
-            'acl_enforced' => false,
-            'r_nodes' => AdminAcl::NONE,
         ]));
 
-        $called = false;
+        $this->expectException(AccessDeniedHttpException::class);
         $this->middleware()->handle(
             $this->requestFor($user, NodeController::class, 'update', 'PATCH', '/api/application/nodes/{node}'),
-            function () use (&$called) {
-                $called = true;
-
-                return 'next';
-            }
+            static fn () => 'next'
         );
-
-        $this->assertTrue($called);
     }
 
     private function middleware(): AuthorizeApplicationUser
     {
-        return new AuthorizeApplicationUser(new ApplicationApiPermissionResolver());
+        $registry = new AdminCapabilityRegistry();
+
+        return new AuthorizeApplicationUser(
+            new ApplicationApiPermissionResolver(),
+            new ApplicationApiAccessProfileService($registry),
+            new AdminAuthorizer($registry),
+        );
+    }
+
+    /**
+     * @param list<string> $permissions
+     */
+    private function profile(array $permissions): AdminRole
+    {
+        $profile = new AdminRole();
+        $profile->forceFill([
+            'id' => 9876,
+            'permissions' => $permissions,
+            'is_owner' => false,
+            'api_eligible' => true,
+        ]);
+
+        return $profile;
     }
 
     private function requestFor(

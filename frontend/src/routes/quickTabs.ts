@@ -6,8 +6,7 @@ import {
     Settings,
     Server,
     HardDrive,
-    Users,
-    UserCog,
+    ShieldCheck,
     Database,
     Activity,
     Egg,
@@ -78,8 +77,12 @@ export const QUICK_TABS: QuickTab[] = [
         icon: SlidersHorizontal,
         items: [
             { to: '/admin/infrastructure', name: 'Infrastructure', icon: Server, permission: ['nodes.read', 'servers.read'] },
-            { to: '/admin/users', name: 'Users', icon: Users, permission: 'users.read' },
-            { to: '/admin/roles', name: 'Roles', icon: UserCog, permission: 'roles.read' },
+            {
+                to: '/admin/access',
+                name: 'Access Control',
+                icon: ShieldCheck,
+                permission: ['users.read', 'roles.read', 'api.read'],
+            },
             { to: '/admin/databases', name: 'Databases', icon: Database, permission: 'databases.read' },
             { to: '/admin/nests', name: 'Nests', icon: Egg, permission: 'nests.read' },
             { to: '/admin/activity', name: 'Activity', icon: Activity, permission: 'activity.read' },
@@ -110,7 +113,7 @@ export const QUICK_TABS: QuickTab[] = [
             { to: '/admin/landing', name: 'Landing Page', icon: LayoutTemplate, permission: 'settings.read' },
             { to: '/admin/theme', name: 'Theme', icon: Palette, permission: 'theme.read' },
             { to: '/admin/alerts', name: 'Alerts', icon: Bell, permission: 'alerts.read' },
-            { to: '/admin/api', name: 'API Keys', icon: KeyRound, permission: 'api.read' },
+            { to: '/admin/access/api-keys', name: 'Application API Keys', icon: KeyRound, permission: 'api.read' },
         ],
     },
 ];

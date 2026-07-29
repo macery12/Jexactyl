@@ -4,11 +4,13 @@ namespace Everest\Services\Api;
 
 use Everest\Models\User;
 use Everest\Models\ApiKey;
+use Everest\Models\AdminRole;
 use Illuminate\Support\Facades\DB;
 use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Everest\Contracts\Repository\ApiKeyRepositoryInterface;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 
 class KeyCreationService
 {
@@ -60,6 +62,15 @@ class KeyCreationService
             ]);
 
             if ($this->keyType === ApiKey::TYPE_APPLICATION) {
+                if (empty($data['admin_role_id'])) {
+                    throw new DisplayException('Application API keys require an API-eligible access profile.');
+                }
+
+                $profile = AdminRole::query()->find($data['admin_role_id']);
+                if (!$profile || !app(AdminCapabilityRegistry::class)->isApiEligible($profile)) {
+                    throw new DisplayException('Application API keys require a non-Owner, API-eligible access profile.');
+                }
+
                 $scopedPermissions = [];
                 foreach (AdminAcl::getResourceList() as $resource) {
                     $column = AdminAcl::COLUMN_IDENTIFIER . $resource;

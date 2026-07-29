@@ -3,10 +3,18 @@
 namespace Everest\Services\Permission;
 
 use Everest\Models\User;
-use Everest\Models\AdminRole;
+use Everest\Models\ApiKey;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 class AdminPermissionService
 {
+    public function __construct(
+        private ApplicationApiAccessProfileService $apiProfiles,
+        private AdminAuthorizer $authorizer,
+    ) {
+    }
+
     /**
      * Get the permissions associated with the admin user.
      */
@@ -14,12 +22,15 @@ class AdminPermissionService
     {
         $permissions = [];
 
-        if ($user->admin_role_id) {
-            $role = AdminRole::findOrFail($user->admin_role_id);
-            $permissions[] = $role->permissions;
-        } else {
-            $permissions[] = ['*'];
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            $profile = $this->apiProfiles->profileFor($token);
+            $permissions[] = $profile?->permissions ?? [];
+
+            return $permissions;
         }
+
+        $permissions[] = $this->authorizer->capabilities($user);
 
         return $permissions;
     }

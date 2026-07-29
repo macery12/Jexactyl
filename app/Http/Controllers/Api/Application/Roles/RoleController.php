@@ -3,27 +3,34 @@
 namespace Everest\Http\Controllers\Api\Application\Roles;
 
 use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Everest\Models\AdminRole;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\DB;
 use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Transformers\Api\Application\AdminRoleTransformer;
 use Everest\Http\Requests\Api\Application\Roles\GetRoleRequest;
 use Everest\Http\Requests\Api\Application\Roles\GetRolesRequest;
 use Everest\Http\Requests\Api\Application\Roles\StoreRoleRequest;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Everest\Http\Requests\Api\Application\Roles\DeleteRoleRequest;
 use Everest\Http\Requests\Api\Application\Roles\UpdateRoleRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 class RoleController extends ApplicationApiController
 {
     /**
      * RoleController constructor.
      */
-    public function __construct()
-    {
+    public function __construct(
+        private AdminAuthorizer $authorizer,
+        private AdminCapabilityRegistry $capabilities,
+        private ApplicationApiAccessProfileService $apiProfiles,
+    ) {
         parent::__construct();
     }
 
@@ -75,7 +82,11 @@ class RoleController extends ApplicationApiController
      */
     public function store(StoreRoleRequest $request): JsonResponse
     {
-        $data = array_merge($request->validated(), [
+        $data = $request->validated();
+        $data['permissions'] = $this->capabilities->normalizeMany($data['permissions'] ?? []);
+        $this->assertWithinPrivilegeCeiling($request, null, $data['permissions']);
+
+        $data = array_merge($data, [
             'sort_id' => 99,
         ]);
         $role = AdminRole::query()->create($data);
@@ -90,8 +101,11 @@ class RoleController extends ApplicationApiController
      */
     public function update(UpdateRoleRequest $request, AdminRole $role): array
     {
+        $this->assertProfileIsEditable($role);
+
         $validated = $request->validated();
         if (array_key_exists('permissions', $validated)) {
+            $validated['permissions'] = $this->capabilities->normalizeMany($validated['permissions']);
             $this->assertWithinPrivilegeCeiling($request, $role, (array) $validated['permissions']);
         } else {
             $this->assertWithinPrivilegeCeiling($request, $role, null);
@@ -109,7 +123,9 @@ class RoleController extends ApplicationApiController
      */
     public function updatePermissions(UpdateRoleRequest $request, AdminRole $role): array
     {
-        $permissions = $request->input('permissions', []);
+        $this->assertProfileIsEditable($role);
+
+        $permissions = $this->capabilities->normalizeMany($request->validated('permissions', []));
         $this->assertWithinPrivilegeCeiling($request, $role, $permissions);
 
         $role->update(['permissions' => $permissions]);
@@ -129,14 +145,19 @@ class RoleController extends ApplicationApiController
      *                                                      assigned, or null when the
      *                                                      request does not touch permissions
      */
-    private function assertWithinPrivilegeCeiling(UpdateRoleRequest $request, AdminRole $role, ?array $requestedPermissions): void
-    {
+    private function assertWithinPrivilegeCeiling(
+        StoreRoleRequest $request,
+        ?AdminRole $role,
+        ?array $requestedPermissions,
+    ): void {
         $actor = $request->user();
-        if ($actor->root_admin) {
+        if ($this->authorizer->isInteractiveOwner($actor)) {
             return;
         }
 
-        if ($actor->admin_role_id !== null && (int) $actor->admin_role_id === (int) $role->id) {
+        $token = $actor->currentAccessToken();
+        $principalProfileId = $token instanceof ApiKey ? $token->admin_role_id : $actor->admin_role_id;
+        if ($role && $principalProfileId !== null && (int) $principalProfileId === (int) $role->id) {
             abort(403, 'You cannot modify the role assigned to your own account.');
         }
 
@@ -144,10 +165,7 @@ class RoleController extends ApplicationApiController
             return;
         }
 
-        // Mirror ApplicationApiRequest::authorize(): the actor always holds a valid
-        // admin_role_id here (a non-root requester without one fails authorization
-        // before reaching the controller), so the role lookup is treated as present.
-        $actorPermissions = AdminRole::find($actor->admin_role_id)->permissions ?? [];
+        $actorPermissions = $this->apiProfiles->principalCapabilities($actor);
         $exceeding = array_diff($requestedPermissions, $actorPermissions);
         if (!empty($exceeding)) {
             abort(403, 'You cannot grant permissions that your own role does not hold.');
@@ -161,13 +179,24 @@ class RoleController extends ApplicationApiController
      */
     public function delete(DeleteRoleRequest $request, AdminRole $role): Response
     {
-        // Use DB::transaction to ensure both changes happen successfully, or not at all.
-        DB::transaction(function () use ($role) {
-            User::where('admin_role_id', $role->id)->update(['admin_role_id' => null, 'root_admin' => false]);
+        $this->assertProfileIsEditable($role);
 
-            $role->delete();
-        });
+        if (User::query()->where('admin_role_id', $role->id)->exists()) {
+            throw new ConflictHttpException('This Access Profile is assigned to users. Reassign those users before deleting it.');
+        }
+        if (ApiKey::query()->where('admin_role_id', $role->id)->exists()) {
+            throw new ConflictHttpException('This Access Profile is assigned to Application API keys. Reassign or delete those keys before deleting it.');
+        }
+
+        $role->delete();
 
         return $this->returnNoContent();
+    }
+
+    private function assertProfileIsEditable(AdminRole $profile): void
+    {
+        if ($profile->isProtected() || $profile->isOwner()) {
+            abort(403, 'The built-in Owner Access Profile cannot be modified or deleted.');
+        }
     }
 }

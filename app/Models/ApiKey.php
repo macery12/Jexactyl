@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property int $id
  * @property int $user_id
+ * @property int|null $admin_role_id
  * @property int $key_type
  * @property string $identifier
  * @property string $token
@@ -33,6 +34,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $r_server_databases
  * @property User $tokenable
  * @property User $user
+ * @property AdminRole|null $accessProfile
  *
  * @method static \Database\Factories\ApiKeyFactory factory(...$parameters)
  * @method static \Illuminate\Database\Eloquent\Builder|ApiKey newModelQuery()
@@ -99,6 +101,7 @@ class ApiKey extends Model
     protected $casts = [
         'allowed_ips' => 'array',
         'user_id' => 'int',
+        'admin_role_id' => 'int',
         'last_used_at' => 'datetime',
         'expires_at' => 'datetime',
         self::CREATED_AT => 'datetime',
@@ -125,6 +128,7 @@ class ApiKey extends Model
         'memo',
         'last_used_at',
         'expires_at',
+        'admin_role_id',
     ];
 
     /**
@@ -146,6 +150,7 @@ class ApiKey extends Model
         'allowed_ips.*' => 'string',
         'last_used_at' => 'nullable|date',
         'expires_at' => 'nullable|date',
+        'admin_role_id' => 'nullable|exists:admin_roles,id',
         'acl_enforced' => 'boolean',
         'r_' . AdminAcl::RESOURCE_USERS => 'integer|min:0|max:3',
         'r_' . AdminAcl::RESOURCE_ALLOCATIONS => 'integer|min:0|max:3',
@@ -164,6 +169,16 @@ class ApiKey extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The immutable authority boundary used when this is an Application API
+     * service credential. The user relation records the human creator and is
+     * retained as Sanctum's tokenable/audit subject only.
+     */
+    public function accessProfile(): BelongsTo
+    {
+        return $this->belongsTo(AdminRole::class, 'admin_role_id');
     }
 
     /**

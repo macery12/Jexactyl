@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Server, Plus, ChevronDown, Zap, HardDrive, Layers } from 'lucide-react';
-import { getAdminServers } from '@/api/adminServers';
+import { getAdminServers, type AdminServer } from '@/api/adminServers';
 import { getNodes, getNodeServerCount, type NodeListItem } from '@/api/nodes';
 import { formatMib } from '@/lib/format';
 import { usePersistedState } from '@/hooks/usePersistedState';
@@ -15,6 +15,8 @@ import { useAdminHeld } from '@/layouts/heldPermissions';
 import { can } from '@/lib/can';
 
 type ViewMode = 'nodes' | 'servers';
+const EMPTY_NODES: NodeListItem[] = [];
+const EMPTY_SERVERS: AdminServer[] = [];
 
 function SummaryCell({ icon: Icon, label, value, sub }: { icon: typeof Server; label: string; value: string; sub?: string }) {
     return (
@@ -31,14 +33,22 @@ function SummaryCell({ icon: Icon, label, value, sub }: { icon: typeof Server; l
     );
 }
 
-function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
+function ViewToggle({
+    mode,
+    onChange,
+    available,
+}: {
+    mode: ViewMode;
+    onChange: (m: ViewMode) => void;
+    available: ViewMode[];
+}) {
     const opts: { id: ViewMode; label: string; icon: typeof Server }[] = [
         { id: 'nodes', label: m['admin.infrastructure.view.nodes'](), icon: Server },
         { id: 'servers', label: m['admin.infrastructure.view.servers'](), icon: Layers },
     ];
     return (
         <div className="inline-flex rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-0.5">
-            {opts.map(o => (
+            {opts.filter(option => available.includes(option.id)).map(o => (
                 <button
                     key={o.id}
                     onClick={() => onChange(o.id)}
@@ -116,7 +126,19 @@ function NewMenu({ onNewServer, onNewNode }: { onNewServer: () => void; onNewNod
     );
 }
 
-function FleetSummary({ nodes, totalServers, activeServers }: { nodes: NodeListItem[]; totalServers: number | null; activeServers: number }) {
+function FleetSummary({
+    nodes,
+    totalServers,
+    activeServers,
+    showNodes,
+    showServers,
+}: {
+    nodes: NodeListItem[];
+    totalServers: number | null;
+    activeServers: number;
+    showNodes: boolean;
+    showServers: boolean;
+}) {
     const supercharged = nodes.filter(n => n.wingsType === 'wings-rs').length;
     const maintenance = nodes.filter(n => n.maintenanceMode).length;
     const totalMemory = nodes.reduce((a, n) => a + n.memory, 0);
@@ -126,11 +148,21 @@ function FleetSummary({ nodes, totalServers, activeServers }: { nodes: NodeListI
 
     return (
         <div className="grid grid-cols-2 divide-x divide-y divide-[var(--color-border)] overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-5">
-            <SummaryCell icon={Server} label={m['admin.infrastructure.summary.nodes']()} value={String(nodes.length)} sub={maintenance > 0 ? m['admin.infrastructure.summary.inMaintenance']({ count: maintenance }) : m['admin.infrastructure.summary.allOnline']()} />
-            <SummaryCell icon={Zap} label={m['admin.infrastructure.summary.supercharged']()} value={String(supercharged)} sub={m['admin.infrastructure.summary.standard']({ count: nodes.length - supercharged })} />
-            <SummaryCell icon={Layers} label={m['admin.infrastructure.summary.servers']()} value={totalServers == null ? '—' : String(totalServers)} sub={m['admin.infrastructure.summary.active']({ count: activeServers })} />
-            <SummaryCell icon={HardDrive} label={m['admin.infrastructure.summary.memory']()} value={formatMib(usedMemory)} sub={m['admin.infrastructure.summary.ofAllocated']({ size: formatMib(totalMemory) })} />
-            <SummaryCell icon={HardDrive} label={m['admin.infrastructure.summary.disk']()} value={formatMib(usedDisk)} sub={m['admin.infrastructure.summary.ofAllocated']({ size: formatMib(totalDisk) })} />
+            {showNodes && (
+                <>
+                    <SummaryCell icon={Server} label={m['admin.infrastructure.summary.nodes']()} value={String(nodes.length)} sub={maintenance > 0 ? m['admin.infrastructure.summary.inMaintenance']({ count: maintenance }) : m['admin.infrastructure.summary.allOnline']()} />
+                    <SummaryCell icon={Zap} label={m['admin.infrastructure.summary.supercharged']()} value={String(supercharged)} sub={m['admin.infrastructure.summary.standard']({ count: nodes.length - supercharged })} />
+                </>
+            )}
+            {showServers && (
+                <SummaryCell icon={Layers} label={m['admin.infrastructure.summary.servers']()} value={totalServers == null ? '—' : String(totalServers)} sub={m['admin.infrastructure.summary.active']({ count: activeServers })} />
+            )}
+            {showNodes && (
+                <>
+                    <SummaryCell icon={HardDrive} label={m['admin.infrastructure.summary.memory']()} value={formatMib(usedMemory)} sub={m['admin.infrastructure.summary.ofAllocated']({ size: formatMib(totalMemory) })} />
+                    <SummaryCell icon={HardDrive} label={m['admin.infrastructure.summary.disk']()} value={formatMib(usedDisk)} sub={m['admin.infrastructure.summary.ofAllocated']({ size: formatMib(totalDisk) })} />
+                </>
+            )}
         </div>
     );
 }
@@ -150,17 +182,31 @@ function EmptyState({ icon: Icon, title, body }: { icon: typeof Server; title: s
 export default function InfrastructureOverviewPage() {
     const [stored, setMode] = usePersistedState<ViewMode>('v2:admin:infra:view', 'nodes');
     const navigate = useNavigate();
+    const held = useAdminHeld();
+    const canReadNodes = can(held, 'nodes.read');
+    const canReadServers = can(held, 'servers.read');
+    const availableModes: ViewMode[] = [];
+    if (canReadNodes) availableModes.push('nodes');
+    if (canReadServers) availableModes.push('servers');
 
     // The retired network map and the short-lived separate capacity view both left
     // their own values in localStorage; anything unrecognised falls back to the default.
-    const mode: ViewMode = stored === 'servers' ? 'servers' : 'nodes';
+    const requestedMode: ViewMode = stored === 'servers' ? 'servers' : 'nodes';
+    const mode: ViewMode = availableModes.includes(requestedMode)
+        ? requestedMode
+        : canReadNodes
+          ? 'nodes'
+          : 'servers';
 
     // Honor a `?view=` deep link once (e.g. the admin overview's server/node tiles),
     // then strip the param so the persisted choice owns the view from there on.
     const [searchParams, setSearchParams] = useSearchParams();
     useEffect(() => {
         const requested = searchParams.get('view');
-        if (requested === 'servers' || requested === 'nodes') {
+        if (
+            (requested === 'servers' && canReadServers) ||
+            (requested === 'nodes' && canReadNodes)
+        ) {
             setMode(requested);
             searchParams.delete('view');
             setSearchParams(searchParams, { replace: true });
@@ -170,20 +216,28 @@ export default function InfrastructureOverviewPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const serversQ = useQuery({ queryKey: ['admin', 'servers'], queryFn: getAdminServers });
-    const nodesQ = useQuery({ queryKey: ['admin', 'nodes'], queryFn: getNodes });
+    const serversQ = useQuery({
+        queryKey: ['admin', 'servers'],
+        queryFn: getAdminServers,
+        enabled: canReadServers,
+    });
+    const nodesQ = useQuery({
+        queryKey: ['admin', 'nodes'],
+        queryFn: getNodes,
+        enabled: canReadNodes,
+    });
 
-    const nodes = nodesQ.data;
-    const servers = serversQ.data;
-    const isLoading = serversQ.isLoading || nodesQ.isLoading;
-    const isError = serversQ.isError || nodesQ.isError;
+    const nodes = canReadNodes ? nodesQ.data : EMPTY_NODES;
+    const servers = canReadServers ? serversQ.data : EMPTY_SERVERS;
+    const isLoading = (canReadServers && serversQ.isLoading) || (canReadNodes && nodesQ.isLoading);
+    const isError = (canReadServers && serversQ.isError) || (canReadNodes && nodesQ.isError);
 
     // Per-node server counts in parallel (mirrors the dashboard's useQueries pattern).
     const countQueries = useQueries({
         queries: (nodes ?? []).map(n => ({
             queryKey: ['admin', 'node-server-count', n.id],
             queryFn: () => getNodeServerCount(n.id),
-            enabled: !!nodes,
+            enabled: canReadNodes && !!nodes,
             staleTime: 30_000,
         })),
     });
@@ -197,9 +251,11 @@ export default function InfrastructureOverviewPage() {
         return map;
     }, [nodes, countQueries]);
 
-    const totalServers = nodes && countQueries.every(q => typeof q.data === 'number')
-        ? countQueries.reduce((a, q) => a + (q.data ?? 0), 0)
-        : null;
+    const totalServers = canReadNodes
+        ? nodes && countQueries.every(q => typeof q.data === 'number')
+            ? countQueries.reduce((a, q) => a + (q.data ?? 0), 0)
+            : null
+        : servers?.length ?? null;
     const activeServers = useMemo(() => (servers ?? []).filter(s => s.state === 'active').length, [servers]);
 
     return (
@@ -212,7 +268,9 @@ export default function InfrastructureOverviewPage() {
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.infrastructure.subtitle']()}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <ViewToggle mode={mode} onChange={setMode} />
+                    {availableModes.length > 1 && (
+                        <ViewToggle mode={mode} onChange={setMode} available={availableModes} />
+                    )}
                     <NewMenu
                         onNewServer={() => navigate('/admin/infrastructure/servers/new')}
                         onNewNode={() => navigate('/admin/infrastructure/nodes/new')}
@@ -234,7 +292,13 @@ export default function InfrastructureOverviewPage() {
 
             {!isLoading && !isError && nodes && servers && (
                 <>
-                    <FleetSummary nodes={nodes} totalServers={totalServers} activeServers={activeServers} />
+                    <FleetSummary
+                        nodes={nodes}
+                        totalServers={totalServers}
+                        activeServers={activeServers}
+                        showNodes={canReadNodes}
+                        showServers={canReadServers}
+                    />
 
                     {mode === 'servers' ? (
                         servers.length === 0 ? (

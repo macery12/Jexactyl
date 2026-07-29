@@ -2,9 +2,12 @@
 
 namespace Everest\Services\Migration\Profiles;
 
+use Illuminate\Database\Connection;
 use Everest\Services\Migration\TablePlan;
 use Everest\Services\Migration\ImportContext;
 use Everest\Services\Migration\ImportProfile;
+use Everest\Services\Migration\ImportSummary;
+use Everest\Services\Api\LegacyApplicationKeyProfileMigrationService;
 
 /**
  * Pterodactyl 1.11.x — the common ancestor of every panel this importer reads.
@@ -158,6 +161,22 @@ class PterodactylProfile extends ImportProfile
             renames: ['oom_disabled' => 'oom_killer'],
             transforms: ['oom_killer' => fn ($v) => $v ? 0 : 1],
         );
+    }
+
+    public function afterImport(Connection $source, Connection $target, ImportSummary $summary): void
+    {
+        $ownerId = $target->table('admin_roles')->where('is_owner', true)->value('id');
+        if ($ownerId === null) {
+            throw new \RuntimeException('The built-in Owner Access Profile is missing from the target database.');
+        }
+
+        $migratedOwners = $target->table('users')
+            ->where('root_admin', true)
+            ->update(['admin_role_id' => $ownerId]);
+        $summary->note("Assigned {$migratedOwners} imported root administrator(s) to the Owner Access Profile.");
+
+        app(LegacyApplicationKeyProfileMigrationService::class)->handle($target);
+        $summary->note('Bound imported Application API keys to generated API-eligible access profiles.');
     }
 
     public function excludedTables(): array

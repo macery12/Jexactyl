@@ -68,6 +68,6 @@ class StoreServerDatabaseRequest extends ApplicationApiRequest
 
     public function permission(): string
     {
-        return AdminRole::SERVERS_UPDATE;
+        return AdminRole::SERVER_DATABASES_CREATE;
     }
 }
