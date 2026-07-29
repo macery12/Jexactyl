@@ -41,6 +41,12 @@ use Everest\Exceptions\Http\Server\ServerStateConflictException;
  * @property string|null $startup
  * @property string $image
  * @property int|null $billing_product_id
+ * @property int|null $pending_plan_change_order_id
+ * @property int|null $scheduled_billing_product_id
+ * @property \Illuminate\Support\Carbon|null $scheduled_plan_change_at
+ * @property array|null $scheduled_plan_change_snapshot
+ * @property \Illuminate\Support\Carbon|null $scheduled_plan_change_retry_at
+ * @property string|null $scheduled_plan_change_last_error
  * @property int|null $billing_days
  * @property float|null $billing_amount
  * @property \Illuminate\Support\Carbon|null $renewal_date
@@ -76,6 +82,8 @@ use Everest\Exceptions\Http\Server\ServerStateConflictException;
  * @property ServerTransfer|null $transfer
  * @property User $user
  * @property Product|null $product
+ * @property Product|null $scheduledProduct
+ * @property Billing\Order|null $pendingPlanChangeOrder
  * @property \Illuminate\Database\Eloquent\Collection|EggVariable[] $variables
  * @property int|null $variables_count
  *
@@ -177,6 +185,12 @@ class Server extends Model
         'image' => 'required|string|max:191',
         'billing_product_id' => 'nullable|int|exists:products,id',
         'billing_order_id' => 'nullable|int|exists:orders,id',
+        'pending_plan_change_order_id' => 'nullable|int|exists:orders,id',
+        'scheduled_billing_product_id' => 'nullable|int|exists:products,id',
+        'scheduled_plan_change_at' => 'nullable|date',
+        'scheduled_plan_change_snapshot' => 'nullable|array',
+        'scheduled_plan_change_retry_at' => 'nullable|date',
+        'scheduled_plan_change_last_error' => 'nullable|string|max:2000',
         'billing_days' => 'nullable|int|min:1',
         'billing_amount' => 'nullable|numeric|min:0',
         'renewal_date' => 'nullable|date',
@@ -241,6 +255,11 @@ class Server extends Model
         'egg_id' => 'integer',
         'billing_product_id' => 'integer',
         'billing_order_id' => 'integer',
+        'pending_plan_change_order_id' => 'integer',
+        'scheduled_billing_product_id' => 'integer',
+        'scheduled_plan_change_at' => 'datetime',
+        'scheduled_plan_change_snapshot' => 'array',
+        'scheduled_plan_change_retry_at' => 'datetime',
         'billing_days' => 'integer',
         'billing_amount' => 'float',
         'renewal_date' => 'datetime',
@@ -319,6 +338,26 @@ class Server extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'billing_product_id', 'id');
+    }
+
+    /**
+     * Gets the product scheduled to replace the current product at renewal.
+     *
+     * @return BelongsTo<Product, $this>
+     */
+    public function scheduledProduct(): BelongsTo
+    {
+        return $this->belongsTo(Product::class, 'scheduled_billing_product_id', 'id');
+    }
+
+    /**
+     * Gets the paid plan-change order currently reserved against this server.
+     *
+     * @return BelongsTo<Billing\Order, $this>
+     */
+    public function pendingPlanChangeOrder(): BelongsTo
+    {
+        return $this->belongsTo(Billing\Order::class, 'pending_plan_change_order_id', 'id');
     }
 
     /**

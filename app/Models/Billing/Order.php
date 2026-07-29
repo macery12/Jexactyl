@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $total
  * @property string $status
  * @property int $product_id
+ * @property int|null $source_product_id
  * @property bool $requires_free_product_entitlement
  * @property string|null $product_name
  * @property int|null $billing_days
@@ -29,6 +30,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $server_id
  * @property array|null $variables
  * @property array|null $domain_payload
+ * @property array|null $plan_change_snapshot
  * @property string $type
  * @property int $threat_index
  * @property string|null $payment_intent_id
@@ -53,6 +55,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property \Carbon\Carbon $updated_at
  * @property \Everest\Models\Server|null $server
  * @property Product|null $product
+ * @property Product|null $sourceProduct
  * @property User|null $user
  * @property Coupon|null $coupon
  * @property PaymentTransaction|null $transaction
@@ -88,9 +91,9 @@ class Order extends Model
     protected $fillable = [
         'name', 'user_id', 'description', 'payment_intent_id', 'payment_processor', 'paypal_order_id',
         'paypal_capture_id', 'paypal_payer_id', 'paypal_payer_email', 'paypal_status', 'paypal_amount', 'paypal_currency', 'paypal_captured_at',
-        'payment_token', 'total', 'status', 'product_id', 'product_name', 'billing_days', 'final_price', 'multiplier_used', 'node_multiplier_used', 'egg_id', 'node_id', 'server_id', 'variables', 'type', 'threat_index',
+        'payment_token', 'total', 'status', 'product_id', 'source_product_id', 'product_name', 'billing_days', 'final_price', 'multiplier_used', 'node_multiplier_used', 'egg_id', 'node_id', 'server_id', 'variables', 'type', 'threat_index',
         'checkout_nonce', 'checkout_request_fingerprint', 'checkout_fingerprint', 'checkout_currency', 'checkout_amount_minor', 'checkout_locked_at', 'fulfillment_started_at', 'fulfillment_claim',
-        'domain_payload',
+        'domain_payload', 'plan_change_snapshot',
         'coupon_id', 'subtotal', 'discount',
         'requires_free_product_entitlement',
     ];
@@ -102,6 +105,7 @@ class Order extends Model
         'user_id' => 'int',
         'total' => 'float',
         'product_id' => 'int',
+        'source_product_id' => 'int',
         'requires_free_product_entitlement' => 'boolean',
         'billing_days' => 'int',
         'final_price' => 'float',
@@ -112,6 +116,7 @@ class Order extends Model
         'server_id' => 'int',
         'variables' => 'array',
         'domain_payload' => 'array',
+        'plan_change_snapshot' => 'array',
         'threat_index' => 'int',
         'coupon_id' => 'int',
         'subtotal' => 'float',
@@ -148,6 +153,10 @@ class Order extends Model
      */
     public static function resolveTypeFromRequest(Request $request): string
     {
+        if ($request->boolean('plan_change', false)) {
+            return self::TYPE_UPG;
+        }
+
         return ($request->has('renewal') && $request->boolean('renewal'))
             ? self::TYPE_REN
             : self::TYPE_NEW;
@@ -191,6 +200,16 @@ class Order extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Get the product the server was using when a plan change was quoted.
+     *
+     * @return BelongsTo<Product, $this>
+     */
+    public function sourceProduct(): BelongsTo
+    {
+        return $this->belongsTo(Product::class, 'source_product_id');
     }
 
     /**

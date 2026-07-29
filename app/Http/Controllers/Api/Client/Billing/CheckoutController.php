@@ -263,6 +263,8 @@ class CheckoutController extends ClientApiController
                         'name' => $attributes['name'],
                         'node_id' => $attributes['node_id'],
                         'server_id' => $attributes['server_id'],
+                        'source_product_id' => $attributes['source_product_id'] ?? null,
+                        'plan_change_snapshot' => $attributes['plan_change_snapshot'] ?? null,
                         'variables' => $attributes['variables'],
                         'domain_payload' => $attributes['domain_payload'],
                         'multiplier_used' => $attributes['multiplier_used'],
@@ -517,10 +519,13 @@ class CheckoutController extends ClientApiController
             throw new DisplayException('The existing payment intent was cancelled.');
         }
         $this->assertCheckoutStillPending($order);
+        $lockedAmount = $this->lockedCheckoutAmount($order);
 
         return response()->json([
             'id' => $intent->id,
             'secret' => $intent->client_secret,
+            'amount_minor' => $lockedAmount['amount_minor'],
+            'currency' => $lockedAmount['currency'],
         ]);
     }
 
@@ -589,11 +594,37 @@ class CheckoutController extends ClientApiController
         $transaction = $order->transaction()->firstOrFail();
         $this->integrityService->assertStripeIntent($order, $transaction, $paymentIntent);
         $this->assertCheckoutStillPending($order);
+        $lockedAmount = $this->lockedCheckoutAmount($order);
 
         return response()->json([
             'id' => $paymentIntent->id,
             'secret' => $paymentIntent->client_secret,
+            'amount_minor' => $lockedAmount['amount_minor'],
+            'currency' => $lockedAmount['currency'],
         ]);
+    }
+
+    /**
+     * @return array{amount_minor: int, currency: string}
+     */
+    private function lockedCheckoutAmount(Order $order): array
+    {
+        return DB::transaction(function () use ($order): array {
+            /** @var Order $lockedOrder */
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if (
+                $lockedOrder->status !== Order::STATUS_PENDING
+                || $lockedOrder->checkout_amount_minor === null
+                || !$lockedOrder->checkout_currency
+            ) {
+                throw new DisplayException('This checkout no longer has a payable locked amount.');
+            }
+
+            return [
+                'amount_minor' => (int) $lockedOrder->checkout_amount_minor,
+                'currency' => strtoupper((string) $lockedOrder->checkout_currency),
+            ];
+        });
     }
 
     private function assertCheckoutStillPending(Order $order): void

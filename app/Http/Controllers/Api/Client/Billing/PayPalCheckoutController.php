@@ -98,6 +98,8 @@ class PayPalCheckoutController extends ClientApiController
             'name' => $attributes['name'],
             'node_id' => $attributes['node_id'],
             'server_id' => $attributes['server_id'],
+            'source_product_id' => $attributes['source_product_id'] ?? null,
+            'plan_change_snapshot' => $attributes['plan_change_snapshot'] ?? null,
             'billing_days' => $attributes['billing_days'],
             'variables' => $attributes['variables'],
             'domain_payload' => $attributes['domain_payload'],
@@ -497,11 +499,14 @@ class PayPalCheckoutController extends ClientApiController
             throw new DisplayException('The existing PayPal checkout is no longer awaiting approval.');
         }
         $this->assertCheckoutStillPending($order);
+        $lockedAmount = $this->lockedCheckoutAmount($order);
 
         return response()->json([
             'id' => $transaction->external_id,
             'token' => $transaction->payment_token,
             'approval_url' => $this->validateRedirectUrl($approvalUrl, ['paypal.com']),
+            'amount_minor' => $lockedAmount['amount_minor'],
+            'currency' => $lockedAmount['currency'],
         ]);
     }
 
@@ -566,12 +571,38 @@ class PayPalCheckoutController extends ClientApiController
             throw new DisplayException('PayPal approval URL unavailable.');
         }
         $this->assertCheckoutStillPending($order);
+        $lockedAmount = $this->lockedCheckoutAmount($order);
 
         return response()->json([
             'id' => $paypalOrder['id'],
             'token' => $token,
             'approval_url' => $this->validateRedirectUrl($approvalUrl, ['paypal.com']),
+            'amount_minor' => $lockedAmount['amount_minor'],
+            'currency' => $lockedAmount['currency'],
         ]);
+    }
+
+    /**
+     * @return array{amount_minor: int, currency: string}
+     */
+    private function lockedCheckoutAmount(Order $order): array
+    {
+        return DB::transaction(function () use ($order): array {
+            /** @var Order $lockedOrder */
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if (
+                $lockedOrder->status !== Order::STATUS_PENDING
+                || $lockedOrder->checkout_amount_minor === null
+                || !$lockedOrder->checkout_currency
+            ) {
+                throw new DisplayException('This checkout no longer has a payable locked amount.');
+            }
+
+            return [
+                'amount_minor' => (int) $lockedOrder->checkout_amount_minor,
+                'currency' => strtoupper((string) $lockedOrder->checkout_currency),
+            ];
+        });
     }
 
     private function assertCheckoutStillPending(Order $order): void

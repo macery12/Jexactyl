@@ -19,6 +19,7 @@ use Everest\Console\Commands\Billing\DeleteScheduledServersCommand;
 use Everest\Console\Commands\Billing\SuspendBillableServersCommand;
 use Everest\Console\Commands\Billing\RefreshNodeAvailabilityCommand;
 use Everest\Console\Commands\Maintenance\PruneOrphanedBackupsCommand;
+use Everest\Console\Commands\Billing\ApplyScheduledPlanChangesCommand;
 use Everest\Console\Commands\Billing\CalculateOrderThreatIndexCommand;
 use Everest\Console\Commands\Maintenance\CleanServiceBackupFilesCommand;
 
@@ -82,6 +83,7 @@ class Kernel extends ConsoleKernel
             $schedule->command(DeleteScheduledServersCommand::class)->dailyAt('23:55');
             $schedule->command(CalculateOrderThreatIndexCommand::class)->everyFiveMinutes();
             $schedule->command(RefreshNodeAvailabilityCommand::class)->everyMinute()->withoutOverlapping();
+            $schedule->command(ApplyScheduledPlanChangesCommand::class)->everyMinute()->withoutOverlapping();
             $schedule->command(ExpireCouponsCommand::class)->twiceDaily(1, 13);
             $schedule->command(ExpirePdfCacheCommand::class)->hourly();        // Evict local 24-h PDF cache
             $schedule->command(ExpireInvoicesCommand::class)->dailyAt('02:00'); // Auto-cleanup data snapshots (if enabled)

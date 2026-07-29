@@ -4,12 +4,14 @@ namespace Everest\Http\Controllers\Api\Client\Billing;
 
 use Everest\Models\User;
 use Everest\Models\Server;
+use Everest\Models\Billing\Order;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
 use Everest\Exceptions\DisplayException;
 use Everest\Services\Billing\PlanChangeService;
 use Everest\Transformers\Api\Client\ProductTransformer;
+use Everest\Services\Billing\CheckoutReservationService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\GetServerRequest;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -18,6 +20,7 @@ class PlanChangeController extends ClientApiController
 {
     public function __construct(
         private PlanChangeService $planChangeService,
+        private CheckoutReservationService $reservationService,
     ) {
         parent::__construct();
     }
@@ -27,6 +30,8 @@ class PlanChangeController extends ClientApiController
      */
     public function getAvailablePlans(GetServerRequest $request, Server $server): array
     {
+        $this->assertOwner($request->user(), $server);
+
         if (!$server->billing_product_id) {
             throw new DisplayException('This server is not associated with a billing product.');
         }
@@ -46,6 +51,7 @@ class PlanChangeController extends ClientApiController
         // Get all products in the same category
         $products = Product::where('category_uuid', $currentProduct->category_uuid)
             ->where('id', '!=', $currentProduct->id)
+            ->where('visible', true)
             ->get();
 
         return $this->fractal->collection($products)
@@ -59,39 +65,28 @@ class PlanChangeController extends ClientApiController
      */
     public function validatePlanChange(GetServerRequest $request, Server $server, int $productId): JsonResponse
     {
+        $this->assertOwner($request->user(), $server);
         $newProduct = Product::findOrFail($productId);
 
-        if (!$server->billing_product_id) {
+        try {
+            $quote = $this->planChangeService->quote($server, $newProduct);
+        } catch (DisplayException $exception) {
             return response()->json([
                 'valid' => false,
-                'message' => 'This server is not associated with a billing product.',
+                'message' => $exception->getMessage(),
             ], 400);
-        }
-
-        $currentProduct = Product::find($server->billing_product_id);
-
-        // Ensure products are in the same category
-        if ($currentProduct && $currentProduct->category_uuid !== $newProduct->category_uuid) {
-            return response()->json([
-                'valid' => false,
-                'message' => 'Cannot change to a plan in a different category.',
-            ], 400);
-        }
-
-        // Check for resource violations
-        $violations = $this->planChangeService->validatePlanDowngrade($server, $newProduct);
-
-        if (!empty($violations)) {
-            return response()->json([
-                'valid' => false,
-                'violations' => $violations,
-                'message' => 'Current resource usage exceeds the limits of the selected plan.',
-            ]);
         }
 
         return response()->json([
-            'valid' => true,
-            'message' => 'Plan change is allowed.',
+            'valid' => (bool) $quote['valid'],
+            'message' => $quote['valid']
+                ? (
+                    $quote['mode'] === 'pay_now'
+                        ? 'Payment is required before this upgrade is applied.'
+                        : 'This change can be scheduled for the current renewal date.'
+                )
+                : 'Current resource usage exceeds the limits of the selected plan.',
+            'quote' => $quote,
         ]);
     }
 
@@ -108,67 +103,138 @@ class PlanChangeController extends ClientApiController
 
         $newProduct = Product::findOrFail($productId);
 
-        // Re-verify that the server has a billing product
-        if (!$server->billing_product_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'This server is not associated with a billing product.',
-            ], 400);
-        }
-
-        // Re-verify products are in the same category (cannot be bypassed by skipping validatePlanChange)
-        $currentProduct = Product::find($server->billing_product_id);
-        if ($currentProduct && $currentProduct->category_uuid !== $newProduct->category_uuid) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cannot change to a plan in a different category.',
-            ], 400);
-        }
-
-        // Re-verify that plan changes are allowed for this category (guard against bypassing validatePlanChange)
-        $category = Category::where('uuid', $newProduct->category_uuid)->first();
-        if (!$category || !$category->allow_plan_changes) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Plan changes are not allowed for this category.',
-            ], 403);
-        }
-
-        // Validate and get billing_days from request
         $validated = $request->validate([
             'billing_days' => 'nullable|integer|min:1|max:365',
         ]);
-
-        $billingDays = $validated['billing_days'] ?? null;
+        if (
+            isset($validated['billing_days'])
+            && (int) $validated['billing_days'] !== (int) $server->billing_days
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The billing cycle cannot be changed during a plan change.',
+            ], 422);
+        }
 
         try {
-            $updatedServer = $this->planChangeService->changePlan($server, $newProduct, false, $billingDays);
+            $quote = $this->planChangeService->quote($server, $newProduct);
+            if ((int) $quote['charge_minor'] > 0 && !empty($quote['violations'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Current resource usage exceeds the limits of the selected plan.',
+                    'quote' => $quote,
+                ], 422);
+            }
+            if ((int) $quote['charge_minor'] > 0) {
+                return response()->json([
+                    'success' => false,
+                    'payment_required' => true,
+                    'message' => 'Payment is required before this upgrade is applied.',
+                    'quote' => $quote,
+                ], 402);
+            }
+
+            $updatedServer = $this->planChangeService->scheduleChange($server, $newProduct);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Plan changed successfully.',
-                'server' => [
-                    'id' => $updatedServer->id,
-                    'uuid' => $updatedServer->uuid,
-                    'billing_product_id' => $updatedServer->billing_product_id,
-                    'billing_days' => $updatedServer->billing_days,
-                    'limits' => [
-                        'memory' => $updatedServer->memory,
-                        'disk' => $updatedServer->disk,
-                        'cpu' => $updatedServer->cpu,
-                        'database' => $updatedServer->database_limit,
-                        'backup' => $updatedServer->backup_limit,
-                        'allocation' => $updatedServer->allocation_limit,
-                        'subdomain' => $updatedServer->subdomain_limit ?? $updatedServer->product?->subdomain_limit,
-                    ],
+                'scheduled' => true,
+                'message' => 'Plan change scheduled for the current renewal date.',
+                'scheduled_change' => [
+                    'product_id' => (int) $updatedServer->scheduled_billing_product_id,
+                    'product_name' => $newProduct->name,
+                    'effective_at' => $updatedServer->scheduled_plan_change_at?->toIso8601String(),
                 ],
-            ]);
+                'quote' => $quote,
+            ], 202);
         } catch (DisplayException $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 400);
         }
+    }
+
+    public function scheduledChange(GetServerRequest $request, Server $server): JsonResponse
+    {
+        $this->assertOwner($request->user(), $server);
+        $server->loadMissing([
+            'scheduledProduct',
+            'pendingPlanChangeOrder.product',
+            'pendingPlanChangeOrder.transaction',
+        ]);
+        $pendingOrder = $server->pendingPlanChangeOrder;
+
+        return response()->json([
+            'scheduled_change' => $server->scheduled_billing_product_id === null
+                ? null
+                : [
+                    'product_id' => (int) $server->scheduled_billing_product_id,
+                    'product_name' => $server->scheduledProduct?->name,
+                    'effective_at' => $server->scheduled_plan_change_at?->toIso8601String(),
+                    'retry_at' => $server->scheduled_plan_change_retry_at?->toIso8601String(),
+                    'last_error' => $server->scheduled_plan_change_last_error,
+                ],
+            'pending_change' => $pendingOrder === null
+                ? null
+                : [
+                    'order_id' => (int) $pendingOrder->id,
+                    'product_id' => (int) $pendingOrder->product_id,
+                    'product_name' => $pendingOrder->product_name,
+                    'processor' => $pendingOrder->payment_processor,
+                    'created_at' => $pendingOrder->created_at->toIso8601String(),
+                ],
+        ]);
+    }
+
+    public function cancelPendingChange(GetServerRequest $request, Server $server): JsonResponse
+    {
+        $this->assertOwner($request->user(), $server);
+        $server->loadMissing('pendingPlanChangeOrder');
+        $order = $server->pendingPlanChangeOrder;
+
+        if (
+            $order === null
+            || $order->type !== Order::TYPE_UPG
+            || $order->status !== Order::STATUS_PENDING
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'There is no cancellable pending plan-change checkout.',
+            ], 409);
+        }
+
+        $cancelled = $this->reservationService->transitionAndRelease(
+            $order,
+            Order::STATUS_PENDING,
+            Order::STATUS_CANCELLED,
+            null,
+            'cancelled',
+        );
+        if (!$cancelled) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This plan-change checkout is already being processed or has payment evidence and requires reconciliation.',
+            ], 409);
+        }
+
+        return response()->json([
+            'success' => true,
+            'pending_change' => null,
+            'message' => 'Pending plan-change checkout cancelled.',
+        ]);
+    }
+
+    public function cancelScheduledChange(GetServerRequest $request, Server $server): JsonResponse
+    {
+        $this->assertOwner($request->user(), $server);
+        $this->planChangeService->cancelScheduledChange($server);
+
+        return response()->json([
+            'success' => true,
+            'scheduled_change' => null,
+            'message' => 'Scheduled plan change cancelled.',
+        ]);
     }
 
     /**

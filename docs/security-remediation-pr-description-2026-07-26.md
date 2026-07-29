@@ -1,124 +1,282 @@
-# PR title
+# Security remediation and billing integrity
 
-`security: complete 2026-07-26 audit remediation`
+## Required deployment actions
 
-# PR description
+This PR contains database migrations. Put the Panel into maintenance mode while
+applying them:
+
+```bash
+php artisan down
+php artisan migrate --force
+php artisan up
+```
+
+Also verify that Laravel's scheduler is invoked every minute. Scheduled plan
+changes are applied by the registered
+`p:billing:apply-scheduled-plan-changes` command. The task is protected against
+overlap and retries a blocked change after 15 minutes.
+
+> Existing Application API keys whose nine resource permissions are all stored
+> as zero remain legacy unrestricted keys after migration. This avoids silently
+> breaking an existing integration, but those keys must be replaced with new,
+> explicitly scoped keys before relying on per-key restrictions.
+
+Stripe webhooks must include:
+
+- `customer.deleted`
+- `payment_intent.succeeded`
+
+PayPal webhooks must include:
+
+- `CHECKOUT.ORDER.COMPLETED`
+- `PAYMENT.CAPTURE.COMPLETED`
+- `PAYMENT.CAPTURE.DENIED`
+- `PAYMENT.CAPTURE.REFUNDED`
+- `PAYMENT.CAPTURE.REVERSED`
 
 ## Summary
 
-This PR remediates every confirmed application finding from the independently
-validated 2026-07-26 M12Labs Panel security audit.
+This PR closes the confirmed Panel-side security issues found during the July
+26 review. The changes cover payment integrity, prorated plan upgrades,
+scheduled downgrades, Application API key scopes, administrator authorization,
+account recovery, daemon ownership boundaries, secret redaction, file-operation
+permissions and limits, quota enforcement, browser secret cleanup, and
+multipart backup completion.
 
-The work hardens payment integrity and idempotency, delegated-administrator
-authorization, account recovery, daemon ownership boundaries, secret logging,
-file permissions and request costs, atomic quota/entitlement handling, browser
-secret cleanup, and multipart backup completion.
+The most visible behavior changes are:
 
-M12-SEC-017 remains an exact-deployment validation item. M12-SEC-018 is
-restricted at the Panel boundary so Wings-RS executable upgrades require an
-active root administrator, while exact daemon installation behavior still
-requires staging evidence. M12-SEC-019 remains rejected because deferred
-plan-change charging is an explicit business policy.
+- Application API keys again enforce separate read/write access for each of the
+  nine legacy resources. A key is always limited by both its own scope and its
+  owner's current administrator role.
+- Moving to a more expensive plan charges only the prorated price difference
+  for the server's remaining prepaid time. Its renewal date and billing cycle
+  do not change.
+- Moving to an equal- or lower-priced plan is scheduled for the current renewal
+  date. There is no immediate resource change and no automatic refund.
+- A scheduled downgrade is revalidated when it becomes due. If current usage is
+  above the new limits, the old plan remains active and the Panel reports the
+  reason instead of applying an unsafe downgrade.
+- Checkout retries reuse the same local order and provider payment instead of
+  creating duplicates.
+- Password recovery and suspension revoke all browser sessions and both Account
+  and Application API keys.
+- Wings-RS executable upgrades can be requested only by an active root
+  administrator. The Panel no longer accepts a caller-supplied restart command
+  or download headers.
 
-No connected database migration, deployment, provider request, webhook,
-daemon/node call, credential rotation, or destructive external action was
-performed while preparing this branch.
+## Plan changes and charging
 
-## Audit coverage
+Plan changes now preserve the server's existing billing cycle and renewal date.
+The browser displays a server-authoritative quote before continuing.
 
-| Finding | PR disposition |
+For a more expensive target plan, the amount charged now is:
+
+```text
+(target cycle price - current cycle price)
+× seconds remaining until renewal
+÷ seconds in the current billing cycle
+```
+
+The calculation uses integer minor currency units and rounds once at the end.
+Remaining time is intentionally not capped to one cycle: if a server has
+multiple prepaid cycles remaining, the price difference applies to all of that
+time. A paid change is not started during the final 15 minutes before renewal,
+because the quote could become stale while the provider payment is completing.
+
+Paid upgrades use the existing Stripe or PayPal checkout and fulfillment
+pipeline. The order stores the source plan, target plan, renewal date, cycle,
+prices, resource definitions, and a signed checkout snapshot. Before payment
+capture and again during fulfillment, the Panel verifies that the order still
+owns the server's plan-change reservation and that none of those inputs changed.
+The new limits are applied only after capture succeeds.
+
+Equal-price changes and downgrades are stored on the server without changing its
+current plan or limits. At the renewal date, the scheduler:
+
+1. locks the server and checks that the schedule is still current;
+2. verifies the target plan, price, cycle, and resource definition;
+3. checks live resource use against any lower limits;
+4. applies the plan once, or leaves it pending with a safe error and 15-minute
+   retry time.
+
+Users can cancel a scheduled change. They can also cancel a pending paid
+checkout while it is still uncaptured. Renewals, scheduled changes, and paid
+plan-change checkouts are mutually exclusive so that the old plan cannot be
+renewed while another plan is about to take effect.
+
+## Application API key read/write scopes
+
+Application API keys now have a second authorization layer:
+
+```text
+effective access = owner role permits the action
+                AND API key scope permits the resource/action
+```
+
+`GET` and `HEAD` requests require read access. Other methods require write
+access. A `write` grant includes read access.
+
+The restored resource scopes are:
+
+- servers
+- nodes
+- allocations
+- users
+- locations
+- nests
+- eggs
+- database hosts
+- server databases
+
+Nested allocation and server-database routes are mapped to their own scopes,
+and included relationships are filtered by the same read rules. Root-owned keys
+are scoped too; root status bypasses the owner's role check, not the key's
+scope. A scoped key may create another key only when every new grant is a subset
+of its own grants.
+
+New keys always store explicit scopes, including an all-`none` key. Existing
+keys with any nonzero scope become enforced during migration, and historical
+stored write value `2` is normalized to read-and-write value `3`. Existing
+all-zero keys remain visibly marked as legacy unrestricted until replaced.
+
+These controls restore the historical nine-resource Application API ACL.
+Newer modules such as billing, tickets, settings, AI, email, and API-key
+management remain governed by administrator roles because they do not have
+legacy resource columns.
+
+## Payment and fulfillment integrity
+
+- The complete local order is saved and cryptographically locked before a
+  provider order is created.
+- Stripe and PayPal creates require a UUID checkout nonce. Retrying the same
+  logical checkout reuses that nonce and order.
+- Provider order, transaction, and capture identifiers are unique.
+- Provider amount, currency, customer, product, and local metadata are checked
+  before capture or fulfillment.
+- Fulfillment is claimed atomically before provisioning. Fenced claims prevent
+  two workers from completing the same order.
+- Captured or provider-verified work is retained for reconciliation instead of
+  being deleted as an abandoned checkout.
+- PayPal redirect and webhook paths converge on the same idempotent fulfillment
+  service and retain correlated event evidence.
+- Coupon and free-product reservations are locked and consumed or released in
+  the same transaction as the order transition.
+- Free-product entitlement changes are synchronized with server product and
+  ownership changes.
+- Free renewals use the server-authoritative renewal period and ignore a
+  caller-supplied duration.
+
+## Authorization and account recovery
+
+- Application API permissions fail closed when a delegated administrator's role
+  does not explicitly allow the action.
+- Admin login, API-key issuance, and session issuance require an active account.
+- Suspension uses separate, idempotent suspend and unsuspend operations.
+- Public suspension approval cannot bypass a required pending approval record.
+- Suspension and all password-recovery paths revoke browser sessions, Account
+  API keys, and Application API keys.
+- Password mutation, reset-token consumption, and credential revocation occur
+  in one transaction.
+- User deletion is row-locked and rejects root deletion, self-deletion,
+  deletion of the final active root, remaining server ownership, and quota
+  conflicts.
+
+## Daemon, file, and availability boundaries
+
+- Remote server, transfer, backup, and activity resources are constrained to
+  the authenticated node and server.
+- State-changing transfer callbacks use POST; unused GET callbacks were
+  removed.
+- Activity actors are limited to the server owner or a real subuser.
+- Activity payloads and URLs are size-limited and recursively redacted both when
+  stored and when returned.
+- Overwrite-capable file operations require both `file.create` and
+  `file.update`; wipe/delete behavior also requires `file.delete`.
+- Raw and diff writes, upload, pull, extraction, mod download/retry, and modpack
+  installation follow those combined permission rules.
+- Diff request body, field size, line count, comparison work, response size, and
+  request rate are bounded.
+- Database, backup, allocation, and subuser quota consumption is serialized or
+  collision-safe.
+- Multipart backups store the authorized total size and complete only from a
+  bounded provider `ListParts` result whose part set and byte total exactly
+  match that size.
+
+## Wings-RS upgrade behavior
+
+The Panel's Wings-RS self-upgrade endpoint is now active-root-only. Its request
+accepts the binary URL and SHA-256 digest, while download headers and the restart
+command come from trusted Panel configuration. The Panel sends every field
+required by the daemon and now distinguishes an accepted upgrade from a daemon
+response of `applied: false`.
+
+The default restart command matches the generated systemd unit:
+`systemctl restart wings`. OpenRC nodes require
+`WINGS_RS_RESTART_COMMAND=rc-service` and
+`WINGS_RS_RESTART_ARGS=wings,restart`. A Panel managing nodes with mixed init
+systems should not expose self-upgrade until restart configuration is available
+per node.
+
+No Wings-RS source is changed by this PR.
+
+## Remaining daemon-side requirement: M12-SEC-017
+
+M12-SEC-017 is not a request for unspecified “deployment evidence.” It concerns
+the security of daemon-initiated remote file downloads.
+
+The reviewed Wings-RS source already performs DNS/literal-address filtering and
+limits concurrent pulls per server. It still needs daemon-side changes before
+the file-pull path can be considered fully hardened:
+
+- ignore system proxy settings for remote pulls;
+- reject every non-public destination after each DNS resolution;
+- apply the same destination checks after redirects;
+- limit redirect count;
+- enforce connection and total-operation timeouts;
+- bound the downloaded response body.
+
+Those controls belong in Wings-RS, not the Panel, and this repository does not
+own or modify that project. The Panel-side file permissions and request limits
+in this PR reduce exposure but do not replace the missing outbound-network
+controls.
+
+## Finding-by-finding result
+
+| Finding | What changed and what it means |
 | --- | --- |
-| M12-SEC-001 | Immutable checkout snapshots, mandatory retry nonce, unique provider identifiers, and provider/local integrity checks. |
-| M12-SEC-002 | PayPal creation and fulfillment use one immutable server-side snapshot. |
-| M12-SEC-003 | PayPal redirect/webhook renewal processing is idempotent. |
-| M12-SEC-004 | Fulfillment is claimed before provisioning; stale captured work and correlated verified PayPal evidence are recoverable/retained. |
-| M12-SEC-005 | Application API actions fail closed without explicit delegated-role permission. |
-| M12-SEC-006 | Daemon resources and activity actors are scoped to the authenticated node/server. |
-| M12-SEC-007 | Activity payloads and URLs are recursively redacted at write and read boundaries. |
-| M12-SEC-008 | Suspension uses explicit idempotent suspend/unsuspend operations and revokes every credential. |
-| M12-SEC-009 | All password-recovery paths transactionally revoke sessions plus Account and Application API keys. |
-| M12-SEC-010 | Root, self, final-root, ownership, and quota deletion invariants are lock-protected. |
-| M12-SEC-011 | Coupon/free-product reservations and owner/product/plan transitions are atomic. |
-| M12-SEC-012 | Overwrite-capable daemon operations require both `file.create` and `file.update`; wipes also require `file.delete`. |
-| M12-SEC-013 | File diff input and algorithmic work are capped before JSON transformation and rate-limited. |
-| M12-SEC-014 | Multipart work is bounded and completed only from provider-authoritative parts matching the authorized exact size. |
-| M12-SEC-015 | Database, backup, allocation, and subuser quota consumption is serialized or collision-safe. |
-| M12-SEC-016 | Checkout secrets and console history are memory-only and cleared on sensitive lifecycle paths. |
-| M12-SEC-017 | Deployment validation only; exact running daemon evidence is still required. |
-| M12-SEC-018 | Panel policy resolved as active-root-only executable upgrade; exact daemon behavior still needs staging validation. |
-| M12-SEC-019 | Rejected explicit deferred-charging policy; unchanged. |
-| M12-SEC-020 | Free-renewal duration is server-authoritative. |
-
-See `docs/security-remediation-completion-2026-07-28.md` for the complete
-finding disposition, resolved decisions, compatibility notes, validation
-evidence, and remaining deployment-only risks.
-
-## Key implementation changes
-
-### Payment and fulfillment
-
-- Persist immutable local order state before provider creation.
-- Require a UUID `checkout_nonce` for Stripe and PayPal create calls so a lost
-  response can be retried without creating a second logical order.
-- Enforce unique provider order, transaction, and capture identities.
-- Verify amount, currency, customer, product metadata, and local integrity
-  before capture/fulfillment.
-- Atomically claim fulfillment before provisioning and recover stale captured
-  claims.
-- Correlate verified PayPal event type/order evidence and retain failed or
-  processing reconciliation records.
-- Restore provider webhook setup guidance in the admin billing UI using the
-  canonical named-route URLs, exact handled event subscriptions, one-click
-  copy feedback, Stripe signing-secret status, and PayPal environment guidance.
-
-### Authorization and account recovery
-
-- Fail closed on undeclared Application API permissions.
-- Enforce active account state across admin, API-key, and session issuance.
-- Replace the suspension toggle with separate retry-safe suspend and unsuspend
-  endpoints.
-- Prevent public suspension operations from bypassing pending jGuard approval;
-  jGuard transitions require an actual pending entry/account.
-- Revoke browser sessions, Account API keys, and Application API keys on
-  suspension and every password-recovery surface.
-- Make password mutation, reset-token consumption, and database credential
-  revocation transactional.
-
-### Daemon, files, and availability
-
-- Scope remote server, transfer, backup, and activity resources to the
-  authenticated node.
-- Remove unused state-changing GET transfer callbacks; POST remains.
-- Restrict Wings-RS executable upgrades to active root administrators.
-- Require create plus update permission for raw/diff writes, uploads, pulls,
-  extraction, mod downloads/retries, and modpack installation.
-- Cap daemon activity before JSON parsing, bound events/metadata, resolve only
-  owner/subuser actors, and apply a per-node rate limit.
-- Cap file-diff bodies before JSON parsing and retain existing bounded
-  byte/line/cell/output work limits.
-
-### Entitlements, quotas, and backups
-
-- Synchronize free-product entitlements in the same transaction as plan,
-  product, or owner changes.
-- Serialize paid-to-free product conversion against checkout creation.
-- Reject a plan whose resource definition changes during downgrade validation.
-- Persist the expected multipart byte size and reject retry size changes.
-- Complete multipart uploads from a bounded, paginated provider `ListParts`
-  result, ignoring caller ETags and part numbers.
-- Verify the provider byte total and daemon-reported total exactly match the
-  authorized size; safely reconcile uploads begun before the size column.
+| M12-SEC-001 | Checkout data is persisted and signed before provider creation; amount, currency, customer, product, and retry identity cannot be substituted later. |
+| M12-SEC-002 | PayPal creation and fulfillment use the same immutable server-side order snapshot instead of later browser input. |
+| M12-SEC-003 | PayPal redirects and webhooks can repeat safely without renewing or charging the same order twice. |
+| M12-SEC-004 | Provisioning is atomically claimed, stale captured work is recoverable, and verified provider evidence is retained for reconciliation. |
+| M12-SEC-005 | Application API requests require the owning administrator's live role permission and, for the nine legacy resources, the key's read/write scope. |
+| M12-SEC-006 | A daemon credential can access only resources belonging to its authenticated node/server; activity actors are also server-scoped. |
+| M12-SEC-007 | Secrets in activity metadata and URLs are recursively redacted at write and response boundaries. |
+| M12-SEC-008 | Suspend and unsuspend are separate retry-safe actions, and suspension revokes every session and API credential. |
+| M12-SEC-009 | Every password-recovery path transactionally revokes sessions plus Account and Application API keys. |
+| M12-SEC-010 | User deletion protects roots, self, the final active root, owned servers, and quota invariants under row locks. |
+| M12-SEC-011 | Coupon/free-product reservations and entitlement changes are atomic with order, product, plan, and owner transitions. |
+| M12-SEC-012 | Operations that may overwrite a path require create and update permission; destructive wipes also require delete permission. |
+| M12-SEC-013 | File-diff input and computational work are limited before the expensive comparison and response transformation. |
+| M12-SEC-014 | Multipart completion trusts a bounded provider part listing and requires its exact bytes to match the authorized backup size. |
+| M12-SEC-015 | Database, backup, allocation, and subuser quotas use locks or unique conflicts so parallel requests cannot oversubscribe them. |
+| M12-SEC-016 | Checkout secrets and console history are memory-only and cleared on logout and other sensitive lifecycle paths. |
+| M12-SEC-017 | Panel-side permissions and limits are improved, but the specific outbound file-pull protections listed above still require a Wings-RS change. |
+| M12-SEC-018 | Panel-initiated Wings-RS executable upgrades require an active root administrator, trusted server-side restart configuration, a matching SHA-256 digest, and an explicit daemon acceptance response. |
+| M12-SEC-019 | Immediate uncharged plan changes were replaced: higher-priced plans require a prorated payment now; equal/lower-priced plans are scheduled at renewal with no immediate resources or refund. |
+| M12-SEC-020 | Free-renewal duration is selected by the server's product configuration, not by the browser request. |
 
 ## Compatibility notes
 
-- Third-party provider-create clients must send a UUID `checkout_nonce`, reuse
-  it for retries of the same logical checkout, and generate a new UUID for a
-  new purchase. The bundled frontend already does this.
-- Create-only subusers can no longer invoke operations whose daemon API might
-  overwrite an existing path; grant `file.update` when intended.
-- Deployed daemons must use POST transfer success/failure callbacks.
-- Wings-RS executable upgrades are no longer available to delegated
-  `nodes.update` users.
+- Third-party checkout clients must send a UUID `checkout_nonce`, reuse it only
+  when retrying the same logical checkout, and generate a new UUID for a new
+  purchase. The bundled frontend already does this.
+- Create-only subusers can no longer invoke a daemon operation that may
+  overwrite an existing path. Grant `file.update` when replacement is intended.
+- Daemons must use POST transfer success/failure callbacks.
+- Delegated administrators with `nodes.update` can no longer initiate a
+  Wings-RS executable replacement.
+- Plan changes cannot also change billing cycle, use a coupon, or proceed while
+  a renewal, paid plan change, or scheduled plan change conflicts.
 
 ## Database migrations
 
@@ -129,73 +287,15 @@ This branch adds:
 3. `2026_07_26_000003_add_atomic_billing_reservations.php`
 4. `2026_07_28_000001_add_expected_size_to_backups.php`
 5. `2026_07_28_000002_correlate_paypal_webhook_events.php`
+6. `2026_07_29_000001_mark_scoped_api_keys.php`
+7. `2026_07_29_000002_add_scheduled_plan_changes.php`
 
-They were not applied to a connected environment. Deployment uses only the
-normal Laravel maintenance flow:
+## Verification performed
 
-```bash
-php artisan down
-php artisan migrate --force
-php artisan up
-```
-
-No extra acknowledgement environment variable is required. Migration
-prechecks stop on real provider/order/coupon/free-entitlement conflicts so
-operators can reconcile the data before retrying.
-
-Billing → Settings → Integrations now displays the exact canonical webhook URL
-and complete event subscription list for each provider. Stripe requires
-`customer.deleted` and `payment_intent.succeeded`, plus a configured
-`STRIPE_WEBHOOK_SECRET`. Standalone PayPal lists both completion events and the
-denial/refund/reversal events used for financial reconciliation.
-
-## Verification
-
-- The complete unit suite passed: 451 tests, 1,043 assertions.
-- 35 remote/backup/activity integration tests passed, 175 assertions.
-- 3 suspension API integration tests passed, 16 assertions.
-- Fresh isolated SQLite migration and seed passed with all five security
-  migrations.
-- PHPStan passed across every changed PHP source/configuration/route/migration.
-- PHP-CS-Fixer dry-run passed across every changed PHP file.
-- Frontend ESLint and TypeScript project checks passed.
-- `git diff --check` passed.
-
-Expected environment notes:
-
-- PHPUnit reports the repository's existing XML-schema deprecation.
-- The full pre-existing `UserControllerTest` has one unrelated exact-JSON
-  assertion that omits existing transformer fields; all new suspension
-  regressions pass.
-- SQLite cannot prove MySQL/InnoDB multi-connection locking. Exercise the
-  fulfillment, quota, and entitlement contention paths against isolated MySQL
-  before production.
-
-## Remaining deployment validation
-
-- [ ] Record the exact deployed Wings/Wings-RS revision, binary hash, build
-      provenance, downloader/redirect/DNS behavior, blocked CIDRs, TLS config,
-      and egress policy for every node.
-- [ ] Confirm every deployed daemon uses POST transfer callbacks.
-- [ ] Run payment sandbox, object-storage, daemon, and two-connection MySQL
-      contention tests in isolated staging.
-- [ ] Register the displayed Stripe and PayPal webhook URLs with every event
-      shown in Billing → Settings → Integrations; install the Stripe endpoint
-      signing secret as `STRIPE_WEBHOOK_SECRET`.
-- [ ] Configure an object-storage `AbortIncompleteMultipartUpload` lifecycle;
-      presigned `UploadPart` requests do not cryptographically bind
-      `Content-Length`.
-- [ ] Add or document object-storage reconciliation for the rare case where
-      provider completion succeeds but the following local DB commit fails.
-- [ ] Review the original audit's H-01 through H-06 non-vulnerability hardening
-      observations as separate product/deployment work.
-
-## Reviewer focus
-
-- Payment state transitions, provider identity uniqueness, and stale-claim
-  recovery under MySQL/InnoDB.
-- Application API action-to-role permission inventory.
-- Pending-account and credential-revocation transactions.
-- Free-product entitlement transitions during concurrent checkout/admin work.
-- Deployed daemon callback methods and downloader configuration.
-- Multipart lifecycle cleanup and provider/local completion reconciliation.
+- Focused unit and isolated SQLite integration tests cover checkout locking,
+  amount/currency integrity, retry idempotency, reservation release, fulfillment
+  claims, proration beyond one cycle, the renewal safety window, scheduled
+  apply/cancel behavior, API-key scope mapping, and legacy-key migration.
+- PHP static analysis and formatting checks pass for the changed backend.
+- Frontend type checking, linting, and build pass.
+- The Wings-RS checkout remains unchanged.

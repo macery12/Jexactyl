@@ -11,6 +11,7 @@ use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Schema;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Database\Schema\Blueprint;
+use Everest\Services\Billing\PlanChangeService;
 use Everest\Services\Billing\CheckoutSnapshotService;
 use Everest\Services\Billing\BillingValidationService;
 use Everest\Services\Billing\CheckoutIntegrityService;
@@ -45,10 +46,14 @@ class CheckoutSnapshotServiceTest extends TestCase
             $table->string('status');
             $table->timestamps();
         });
+        Schema::create('servers', function (Blueprint $table): void {
+            $table->increments('id');
+        });
 
         $this->service = new CheckoutSnapshotService(
             \Mockery::mock(BillingValidationService::class),
             \Mockery::mock(CheckoutIntegrityService::class),
+            \Mockery::mock(PlanChangeService::class),
         );
     }
 
@@ -191,5 +196,31 @@ class CheckoutSnapshotServiceTest extends TestCase
             'stripe',
             $this->service->requestFingerprint($request, $user, $product, 'stripe'),
         );
+    }
+
+    public function testLockReservesARenewalAgainstScheduledPlanChanges(): void
+    {
+        DB::table('servers')->insert(['id' => 42]);
+
+        $order = new Order();
+        $order->type = Order::TYPE_REN;
+        $order->server_id = 42;
+
+        $integrity = \Mockery::mock(CheckoutIntegrityService::class);
+        $integrity->shouldReceive('lock')->once()->with($order, ['type' => Order::TYPE_REN])->andReturn($order);
+        $planChanges = \Mockery::mock(PlanChangeService::class);
+        $planChanges->shouldReceive('assertRenewalAllowed')
+            ->once()
+            ->withArgs(fn ($server): bool => $server->id === 42);
+
+        $service = new CheckoutSnapshotService(
+            \Mockery::mock(BillingValidationService::class),
+            $integrity,
+            $planChanges,
+        );
+
+        $this->assertSame($order, $service->lock($order, [
+            'attributes' => ['type' => Order::TYPE_REN],
+        ]));
     }
 }

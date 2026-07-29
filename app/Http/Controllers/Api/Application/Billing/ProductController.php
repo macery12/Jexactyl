@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Cache;
 use Spatie\QueryBuilder\QueryBuilder;
 use Everest\Exceptions\DisplayException;
 use Everest\Services\Billing\BillingCycleService;
+use Everest\Services\Billing\ProductDeletionGuardService;
 use Everest\Transformers\Api\Application\ProductTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
@@ -30,8 +31,10 @@ class ProductController extends ApplicationApiController
     /**
      * ProductController constructor.
      */
-    public function __construct(private BillingCycleService $billingCycleService)
-    {
+    public function __construct(
+        private BillingCycleService $billingCycleService,
+        private ProductDeletionGuardService $deletionGuard,
+    ) {
         parent::__construct();
     }
 
@@ -226,9 +229,18 @@ class ProductController extends ApplicationApiController
      */
     public function delete(DeleteBillingProductRequest $request, string $category, string $product): Response
     {
-        $productModel = Product::findOrFail((int) $product);
-        $categoryUuid = $productModel->category_uuid;
-        $productModel->delete();
+        [$productModel, $categoryUuid] = DB::transaction(function () use ($product): array {
+            $this->deletionGuard->assertDeletable([(int) $product]);
+            /** @var Product $productModel */
+            $productModel = Product::query()
+                ->whereKey((int) $product)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $categoryUuid = $productModel->category_uuid;
+            $productModel->delete();
+
+            return [$productModel, $categoryUuid];
+        });
 
         $this->flushStorefrontCache($categoryUuid);
 

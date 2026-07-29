@@ -76,7 +76,10 @@ class CleanupOrdersCommand extends Command
                                 return false;
                             }
 
-                            if ($locked->server_id !== null) {
+                            if (
+                                !in_array($locked->type, [Order::TYPE_REN, Order::TYPE_UPG], true)
+                                && $locked->server_id !== null
+                            ) {
                                 Log::critical('CleanupOrdersCommand: linked pending order requires reconciliation', [
                                     'order_id' => $locked->id,
                                     'server_id' => $locked->server_id,
@@ -137,7 +140,10 @@ class CleanupOrdersCommand extends Command
 
                         $transaction = $locked->transaction()->lockForUpdate()->first();
                         if (
-                            $locked->server_id !== null
+                            (
+                                !in_array($locked->type, [Order::TYPE_REN, Order::TYPE_UPG], true)
+                                && $locked->server_id !== null
+                            )
                             || $this->hasTransactionPaymentEvidence($transaction)
                             || $this->hasUnresolvedPayPalWebhookEvidence($transaction)
                         ) {

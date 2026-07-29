@@ -26,6 +26,7 @@ import {
 } from '@/api/accountBilling';
 import { readDraft, clearDraft } from '../order/draft';
 import { SpecChips } from '../order/parts';
+import PlanChangePaymentPage from './PlanChangePaymentPage';
 
 // Code-split the heavy Stripe form + PayPal button so they only load on the
 // payment route.
@@ -35,6 +36,11 @@ const PayPalButton = lazy(() => import('./PayPalButton'));
 type Method = 'stripe' | 'paypal';
 
 export default function PaymentPage() {
+    const [params] = useSearchParams();
+    return params.get('plan_change') === 'true' ? <PlanChangePaymentPage /> : <StorePaymentPage />;
+}
+
+function StorePaymentPage() {
     const [params] = useSearchParams();
     const navigate = useNavigate();
     const push = useFlashes(s => s.push);

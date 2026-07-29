@@ -188,12 +188,14 @@ return [
     |
     | Wings-RS requires a restart command in its upgrade payload and spawns it
     | verbatim once the new binary is in place. These values are deliberately
-    | read from server-side configuration rather than the API request, so an
-    | admin with node-update permission cannot turn the upgrade endpoint into
-    | arbitrary command execution on the node.
+    | read from server-side configuration rather than the API request. The
+    | Panel upgrade route is restricted to active root administrators.
     |
-    | Override these only if your nodes run Wings-RS under a different service
-    | manager or unit name.
+    | The defaults match the generated systemd unit. OpenRC installations use
+    | WINGS_RS_RESTART_COMMAND=rc-service and
+    | WINGS_RS_RESTART_ARGS=wings,restart. A single Panel installation with
+    | mixed init systems should not use this endpoint until restart settings
+    | can be configured per node.
     */
 
     'wings_rs' => [

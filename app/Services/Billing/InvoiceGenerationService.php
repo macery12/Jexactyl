@@ -44,13 +44,19 @@ class InvoiceGenerationService
         $orderTypeLabels = [
             Order::TYPE_NEW => 'New Server Purchase',
             Order::TYPE_REN => 'Server Renewal',
-            Order::TYPE_UPG => 'Plan Change / Upgrade',
+            Order::TYPE_UPG => 'Prorated Plan Upgrade',
         ];
         $orderTypeLabel = $orderTypeLabels[$order->type] ?? ucfirst((string) $order->type);
 
         $billingCycle = $order->billing_days
             ? ($order->billing_days . ' day' . ($order->billing_days !== 1 ? 's' : ''))
             : null;
+        if ($order->type === Order::TYPE_UPG) {
+            $renewalDate = $order->plan_change_snapshot['renewal_date'] ?? null;
+            $billingCycle = $renewalDate
+                ? 'Prorated through ' . $renewalDate
+                : 'Prorated through the current renewal date';
+        }
 
         $paymentMethod = match ($order->payment_processor) {
             'stripe' => 'Card (Stripe)',
@@ -116,7 +122,7 @@ class InvoiceGenerationService
             'transaction_id' => $transactionId,
 
             // Financials
-            'currency' => strtoupper($order->paypal_currency ?? 'USD'),
+            'currency' => strtoupper($order->checkout_currency ?? $order->paypal_currency ?? 'USD'),
             'subtotal' => $subtotal,
             'discount' => $discountAmount,
             'total' => $order->total,
@@ -136,7 +142,7 @@ class InvoiceGenerationService
             'data_disk' => $stored['disk'],
             'data_size_bytes' => $stored['size_bytes'],
             'total' => $order->total,
-            'currency' => strtoupper($order->paypal_currency ?? 'USD'),
+            'currency' => strtoupper($order->checkout_currency ?? $order->paypal_currency ?? 'USD'),
             'generated_at' => now(),
             'expires_at' => null, // stored forever unless auto-cleanup is enabled
         ]);

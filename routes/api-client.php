@@ -352,6 +352,9 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
             Route::get('/plans', [Client\Billing\PlanChangeController::class, 'getAvailablePlans']);
             Route::get('/plans/{product}/validate', [Client\Billing\PlanChangeController::class, 'validatePlanChange']);
             Route::post('/plans/{product}/change', [Client\Billing\PlanChangeController::class, 'changePlan']);
+            Route::get('/plans/scheduled', [Client\Billing\PlanChangeController::class, 'scheduledChange']);
+            Route::delete('/plans/scheduled', [Client\Billing\PlanChangeController::class, 'cancelScheduledChange']);
+            Route::delete('/plans/pending', [Client\Billing\PlanChangeController::class, 'cancelPendingChange']);
         });
 
         // Wings-RS (Supercharged) endpoints

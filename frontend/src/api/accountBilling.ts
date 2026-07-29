@@ -96,6 +96,8 @@ export interface BillingProfile {
 export interface StripeIntent {
     id: string;
     secret: string;
+    amount_minor: number;
+    currency: string;
 }
 
 // ---- transformers -----------------------------------------------------------
@@ -319,6 +321,7 @@ export interface CheckoutSnapshotPayload {
     eggId?: number;
     name?: string;
     renewal?: boolean;
+    planChange?: boolean;
     serverId?: number;
     checkoutNonce?: string;
 }
@@ -332,6 +335,7 @@ function toCheckoutSnapshotRequest(snapshot?: CheckoutSnapshotPayload): Record<s
         egg_id: snapshot.eggId,
         name: snapshot.name,
         renewal: snapshot.renewal,
+        plan_change: snapshot.planChange,
         server_id: snapshot.serverId,
         checkout_nonce: snapshot.checkoutNonce,
     };
@@ -366,6 +370,8 @@ export interface PayPalOrder {
     id: string;
     token: string;
     approval_url: string;
+    amount_minor: number;
+    currency: string;
 }
 
 export interface PayPalOrderStatus {

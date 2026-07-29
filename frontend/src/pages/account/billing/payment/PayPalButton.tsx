@@ -5,17 +5,21 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
-import { createPayPalOrder } from '@/api/accountBilling';
+import { createPayPalOrder, type PayPalOrder } from '@/api/accountBilling';
 
 export interface PayPalButtonProps {
     productId: number;
-    nodeId: number;
-    vars: { key: string; value: string }[];
+    nodeId?: number;
+    vars?: { key: string; value: string }[];
     couponId?: number;
     eggId?: number;
-    serverName: string;
-    billingDays: number;
+    serverName?: string;
+    billingDays?: number;
     checkoutNonce: string;
+    planChange?: boolean;
+    serverId?: number;
+    serverIdentifier?: string;
+    preparedOrder?: PayPalOrder;
 }
 
 // PayPal redirect flow (no SDK): create the provider order from one complete,
@@ -27,24 +31,38 @@ export default function PayPalButton(props: PayPalButtonProps) {
     const [loading, setLoading] = useState(false);
 
     const handleClick = async () => {
-        if (!props.nodeId) return;
+        if (props.planChange ? !props.serverId || !props.serverIdentifier : !props.nodeId) return;
         setLoading(true);
         try {
-            const returnUrl = window.location.origin + abs('/billing/processing?processor=paypal');
-            const cancelUrl = window.location.origin + abs('/billing/cancel');
+            if (props.preparedOrder) {
+                window.location.href = `/api/client/billing/paypal/orders/${props.preparedOrder.id}/redirect`;
+                return;
+            }
+
+            const context = props.planChange
+                ? `&plan_change=true&server=${encodeURIComponent(props.serverIdentifier!)}`
+                : '';
+            const returnUrl = window.location.origin + abs(`/billing/processing?processor=paypal${context}`);
+            const cancelUrl = window.location.origin + abs(`/billing/cancel?${context.slice(1)}`);
             const order = await createPayPalOrder(
                 props.productId,
                 props.couponId,
                 props.billingDays,
                 returnUrl,
                 cancelUrl,
-                {
-                nodeId: props.nodeId,
-                vars: props.vars,
-                eggId: props.eggId,
-                name: props.serverName,
-                checkoutNonce: props.checkoutNonce,
-                },
+                props.planChange
+                    ? {
+                          planChange: true,
+                          serverId: props.serverId,
+                          checkoutNonce: props.checkoutNonce,
+                      }
+                    : {
+                          nodeId: props.nodeId,
+                          vars: props.vars,
+                          eggId: props.eggId,
+                          name: props.serverName,
+                          checkoutNonce: props.checkoutNonce,
+                      },
             );
             window.location.href = `/api/client/billing/paypal/orders/${order.id}/redirect`;
         } catch (err) {
@@ -57,7 +75,7 @@ export default function PayPalButton(props: PayPalButtonProps) {
         <Button
             size="lg"
             className="w-full"
-            disabled={loading || !props.serverName.trim()}
+            disabled={loading || (!props.planChange && !props.serverName?.trim())}
             onClick={handleClick}
         >
             {loading ? <Spinner className="h-5 w-5" /> : m['billing.payment.payWithPaypal']()}

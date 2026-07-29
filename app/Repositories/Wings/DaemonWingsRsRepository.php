@@ -103,17 +103,17 @@ class DaemonWingsRsRepository extends DaemonRepository
      *
      * The daemon requires all five fields — its Payload struct has no serde
      * defaults, so omitting any of them fails deserialization before the
-     * upgrade is even attempted. It then spawns `restart_command` verbatim,
-     * which is why the command and the download headers come from server-side
-     * config instead of the API request: callers must not be able to turn this
-     * endpoint into arbitrary command execution on the node.
+     * upgrade is even attempted. It then spawns `restart_command` verbatim.
+     * The Panel therefore supplies an empty headers object and takes the
+     * restart command from trusted server-side configuration rather than from
+     * the API caller.
      */
-    public function upgradeSystem(string $url, string $sha256): void
+    public function upgradeSystem(string $url, string $sha256): bool
     {
         $this->assertSupercharged();
 
         try {
-            $this->getHttpClient()->post('/api/system/upgrade', [
+            $response = $this->getHttpClient()->post('/api/system/upgrade', [
                 'json' => [
                     'url' => $url,
                     // No extra download headers: the binary URL must be publicly
@@ -129,6 +129,13 @@ class DaemonWingsRsRepository extends DaemonRepository
         } catch (TransferException $exception) {
             throw new DaemonConnectionException($exception);
         }
+
+        $payload = json_decode($response->getBody()->__toString(), true);
+        if (!is_array($payload) || !array_key_exists('applied', $payload) || !is_bool($payload['applied'])) {
+            throw new \UnexpectedValueException('Wings-RS returned an invalid upgrade response.');
+        }
+
+        return $payload['applied'];
     }
 
     // ─── File Manager Enhancements ───────────────────────────────────────

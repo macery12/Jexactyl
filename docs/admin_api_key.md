@@ -2,6 +2,16 @@
 
 **Status:** Implemented · **Updated:** 2026-07-29
 
+> **Deployment action:** run the migration before creating or relying on scoped
+> keys. Existing all-zero Application API keys remain legacy unrestricted for
+> compatibility and should be replaced with explicitly scoped keys.
+>
+> ```bash
+> php artisan down
+> php artisan migrate --force
+> php artisan up
+> ```
+
 Application API keys (`ptla_…`, `ApiKey::TYPE_APPLICATION`) have a second
 authorization layer in addition to the owning administrator's live role:
 
@@ -279,7 +289,9 @@ so keep the Danish and Russian JSON keys in parity explicitly.
 Run the database migration before relying on scoped key creation:
 
 ```bash
+php artisan down
 php artisan migrate --force
+php artisan up
 ```
 
 After deployment, review keys marked “Legacy unrestricted” in the admin key list

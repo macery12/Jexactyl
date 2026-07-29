@@ -17,9 +17,9 @@ import { clearAllDrafts } from '../order/draft';
 // with ?token=…&processor=paypal. We finalise the order, then route to the
 // success or cancel page. Ported from V1's summary/Processing.
 //
-// A server renewal comes back with ?renewal=true&server=<identifier> and lands
-// on that server's billing page instead of the new-server success page — there
-// is no server being provisioned to celebrate.
+// A renewal or paid plan change carries the server identifier and lands back
+// on that server's billing page. The locked local order remains authoritative;
+// the URL flag controls navigation only, never fulfillment.
 export default function ProcessingPage() {
     const [params] = useSearchParams();
     const navigate = useNavigate();
@@ -37,15 +37,16 @@ export default function ProcessingPage() {
         const token = params.get('token');
         const processor = params.get('processor');
         const renewal = params.get('renewal') === 'true';
-        const renewedServer = params.get('server');
+        const planChange = params.get('plan_change') === 'true';
+        const affectedServer = params.get('server');
         let disposed = false;
 
         // Full reload, not navigate: the server record the cockpit holds is now
         // stale (new renewal date, and the server may have just come out of
         // suspension).
         const finish = () => {
-            if (renewal && renewedServer) {
-                window.location.href = abs(`/server/${renewedServer}/billing`);
+            if ((renewal || planChange) && affectedServer) {
+                window.location.href = abs(`/server/${affectedServer}/billing`);
             } else {
                 navigate('/billing/success');
             }

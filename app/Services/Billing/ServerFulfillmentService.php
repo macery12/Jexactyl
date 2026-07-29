@@ -35,6 +35,7 @@ class ServerFulfillmentService
         private CustomDomainProvisioningService $customDomainProvisioning,
         private CreateOrderService $orderService,
         private CheckoutReservationService $reservationService,
+        private PlanChangeService $planChangeService,
     ) {
     }
 
@@ -155,6 +156,12 @@ class ServerFulfillmentService
                 if ($completedOrder->status !== Order::STATUS_PROCESSED) {
                     throw new DisplayException('The renewal did not complete atomically.');
                 }
+            } elseif ($claimedOrder->type === Order::TYPE_UPG) {
+                $server = $this->planChangeService->fulfillPaidUpgrade($claimedOrder, $product);
+                $completedOrder = $claimedOrder->fresh();
+                if ($completedOrder->status !== Order::STATUS_PROCESSED) {
+                    throw new DisplayException('The paid plan change did not complete atomically.');
+                }
             } else {
                 $server = $claimedOrder->server_id
                     ? Server::query()->findOrFail($claimedOrder->server_id)
@@ -168,7 +175,11 @@ class ServerFulfillmentService
 
             return $server;
         } catch (\Throwable $exception) {
-            $hasProvisioningSideEffect = $claimedOrder->type !== Order::TYPE_REN
+            $hasProvisioningSideEffect = !in_array(
+                $claimedOrder->type,
+                [Order::TYPE_REN, Order::TYPE_UPG],
+                true
+            )
                 && $this->hasLinkedServer($claimedOrder);
             if (!$captureAttempted && !$hasProvisioningSideEffect) {
                 $this->failClaimAndRelease($claimedOrder);
@@ -215,7 +226,10 @@ class ServerFulfillmentService
                 // provisioning boundary and may still be waiting on the daemon.
                 // Never steal that lease automatically: doing so could complete
                 // or delete a server still owned by the original worker.
-                if ($locked->type !== Order::TYPE_REN && $locked->server_id !== null) {
+                if (
+                    !in_array($locked->type, [Order::TYPE_REN, Order::TYPE_UPG], true)
+                    && $locked->server_id !== null
+                ) {
                     throw new DisplayException('This provisioning attempt requires manual reconciliation.');
                 }
 
@@ -311,6 +325,12 @@ class ServerFulfillmentService
             ) {
                 throw new DisplayException('This server can no longer be renewed by this order.');
             }
+
+            return;
+        }
+
+        if ($order->type === Order::TYPE_UPG) {
+            $this->planChangeService->preflightPaidUpgrade($order, $product);
 
             return;
         }

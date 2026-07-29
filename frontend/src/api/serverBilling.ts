@@ -127,17 +127,82 @@ export interface PlanChangeValidation {
     valid: boolean;
     message: string;
     violations?: Record<string, PlanChangeViolation>;
+    mode: 'pay_now' | 'scheduled';
+    quote: {
+        current_cycle_price: number;
+        target_cycle_price: number;
+        amount_due: number;
+        remaining_seconds: number;
+        renewal_date: string;
+        billing_days: number;
+        currency: string;
+        server_id?: number;
+    };
+    scheduled_change?: ScheduledPlanChange | null;
 }
 
 export async function validatePlanChange(uuid: string, productId: number): Promise<PlanChangeValidation> {
     const { data } = await http.get(`/api/client/servers/${uuid}/billing/plans/${productId}/validate`);
-    return data;
+    const rawQuote = data.quote ?? {};
+    return {
+        valid: Boolean(data.valid),
+        message: String(data.message ?? ''),
+        violations: data.violations ?? rawQuote.violations,
+        mode: data.mode ?? rawQuote.mode,
+        quote: {
+            current_cycle_price: Number(rawQuote.current_cycle_price ?? rawQuote.current_cycle_amount ?? 0),
+            target_cycle_price: Number(rawQuote.target_cycle_price ?? rawQuote.target_cycle_amount ?? 0),
+            amount_due: Number(rawQuote.amount_due ?? rawQuote.charge_amount ?? 0),
+            remaining_seconds: Number(rawQuote.remaining_seconds ?? 0),
+            renewal_date: String(rawQuote.renewal_date ?? ''),
+            billing_days: Number(rawQuote.billing_days ?? 0),
+            currency: String(rawQuote.currency ?? ''),
+            server_id: rawQuote.server_id === undefined ? undefined : Number(rawQuote.server_id),
+        },
+        scheduled_change: data.scheduled_change ?? null,
+    };
 }
 
-export async function changePlan(uuid: string, productId: number, billingDays?: number): Promise<void> {
-    await http.post(`/api/client/servers/${uuid}/billing/plans/${productId}/change`, {
-        billing_days: billingDays,
-    });
+export interface ScheduledPlanChange {
+    product_id: number;
+    product_name: string;
+    effective_at: string;
+    retry_at: string | null;
+    last_error: string | null;
+}
+
+export interface PendingPlanChange {
+    order_id: number;
+    product_id: number;
+    product_name: string;
+    processor: string | null;
+    created_at: string;
+}
+
+export interface PlanChangeState {
+    scheduled_change: ScheduledPlanChange | null;
+    pending_change: PendingPlanChange | null;
+}
+
+export async function getPlanChangeState(uuid: string): Promise<PlanChangeState> {
+    const { data } = await http.get(`/api/client/servers/${uuid}/billing/plans/scheduled`);
+    return {
+        scheduled_change: data.scheduled_change ?? null,
+        pending_change: data.pending_change ?? null,
+    };
+}
+
+export async function schedulePlanChange(uuid: string, productId: number): Promise<ScheduledPlanChange> {
+    const { data } = await http.post(`/api/client/servers/${uuid}/billing/plans/${productId}/change`);
+    return data.scheduled_change;
+}
+
+export async function cancelScheduledPlanChange(uuid: string): Promise<void> {
+    await http.delete(`/api/client/servers/${uuid}/billing/plans/scheduled`);
+}
+
+export async function cancelPendingPlanChange(uuid: string): Promise<void> {
+    await http.delete(`/api/client/servers/${uuid}/billing/plans/pending`);
 }
 
 // ---- egg (server type) ------------------------------------------------------

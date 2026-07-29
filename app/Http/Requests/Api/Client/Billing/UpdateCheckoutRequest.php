@@ -2,6 +2,7 @@
 
 namespace Everest\Http\Requests\Api\Client\Billing;
 
+use Illuminate\Validation\Rule;
 use Everest\Services\Billing\BillingDefaults;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
 
@@ -14,20 +15,22 @@ class UpdateCheckoutRequest extends ClientApiRequest
                 $this->is('api/client/billing/products/*/intent')
                 || $this->is('api/client/billing/products/*/paypal/order')
             );
+        $isPlanChange = $this->boolean('plan_change', false);
 
         return [
             'intent'         => ['nullable', 'string', 'max:255'],
             'order_id'       => ['nullable', 'string', 'max:255'],
             'checkout_nonce' => [$createsProviderOrder ? 'required' : 'nullable', 'uuid'],
-            'name'           => ['nullable', 'string', 'min:3', 'max:191'],
-            'node_id'        => ['nullable', 'integer', 'exists:nodes,id'],
-            'egg_id'         => ['nullable', 'integer', 'exists:eggs,id'],
-            'billing_days'   => ['nullable', 'integer', 'min:1', 'max:365'],
-            'coupon_id'      => ['nullable', 'integer', 'exists:coupons,id'],
-            'renewal'        => ['nullable', 'boolean'],
-            'server_id'      => ['nullable', 'integer', 'exists:servers,id'],
-            'variables'      => ['nullable', 'array'],
-            'domain_payload' => ['nullable', 'array'],
+            'name'           => [Rule::prohibitedIf($isPlanChange), 'nullable', 'string', 'min:3', 'max:191'],
+            'node_id'        => [Rule::prohibitedIf($isPlanChange), 'nullable', 'integer', 'exists:nodes,id'],
+            'egg_id'         => [Rule::prohibitedIf($isPlanChange), 'nullable', 'integer', 'exists:eggs,id'],
+            'billing_days'   => [Rule::prohibitedIf($isPlanChange), 'nullable', 'integer', 'min:1', 'max:365'],
+            'coupon_id'      => [Rule::prohibitedIf($isPlanChange), 'nullable', 'integer', 'exists:coupons,id'],
+            'renewal'        => [Rule::prohibitedIf($isPlanChange), 'nullable', 'boolean'],
+            'plan_change'    => ['nullable', 'boolean'],
+            'server_id'      => [Rule::requiredIf($isPlanChange), 'nullable', 'integer', 'exists:servers,id'],
+            'variables'      => [Rule::prohibitedIf($isPlanChange), 'nullable', 'array'],
+            'domain_payload' => [Rule::prohibitedIf($isPlanChange), 'nullable', 'array'],
             'return_url'     => ['nullable', 'url', 'max:2048'],
             'cancel_url'     => ['nullable', 'url', 'max:2048'],
         ];
@@ -36,6 +39,11 @@ class UpdateCheckoutRequest extends ClientApiRequest
     public function isRenewal(): bool
     {
         return $this->boolean('renewal', false);
+    }
+
+    public function isPlanChange(): bool
+    {
+        return $this->boolean('plan_change', false);
     }
 
     public function serverName(): string

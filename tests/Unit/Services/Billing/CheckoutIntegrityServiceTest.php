@@ -78,6 +78,37 @@ class CheckoutIntegrityServiceTest extends TestCase
         (new PayPalCaptureService($this->service))->record($order, $transaction, $providerOrder);
     }
 
+    public function testPlanChangeFingerprintBindsServerSourceProductAndQuote(): void
+    {
+        [$order, $transaction] = $this->lockedOrder();
+        $order->forceFill([
+            'type' => Order::TYPE_UPG,
+            'server_id' => 42,
+            'source_product_id' => 2,
+            'plan_change_snapshot' => [
+                'renewal_date' => '2026-08-28T00:00:00+00:00',
+                'current_cycle_minor' => 1000,
+                'target_cycle_minor' => 2000,
+                'charge_minor' => 500,
+            ],
+            'checkout_fingerprint' => 'pending',
+        ]);
+        $fingerprint = new \ReflectionMethod(CheckoutIntegrityService::class, 'fingerprint');
+        $order->checkout_fingerprint = $fingerprint->invoke($this->service, $order);
+
+        $intent = $this->stripeIntent();
+        $intent->amount = 1999;
+        $intent->metadata->checkout_fingerprint = $order->checkout_fingerprint;
+
+        $tamperedSnapshot = $order->plan_change_snapshot;
+        $tamperedSnapshot['charge_minor'] = 499;
+        $order->plan_change_snapshot = $tamperedSnapshot;
+
+        $this->expectException(DisplayException::class);
+        $this->expectExceptionMessage('local checkout snapshot has been altered');
+        $this->service->assertStripeIntent($order, $transaction, $intent);
+    }
+
     /**
      * @return array{Order, PaymentTransaction}
      */

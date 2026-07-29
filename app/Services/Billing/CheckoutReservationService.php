@@ -79,7 +79,14 @@ class CheckoutReservationService
 
             /** @var PaymentTransaction|null $transaction */
             $transaction = $locked->transaction()->lockForUpdate()->first();
-            if ($locked->server_id !== null || $transaction?->capture_id || $transaction?->captured_at) {
+            if (
+                (
+                    !in_array($locked->type, [Order::TYPE_REN, Order::TYPE_UPG], true)
+                    && $locked->server_id !== null
+                )
+                || $transaction?->capture_id
+                || $transaction?->captured_at
+            ) {
                 return false;
             }
 
@@ -109,11 +116,21 @@ class CheckoutReservationService
                 Order::STATUS_CANCELLED,
                 Order::STATUS_EXPIRED,
             ], true)
-            || $locked->server_id !== null
+            || (
+                !in_array($locked->type, [Order::TYPE_REN, Order::TYPE_UPG], true)
+                && $locked->server_id !== null
+            )
             || $transaction?->capture_id
             || $transaction?->captured_at
         ) {
             return false;
+        }
+
+        if ($locked->type === Order::TYPE_UPG && $locked->server_id !== null) {
+            Server::query()
+                ->whereKey($locked->server_id)
+                ->where('pending_plan_change_order_id', $locked->id)
+                ->update(['pending_plan_change_order_id' => null]);
         }
 
         CouponUsage::query()

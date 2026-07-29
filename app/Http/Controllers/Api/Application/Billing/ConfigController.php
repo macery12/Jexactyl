@@ -6,10 +6,12 @@ use Carbon\Carbon;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Services\Billing\BillingConfigImportService;
+use Everest\Services\Billing\ProductDeletionGuardService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Billing\Config\ExportBillingConfigRequest;
 use Everest\Http\Requests\Api\Application\Billing\Config\ImportBillingConfigRequest;
@@ -21,6 +23,7 @@ class ConfigController extends ApplicationApiController
      */
     public function __construct(
         private BillingConfigImportService $importService,
+        private ProductDeletionGuardService $deletionGuard,
     ) {
         parent::__construct();
     }
@@ -80,8 +83,21 @@ class ConfigController extends ApplicationApiController
         }
 
         if ($override) {
-            Category::query()->delete();
-            Product::query()->delete();
+            DB::transaction(function (): void {
+                $productIds = Product::query()
+                    ->orderBy('id')
+                    ->pluck('id')
+                    ->all();
+                $this->deletionGuard->assertDeletable($productIds);
+                Product::query()
+                    ->whereIn('id', $productIds)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
+                Category::query()->delete();
+                Product::query()->delete();
+            });
         }
 
         $this->importService->persist($analysis['data'], $importOptionsIgnoreDuplicates);

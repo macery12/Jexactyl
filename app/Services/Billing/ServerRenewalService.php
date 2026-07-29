@@ -60,6 +60,12 @@ class ServerRenewalService
             if ($lockedServer->isDeletionScheduled()) {
                 throw new ConflictHttpException('This server is scheduled for deletion. Cancel deletion before renewing.');
             }
+            if ($lockedServer->pending_plan_change_order_id !== null) {
+                throw new DisplayException('This server has a paid plan change awaiting completion. Finish or cancel it before renewing.');
+            }
+            if ($lockedServer->scheduled_billing_product_id !== null) {
+                throw new DisplayException('This server has a plan change scheduled for renewal. Apply or cancel it before renewing.');
+            }
 
             if ($sourceOrder !== null) {
                 /** @var Order $order */

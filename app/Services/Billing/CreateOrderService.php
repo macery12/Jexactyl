@@ -94,6 +94,12 @@ class CreateOrderService
         $order->egg_id = $eggId;
         $order->node_id = $nodeId;
         $order->server_id = $additionalData['server_id'] ?? null;
+        if (array_key_exists('source_product_id', $additionalData)) {
+            $order->source_product_id = $additionalData['source_product_id'];
+        }
+        if (array_key_exists('plan_change_snapshot', $additionalData)) {
+            $order->plan_change_snapshot = $additionalData['plan_change_snapshot'];
+        }
         $order->variables = $additionalData['variables'] ?? null;
         $order->domain_payload = $additionalData['domain_payload'] ?? null;
         $order->type = $type;

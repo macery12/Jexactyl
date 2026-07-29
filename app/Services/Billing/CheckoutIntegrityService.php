@@ -196,11 +196,16 @@ class CheckoutIntegrityService
             'coupon_id' => $order->coupon_id === null ? null : (int) $order->coupon_id,
             'egg_id' => $order->egg_id === null ? null : (int) $order->egg_id,
             'node_id' => $order->node_id === null ? null : (int) $order->node_id,
-            // A renewal's server is an immutable input. A new order's server_id
-            // is an output populated only after provisioning.
-            'server_id' => $order->type === Order::TYPE_REN && $order->server_id !== null
+            // Renewal and plan-change servers are immutable inputs. A new
+            // order's server_id is an output populated only after provisioning.
+            'server_id' => in_array($order->type, [Order::TYPE_REN, Order::TYPE_UPG], true)
+                && $order->server_id !== null
                 ? (int) $order->server_id
                 : null,
+            'source_product_id' => $order->source_product_id === null
+                ? null
+                : (int) $order->source_product_id,
+            'plan_change_snapshot' => $this->canonicalize($order->plan_change_snapshot ?? []),
             'billing_days' => (int) $order->billing_days,
             'name' => (string) $order->name,
             'variables' => $this->canonicalize($order->variables ?? []),

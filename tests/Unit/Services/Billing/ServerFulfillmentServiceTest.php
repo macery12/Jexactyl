@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Everest\Exceptions\DisplayException;
 use Illuminate\Database\Schema\Blueprint;
+use Everest\Services\Billing\PlanChangeService;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\CreateServerService;
 use Everest\Services\Billing\OrderProcessorService;
@@ -76,6 +77,7 @@ class ServerFulfillmentServiceTest extends TestCase
             \Mockery::mock(CustomDomainProvisioningService::class),
             \Mockery::mock(CreateOrderService::class),
             \Mockery::mock(CheckoutReservationService::class),
+            \Mockery::mock(PlanChangeService::class),
         );
 
         $this->expectException(DisplayException::class);

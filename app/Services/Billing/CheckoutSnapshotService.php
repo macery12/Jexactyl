@@ -3,6 +3,7 @@
 namespace Everest\Services\Billing;
 
 use Everest\Models\User;
+use Everest\Models\Server;
 use Illuminate\Http\Request;
 use Everest\Models\Billing\Order;
 use Everest\Models\Billing\Product;
@@ -13,6 +14,7 @@ class CheckoutSnapshotService
     public function __construct(
         private BillingValidationService $validationService,
         private CheckoutIntegrityService $integrityService,
+        private PlanChangeService $planChangeService,
     ) {
     }
 
@@ -24,33 +26,68 @@ class CheckoutSnapshotService
     public function resolve(Request $request, User $user, Product $product, bool $requireComplete): array
     {
         $isRenewal = $request->boolean('renewal', false);
+        $isPlanChange = $request->boolean('plan_change', false);
+        if ($isRenewal && $isPlanChange) {
+            throw new DisplayException('A checkout cannot be both a renewal and a plan change.');
+        }
+
         $serverId = $request->filled('server_id') ? (int) $request->input('server_id') : null;
         $serverName = trim((string) $request->input('name', ''));
         $nodeId = $request->filled('node_id') ? (int) $request->input('node_id') : null;
 
-        $complete = $isRenewal
+        $complete = $isRenewal || $isPlanChange
             ? $serverId !== null
             : $serverName !== '' && $nodeId !== null;
 
         if ($requireComplete && !$complete) {
-            throw new DisplayException($isRenewal ? 'A server is required to finalize this renewal.' : 'A server name and node are required to finalize this checkout.');
+            throw new DisplayException($isRenewal || $isPlanChange ? 'A server is required to finalize this billing change.' : 'A server name and node are required to finalize this checkout.');
         }
 
         $server = null;
         $eggId = null;
         $billingDays = (int) ($request->input('billing_days') ?? BillingDefaults::defaultBillingDays());
 
-        if ($complete && $isRenewal) {
+        $planChangeSnapshot = null;
+        $sourceProductId = null;
+        if ($complete && ($isRenewal || $isPlanChange)) {
             $server = $user->servers()->findOrFail($serverId);
-            if ((int) $server->billing_product_id !== (int) $product->id) {
+            if ($isRenewal && (int) $server->billing_product_id !== (int) $product->id) {
                 throw new DisplayException('This server does not use the selected product.');
+            }
+            if ($isRenewal && $server->pending_plan_change_order_id !== null) {
+                throw new DisplayException('Finish or cancel the pending paid plan change before renewing this server.');
+            }
+            if ($isRenewal && $server->scheduled_billing_product_id !== null) {
+                throw new DisplayException('Apply or cancel the plan change scheduled for renewal before renewing this server.');
             }
 
             $nodeId = (int) $server->node_id;
             if (!$request->filled('billing_days') && $server->billing_days) {
                 $billingDays = (int) $server->billing_days;
             }
-            $serverName = 'Server Renewal';
+            if ($isPlanChange) {
+                if ($request->filled('coupon_id')) {
+                    throw new DisplayException('Coupons cannot be applied to a prorated plan change.');
+                }
+                if (
+                    $request->filled('billing_days')
+                    && (int) $request->input('billing_days') !== (int) $server->billing_days
+                ) {
+                    throw new DisplayException('The billing cycle cannot be changed during a plan change.');
+                }
+
+                $billingDays = (int) $server->billing_days;
+                $quote = $this->planChangeService->quote($server, $product);
+                if (($quote['mode'] ?? null) !== 'pay_now' || (int) ($quote['charge_minor'] ?? 0) <= 0) {
+                    throw new DisplayException('This plan change does not require immediate payment and must be scheduled instead.');
+                }
+
+                $sourceProductId = (int) $server->billing_product_id;
+                $planChangeSnapshot = $quote;
+                $serverName = 'Prorated Plan Upgrade';
+            } else {
+                $serverName = 'Server Renewal';
+            }
         } elseif ($complete) {
             $this->validationService->validateNodeSelectionForProduct($nodeId, $product);
             $this->validationService->validateNodeDeployment($nodeId, false);
@@ -59,21 +96,39 @@ class CheckoutSnapshotService
             $eggId = $this->validationService->validateAndGetEggId($product, $requestedEggId);
             $serverId = null;
         } else {
-            $serverName = $isRenewal ? 'Server Renewal' : 'Pending Checkout';
+            $serverName = $isRenewal
+                ? 'Server Renewal'
+                : ($isPlanChange ? 'Prorated Plan Upgrade' : 'Pending Checkout');
             $nodeId = null;
-            $serverId = $isRenewal ? $serverId : null;
+            $serverId = $isRenewal || $isPlanChange ? $serverId : null;
         }
 
-        $couponId = $request->filled('coupon_id') ? (int) $request->input('coupon_id') : null;
-        $orderType = $isRenewal ? Order::TYPE_REN : Order::TYPE_NEW;
-        $price = $this->validationService->calculatePriceWithCoupon(
-            $product,
-            $couponId,
-            $orderType,
-            $billingDays,
-            $nodeId,
-            $user->id
-        );
+        $couponId = $isPlanChange
+            ? null
+            : ($request->filled('coupon_id') ? (int) $request->input('coupon_id') : null);
+        $orderType = $isRenewal
+            ? Order::TYPE_REN
+            : ($isPlanChange ? Order::TYPE_UPG : Order::TYPE_NEW);
+        if ($isPlanChange && $planChangeSnapshot !== null) {
+            $charge = (int) $planChangeSnapshot['charge_minor'] / 100;
+            $price = [
+                'finalPrice' => $charge,
+                'discount' => 0.0,
+                'subtotal' => $charge,
+                'billingDays' => $billingDays,
+                'multiplier' => 1.0,
+                'nodeMultiplier' => (float) ($planChangeSnapshot['node_multiplier'] ?? 1.0),
+            ];
+        } else {
+            $price = $this->validationService->calculatePriceWithCoupon(
+                $product,
+                $couponId,
+                $orderType,
+                $billingDays,
+                $nodeId,
+                $user->id
+            );
+        }
 
         $variables = $request->input('variables', []);
         $domainPayload = $request->input('domain_payload', []);
@@ -90,6 +145,8 @@ class CheckoutSnapshotService
                 'egg_id' => $eggId,
                 'node_id' => $nodeId,
                 'server_id' => $serverId,
+                'source_product_id' => $sourceProductId,
+                'plan_change_snapshot' => $planChangeSnapshot,
                 'billing_days' => $billingDays,
                 'variables' => is_array($variables) ? $variables : [],
                 'domain_payload' => is_array($domainPayload) ? $domainPayload : [],
@@ -105,7 +162,24 @@ class CheckoutSnapshotService
 
     public function lock(Order $order, array $snapshot): Order
     {
-        return $this->integrityService->lock($order, $snapshot['attributes']);
+        $order = $this->integrityService->lock($order, $snapshot['attributes']);
+
+        if ($order->type === Order::TYPE_REN) {
+            if ($order->server_id === null) {
+                throw new DisplayException('A renewal order must identify a server.');
+            }
+
+            $this->planChangeService->assertRenewalAllowed(
+                Server::query()->without('allocation')->findOrFail($order->server_id)
+            );
+        } elseif ($order->type === Order::TYPE_UPG) {
+            $this->planChangeService->reservePaidUpgrade(
+                $order,
+                $order->plan_change_snapshot ?? []
+            );
+        }
+
+        return $order;
     }
 
     public function matches(Order $order, array $snapshot): bool
@@ -128,6 +202,7 @@ class CheckoutSnapshotService
             'product_id' => (int) $product->id,
             'processor' => $processor,
             'renewal' => $request->boolean('renewal', false),
+            'plan_change' => $request->boolean('plan_change', false),
             'server_id' => $request->filled('server_id') ? (int) $request->input('server_id') : null,
             'node_id' => $request->filled('node_id') ? (int) $request->input('node_id') : null,
             'egg_id' => $request->filled('egg_id') ? (int) $request->input('egg_id') : null,
