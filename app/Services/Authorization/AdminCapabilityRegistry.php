@@ -19,6 +19,13 @@ class AdminCapabilityRegistry
         'billing.category-create' => AdminRole::BILLING_CATEGORIES_CREATE,
         'billing.category-update' => AdminRole::BILLING_CATEGORIES_UPDATE,
         'billing.category-delete' => AdminRole::BILLING_CATEGORIES_DELETE,
+        'marketplace.read' => AdminRole::MODS_READ,
+        'marketplace.update' => AdminRole::MODS_UPDATE,
+        'repositories.read' => AdminRole::EXTENSIONS_READ,
+        'repositories.create' => AdminRole::EXTENSIONS_REPOSITORIES,
+        'repositories.update' => AdminRole::EXTENSIONS_REPOSITORIES,
+        'repositories.delete' => AdminRole::EXTENSIONS_REPOSITORIES,
+        'extensions.create' => AdminRole::EXTENSIONS_INSTALL,
     ];
 
     /**
@@ -59,6 +66,25 @@ class AdminCapabilityRegistry
         }
 
         return array_values(array_unique($normalized));
+    }
+
+    /**
+     * Normalize a stored permission list and discard unknown identifiers.
+     * Unknown capabilities already fail closed at runtime; removing them keeps
+     * migrated profiles editable through current validation rules.
+     *
+     * @param iterable<mixed> $capabilities
+     *
+     * @return list<string>
+     */
+    public function valid(iterable $capabilities): array
+    {
+        $known = array_flip($this->all());
+
+        return array_values(array_filter(
+            $this->normalizeMany($capabilities),
+            static fn (string $capability): bool => isset($known[$capability])
+        ));
     }
 
     public function isValid(string $capability): bool
@@ -104,17 +130,18 @@ class AdminCapabilityRegistry
 
         if (in_array(AdminRole::NODES_READ, $expanded, true)) {
             $expanded[] = AdminRole::ALLOCATIONS_READ;
-            $expanded[] = AdminRole::LOCATIONS_READ;
         }
         if (in_array(AdminRole::NODES_UPDATE, $expanded, true)) {
             $expanded[] = AdminRole::ALLOCATIONS_CREATE;
             $expanded[] = AdminRole::ALLOCATIONS_DELETE;
-            $expanded[] = AdminRole::LOCATIONS_UPDATE;
         }
         if (in_array(AdminRole::NODES_DELETE, $expanded, true)) {
             $expanded[] = AdminRole::ALLOCATIONS_DELETE;
         }
         if (in_array(AdminRole::SERVERS_READ, $expanded, true)) {
+            $expanded[] = AdminRole::SERVER_DATABASES_READ;
+        }
+        if (in_array(AdminRole::DATABASES_READ, $expanded, true)) {
             $expanded[] = AdminRole::SERVER_DATABASES_READ;
         }
         if (in_array(AdminRole::SERVERS_UPDATE, $expanded, true)) {

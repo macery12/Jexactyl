@@ -17,6 +17,10 @@ export interface AdminRole {
     isOwner: boolean;
     /** Whether this profile may be assigned to an Application API key. */
     apiEligible: boolean;
+    /** People holding this profile; null when the endpoint did not report counts. */
+    assignedUsers: number | null;
+    /** Application API keys bound to this profile; null when not reported. */
+    assignedApiKeys: number | null;
 }
 
 export interface AdminRolePagination {
@@ -40,6 +44,8 @@ interface RawRoleAttributes {
     is_system?: boolean;
     is_owner?: boolean;
     api_eligible?: boolean;
+    assigned_users_count?: number;
+    assigned_api_keys_count?: number;
 }
 
 function mapRole(row: { attributes?: RawRoleAttributes } & Partial<RawRoleAttributes>): AdminRole {
@@ -53,6 +59,10 @@ function mapRole(row: { attributes?: RawRoleAttributes } & Partial<RawRoleAttrib
         isSystem: Boolean(a.is_system),
         isOwner: Boolean(a.is_owner),
         apiEligible: Boolean(a.api_eligible),
+        // Absent on endpoints that do not eager-load the counts (the API key
+        // profile picker), so `null` means "unknown", never "none assigned".
+        assignedUsers: a.assigned_users_count ?? null,
+        assignedApiKeys: a.assigned_api_keys_count ?? null,
     };
 }
 

@@ -52,10 +52,8 @@ abstract class Transformer extends TransformerAbstract
     }
 
     /**
-     * Maps each API ACL resource to the AdminRole read-permission that governs it.
-     * Sub-resources without a first-class admin module defer to their nearest owning
-     * module's read permission: allocations and locations are administered under
-     * Nodes, and server databases under the Databases (database-hosts) module.
+     * Maps each API ACL resource to the first-class Access Profile capability
+     * that governs reading it.
      */
     protected const INCLUDE_PERMISSIONS = [
         AdminAcl::RESOURCE_SERVERS => AdminRole::SERVERS_READ,

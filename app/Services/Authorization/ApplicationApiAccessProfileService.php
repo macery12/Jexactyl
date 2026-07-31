@@ -19,6 +19,8 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
  */
 class ApplicationApiAccessProfileService
 {
+    public const LEGACY_CREATE_DESCRIPTION = 'System-generated profile for a legacy resource-scope API key.';
+
     public function __construct(private AdminCapabilityRegistry $capabilities)
     {
     }
@@ -148,7 +150,7 @@ class ApplicationApiAccessProfileService
 
         return AdminRole::query()->forceCreate([
             'name' => 'Legacy API key ' . Str::upper(Str::random(12)),
-            'description' => 'System-generated profile for a legacy resource-scope API key.',
+            'description' => self::LEGACY_CREATE_DESCRIPTION,
             'sort_id' => 999,
             'permissions' => $effective,
             'color' => null,
@@ -190,10 +192,6 @@ class ApplicationApiAccessProfileService
             AdminAcl::RESOURCE_USERS => [
                 'read' => [AdminRole::USERS_READ],
                 'write' => [AdminRole::USERS_CREATE, AdminRole::USERS_UPDATE, AdminRole::USERS_DELETE],
-            ],
-            AdminAcl::RESOURCE_LOCATIONS => [
-                'read' => [AdminRole::LOCATIONS_READ],
-                'write' => [AdminRole::LOCATIONS_UPDATE],
             ],
             AdminAcl::RESOURCE_NESTS => [
                 'read' => [AdminRole::NESTS_READ],

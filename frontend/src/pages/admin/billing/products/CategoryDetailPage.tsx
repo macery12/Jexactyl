@@ -141,11 +141,11 @@ function CategoryForm({ category, initial }: { category: BillingCategory | null;
 
     const dirty = JSON.stringify(form) !== JSON.stringify(seed);
 
-    const canCreate = can(held, 'billing.category-create');
-    const canUpdate = can(held, 'billing.category-update');
-    const canEditProduct = can(held, 'billing.product-update');
-    const canCreateProduct = can(held, 'billing.product-create');
-    const canDeleteProduct = can(held, 'billing.product-delete');
+    const canCreate = can(held, 'billing.categories-create');
+    const canUpdate = can(held, 'billing.categories-update');
+    const canEditProduct = can(held, 'billing.products-update');
+    const canCreateProduct = can(held, 'billing.products-create');
+    const canDeleteProduct = can(held, 'billing.products-delete');
 
     // The first blocker, in the order the form asks for things. Surfacing this
     // is what makes the new-category flow work: a category can't be saved

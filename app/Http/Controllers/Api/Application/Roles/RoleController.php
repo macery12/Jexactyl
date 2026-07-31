@@ -44,7 +44,7 @@ class RoleController extends ApplicationApiController
             throw new QueryValueOutOfRangeHttpException('per_page', 1, 100);
         }
 
-        $roles = QueryBuilder::for(AdminRole::query())
+        $roles = QueryBuilder::for(AdminRole::query()->withCount(['users', 'applicationKeys']))
             ->allowedFilters(...['id', 'name'])
             ->allowedSorts(...['id', 'name'])
             ->paginate($perPage);
@@ -59,6 +59,8 @@ class RoleController extends ApplicationApiController
      */
     public function view(GetRoleRequest $request, AdminRole $role): array
     {
+        $role->loadCount(['users', 'applicationKeys']);
+
         return $this->fractal->item($role)
             ->transformWith(AdminRoleTransformer::class)
             ->toArray();

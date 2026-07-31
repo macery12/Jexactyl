@@ -24,10 +24,10 @@ function guarded(permission: string, element: React.ReactElement) {
 export default function BillingSection() {
     return (
         <Routes>
-            <Route path="products/categories/new" element={guarded('billing.category-create', <CategoryDetailPage />)} />
-            <Route path="products/categories/:categoryId" element={guarded('billing.category-update', <CategoryDetailPage />)} />
-            <Route path="products/new" element={guarded('billing.product-create', <ProductEditorPage />)} />
-            <Route path="products/:productId" element={guarded('billing.product-update', <ProductEditorPage />)} />
+            <Route path="products/categories/new" element={guarded('billing.categories-create', <CategoryDetailPage />)} />
+            <Route path="products/categories/:categoryId" element={guarded('billing.categories-update', <CategoryDetailPage />)} />
+            <Route path="products/new" element={guarded('billing.products-create', <ProductEditorPage />)} />
+            <Route path="products/:productId" element={guarded('billing.products-update', <ProductEditorPage />)} />
             <Route
                 path="*"
                 element={

@@ -12,7 +12,7 @@ const DESTINATIONS: {
     condition?: (flags: Flags) => boolean;
 }[] = [
     { to: '/admin/overview', permission: 'overview.read' },
-    { to: '/admin/access/people', permission: 'users.read' },
+    { to: '/admin/access/users', permission: 'users.read' },
     { to: '/admin/access/profiles', permission: 'roles.read' },
     { to: '/admin/access/api-keys', permission: 'api.read' },
     { to: '/admin/settings', permission: 'settings.read' },

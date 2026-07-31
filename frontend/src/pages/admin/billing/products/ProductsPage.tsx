@@ -74,9 +74,9 @@ export default function ProductsPage() {
         onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
-    const canCreateCat = can(held, 'billing.category-create');
-    const canUpdateCat = can(held, 'billing.category-update');
-    const canDeleteCat = can(held, 'billing.category-delete');
+    const canCreateCat = can(held, 'billing.categories-create');
+    const canUpdateCat = can(held, 'billing.categories-update');
+    const canDeleteCat = can(held, 'billing.categories-delete');
 
     // Search spans product names too, so "find the plan called X" doesn't mean
     // opening every category in turn.

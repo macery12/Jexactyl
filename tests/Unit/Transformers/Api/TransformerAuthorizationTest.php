@@ -9,11 +9,31 @@ use Illuminate\Http\Request;
 use Everest\Models\AdminRole;
 use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Transformers\Api\Transformer;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
+use Everest\Transformers\Api\Application\AdminRoleTransformer;
 use Everest\Transformers\Api\Application\ServerDatabaseTransformer;
 use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 class TransformerAuthorizationTest extends TestCase
 {
+    public function testOwnerProfileAlwaysDisplaysTheCurrentCapabilityCatalog(): void
+    {
+        $owner = new AdminRole();
+        $owner->forceFill([
+            'permissions' => [],
+            'is_owner' => true,
+            'is_system' => true,
+            'api_eligible' => false,
+        ]);
+
+        $attributes = (new AdminRoleTransformer())->transform($owner);
+
+        $this->assertSame(
+            app(AdminCapabilityRegistry::class)->all(),
+            $attributes['permissions']
+        );
+    }
+
     public function testKeyProfileScopesIncludedResourcesIndependentlyOfCreator(): void
     {
         $user = User::factory()->make(['root_admin' => true]);

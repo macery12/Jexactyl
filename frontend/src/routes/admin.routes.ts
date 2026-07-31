@@ -21,13 +21,17 @@ import {
     Egg,
     ToggleRight,
     Link2,
+    Users,
+    UserCog,
 } from 'lucide-react';
 import { lazy } from 'react';
 import { route, type RouteDef } from './registry';
 import { extensionAdminRoutes } from './extensionAdmin.routes';
 import { NodesRedirect, ServersRedirect } from '@/pages/admin/infrastructure/InfraRedirect';
 import {
+    AccessIndexRedirect,
     ApiKeysAccessRedirect,
+    PeopleAccessRedirect,
     RolesAccessRedirect,
     UsersAccessRedirect,
 } from '@/pages/admin/access/AccessRedirect';
@@ -40,7 +44,9 @@ const BillingSection = lazy(() => import('@/pages/admin/billing/BillingSection')
 const LandingSection = lazy(() => import('@/pages/admin/landing/LandingSection'));
 const EmailSection = lazy(() => import('@/pages/admin/email/EmailSection'));
 const TicketsSection = lazy(() => import('@/pages/admin/tickets/TicketsSection'));
-const AccessSection = lazy(() => import('@/pages/admin/access/AccessSection'));
+const UsersSection = lazy(() => import('@/pages/admin/users/UsersSection'));
+const AccessProfilesSection = lazy(() => import('@/pages/admin/roles/RolesSection'));
+const ApiKeysSection = lazy(() => import('@/pages/admin/api/ApiKeysSection'));
 const MarketplaceSection = lazy(() => import('@/pages/admin/marketplace/MarketplaceSection'));
 const AdminActivityPage = lazy(() => import('@/pages/admin/activity/AdminActivityPage'));
 const NestsSection = lazy(() => import('@/pages/admin/nests/NestsSection'));
@@ -65,13 +71,17 @@ export const adminRoutes: RouteDef[] = [
     route('features', { name: 'Features', icon: ToggleRight, category: 'general', permission: 'settings.read', element: FeaturesSection }),
     route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
-    route('access/*', {
-        name: 'Access Control',
-        icon: KeyRound,
-        category: 'general',
-        permission: ['users.read', 'roles.read', 'api.read'],
-        element: AccessSection,
-    }),
+
+    // Access Control — one sidebar entry per surface rather than a tab strip
+    // inside a single page. `buildNav` groups by category in registry order, so
+    // these three form their own section directly under General, and the command
+    // palette (which reads the same registry) gains an entry for each.
+    route('access/users/*', { name: 'Users', icon: Users, category: 'access', permission: 'users.read', element: UsersSection }),
+    route('access/profiles/*', { name: 'Access Profiles', icon: UserCog, category: 'access', permission: 'roles.read', element: AccessProfilesSection }),
+    route('access/api-keys/*', { name: 'API Keys', icon: KeyRound, category: 'access', permission: 'api.read', element: ApiKeysSection }),
+    // Bare /admin/access has no page of its own now; send it to the first
+    // section the viewer may open.
+    route('access', { element: AccessIndexRedirect }),
 
     route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', permission: 'api.read', element: ApiDocsPage }),
 
@@ -97,10 +107,12 @@ export const adminRoutes: RouteDef[] = [
     route('nodes/*', { element: NodesRedirect }),
     route('servers/*', { element: ServersRedirect }),
     // Compatibility redirects for bookmarks and integrations targeting the
-    // previous standalone access-management pages.
+    // previous standalone access-management pages, plus `access/people` from the
+    // short-lived tabbed section.
     route('users/*', { element: UsersAccessRedirect }),
     route('roles/*', { element: RolesAccessRedirect }),
     route('api/*', { element: ApiKeysAccessRedirect }),
+    route('access/people/*', { element: PeopleAccessRedirect }),
 
     route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read', element: NestsSection }),
 

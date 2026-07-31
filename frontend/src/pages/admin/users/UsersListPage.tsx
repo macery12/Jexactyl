@@ -33,7 +33,6 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { useFullWidthContent } from '@/components/shell/shellLayout';
 import UserFormModal from './UserFormModal';
 
 function RowActions({
@@ -150,7 +149,6 @@ function StatusPill({ user }: { user: AdminUserRow }) {
 }
 
 export default function UsersListPage() {
-    useFullWidthContent();
     const held = useAdminHeld();
     const canCreate = can(held, 'users.create');
     const canUpdate = can(held, 'users.update');
@@ -207,9 +205,11 @@ export default function UsersListPage() {
         <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h2 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.access.people.title']()}</h2>
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
+                        {m['admin.access.users.title']()}
+                    </h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-                        {m['admin.access.people.subtitle']()}
+                        {m['admin.access.users.subtitle']()}
                     </p>
                 </div>
                 {canCreate && (
@@ -249,7 +249,7 @@ export default function UsersListPage() {
                                 <th className="px-4 py-2.5 font-medium">{m['admin.users.col.user']()}</th>
                                 <th className="hidden px-4 py-2.5 font-medium md:table-cell">{m['admin.users.col.email']()}</th>
                                 <th className="hidden px-4 py-2.5 font-medium lg:table-cell">
-                                    {m['admin.access.people.profileColumn']()}
+                                    {m['admin.access.users.profileColumn']()}
                                 </th>
                                 <th className="px-4 py-2.5 font-medium">{m['admin.users.col.status']()}</th>
                                 <th className="hidden px-4 py-2.5 font-medium sm:table-cell">{m['admin.users.col.created']()}</th>
@@ -303,7 +303,7 @@ export default function UsersListPage() {
                                                 {u.roleName}
                                             </span>
                                         ) : (
-                                            m['admin.access.people.noAccess']()
+                                            m['admin.access.users.noAccess']()
                                         )}
                                     </td>
                                     <td className="px-4 py-3">

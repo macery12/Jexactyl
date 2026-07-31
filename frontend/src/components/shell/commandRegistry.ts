@@ -65,7 +65,7 @@ export const COMMAND_ACTIONS: CommandAction[] = [
         to: '/admin/billing/products/new',
         group: 'create',
         keywords: 'add create plan billing shop',
-        permission: 'billing.product-create',
+        permission: 'billing.products-create',
         condition: f => f.billing.enabled,
     },
     {
@@ -75,7 +75,7 @@ export const COMMAND_ACTIONS: CommandAction[] = [
         to: '/admin/billing/products/categories/new',
         group: 'create',
         keywords: 'add create billing shop group',
-        permission: 'billing.category-create',
+        permission: 'billing.categories-create',
         condition: f => f.billing.enabled,
     },
 

@@ -31,45 +31,57 @@ class LegacyApplicationKeyProfileMigrationService
             ->orderBy('id')
             ->chunkById(100, function ($keys) use ($database, $allCapabilities): void {
                 foreach ($keys as $key) {
-                    $creator = $database->table('users')->where('id', $key->user_id)->first();
-                    $creatorProfile = $creator?->admin_role_id
-                        ? $database->table('admin_roles')->where('id', $creator->admin_role_id)->first()
-                        : null;
+                    $database->transaction(function () use ($database, $allCapabilities, $key): void {
+                        $lockedKey = $database->table('api_keys')
+                            ->where('id', $key->id)
+                            ->whereNull('admin_role_id')
+                            ->lockForUpdate()
+                            ->first();
+                        if (!$lockedKey) {
+                            return;
+                        }
 
-                    if (!$creatorProfile) {
-                        $baseCapabilities = [];
-                    } elseif ((bool) $creatorProfile->is_owner) {
-                        $baseCapabilities = $allCapabilities;
-                    } else {
-                        $stored = json_decode($creatorProfile->permissions ?? '[]', true);
-                        $baseCapabilities = $this->registry->normalizeMany(is_array($stored) ? $stored : []);
-                    }
+                        $creator = $database->table('users')->where('id', $lockedKey->user_id)->first();
+                        $creatorProfile = $creator?->admin_role_id
+                            ? $database->table('admin_roles')->where('id', $creator->admin_role_id)->first()
+                            : null;
 
-                    $effective = (bool) $key->acl_enforced
-                        ? $this->applyLegacyMasks($key, $baseCapabilities)
-                        : $baseCapabilities;
-                    $effective = $this->registry->normalizeMany($effective);
-                    $effective = array_values(array_filter(
-                        $effective,
-                        fn (string $capability): bool => $this->registry->isValid($capability)
-                    ));
-                    sort($effective);
+                        if (!$creatorProfile) {
+                            $baseCapabilities = [];
+                        } elseif ((bool) $creatorProfile->is_owner) {
+                            $baseCapabilities = $allCapabilities;
+                        } else {
+                            $stored = $this->decodePermissions(
+                                $creatorProfile->permissions,
+                                (int) $creatorProfile->id
+                            );
+                            $baseCapabilities = $this->registry->valid(
+                                $this->registry->expandLegacyProfile($stored)
+                            );
+                        }
 
-                    $profileId = $database->table('admin_roles')->insertGetId([
-                        'name' => 'Migrated key ' . $key->identifier,
-                        'description' => self::GENERATED_DESCRIPTION,
-                        'sort_id' => 999,
-                        'permissions' => json_encode($effective, JSON_THROW_ON_ERROR),
-                        'color' => null,
-                        'is_system' => false,
-                        'is_owner' => false,
-                        'api_eligible' => true,
-                    ]);
+                        $effective = (bool) $lockedKey->acl_enforced
+                            ? $this->applyLegacyMasks($lockedKey, $baseCapabilities)
+                            : $baseCapabilities;
+                        $effective = $this->registry->valid($effective);
+                        sort($effective);
 
-                    $database->table('api_keys')->where('id', $key->id)->update([
-                        'admin_role_id' => $profileId,
-                        'acl_enforced' => true,
-                    ]);
+                        $profileId = $database->table('admin_roles')->insertGetId([
+                            'name' => 'Migrated key ' . $lockedKey->identifier,
+                            'description' => self::GENERATED_DESCRIPTION,
+                            'sort_id' => 999,
+                            'permissions' => json_encode($effective, JSON_THROW_ON_ERROR),
+                            'color' => null,
+                            'is_system' => false,
+                            'is_owner' => false,
+                            'api_eligible' => true,
+                        ]);
+
+                        $database->table('api_keys')->where('id', $lockedKey->id)->update([
+                            'admin_role_id' => $profileId,
+                            'acl_enforced' => true,
+                        ]);
+                    });
                 }
             });
     }
@@ -104,5 +116,31 @@ class LegacyApplicationKeyProfileMigrationService
                 return AdminAcl::can($mask, $requirement['action']);
             }
         ));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function decodePermissions(mixed $value, int $profileId): array
+    {
+        if ($value === null) {
+            return [];
+        }
+
+        try {
+            $permissions = json_decode((string) $value, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            throw new \RuntimeException("Access profile {$profileId} contains malformed permission JSON.", previous: $exception);
+        }
+
+        if (
+            !is_array($permissions)
+            || !array_is_list($permissions)
+            || array_filter($permissions, static fn (mixed $permission): bool => !is_string($permission)) !== []
+        ) {
+            throw new \RuntimeException("Access profile {$profileId} permissions must be a JSON list of strings.");
+        }
+
+        return $permissions;
     }
 }

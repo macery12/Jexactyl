@@ -41,6 +41,7 @@ class OwnerAccessProfileMigrationTest extends TestCase
                 'billing.product-create',
                 AdminRole::NODES_READ,
                 AdminRole::SERVERS_UPDATE,
+                'removed.permission',
             ]),
         ]);
         $rootId = DB::table('users')->insertGetId([
@@ -70,10 +71,56 @@ class OwnerAccessProfileMigrationTest extends TestCase
         $this->assertContains(AdminRole::BILLING_PRODUCTS_CREATE, $permissions);
         $this->assertContains(AdminRole::ALLOCATIONS_READ, $permissions);
         $this->assertContains(AdminRole::SERVER_DATABASES_DELETE, $permissions);
+        $this->assertNotContains('removed.permission', $permissions);
 
         $migration->down();
         $this->assertTrue((bool) DB::table('users')->where('id', $rootId)->value('root_admin'));
         $this->assertNull(DB::table('users')->where('id', $rootId)->value('admin_role_id'));
         $this->assertFalse(Schema::hasColumn('admin_roles', 'is_owner'));
+    }
+
+    public function testMigrationRejectsMalformedPermissionsBeforeChangingSchema(): void
+    {
+        DB::table('admin_roles')->insert([
+            'name' => 'Corrupt',
+            'sort_id' => 1,
+            'permissions' => '{"not":"a list"}',
+        ]);
+
+        $migration = require database_path('migrations/2026_07_29_000003_create_owner_access_profile.php');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('must be a JSON list of strings');
+
+        try {
+            $migration->up();
+        } finally {
+            $this->assertFalse(Schema::hasColumn('admin_roles', 'is_owner'));
+        }
+    }
+
+    public function testMigrationCanResumeWithoutCreatingAnotherOwner(): void
+    {
+        DB::table('admin_roles')->insert([
+            'name' => 'Legacy',
+            'permissions' => json_encode([AdminRole::DATABASES_READ]),
+        ]);
+
+        $migration = require database_path('migrations/2026_07_29_000003_create_owner_access_profile.php');
+        $migration->up();
+        $ownerId = DB::table('admin_roles')->where('is_owner', true)->value('id');
+
+        $migration->up();
+
+        $this->assertSame(1, DB::table('admin_roles')->where('is_owner', true)->count());
+        $this->assertSame($ownerId, DB::table('admin_roles')->where('is_owner', true)->value('id'));
+        $this->assertContains(
+            AdminRole::SERVER_DATABASES_READ,
+            json_decode(
+                DB::table('admin_roles')->where('name', 'Legacy')->value('permissions'),
+                true,
+                flags: JSON_THROW_ON_ERROR
+            )
+        );
     }
 }

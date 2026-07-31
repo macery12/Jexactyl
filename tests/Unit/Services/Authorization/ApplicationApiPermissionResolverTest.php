@@ -9,6 +9,7 @@ use Everest\Models\AdminRole;
 use Illuminate\Routing\Route;
 use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 use Everest\Http\Requests\Api\Application\Theme\GetThemeRequest;
 use Everest\Http\Requests\Api\Application\Alerts\GetAlertsRequest;
@@ -29,6 +30,7 @@ class ApplicationApiPermissionResolverTest extends TestCase
     {
         $resolver = new ApplicationApiPermissionResolver();
         $failures = [];
+        $usedCapabilities = [];
         $checked = 0;
 
         foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
@@ -38,7 +40,10 @@ class ApplicationApiPermissionResolverTest extends TestCase
 
             ++$checked;
             try {
-                $resolver->permissionFor($route);
+                $capability = $resolver->permissionFor($route);
+                if ($capability !== null) {
+                    $usedCapabilities[$capability] = true;
+                }
             } catch (\Throwable $exception) {
                 $failures[] = $route->getActionName() . ': ' . $exception->getMessage();
             }
@@ -46,6 +51,11 @@ class ApplicationApiPermissionResolverTest extends TestCase
 
         $this->assertGreaterThan(100, $checked, 'Expected the Application API route file to be loaded.');
         $this->assertSame([], $failures);
+        $this->assertEqualsCanonicalizing(
+            app(AdminCapabilityRegistry::class)->all(),
+            array_keys($usedCapabilities),
+            'Every assignable capability must protect at least one live Application API action.'
+        );
     }
 
     public function testAuthenticationOnlyAllowlistIsSmallAndExplicit(): void

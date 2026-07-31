@@ -2,7 +2,7 @@ import { m } from '@/i18n';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, KeyRound, LockKeyhole, Plus, Trash2, UserCog } from 'lucide-react';
+import { Bot, ChevronRight, KeyRound, LockKeyhole, Plus, Trash2, UserCog, Users } from 'lucide-react';
 import { getAdminRoles, deleteRole, type AdminRole } from '@/api/adminRoles';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';
@@ -47,7 +47,9 @@ export default function RolesListPage() {
         <div className="flex flex-col gap-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h2 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.access.profiles.title']()}</h2>
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
+                        {m['admin.access.profiles.title']()}
+                    </h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
                         {m['admin.access.profiles.subtitle']()}
                     </p>
@@ -135,6 +137,25 @@ export default function RolesListPage() {
                                     <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5">
                                         <KeyRound className="h-3 w-3" />
                                         {m['admin.access.profiles.apiEligible']()}
+                                    </span>
+                                )}
+                                {/* In-use counts explain up front why Delete may be refused. */}
+                                {role.assignedUsers !== null && role.assignedUsers > 0 && (
+                                    <span
+                                        title={m['admin.access.profiles.assignedUsers']({ count: role.assignedUsers })}
+                                        className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5"
+                                    >
+                                        <Users className="h-3 w-3" />
+                                        {role.assignedUsers}
+                                    </span>
+                                )}
+                                {role.assignedApiKeys !== null && role.assignedApiKeys > 0 && (
+                                    <span
+                                        title={m['admin.access.profiles.assignedKeys']({ count: role.assignedApiKeys })}
+                                        className="inline-flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] px-2 py-0.5"
+                                    >
+                                        <Bot className="h-3 w-3" />
+                                        {role.assignedApiKeys}
                                     </span>
                                 )}
                             </div>

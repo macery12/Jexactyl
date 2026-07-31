@@ -264,7 +264,7 @@ export default function OverviewPage() {
                                     </span>
                                 ) : undefined
                             }
-                            to="/admin/access/people"
+                            to="/admin/access/users"
                         />
                         {billingEnabled ? (
                             <KpiTile

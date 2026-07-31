@@ -131,7 +131,9 @@ export default function ApiKeysListPage() {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                    <h2 className="text-xl font-semibold text-[var(--color-ink)]">{m['admin.access.keys.title']()}</h2>
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
+                        {m['admin.access.keys.title']()}
+                    </h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
                         {m['admin.access.keys.subtitle']()}
                     </p>

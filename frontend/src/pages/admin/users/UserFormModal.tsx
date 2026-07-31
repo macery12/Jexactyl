@@ -56,12 +56,12 @@ export default function UserFormModal({
 
     const roleOptions = useMemo(
         () => [
-            { value: 'none', label: m['admin.access.people.noAccess']() },
+            { value: 'none', label: m['admin.access.users.noAccess']() },
             ...(rolesData?.items ?? [])
                 .map(profile => ({
                     value: `profile:${profile.id}`,
                     label: profile.isOwner
-                        ? m['admin.access.people.ownerOption']({ name: profile.name })
+                        ? m['admin.access.users.ownerOption']({ name: profile.name })
                         : profile.name,
                 })),
         ],
@@ -144,14 +144,14 @@ export default function UserFormModal({
 
                 {isOwner ? (
                     <Field
-                        label={m['admin.access.people.profileField']()}
-                        hint={m['admin.access.people.profileHint']()}
+                        label={m['admin.access.users.profileField']()}
+                        hint={m['admin.access.users.profileHint']()}
                     >
                         <Select value={accessProfile} onChange={setAccessProfile} options={roleOptions} />
                     </Field>
                 ) : (
                     <p className="rounded-lg bg-[var(--color-surface-2)] px-3 py-2 text-xs text-[var(--color-ink-muted)]">
-                        {m['admin.access.people.onlyOwner']()}
+                        {m['admin.access.users.onlyOwner']()}
                     </p>
                 )}
             </div>

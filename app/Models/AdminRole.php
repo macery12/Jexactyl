@@ -3,6 +3,7 @@
 namespace Everest\Models;
 
 use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
@@ -13,6 +14,8 @@ use Illuminate\Support\Collection;
  * @property bool $is_system
  * @property bool $is_owner
  * @property bool $api_eligible
+ * @property int|null $users_count
+ * @property int|null $application_keys_count
  */
 class AdminRole extends Model
 {
@@ -334,13 +337,6 @@ class AdminRole extends Model
                 'delete' => 'Delete node allocations.',
             ],
         ],
-        'locations' => [
-            'description' => 'Permissions to view and manage node locations.',
-            'keys' => [
-                'read' => 'View node locations.',
-                'update' => 'Manage node locations.',
-            ],
-        ],
         'server-databases' => [
             'description' => 'Permissions to manage databases assigned to servers.',
             'keys' => [
@@ -415,15 +411,6 @@ class AdminRole extends Model
                 'export' => 'Export an egg via JSON.',
             ],
         ],
-        'mounts' => [
-            'description' => 'Permissions to configure mounts.',
-            'keys' => [
-                'read' => 'View the current mounts.',
-                'create' => 'Create a new mount.',
-                'update' => 'Update an existing mount.',
-                'delete' => 'Delete an existing mount.',
-            ],
-        ],
         'extensions' => [
             'description' => 'Permissions to configure extensions.',
             'keys' => [
@@ -451,6 +438,25 @@ class AdminRole extends Model
     public static function permissions(): Collection
     {
         return Collection::make(self::$permissions);
+    }
+
+    /**
+     * People this profile is assigned to. Deleting a profile is blocked while
+     * any of these exist, so the panel surfaces the count before the attempt.
+     */
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class, 'admin_role_id');
+    }
+
+    /**
+     * Application API keys bound to this profile. Scoped to the application key
+     * type — account keys carry no admin_role_id and must never be counted here.
+     */
+    public function applicationKeys(): HasMany
+    {
+        return $this->hasMany(ApiKey::class, 'admin_role_id')
+            ->where('key_type', ApiKey::TYPE_APPLICATION);
     }
 
     /**
