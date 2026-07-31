@@ -2508,6 +2508,7 @@
   "auth.login.invalidInput": "Неверные данные",
   "auth.login.passwordLabel": "Пароль",
   "auth.login.passwordRequired": "Требуется ввести пароль",
+  "auth.login.remember": "Оставаться в системе",
   "auth.login.submit": "Войти",
   "auth.login.submitting": "Вход в систему…",
   "auth.login.subtitle": "Войдите в свою учетную запись, чтобы продолжить.",

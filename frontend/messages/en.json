@@ -2561,6 +2561,7 @@
   "auth.login.invalidInput": "Invalid input",
   "auth.login.passwordLabel": "Password",
   "auth.login.passwordRequired": "Password is required",
+  "auth.login.remember": "Keep me signed in",
   "auth.login.submit": "Sign in",
   "auth.login.submitting": "Signing in…",
   "auth.login.subtitle": "Sign in to your account to continue.",

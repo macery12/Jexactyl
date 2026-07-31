@@ -13,7 +13,7 @@ import { Input, Field } from '@/components/ui/Input';
 import { Turnstile } from '@/components/auth/Turnstile';
 import { SsoButtons } from '@/components/auth/SsoButtons';
 
-type FormValues = { user: string; password: string };
+type FormValues = { user: string; password: string; remember: boolean };
 
 // Codes the SSO callbacks redirect back with. Anything unrecognised falls back
 // to the generic message rather than rendering a raw code.
@@ -73,7 +73,7 @@ export default function LoginPage() {
         register,
         handleSubmit,
         formState: { errors, isSubmitting },
-    } = useForm<FormValues>();
+    } = useForm<FormValues>({ defaultValues: { remember: false } });
 
     const onVerify = useCallback((t: string) => setToken(t), []);
 
@@ -87,7 +87,12 @@ export default function LoginPage() {
             return;
         }
         try {
-            const res = await login({ user: values.user, password: values.password, captchaToken: token });
+            const res = await login({
+                user: values.user,
+                password: values.password,
+                remember: values.remember,
+                captchaToken: token,
+            });
             if (!res.complete && res.confirmationToken) {
                 // Hand the confirmation token over in router state rather than the
                 // URL, so it never reaches history, `Referer` or access logs.
@@ -144,6 +149,22 @@ export default function LoginPage() {
                     {...register('password')}
                 />
             </Field>
+
+            {/* Opt-in: ticking this is what issues the recaller cookie that keeps
+                the session alive across an idle lapse. Left unchecked by default
+                so a shared machine never gets a long-lived credential by accident. */}
+            <label
+                htmlFor="remember"
+                className="flex w-fit cursor-pointer items-center gap-2.5 text-sm text-[var(--color-ink-muted)]"
+            >
+                <input
+                    id="remember"
+                    type="checkbox"
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] accent-[var(--brand)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-focus-ring)]"
+                    {...register('remember')}
+                />
+                {m['auth.login.remember']()}
+            </label>
 
             {captcha?.enabled && captcha.siteKey && <Turnstile siteKey={captcha.siteKey} onVerify={onVerify} />}
 

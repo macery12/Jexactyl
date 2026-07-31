@@ -2541,6 +2541,7 @@
   "auth.login.invalidInput": "Ugyldig indtastning",
   "auth.login.passwordLabel": "Adgangskode",
   "auth.login.passwordRequired": "Der kræves en adgangskode",
+  "auth.login.remember": "Hold mig logget ind",
   "auth.login.submit": "Log ind",
   "auth.login.submitting": "Logger ind…",
   "auth.login.subtitle": "Log ind på din konto for at fortsætte.",

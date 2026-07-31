@@ -110,6 +110,105 @@ class UserSessionService
     }
 
     /**
+     * Re-establish tracking for a session Laravel just rebuilt from a valid
+     * "remember me" cookie.
+     *
+     * SessionGuard::updateSession() calls session()->regenerate(true) whenever the
+     * recaller logs a user back in, so the new session id never matches the row
+     * written at the original login. Without this, the fail-closed check in
+     * UpdateUserSessionActivity treats every remembered login as an untracked
+     * session and signs the user out — which is what made "remember me" useless
+     * and produced the once-a-day forced logouts.
+     *
+     * Revocation still wins. Revoking now cycles the remember token, so a
+     * signed-out device cannot reach this method at all; the fingerprint check
+     * below is the second line of defence for cookies issued before that shipped.
+     *
+     * Returns null when the caller must reject the request.
+     */
+    public function recordRememberedSession(User $user, string $sessionId): ?UserSession
+    {
+        // Mirrors recordLogin()'s gate: a suspended or held account must not get a
+        // session back just because it still holds a cookie.
+        if ($user->isSuspended() || $user->isPending()) {
+            return null;
+        }
+
+        $fingerprint = $this->fingerprint($this->currentDeviceId());
+
+        return DB::transaction(function () use ($user, $sessionId, $fingerprint): ?UserSession {
+            $existing = UserSession::query()
+                ->where('user_id', $user->id)
+                ->where('device_fingerprint', $fingerprint)
+                ->orderByDesc('last_activity_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$existing) {
+                // No row for this fingerprint, so nothing proves this device was
+                // ever signed in on it. Fail closed and make the user log in again
+                // — the same outcome as before this method existed.
+                //
+                // Creating a row here instead would be friendlier when a signature
+                // legitimately moves (a browser update changes the UA, or the /24
+                // changes on a new network), but it would also let a device whose
+                // session was revoked restore itself whenever its fingerprint no
+                // longer matches the revoked row. Rejecting keeps the middleware
+                // able to tear down a replayed cookie, and costs one re-login.
+                return null;
+            }
+
+            if ($existing->revoked_at) {
+                return null;
+            }
+
+            $now = CarbonImmutable::now();
+
+            // (user_id, session_id) is unique. Nothing should already hold the new
+            // id — the middleware only calls this after failing to find it — but
+            // clear any stale row so the write cannot fail on the index.
+            UserSession::query()
+                ->where('user_id', $user->id)
+                ->where('session_id', $sessionId)
+                ->whereKeyNot($existing->id)
+                ->delete();
+
+            $existing->forceFill([
+                'session_id' => $sessionId,
+                'device_name' => $this->deviceName(),
+                'user_agent' => $this->userAgent(),
+                'ip_address' => $this->ip(),
+                'location' => $this->location(),
+                'last_activity_at' => $now,
+            ])->save();
+
+            return $existing;
+        });
+    }
+
+    /**
+     * Invalidate every "remember me" cookie belonging to this user.
+     *
+     * The recaller cookie is checked against a single per-user remember_token, so
+     * it cannot be revoked per device — cycling the token is the only way to stop
+     * a revoked device walking back in on its cookie. Live sessions are unaffected:
+     * they authenticate from the session payload, not the recaller. The blast
+     * radius is "other devices lose remember-me", not "other devices are signed
+     * out", and SessionGuard::logout() already does exactly this on sign-out.
+     */
+    private function cycleRememberToken(User $user): void
+    {
+        $token = Str::random(60);
+
+        // Query-builder update rather than $user->save(): the model validates on
+        // save, and this must not be able to fail on unrelated attribute rules.
+        User::query()->whereKey($user->id)->update([$user->getRememberTokenName() => $token]);
+
+        $user->setRememberToken($token);
+        $user->syncOriginalAttribute($user->getRememberTokenName());
+    }
+
+    /**
      * Revoke a single session and destroy the backing session storage.
      */
     public function revokeSession(User $user, UserSession $session, bool $destroy = true): void
@@ -125,6 +224,7 @@ class UserSessionService
         }
 
         $session->update(['revoked_at' => CarbonImmutable::now()]);
+        $this->cycleRememberToken($user);
 
         $destroyed = !$destroy || $this->destroyBackingSession($user, $session);
 
@@ -170,6 +270,11 @@ class UserSessionService
 
             return $sessions;
         });
+
+        // Kill every recaller cookie too, otherwise "sign out everywhere" leaves
+        // each revoked device able to re-authenticate from its remember-me cookie
+        // on the next request.
+        $this->cycleRememberToken($user);
 
         $destroyed = 0;
         foreach ($sessions as $session) {

@@ -39,7 +39,11 @@ return [
         '2fa_required' => env('APP_2FA_REQUIRED', 0),
         '2fa' => [
             'bytes' => 32,
-            'window' => env('APP_2FA_WINDOW', 4),
+            // Google2FA scans t-window..t+window, so this is (2 * window) + 1
+            // simultaneously valid 30-second codes. The default was 4, i.e. 9 codes
+            // over a ~4.5 minute band; 1 gives the conventional 3 codes / 90s and
+            // cuts the online-guessing surface by two thirds.
+            'window' => env('APP_2FA_WINDOW', 1),
             'verify_newer' => true,
         ],
     ],

@@ -63,12 +63,16 @@ class LoginCheckpointController extends AbstractLoginController
             $this->sendFailedLoginResponse($request, null, self::TOKEN_EXPIRED_MESSAGE);
         }
 
+        // Carried over from the password step — the checkpoint form has no
+        // "remember me" control of its own.
+        $remember = $this->rememberChoice($request);
+
         // Recovery tokens go through a slightly different pathway for usage.
         if (!is_null($recoveryToken = $request->input('recovery_token'))) {
             if ($this->verification->consumeRecoveryToken($user, $recoveryToken)) {
                 Event::dispatch(new ProvidedAuthenticationToken($user, true));
 
-                return $this->sendLoginResponse($user, $request);
+                return $this->sendLoginResponse($user, $request, $remember);
             }
         } elseif ($this->verification->isValidTotp($user, $request->input('authentication_code') ?? '')) {
             Event::dispatch(new ProvidedAuthenticationToken($user));

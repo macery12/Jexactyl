@@ -39,7 +39,12 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('web')->group(function () {
                 // Admin keeps V1's server-side gates: a guest or non-admin never
                 // receives the admin shell.
-                Route::middleware(['auth.session', RequireTwoFactorAuthentication::class, AdminAuthenticate::class])
+                // 'auth' has to lead: auth.session (AuthenticateSession) no-ops on a
+                // null user, so without it a guest fell through to AdminAuthenticate
+                // and got a bare 403 error page with no way back to the login form.
+                // With it, Handler::unauthenticated() redirects to /auth/login and
+                // AdminAuthenticate is left handling only authenticated-but-not-admin.
+                Route::middleware(['auth', 'auth.session', RequireTwoFactorAuthentication::class, AdminAuthenticate::class])
                     ->prefix('/admin')
                     ->group(base_path('routes/admin.php'));
 
@@ -97,7 +102,12 @@ class RouteServiceProvider extends ServiceProvider
                 return Limit::perMinute(2)->by($request->ip());
             }
 
-            return Limit::perMinute(10);
+            // Must be keyed. Limit::perMinute() leaves the key empty, and
+            // ThrottleRequests hashes md5($limiterName . $limit->key) — so an
+            // unkeyed limit is one bucket shared by every client on the internet,
+            // letting a single host 429 every login, registration and SSO callback
+            // panel-wide with 10 requests a minute.
+            return Limit::perMinute(10)->by($request->ip());
         });
 
         // Configure the throttles for both the application and client APIs below.
