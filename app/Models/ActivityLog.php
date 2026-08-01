@@ -61,6 +61,27 @@ class ActivityLog extends Model
      */
     public const DISABLED_EVENTS = ['server:file.upload'];
 
+    /**
+     * Checkout events recorded once an order has actually committed node
+     * resources. Failed, cancelled and expired checkouts are deliberately
+     * absent — those stay on the orders page.
+     */
+    public const EVENT_CHECKOUT_COMPLETED = 'billing:checkout.completed';
+    public const EVENT_CHECKOUT_RENEWED = 'billing:checkout.renewed';
+    public const EVENT_CHECKOUT_UPGRADED = 'billing:checkout.upgraded';
+
+    /**
+     * Events that always belong in the administrative feed even though the
+     * actor is the customer rather than an admin. Without this a completed
+     * checkout would be filed under the buyer's own server scope and never
+     * surface to operators.
+     */
+    public const ADMIN_VISIBLE_EVENTS = [
+        self::EVENT_CHECKOUT_COMPLETED,
+        self::EVENT_CHECKOUT_RENEWED,
+        self::EVENT_CHECKOUT_UPGRADED,
+    ];
+
     public $timestamps = false;
 
     protected $guarded = [
@@ -102,6 +123,24 @@ class ActivityLog extends Model
     public function scopeForEvent(Builder $builder, string $action): Builder
     {
         return $builder->where('event', $action);
+    }
+
+    /**
+     * Scopes a query to the entries the administrative activity feed shows:
+     * anything performed with admin privileges, plus the explicitly allowlisted
+     * customer-facing events operators need to track.
+     */
+    public function scopeAdminVisible(Builder $builder): Builder
+    {
+        // Columns are qualified because the actor listing joins `users`.
+        return $builder
+            ->where(function (Builder $query) {
+                $query->where('activity_logs.scope', 'admin')
+                    ->orWhere(fn (Builder $sub) => $sub->where('activity_logs.scope', 'server')->where('activity_logs.is_admin', true))
+                    ->orWhere(fn (Builder $sub) => $sub->whereNull('activity_logs.scope')->where('activity_logs.is_admin', true))
+                    ->orWhereIn('activity_logs.event', self::ADMIN_VISIBLE_EVENTS);
+            })
+            ->whereNotIn('activity_logs.event', self::DISABLED_EVENTS);
     }
 
     /**

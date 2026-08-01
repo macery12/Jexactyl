@@ -175,13 +175,18 @@ class ActivityLogService
             $activity->description = $description;
         }
 
-        if ($activity->is_admin && !config('activity.enabled.admin')) {
+        // Checkout records are written with the customer as the actor but exist
+        // for operators, so they follow the admin toggle instead of the account
+        // one their actor type would otherwise select.
+        if (in_array($activity->event, ActivityLog::ADMIN_VISIBLE_EVENTS, true)) {
+            if (!config('activity.enabled.admin')) {
+                return null;
+            }
+        } elseif ($activity->is_admin && !config('activity.enabled.admin')) {
             return null;
-        }
-        if ($activity->actor_type === User::class && !config('activity.enabled.account')) {
+        } elseif ($activity->actor_type === User::class && !config('activity.enabled.account')) {
             return null;
-        }
-        if ($activity->actor_type === Server::class && !config('activity.enabled.server')) {
+        } elseif ($activity->actor_type === Server::class && !config('activity.enabled.server')) {
             return null;
         }
 

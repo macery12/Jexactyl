@@ -36,6 +36,7 @@ class ServerFulfillmentService
         private CreateOrderService $orderService,
         private CheckoutReservationService $reservationService,
         private PlanChangeService $planChangeService,
+        private CheckoutActivityService $checkoutActivity,
     ) {
     }
 
@@ -170,6 +171,7 @@ class ServerFulfillmentService
             }
 
             $this->dispatchPaymentReceivedEmail($completedOrder, $product);
+            $this->checkoutActivity->recordFulfilled($completedOrder, $server);
 
             Log::info("Successfully fulfilled order {$completedOrder->id}, server {$server->id}");
 
@@ -539,6 +541,8 @@ class ServerFulfillmentService
             }
             throw $exception;
         }
+
+        $this->checkoutActivity->recordFulfilled($order->refresh(), $server);
 
         try {
             $this->customDomainProvisioning->syncFromOrder($server, $order);

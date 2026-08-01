@@ -173,6 +173,7 @@ class ActivityLogTransformer extends Transformer
 
         return match (true) {
             Str::startsWith($event, 'auth:') => 'auth',
+            Str::startsWith($event, 'billing:') => 'billing',
             Str::startsWith($event, 'server:file') => 'files',
             Str::startsWith($event, 'server:backup') => 'backups',
             Str::startsWith($event, ['server:plugin', 'server:mod', 'server:install']) => 'plugins',

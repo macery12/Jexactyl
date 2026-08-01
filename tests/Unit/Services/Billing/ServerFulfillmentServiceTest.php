@@ -13,6 +13,7 @@ use Everest\Services\Billing\PlanChangeService;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\CreateServerService;
 use Everest\Services\Billing\OrderProcessorService;
+use Everest\Services\Billing\CheckoutActivityService;
 use Everest\Services\Billing\ServerFulfillmentService;
 use Everest\Services\Billing\CheckoutReservationService;
 use Everest\Services\CustomDomains\CustomDomainProvisioningService;
@@ -78,6 +79,7 @@ class ServerFulfillmentServiceTest extends TestCase
             \Mockery::mock(CreateOrderService::class),
             \Mockery::mock(CheckoutReservationService::class),
             \Mockery::mock(PlanChangeService::class),
+            \Mockery::mock(CheckoutActivityService::class),
         );
 
         $this->expectException(DisplayException::class);
