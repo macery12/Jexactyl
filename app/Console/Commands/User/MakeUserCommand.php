@@ -16,7 +16,7 @@ class MakeUserCommand extends Command
                             {--name-first=}
                             {--name-last=}
                             {--password=}
-                            {--admin= : Assign the protected Owner access profile (true/false)}
+                            {--admin= : Make this user a Root Admin with full access (true/false)}
                             {--no-password}';
 
     /**
@@ -70,7 +70,7 @@ class MakeUserCommand extends Command
             ['UUID', $user->uuid],
             ['Email', $user->email],
             ['Username', $user->username],
-            ['Owner', $user->isOwner() ? 'Yes' : 'No'],
+            ['Root Admin', $user->isOwner() ? 'Yes' : 'No'],
         ]);
 
         return self::SUCCESS;
