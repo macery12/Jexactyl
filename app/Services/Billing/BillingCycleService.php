@@ -329,7 +329,10 @@ class BillingCycleService
     ): array {
         $days = $billingDays ?? BillingDefaults::defaultBillingDays();
 
-        if ($orderType !== 'ren') {
+        // Paid renewals are allowed to select a different cycle, but it must be
+        // one the administrator enabled. Truly free products use the separate,
+        // server-authoritative free-renewal period.
+        if ($orderType !== 'ren' || !$product->isFree()) {
             $this->validateBillingCycle($product, $days);
         }
 

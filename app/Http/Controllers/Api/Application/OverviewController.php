@@ -202,12 +202,7 @@ class OverviewController extends ApplicationApiController
     {
         return ActivityLog::query()
             ->with('actor')
-            ->where(function ($query) {
-                $query->where('scope', 'admin')
-                    ->orWhere(fn ($sub) => $sub->where('scope', 'server')->where('is_admin', true))
-                    ->orWhere(fn ($sub) => $sub->whereNull('scope')->where('is_admin', true));
-            })
-            ->whereNotIn('event', ActivityLog::DISABLED_EVENTS)
+            ->adminVisible()
             ->orderByDesc('timestamp')
             ->limit(6)
             ->get()

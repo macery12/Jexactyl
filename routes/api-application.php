@@ -84,6 +84,12 @@ Route::middleware([AdminSubject::class])->group(function () {
 
         Route::delete('/keys', [Application\Billing\BillingController::class, 'resetKeys']);
 
+        // Storefront (/billing/order) customisation — section builder config.
+        Route::group(['prefix' => '/store'], function () {
+            Route::get('/', [Application\Billing\StoreController::class, 'index']);
+            Route::patch('/', [Application\Billing\StoreController::class, 'update']);
+        });
+
         Route::group(['prefix' => '/categories'], function () {
             Route::get('/', [Application\Billing\CategoryController::class, 'index']);
             Route::post('/', [Application\Billing\CategoryController::class, 'store']);
@@ -308,6 +314,7 @@ Route::middleware([AdminSubject::class])->group(function () {
     */
     Route::group(['prefix' => '/api'], function () {
         Route::get('/', [Application\Api\ApiController::class, 'index']);
+        Route::get('/access-profiles', [Application\Api\ApiController::class, 'accessProfiles']);
         Route::post('/', [Application\Api\ApiController::class, 'store']);
         Route::delete('/{key:id}', [Application\Api\ApiController::class, 'delete']);
     });
@@ -626,6 +633,7 @@ Route::middleware([AdminSubject::class])->group(function () {
 
         Route::post('/', [Application\Users\UserController::class, 'store']);
         Route::post('/{user:id}/suspend', [Application\Users\UserController::class, 'suspend']);
+        Route::post('/{user:id}/unsuspend', [Application\Users\UserController::class, 'unsuspend']);
         Route::post('/{user:id}/verify-email', [Application\Users\UserController::class, 'verifyEmail']);
 
         Route::patch('/{user:id}', [Application\Users\UserController::class, 'update']);

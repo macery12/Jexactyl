@@ -36,15 +36,17 @@ class OrderProcessorService
         Product $product,
         ?int $couponId = null,
         int $billingDays = 0,
+        ?Order $sourceOrder = null,
     ): array {
         if ($billingDays <= 0) {
             $billingDays = BillingDefaults::defaultBillingDays();
         }
         // Use the unified renewal service
-        $result = $this->renewalService->renew($server, $product, $couponId, $billingDays);
+        $result = $this->renewalService->renew($server, $product, $couponId, $billingDays, $sourceOrder);
 
-        // Record coupon usage if applicable
-        if ($couponId) {
+        // Provider-backed renewals record the original paid order's coupon during
+        // fulfillment completion. Free renewals still record their local order here.
+        if ($couponId && $sourceOrder === null) {
             $this->recordCouponUsage($couponId, $server->user->id, $result['order']->id);
         }
 
@@ -60,13 +62,15 @@ class OrderProcessorService
      */
     private function recordCouponUsage(int $couponId, int $userId, int $orderId): void
     {
-        CouponUsage::firstOrCreate(
-            [
-                'coupon_id' => $couponId,
-                'user_id' => $userId,
-                'order_id' => $orderId,
-            ],
-            ['used_at' => now()]
-        );
+        CouponUsage::query()
+            ->where('coupon_id', $couponId)
+            ->where('user_id', $userId)
+            ->where('order_id', $orderId)
+            ->where('status', 'reserved')
+            ->update([
+                'status' => 'consumed',
+                'expires_at' => null,
+                'used_at' => now(),
+            ]);
     }
 }

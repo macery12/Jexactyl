@@ -2,7 +2,6 @@
 
 namespace Everest\Services\Databases;
 
-use Exception;
 use Everest\Models\Server;
 use Everest\Models\Database;
 use Everest\Helpers\Utilities;
@@ -75,12 +74,14 @@ class DatabaseManagementService
             throw new DatabaseClientFeatureNotEnabledException();
         }
 
-        if ($this->validateDatabaseLimit) {
-            // If the server has a limit assigned and we've already reached that limit, throw back
-            // an exception and kill the process.
-            if (!is_null($server->database_limit) && $server->databases()->count() >= $server->database_limit) {
-                throw new TooManyDatabasesException();
-            }
+        // Preserve the fast rejection path, then repeat this check against a
+        // locked, freshly loaded server inside the transaction below.
+        if (
+            $this->validateDatabaseLimit
+            && !is_null($server->database_limit)
+            && $server->databases()->count() >= $server->database_limit
+        ) {
+            throw new TooManyDatabasesException();
         }
 
         // Protect against developer mistakes...
@@ -99,7 +100,17 @@ class DatabaseManagementService
         $database = null;
 
         try {
-            return $this->connection->transaction(function () use ($data, &$database) {
+            return $this->connection->transaction(function () use ($server, $data, &$database) {
+                /** @var Server $lockedServer */
+                $lockedServer = Server::query()->whereKey($server->id)->lockForUpdate()->firstOrFail();
+                if (
+                    $this->validateDatabaseLimit
+                    && !is_null($lockedServer->database_limit)
+                    && $lockedServer->databases()->count() >= $lockedServer->database_limit
+                ) {
+                    throw new TooManyDatabasesException();
+                }
+
                 $database = $this->createModel($data);
 
                 $this->dynamic->set('dynamic', $data['database_host_id']);

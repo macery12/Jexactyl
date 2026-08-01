@@ -2,9 +2,15 @@
 
 namespace Everest\Services\Api;
 
+use Everest\Models\User;
 use Everest\Models\ApiKey;
+use Everest\Models\AdminRole;
+use Illuminate\Support\Facades\DB;
+use Everest\Services\Acl\Api\AdminAcl;
+use Everest\Exceptions\DisplayException;
 use Illuminate\Contracts\Encryption\Encrypter;
 use Everest\Contracts\Repository\ApiKeyRepositoryInterface;
+use Everest\Services\Authorization\AdminCapabilityRegistry;
 
 class KeyCreationService
 {
@@ -37,16 +43,44 @@ class KeyCreationService
      */
     public function handle(array $data, array $permissions = []): ApiKey
     {
-        $data = array_merge($data, [
-            'key_type' => $this->keyType,
-            'identifier' => ApiKey::generateTokenIdentifier($this->keyType),
-            'token' => $this->encrypter->encrypt(str_random(ApiKey::KEY_LENGTH)),
-        ]);
+        return DB::transaction(function () use ($data, $permissions): ApiKey {
+            if (isset($data['user_id'])) {
+                /** @var User $owner */
+                $owner = User::query()
+                    ->whereKey($data['user_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                if (!$owner->isActive()) {
+                    throw new DisplayException('This account cannot create API keys in its current state.');
+                }
+            }
 
-        if ($this->keyType === ApiKey::TYPE_APPLICATION) {
-            $data = array_merge($data, $permissions);
-        }
+            $attributes = array_merge($data, [
+                'key_type' => $this->keyType,
+                'identifier' => ApiKey::generateTokenIdentifier($this->keyType),
+                'token' => $this->encrypter->encrypt(str_random(ApiKey::KEY_LENGTH)),
+            ]);
 
-        return $this->repository->create($data, true, true);
+            if ($this->keyType === ApiKey::TYPE_APPLICATION) {
+                if (empty($data['admin_role_id'])) {
+                    throw new DisplayException('Application API keys require an API-eligible access profile.');
+                }
+
+                $profile = AdminRole::query()->find($data['admin_role_id']);
+                if (!$profile || !app(AdminCapabilityRegistry::class)->isApiEligible($profile)) {
+                    throw new DisplayException('Application API keys require a non-Owner, API-eligible access profile.');
+                }
+
+                $scopedPermissions = [];
+                foreach (AdminAcl::getResourceList() as $resource) {
+                    $column = AdminAcl::COLUMN_IDENTIFIER . $resource;
+                    $scopedPermissions[$column] = $permissions[$column] ?? AdminAcl::NONE;
+                }
+
+                $attributes = array_merge($attributes, $scopedPermissions, ['acl_enforced' => true]);
+            }
+
+            return $this->repository->create($attributes, true, true);
+        });
     }
 }

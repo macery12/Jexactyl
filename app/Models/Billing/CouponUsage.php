@@ -10,6 +10,8 @@ use Everest\Models\Model;
  * @property int $user_id
  * @property int $order_id
  * @property \Carbon\Carbon $used_at
+ * @property string $status
+ * @property \Carbon\Carbon|null $expires_at
  * @property \Carbon\Carbon $created_at
  * @property \Carbon\Carbon $updated_at
  */
@@ -34,6 +36,7 @@ class CouponUsage extends Model
         'user_id'   => 'required|integer|exists:users,id',
         'order_id'  => 'required|integer|exists:orders,id',
         'used_at'   => 'required|date',
+        'status'    => 'required|in:reserved,consumed',
     ];
 
     /**
@@ -44,6 +47,8 @@ class CouponUsage extends Model
         'user_id',
         'order_id',
         'used_at',
+        'status',
+        'expires_at',
     ];
 
     /**
@@ -54,6 +59,7 @@ class CouponUsage extends Model
         'user_id' => 'int',
         'order_id' => 'int',
         'used_at' => 'datetime',
+        'expires_at' => 'datetime',
     ];
 
     /**

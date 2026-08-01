@@ -6,6 +6,8 @@ use Everest\Models\ApiKey;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Support\Facades\DB;
+use Everest\Exceptions\DisplayException;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Everest\Extensions\Laravel\Sanctum\NewAccessToken;
 
@@ -26,16 +28,27 @@ trait HasAccessTokens
 
     public function createToken(?string $memo, ?array $ips): NewAccessToken
     {
-        /** @var ApiKey $token */
-        $token = $this->tokens()->forceCreate([
-            'user_id' => $this->id,
-            'key_type' => ApiKey::TYPE_ACCOUNT,
-            'identifier' => ApiKey::generateTokenIdentifier(ApiKey::TYPE_ACCOUNT),
-            'token' => encrypt($plain = Str::random(ApiKey::KEY_LENGTH)),
-            'memo' => $memo ?? '',
-            'allowed_ips' => $ips ?? [],
-        ]);
+        return DB::transaction(function () use ($memo, $ips): NewAccessToken {
+            /** @var \Everest\Models\User $owner */
+            $owner = \Everest\Models\User::query()
+                ->whereKey($this->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+            if (!$owner->isActive()) {
+                throw new DisplayException('This account cannot create API keys in its current state.');
+            }
 
-        return new NewAccessToken($token, $plain);
+            /** @var ApiKey $token */
+            $token = $owner->tokens()->forceCreate([
+                'user_id' => $owner->id,
+                'key_type' => ApiKey::TYPE_ACCOUNT,
+                'identifier' => ApiKey::generateTokenIdentifier(ApiKey::TYPE_ACCOUNT),
+                'token' => encrypt($plain = Str::random(ApiKey::KEY_LENGTH)),
+                'memo' => $memo ?? '',
+                'allowed_ips' => $ips ?? [],
+            ]);
+
+            return new NewAccessToken($token, $plain);
+        });
     }
 }

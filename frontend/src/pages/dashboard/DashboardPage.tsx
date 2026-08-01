@@ -9,6 +9,8 @@ import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
+import { useAdminHeld } from '@/layouts/heldPermissions';
+import { can } from '@/lib/can';
 import { StatTiles } from './StatTiles';
 import { LiveServerCard } from './LiveServerCard';
 import { Announcements } from './Announcements';
@@ -17,13 +19,14 @@ import { AccountHealth } from './AccountHealth';
 
 export default function DashboardPage() {
     const user = useSession(s => s.user);
-    const rootAdmin = Boolean(user?.root_admin);
+    const held = useAdminHeld();
+    const canReadAllServers = can(held, 'servers.read');
     const billingEnabled = useFlags(s => s.everest)?.billing.enabled ?? false;
 
     // Admins can flip the list between their own servers and every server on the
     // system. The scope is part of the query key so the two lists cache separately.
     const [showAll, setShowAll] = useState(false);
-    const scope = rootAdmin && showAll ? 'admin-all' : undefined;
+    const scope = canReadAllServers && showAll ? 'admin-all' : undefined;
 
     const { data: servers, isLoading, isError, error } = useQuery({
         queryKey: ['servers', scope ?? 'own'],
@@ -101,7 +104,7 @@ export default function DashboardPage() {
                                 <h2 className="text-sm font-semibold text-[var(--color-ink-muted)]">
                                     {showAll ? m['dashboard.allServers']() : m['dashboard.yourServers']()}
                                 </h2>
-                                {rootAdmin && (
+                                {canReadAllServers && (
                                     <div className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--color-border-strong)] p-0.5">
                                         {([false, true] as const).map(all => (
                                             <button

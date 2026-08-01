@@ -10,14 +10,17 @@ use Illuminate\Http\JsonResponse;
 use Everest\Http\Controllers\Controller;
 use Everest\Repositories\Eloquent\ServerRepository;
 use Everest\Http\Requests\Api\Remote\InstallationDataRequest;
+use Everest\Services\Servers\DaemonServerAuthorizationService;
 
 class ServerInstallController extends Controller
 {
     /**
      * ServerInstallController constructor.
      */
-    public function __construct(private ServerRepository $repository)
-    {
+    public function __construct(
+        private ServerRepository $repository,
+        private DaemonServerAuthorizationService $authorization,
+    ) {
     }
 
     /**
@@ -28,6 +31,7 @@ class ServerInstallController extends Controller
     public function index(Request $request, string $uuid): JsonResponse
     {
         $server = $this->repository->getByUuid($uuid);
+        $this->authorization->assertCurrentNode($this->authorization->node($request), $server);
         $egg = $server->egg;
 
         return new JsonResponse([
@@ -46,6 +50,7 @@ class ServerInstallController extends Controller
     public function store(InstallationDataRequest $request, string $uuid): JsonResponse
     {
         $server = $this->repository->getByUuid($uuid);
+        $this->authorization->assertCurrentNode($this->authorization->node($request), $server);
         $status = null;
 
         // Make sure the type of failure is accurate

@@ -21,6 +21,13 @@ class UpdateUserSessionActivity
      * which should be allowed to continue. Previously this branch retained the
      * request and let updateActivity() recreate a fresh, non-revoked row, which
      * meant a revoked or untracked session could survive a password reset.
+     *
+     * The one legitimate exception is a session Laravel just rebuilt from a
+     * "remember me" cookie: SessionGuard regenerates the session id on that path,
+     * so the row written at login no longer matches and the user was being signed
+     * out every time their session lapsed. viaRemember() identifies exactly that
+     * case, and recordRememberedSession() re-establishes tracking while still
+     * refusing devices whose session was revoked.
      */
     public function handle(Request $request, \Closure $next)
     {
@@ -33,10 +40,20 @@ class UpdateUserSessionActivity
                 ->where('session_id', $sessionId)
                 ->first();
 
+            if (!$sessionRecord && $this->authenticatedViaRemember()) {
+                $sessionRecord = app(UserSessionService::class)->recordRememberedSession($user, $sessionId);
+
+                if ($sessionRecord) {
+                    Log::info('UpdateUserSessionActivity: re-tracked session restored from remember-me cookie', [
+                        'user_id' => $user->id,
+                        'session_db_id' => $sessionRecord->id,
+                    ]);
+                }
+            }
+
             if (!$sessionRecord) {
                 Log::info('UpdateUserSessionActivity: rejected session with no tracking record', [
                     'user_id' => $user->id,
-                    'session_id' => $sessionId,
                 ]);
 
                 return $this->rejectSession($request);
@@ -45,7 +62,7 @@ class UpdateUserSessionActivity
             if ($sessionRecord->revoked_at) {
                 Log::info('UpdateUserSessionActivity: blocked revoked session', [
                     'user_id' => $user->id,
-                    'session_id' => $sessionId,
+                    'session_db_id' => $sessionRecord->id,
                 ]);
 
                 return $this->rejectSession($request);
@@ -63,6 +80,21 @@ class UpdateUserSessionActivity
         }
 
         return $response;
+    }
+
+    /**
+     * Whether the guard authenticated this request from a "remember me" cookie
+     * rather than an existing session payload.
+     *
+     * viaRemember() is specific to SessionGuard, so it is guarded — a token guard
+     * has no recaller and must keep the strict behaviour. Sanctum's stateful path
+     * delegates to the same web guard, so this reads correctly for /api as well.
+     */
+    private function authenticatedViaRemember(): bool
+    {
+        $guard = auth()->guard();
+
+        return method_exists($guard, 'viaRemember') && $guard->viaRemember();
     }
 
     /**

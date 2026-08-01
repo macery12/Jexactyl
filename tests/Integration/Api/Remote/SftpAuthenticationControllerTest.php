@@ -5,6 +5,7 @@ namespace Everest\Tests\Integration\Api\Remote;
 use Everest\Models\Node;
 use Everest\Models\User;
 use Everest\Models\Server;
+use Everest\Models\AdminRole;
 use Everest\Models\Permission;
 use Everest\Models\UserSSHKey;
 use phpseclib3\Crypt\EC\PrivateKey;
@@ -164,7 +165,6 @@ class SftpAuthenticationControllerTest extends IntegrationTestCase
             ->assertJsonPath('errors.0.detail', 'You do not have permission to access SFTP for this server.');
     }
 
-
     #[DataProvider('serverStateDataProvider')]
     public function testInvalidServerStateReturnsConflictError(string $status)
     {
@@ -194,7 +194,9 @@ class SftpAuthenticationControllerTest extends IntegrationTestCase
             ->assertOk()
             ->assertJsonPath('permissions', [Permission::ACTION_FILE_READ, Permission::ACTION_FILE_SFTP]);
 
-        $user->update(['root_admin' => true]);
+        $user->update([
+            'admin_role_id' => AdminRole::query()->where('is_owner', true)->value('id'),
+        ]);
 
         $this->postJson('/api/remote/sftp/auth', $data)
             ->assertOk()
@@ -207,7 +209,7 @@ class SftpAuthenticationControllerTest extends IntegrationTestCase
             ->assertOk()
             ->assertJsonPath('permissions.0', '*');
 
-        $user->update(['root_admin' => false]);
+        $user->update(['admin_role_id' => null]);
         $this->post('/api/remote/sftp/auth', $data)->assertForbidden();
     }
 

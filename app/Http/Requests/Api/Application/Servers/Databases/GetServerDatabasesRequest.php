@@ -9,6 +9,6 @@ class GetServerDatabasesRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::SERVERS_READ;
+        return AdminRole::SERVER_DATABASES_READ;
     }
 }

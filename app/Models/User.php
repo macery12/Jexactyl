@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\Access\Authorizable;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Contracts\Auth\Authenticatable as AuthenticatableContract;
 use Illuminate\Contracts\Auth\Access\Authorizable as AuthorizableContract;
@@ -233,8 +234,32 @@ class User extends Model implements
     {
         return Collection::make($this->append(['avatar_url', 'admin_role_name', 'email_verified'])->toArray())
             ->except(['id', 'external_id', 'admin_role'])
-            ->merge(['discord_linked' => !empty($this->external_id)])
+            ->merge([
+                'root_admin' => $this->isOwner(),
+                'access_profile' => $this->accessProfileData(),
+                'discord_linked' => !empty($this->external_id),
+            ])
             ->toArray();
+    }
+
+    /**
+     * Stable, non-sensitive Access Profile identity for API/bootstrap responses.
+     *
+     * @return array{id: int, name: string, color: string|null, is_owner: bool}|null
+     */
+    public function accessProfileData(): ?array
+    {
+        $profile = $this->adminRole;
+        if (!$profile) {
+            return null;
+        }
+
+        return [
+            'id' => $profile->id,
+            'name' => $profile->name,
+            'color' => $profile->color,
+            'is_owner' => $profile->isOwner(),
+        ];
     }
 
     /**
@@ -255,7 +280,19 @@ class User extends Model implements
     public function adminRoleName(): Attribute
     {
         return Attribute::make(
-            get: fn () => is_null($this->adminRole) ? ($this->root_admin ? 'None' : null) : $this->adminRole->name,
+            get: fn () => $this->adminRole?->name,
+        );
+    }
+
+    /**
+     * Deprecated compatibility field. Reads are derived from the canonical
+     * Owner profile; writes persist only the temporary mirror column.
+     */
+    public function rootAdmin(): Attribute
+    {
+        return Attribute::make(
+            get: fn (mixed $value): bool => $this->isOwner(),
+            set: fn (mixed $value): bool => (bool) $value,
         );
     }
 
@@ -295,6 +332,14 @@ class User extends Model implements
     }
 
     /**
+     * Whether this account may use an authenticated application surface.
+     */
+    public function isActive(): bool
+    {
+        return !$this->isSuspended() && !$this->isPending();
+    }
+
+    /**
      * Returns all the activity logs where this user is the subject — not to
      * be confused by activity logs where this user is the _actor_.
      */
@@ -303,9 +348,25 @@ class User extends Model implements
         return $this->morphToMany(ActivityLog::class, 'subject', 'activity_log_subjects');
     }
 
-    public function adminRole(): HasOne
+    public function adminRole(): BelongsTo
     {
-        return $this->hasOne(AdminRole::class, 'id', 'admin_role_id');
+        return $this->belongsTo(AdminRole::class, 'admin_role_id');
+    }
+
+    /**
+     * Whether this account holds the protected Owner Access Profile.
+     *
+     * The legacy root_admin column is deliberately not consulted: it is only a
+     * temporary compatibility mirror and is no longer an authorization source.
+     */
+    public function isOwner(): bool
+    {
+        return (bool) $this->adminRole?->isOwner();
+    }
+
+    public function isAdministrator(): bool
+    {
+        return $this->adminRole !== null;
     }
 
     public function apiKeys(): HasMany

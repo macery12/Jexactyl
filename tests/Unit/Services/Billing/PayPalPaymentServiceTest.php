@@ -3,9 +3,7 @@
 namespace Everest\Tests\Unit\Services\Billing;
 
 use Everest\Tests\TestCase;
-use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Log;
-use Everest\Models\Billing\Category;
 use Illuminate\Support\Facades\Http;
 use Everest\Exceptions\Billing\BillingException;
 use Everest\Services\Billing\PayPalPaymentService;
@@ -44,12 +42,10 @@ class PayPalPaymentServiceTest extends TestCase
         ]);
 
         $service = new PayPalPaymentService();
-        $product = $this->createMockProduct();
-
         $this->expectException(BillingException::class);
         $this->expectExceptionMessage('PayPal is not configured');
 
-        $service->createOrder($product, 10.00, null, 'http://return', 'http://cancel');
+        $service->createOrder($this->payload());
     }
 
     /**
@@ -66,14 +62,12 @@ class PayPalPaymentServiceTest extends TestCase
             ], 401),
         ]);
 
-        $product = $this->createMockProduct();
-
         $this->expectException(BillingException::class);
         $this->expectExceptionMessage('Failed to authenticate with PayPal');
 
         $service = new PayPalPaymentService();
         try {
-            $service->createOrder($product, 10.00, null, 'http://return', 'http://cancel');
+            $service->createOrder($this->payload());
         } finally {
             Log::shouldHaveReceived('error')
                 ->once()
@@ -107,18 +101,15 @@ class PayPalPaymentServiceTest extends TestCase
             ], 400),
         ]);
 
-        $product = $this->createMockProduct();
-
         try {
             $service = new PayPalPaymentService();
-            $service->createOrder($product, 19.99, null, 'http://return', 'http://cancel');
+            $service->createOrder($this->payload());
             $this->fail('Expected BillingException was not thrown');
         } catch (BillingException $e) {
             $this->assertStringContainsString('Failed to create PayPal order', $e->getMessage());
             $this->assertEquals(BillingExceptionModel::TYPE_PAYMENT, $e->getExceptionType());
             $this->assertEquals('paypal', $e->getPaymentProcessor());
-            $this->assertArrayHasKey('product_id', $e->getContext());
-            $this->assertArrayHasKey('amount', $e->getContext());
+            $this->assertSame('order_71', $e->getContext()['reference_id']);
             $this->assertArrayHasKey('response_summary', $e->getContext());
             $this->assertArrayNotHasKey('response', $e->getContext());
             $this->assertStringNotContainsString('provider-secret', json_encode($e->getContext()));
@@ -158,12 +149,15 @@ class PayPalPaymentServiceTest extends TestCase
             ], 201),
         ]);
 
-        $product = $this->createMockProduct();
         $service = new PayPalPaymentService();
-        $result = $service->createOrder($product, 19.99, null, 'http://return', 'http://cancel');
+        $result = $service->createOrder($this->payload(), 'checkout-order-71');
 
         $this->assertEquals($orderId, $result['id']);
         $this->assertEquals('CREATED', $result['status']);
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request): bool {
+            return $request->hasHeader('PayPal-Request-Id', 'checkout-order-71')
+                && $request->data() === $this->payload();
+        });
     }
 
     /**
@@ -251,20 +245,27 @@ class PayPalPaymentServiceTest extends TestCase
         $this->assertEquals('COMPLETED', $result['status']);
     }
 
-    /**
-     * Create a mock product for testing.
-     */
-    private function createMockProduct(): Product
+    private function payload(): array
     {
-        $category = \Mockery::mock(Category::class);
-        $category->shouldReceive('getAttribute')->with('nest_id')->andReturn(1);
-
-        $product = \Mockery::mock(Product::class);
-        $product->shouldReceive('getAttribute')->with('id')->andReturn(123);
-        $product->shouldReceive('getAttribute')->with('name')->andReturn('Test Product');
-        $product->shouldReceive('getAttribute')->with('category')->andReturn($category);
-
-        return $product;
+        return [
+            'intent' => 'CAPTURE',
+            'purchase_units' => [[
+                'reference_id' => 'order_71',
+                'description' => 'Test Product',
+                'amount' => [
+                    'currency_code' => 'USD',
+                    'value' => '19.99',
+                ],
+                'custom_id' => '{"order_id":71}',
+            ]],
+            'application_context' => [
+                'brand_name' => 'Test Panel',
+                'landing_page' => 'BILLING',
+                'user_action' => 'PAY_NOW',
+                'return_url' => 'http://return',
+                'cancel_url' => 'http://cancel',
+            ],
+        ];
     }
 
     /**

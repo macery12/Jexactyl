@@ -3,346 +3,333 @@
 namespace Everest\Tests\Unit\Services\Billing;
 
 use Carbon\Carbon;
-use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Tests\TestCase;
 use Everest\Models\Billing\Order;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
+use Illuminate\Support\Facades\Schema;
 use Everest\Exceptions\DisplayException;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Services\Servers\SuspensionService;
 use Everest\Services\Billing\CreateOrderService;
 use Everest\Services\Billing\ServerRenewalService;
 
 class ServerRenewalServiceTest extends TestCase
 {
+    private SuspensionService $suspensionService;
+    private CreateOrderService $orderService;
     private ServerRenewalService $service;
-    private $suspensionService;
-    private $orderService;
 
-    /**
-     * Setup test instance.
-     */
     public function setUp(): void
     {
         parent::setUp();
 
+        $this->createTables();
         $this->suspensionService = \Mockery::mock(SuspensionService::class);
+        $this->suspensionService->shouldNotReceive('toggle');
         $this->orderService = \Mockery::mock(CreateOrderService::class);
+        $this->service = new ServerRenewalService($this->suspensionService, $this->orderService);
+    }
 
-        $this->service = new ServerRenewalService(
-            $this->suspensionService,
-            $this->orderService
+    public function testPaidRenewalConsumesTheOriginalOrderExactlyOnceWithoutChangingSnapshotName(): void
+    {
+        [$server, $product] = $this->createServerAndProduct(10.0, now()->addDays(3));
+        $order = $this->createOrder($server, $product, [
+            'name' => 'immutable-renewal-snapshot',
+            'status' => Order::STATUS_FULFILLING,
+            'payment_processor' => 'paypal',
+            'fulfillment_claim' => '11111111-1111-4111-8111-111111111111',
+            'billing_days' => 30,
+            'total' => 10,
+        ]);
+        $this->orderService->shouldNotReceive('create');
+
+        $result = $this->service->renew($server, $product, null, 365, $order);
+
+        $renewedOrder = $result['order']->fresh();
+        $renewedServer = $result['server']->fresh();
+        $this->assertSame(Order::STATUS_PROCESSED, $renewedOrder->status);
+        $this->assertNull($renewedOrder->fulfillment_claim);
+        $this->assertSame('immutable-renewal-snapshot', $renewedOrder->name);
+        $this->assertSame(30, $renewedServer->billing_days);
+        $this->assertTrue($renewedServer->renewal_date->equalTo(now()->addDays(33)));
+
+        $firstRenewalDate = $renewedServer->renewal_date->toDateTimeString();
+        try {
+            $this->service->renew($renewedServer, $product, null, 30, $renewedOrder);
+            $this->fail('A processed paid order must not be reusable.');
+        } catch (DisplayException) {
+            $this->assertSame(
+                $firstRenewalDate,
+                Server::query()->findOrFail($server->id)->renewal_date->toDateTimeString()
+            );
+        }
+    }
+
+    public function testFreeProductIgnoresClientSelectedRenewalPeriod(): void
+    {
+        config()->set('modules.billing.renewal.free_renewal_days', 7);
+        [$server, $product] = $this->createServerAndProduct(0.0, now()->subDay());
+        $order = $this->createOrder($server, $product, [
+            'status' => Order::STATUS_PENDING,
+            'payment_processor' => 'free',
+            'billing_days' => 7,
+            'total' => 0,
+        ]);
+
+        $this->orderService->shouldReceive('create')
+            ->once()
+            ->withArgs(fn (
+                mixed $intent,
+                mixed $user,
+                mixed $createdProduct,
+                mixed $status,
+                mixed $type,
+                mixed $coupon,
+                mixed $egg,
+                array $attributes,
+            ): bool => $intent === null
+                && $user->id === $server->owner_id
+                && $createdProduct->id === $product->id
+                && $status === Order::STATUS_PENDING
+                && $type === Order::TYPE_REN
+                && $coupon === null
+                && $egg === null
+                && $attributes['billing_days'] === 7)
+            ->andReturn($order);
+
+        $result = $this->service->renew($server, $product, null, 365);
+
+        $this->assertSame(7, $result['server']->fresh()->billing_days);
+        $this->assertSame(
+            now()->addDays(6)->toDateString(),
+            $result['server']->fresh()->renewal_date->toDateString()
         );
+        $this->assertSame(Order::STATUS_PROCESSED, $result['order']->fresh()->status);
     }
 
-    /**
-     * Test that renewal subtracts past due days when server is overdue but within grace period.
-     */
-    public function testRenewalSubtractsPastDueDaysWhenWithinGracePeriod()
+    public function testRenewalRejectsAProductThatDoesNotOwnTheServer(): void
     {
-        // Mock server that is 5 days past due
-        $server = $this->createMockServer(5, false);
-
-        // Mock product with 30-day billing cycle
-        $product = $this->createMockProduct(false, 30);
-
-        // Mock order creation
-        $order = $this->createMockOrder();
-        $this->orderService->shouldReceive('create')->once()->andReturn($order);
-
-        // Server is not suspended, so no unsuspend needed
-        $server->shouldReceive('isSuspended')->andReturn(false);
-
-        // Get the suspension threshold for 30-day cycle (should be 6 days)
-        // Based on formula: min(max(30 * 0.20, 3), 7) = 6 days
-        $product->shouldReceive('getSuspensionThresholdForBillingCycle')
-            ->with(30)
-            ->andReturn(6);
-
-        // Server should be updated with adjusted renewal date
-        // Since server is 5 days past due and renewing for 30 days,
-        // it should only get 25 days (30 - 5)
-        $expectedDays = 25;
-        $server->shouldReceive('update')
-            ->once()
-            ->with(\Mockery::on(function ($arg) {
-                if (!isset($arg['renewal_date'], $arg['billing_days'], $arg['billing_amount'])) {
-                    return false;
-                }
-
-                return (int) $arg['billing_days'] === 30
-                    && (float) $arg['billing_amount'] === 10.0;
-            }))
-            ->andReturnNull();
-
-        // Order should be marked as processed
-        $order->shouldReceive('update')->once()->andReturnNull();
-        $order->shouldReceive('getAttribute')->with('name')->andReturn('Renewal Order ');
-
-        // Execute the renewal
-        $result = $this->service->renew($server, $product, null, 30);
-
-        $this->assertArrayHasKey('server', $result);
-        $this->assertArrayHasKey('order', $result);
-    }
-
-    /**
-     * Test that renewal gives full days when server is not past due.
-     */
-    public function testRenewalGivesFullDaysWhenNotPastDue()
-    {
-        // Mock server that is NOT past due (5 days remaining)
-        $server = $this->createMockServer(-5, false);
-
-        // Mock product with 30-day billing cycle
-        $product = $this->createMockProduct(false, 30);
-
-        // Mock order creation
-        $order = $this->createMockOrder();
-        $this->orderService->shouldReceive('create')->once()->andReturn($order);
-
-        // Server is not suspended
-        $server->shouldReceive('isSuspended')->andReturn(false);
-
-        // Server should be updated with full 30 days added to future renewal date
-        $server->shouldReceive('update')
-            ->once()
-            ->with(\Mockery::on(function ($arg) {
-                if (!isset($arg['renewal_date'], $arg['billing_days'], $arg['billing_amount'])) {
-                    return false;
-                }
-
-                return (int) $arg['billing_days'] === 30
-                    && (float) $arg['billing_amount'] === 10.0;
-            }))
-            ->andReturnNull();
-
-        // Order should be marked as processed
-        $order->shouldReceive('update')->once()->andReturnNull();
-        $order->shouldReceive('getAttribute')->with('name')->andReturn('Renewal Order ');
-
-        // Execute the renewal
-        $result = $this->service->renew($server, $product, null, 30);
-
-        $this->assertArrayHasKey('server', $result);
-        $this->assertArrayHasKey('order', $result);
-    }
-
-    /**
-     * Test that renewal still processes when server is past grace period.
-     * (This shouldn't normally happen as UI should block it, but if it does, don't adjust days).
-     */
-    public function testRenewalDoesNotAdjustDaysWhenPastGracePeriod()
-    {
-        // Mock server that is 10 days past due (past the 6-day grace period for 30-day cycle)
-        $server = $this->createMockServer(10, true);
-
-        // Mock product with 30-day billing cycle
-        $product = $this->createMockProduct(false, 30);
-
-        // Mock order creation
-        $order = $this->createMockOrder();
-        $this->orderService->shouldReceive('create')->once()->andReturn($order);
-
-        // Server is suspended, should be unsuspended
-        $server->shouldReceive('isSuspended')->andReturn(true);
-        $this->suspensionService->shouldReceive('toggle')
-            ->once()
-            ->with($server, SuspensionService::ACTION_UNSUSPEND)
-            ->andReturnNull();
-
-        // Get the suspension threshold for 30-day cycle (should be 6 days)
-        $product->shouldReceive('getSuspensionThresholdForBillingCycle')
-            ->with(30)
-            ->andReturn(6);
-
-        // When past grace period, give full 30 days from now
-        // (though in practice this shouldn't happen as payment should be blocked)
-        $server->shouldReceive('update')
-            ->once()
-            ->with(\Mockery::on(function ($arg) {
-                if (!isset($arg['renewal_date'], $arg['billing_days'], $arg['billing_amount'])) {
-                    return false;
-                }
-
-                return (int) $arg['billing_days'] === 30
-                    && (float) $arg['billing_amount'] === 10.0;
-            }))
-            ->andReturnNull();
-
-        // Order should be marked as processed
-        $order->shouldReceive('update')->once()->andReturnNull();
-        $order->shouldReceive('getAttribute')->with('name')->andReturn('Renewal Order ');
-
-        // Execute the renewal
-        $result = $this->service->renew($server, $product, null, 30);
-
-        $this->assertArrayHasKey('server', $result);
-        $this->assertArrayHasKey('order', $result);
-    }
-
-    /**
-     * Test that renewal ensures at least 1 day is given even if past due exceeds renewal days.
-     */
-    public function testRenewalEnsuresAtLeastOneDayIsGiven()
-    {
-        // Mock server that is 3 days past due
-        $server = $this->createMockServer(3, false);
-
-        // Mock product with 7-day billing cycle (short cycle for free server)
-        $product = $this->createMockProduct(true, 7);
-
-        // Mock order creation
-        $order = $this->createMockOrder();
-        $this->orderService->shouldReceive('create')->once()->andReturn($order);
-
-        // Server is not suspended
-        $server->shouldReceive('isSuspended')->andReturn(false);
-
-        // For free products, the threshold is typically 7 days
-        $product->shouldReceive('getSuspensionThresholdForBillingCycle')
-            ->with(7)
-            ->andReturn(7);
-
-        // Free server renewal uses 7 days, minus 3 past due = 4 days
-        $expectedDays = 4;
-        $server->shouldReceive('update')
-            ->once()
-            ->with(\Mockery::on(function ($arg) {
-                if (!isset($arg['renewal_date'], $arg['billing_days'], $arg['billing_amount'])) {
-                    return false;
-                }
-
-                return (int) $arg['billing_days'] === 7
-                    && (float) $arg['billing_amount'] === 10.0;
-            }))
-            ->andReturnNull();
-
-        // Order should be marked as processed
-        $order->shouldReceive('update')->once()->andReturnNull();
-        $order->shouldReceive('getAttribute')->with('name')->andReturn('Renewal Order ');
-
-        // Execute the renewal
-        $result = $this->service->renew($server, $product, null, 7);
-
-        $this->assertArrayHasKey('server', $result);
-        $this->assertArrayHasKey('order', $result);
-    }
-
-    /**
-     * Test that selected billing cycle is persisted for future renewals.
-     */
-    public function testRenewalPersistsSelectedBillingDays()
-    {
-        $server = $this->createMockServer(-2, false);
-        $product = $this->createMockProduct(false, 30);
-
-        $order = $this->createMockOrder();
-        $this->orderService->shouldReceive('create')->once()->andReturn($order);
-
-        $server->shouldReceive('isSuspended')->andReturn(false);
-
-        $selectedBillingDays = 60;
-        $server->shouldReceive('update')
-            ->once()
-            ->with(
-                \Mockery::on(function ($arg) use ($selectedBillingDays) {
-                    return isset($arg['billing_days'])
-                        && (int) $arg['billing_days'] === $selectedBillingDays
-                        && isset($arg['renewal_date'], $arg['billing_amount'])
-                        && (float) $arg['billing_amount'] === 10.0;
-                })
-            )
-            ->andReturnNull();
-
-        $order->shouldReceive('update')->once()->andReturnNull();
-        $order->shouldReceive('getAttribute')->with('name')->andReturn('Renewal Order ');
-
-        $result = $this->service->renew($server, $product, null, $selectedBillingDays);
-
-        $this->assertArrayHasKey('server', $result);
-        $this->assertArrayHasKey('order', $result);
-    }
-
-    /**
-     * Test that renewal throws exception when server doesn't match product.
-     */
-    public function testRenewalThrowsExceptionWhenProductMismatch()
-    {
-        $server = $this->createMockServer(0, false, 999);
-        $product = $this->createMockProduct(false, 30);
+        [$server] = $this->createServerAndProduct(10.0, now()->addDay());
+        DB::table('products')->insert([
+            'id' => 2,
+            'uuid' => '22222222-2222-4222-8222-222222222222',
+            'name' => 'Other product',
+            'price' => 20,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $otherProduct = Product::query()->findOrFail(2);
 
         $this->expectException(DisplayException::class);
-        $this->expectExceptionMessage('This server does not use this product');
+        $this->expectExceptionMessage('does not use this product');
 
-        $this->service->renew($server, $product, null, 30);
+        $this->service->renew($server, $otherProduct, null, 30);
     }
 
     /**
-     * Create a mock server.
-     *
-     * @param int $daysOverdue Positive number for past due, negative for future
-     * @param bool $isSuspended Whether the server is suspended
+     * @return array{Server, Product}
      */
-    private function createMockServer(int $daysOverdue, bool $isSuspended, int $billingProductId = 123): Server
+    private function createServerAndProduct(float $price, Carbon $renewalDate): array
     {
-        $user = \Mockery::mock(User::class);
-        $user->shouldReceive('getAttribute')->with('id')->andReturn(1);
+        DB::table('users')->insert([
+            'id' => 1,
+            'uuid' => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            'username' => 'renewal-user',
+            'email' => 'renewal@example.test',
+            'password' => 'unused',
+            'root_admin' => false,
+            'use_totp' => false,
+            'state' => null,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('products')->insert([
+            'id' => 1,
+            'uuid' => '11111111-1111-4111-8111-111111111111',
+            'name' => 'Renewal product',
+            'price' => $price,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('allocations')->insert([
+            'id' => 1,
+            'node_id' => 1,
+            'ip' => '127.0.0.1',
+            'port' => 25565,
+            'server_id' => 1,
+        ]);
+        DB::table('servers')->insert([
+            'id' => 1,
+            'uuid' => 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            'uuidShort' => 'bbbbbbbb',
+            'node_id' => 1,
+            'name' => 'Renewable server',
+            'description' => '',
+            'status' => null,
+            'skip_scripts' => false,
+            'owner_id' => 1,
+            'memory' => 1024,
+            'swap' => 0,
+            'disk' => 1024,
+            'io' => 500,
+            'cpu' => 100,
+            'oom_killer' => false,
+            'allocation_id' => 1,
+            'nest_id' => 1,
+            'egg_id' => 1,
+            'startup' => 'start',
+            'image' => 'example/image',
+            'billing_product_id' => 1,
+            'billing_days' => 30,
+            'billing_amount' => $price,
+            'renewal_date' => $renewalDate,
+            'database_limit' => 0,
+            'allocation_limit' => 0,
+            'backup_limit' => 0,
+            'subuser_limit' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-        $server = \Mockery::mock(Server::class);
-        $server->shouldReceive('getAttribute')->with('billing_product_id')->andReturn($billingProductId);
-        $server->shouldReceive('getAttribute')->with('billing_days')->andReturn(30);
-        $server->shouldReceive('getAttribute')->with('user')->andReturn($user);
-        $server->shouldReceive('getAttribute')->with('uuid')->andReturn('test-uuid-1234');
-        $server->shouldReceive('isDeletionScheduled')->andReturn(false);
+        return [
+            Server::query()->findOrFail(1),
+            Product::query()->findOrFail(1),
+        ];
+    }
 
-        // Set renewal date based on days overdue
-        if ($daysOverdue > 0) {
-            // Server is past due
-            $renewalDate = Carbon::now()->subDays($daysOverdue);
-        } else {
-            // Server is not past due (has time remaining)
-            $renewalDate = Carbon::now()->addDays(abs($daysOverdue));
+    private function createOrder(Server $server, Product $product, array $overrides): Order
+    {
+        $defaults = [
+            'name' => 'renewal-order',
+            'user_id' => $server->owner_id,
+            'description' => 'Renewal order',
+            'total' => $product->price,
+            'subtotal' => $product->price,
+            'discount' => 0,
+            'status' => Order::STATUS_PENDING,
+            'product_id' => $product->id,
+            'product_name' => $product->name,
+            'billing_days' => 30,
+            'server_id' => $server->id,
+            'payment_processor' => 'free',
+            'type' => Order::TYPE_REN,
+            'threat_index' => -1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+        $id = DB::table('orders')->insertGetId(array_merge($defaults, $overrides));
+
+        return Order::query()->findOrFail($id);
+    }
+
+    private function createTables(): void
+    {
+        foreach (['orders', 'servers', 'allocations', 'eggs', 'nests', 'nodes', 'products', 'users'] as $table) {
+            Schema::dropIfExists($table);
         }
 
-        $server->shouldReceive('getAttribute')->with('renewal_date')->andReturn($renewalDate);
+        Schema::create('users', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->uuid('uuid');
+            $table->string('username');
+            $table->string('email');
+            $table->text('password')->nullable();
+            $table->boolean('root_admin')->default(false);
+            $table->boolean('use_totp')->default(false);
+            $table->string('state')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('products', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->uuid('uuid');
+            $table->string('name');
+            $table->decimal('price', 10, 2);
+            $table->timestamps();
+        });
+        Schema::create('nodes', function (Blueprint $table): void {
+            $table->increments('id');
+        });
+        Schema::create('nests', function (Blueprint $table): void {
+            $table->increments('id');
+        });
+        Schema::create('eggs', function (Blueprint $table): void {
+            $table->increments('id');
+        });
+        Schema::create('allocations', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->unsignedInteger('node_id');
+            $table->string('ip');
+            $table->unsignedInteger('port');
+            $table->unsignedInteger('server_id')->nullable();
+            $table->string('notes')->nullable();
+        });
+        Schema::create('servers', function (Blueprint $table): void {
+            $table->increments('id');
+            $table->uuid('uuid');
+            $table->string('uuidShort');
+            $table->unsignedInteger('node_id');
+            $table->string('name');
+            $table->string('description');
+            $table->string('status')->nullable();
+            $table->boolean('skip_scripts');
+            $table->unsignedInteger('owner_id');
+            $table->unsignedInteger('memory');
+            $table->integer('swap');
+            $table->unsignedInteger('disk');
+            $table->unsignedInteger('io');
+            $table->unsignedInteger('cpu');
+            $table->string('threads')->nullable();
+            $table->boolean('oom_killer');
+            $table->unsignedInteger('allocation_id');
+            $table->unsignedInteger('nest_id');
+            $table->unsignedInteger('egg_id');
+            $table->string('startup')->nullable();
+            $table->string('image');
+            $table->unsignedInteger('billing_product_id')->nullable();
+            $table->unsignedBigInteger('billing_order_id')->nullable();
+            $table->unsignedInteger('billing_days')->nullable();
+            $table->decimal('billing_amount', 10, 2)->nullable();
+            $table->timestamp('renewal_date')->nullable();
+            $table->timestamp('deletion_scheduled_at')->nullable();
+            $table->unsignedInteger('database_limit')->nullable();
+            $table->unsignedInteger('allocation_limit')->nullable();
+            $table->unsignedInteger('backup_limit')->default(0);
+            $table->integer('subuser_limit')->default(0);
+            $table->unsignedInteger('subdomain_limit')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('orders', function (Blueprint $table): void {
+            $table->bigIncrements('id');
+            $table->string('name');
+            $table->unsignedInteger('user_id');
+            $table->string('description');
+            $table->decimal('total', 10, 2);
+            $table->decimal('subtotal', 10, 2)->nullable();
+            $table->decimal('discount', 10, 2)->nullable();
+            $table->string('status');
+            $table->unsignedInteger('product_id');
+            $table->string('product_name')->nullable();
+            $table->integer('billing_days')->nullable();
+            $table->unsignedInteger('server_id')->nullable();
+            $table->string('payment_processor');
+            $table->string('type');
+            $table->integer('threat_index')->default(-1);
+            $table->unsignedBigInteger('coupon_id')->nullable();
+            $table->uuid('fulfillment_claim')->nullable();
+            $table->timestamps();
+        });
 
-        return $server;
+        DB::table('nodes')->insert(['id' => 1]);
+        DB::table('nests')->insert(['id' => 1]);
+        DB::table('eggs')->insert(['id' => 1]);
     }
 
-    /**
-     * Create a mock product.
-     */
-    private function createMockProduct(bool $isFree, int $renewalDays): Product
-    {
-        $product = \Mockery::mock(Product::class);
-        $product->shouldReceive('getAttribute')->with('id')->andReturn(123);
-        $product->shouldReceive('getAttribute')->with('price')->andReturn($isFree ? 0.0 : 10.0);
-        $product->shouldReceive('isFree')->andReturn($isFree);
-        $product->shouldReceive('getRenewalDays')->andReturn($renewalDays);
-
-        return $product;
-    }
-
-    /**
-     * Create a mock order.
-     */
-    private function createMockOrder(): Order
-    {
-        $order = \Mockery::mock(Order::class);
-        $order->shouldReceive('getAttribute')->with('id')->andReturn(456);
-        $order->shouldReceive('getAttribute')->with('total')->andReturn(10.0);
-        $order->shouldReceive('getAttribute')->with('name')->andReturn('Renewal Order ');
-
-        return $order;
-    }
-
-    /**
-     * Clean up after tests.
-     */
     protected function tearDown(): void
     {
         \Mockery::close();
+
         parent::tearDown();
     }
 }

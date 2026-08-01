@@ -18,6 +18,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | "Remember Me" Duration
+    |--------------------------------------------------------------------------
+    |
+    | How long, in minutes, a recaller cookie stays valid before the user has to
+    | enter their password again. Laravel's SessionGuard default is 576000
+    | minutes (400 days), which is effectively permanent for a credential that
+    | survives in the browser; 43200 is 30 days.
+    |
+    */
+
+    'remember' => [
+        'duration' => (int) env('AUTH_REMEMBER_DURATION', 43200),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Authentication Defaults
     |--------------------------------------------------------------------------
     |

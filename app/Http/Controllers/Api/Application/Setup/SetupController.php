@@ -7,6 +7,7 @@ use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Http\Requests\Api\Application\OverviewRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Settings\FinishSetupRequest;
 
 class SetupController extends ApplicationApiController
 {
@@ -38,7 +39,7 @@ class SetupController extends ApplicationApiController
      *
      * @throws \Throwable
      */
-    public function finish(OverviewRequest $request): Response
+    public function finish(FinishSetupRequest $request): Response
     {
         Setting::set('settings::app:setup', true);
 

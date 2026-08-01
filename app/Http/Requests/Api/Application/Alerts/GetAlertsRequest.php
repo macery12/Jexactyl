@@ -14,6 +14,6 @@ class GetAlertsRequest extends ApplicationApiRequest
 
     public function permission(): string
     {
-        return AdminRole::ALERTS_UPDATE;
+        return AdminRole::ALERTS_READ;
     }
 }

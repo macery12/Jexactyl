@@ -55,26 +55,45 @@ class PasswordResetService
 
     public function resetPassword(string $email, string $token, string $password): bool
     {
-        if (!$this->validateToken($email, $token)) {
-            return false;
-        }
+        return DB::transaction(function () use ($email, $token, $password): bool {
+            $record = DB::table('password_reset_tokens')
+                ->where('email', $email)
+                ->lockForUpdate()
+                ->first();
 
-        $user = User::where('email', $email)->first();
+            if (!$record || !$record->created_at) {
+                return false;
+            }
 
-        if (!$user) {
+            if (Carbon::parse($record->created_at)->addHour()->isPast()) {
+                DB::table('password_reset_tokens')->where('email', $email)->delete();
+
+                return false;
+            }
+
+            if (!hash_equals($record->token, hash('sha256', $token))) {
+                return false;
+            }
+
+            $user = User::query()->where('email', $email)->lockForUpdate()->first();
+            if (!$user) {
+                DB::table('password_reset_tokens')->where('email', $email)->delete();
+
+                return false;
+            }
+
+            $user->password = Hash::make($password);
+            $user->setRememberToken(Str::random(60));
+            $user->saveOrFail();
+
+            // PasswordResetListener synchronously revokes sessions and all API
+            // keys. A database failure therefore rolls back this password
+            // mutation and leaves the reset token available for a safe retry.
+            event(new PasswordReset($user));
+
             DB::table('password_reset_tokens')->where('email', $email)->delete();
 
-            return false;
-        }
-
-        $user->password = Hash::make($password);
-        $user->setRememberToken(Str::random(60));
-        $user->save();
-
-        event(new PasswordReset($user));
-
-        DB::table('password_reset_tokens')->where('email', $email)->delete();
-
-        return true;
+            return true;
+        });
     }
 }

@@ -11,7 +11,7 @@ import { m } from '@/i18n';
 // required permission string — operators use it to tell a root admin exactly
 // which grant they need.
 export default function AccessDenied({ permission }: { permission?: string | string[] }) {
-    const required = Array.isArray(permission) ? permission.join(', ') : permission;
+    const required = Array.isArray(permission) ? permission.join(' or ') : permission;
 
     return (
         <div className="flex min-h-[50vh] flex-col items-center justify-center px-6 py-16 text-center">

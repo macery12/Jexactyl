@@ -6,18 +6,21 @@ use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Everest\Events\Email\PasswordChanged;
 use Illuminate\Auth\Events\PasswordReset;
+use Everest\Services\Users\UserCredentialRevocationService;
 
 class PasswordResetListener
 {
     protected Request $request;
 
-    public function __construct(Request $request)
+    public function __construct(Request $request, private UserCredentialRevocationService $credentials)
     {
         $this->request = $request;
     }
 
     public function handle(PasswordReset $event): void
     {
+        $this->credentials->revokeAll($event->user);
+
         Activity::event('event:password-reset')
             ->withRequestMetadata()
             ->subject($event->user)

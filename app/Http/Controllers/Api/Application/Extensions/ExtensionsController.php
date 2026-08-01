@@ -29,6 +29,7 @@ use Everest\Http\Requests\Api\Application\Extensions\BatchInstallExtensionReques
 use Everest\Http\Requests\Api\Application\Extensions\BatchUninstallExtensionRequest;
 use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionSettingsRequest;
 use Everest\Http\Requests\Api\Application\Extensions\StoreExtensionRepositoryRequest;
+use Everest\Http\Requests\Api\Application\Extensions\DeleteExtensionRepositoryRequest;
 use Everest\Http\Requests\Api\Application\Extensions\UpdateExtensionRepositoryRequest;
 
 class ExtensionsController extends ApplicationApiController
@@ -415,7 +416,7 @@ class ExtensionsController extends ApplicationApiController
     /**
      * Delete a custom extension repository.
      */
-    public function deleteRepository(GetExtensionsRequest $request, ExtensionRepository $repository): Response|JsonResponse
+    public function deleteRepository(DeleteExtensionRepositoryRequest $request, ExtensionRepository $repository): Response|JsonResponse
     {
         if ($repository->is_official) {
             return new JsonResponse(['error' => 'The official M12Labs repository cannot be deleted. Disable it instead.'], 422);

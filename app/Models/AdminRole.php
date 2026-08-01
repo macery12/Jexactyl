@@ -3,6 +3,7 @@
 namespace Everest\Models;
 
 use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
@@ -10,6 +11,11 @@ use Illuminate\Support\Collection;
  * @property string|null $description
  * @property int $sort_id
  * @property array $permissions
+ * @property bool $is_system
+ * @property bool $is_owner
+ * @property bool $api_eligible
+ * @property int|null $users_count
+ * @property int|null $application_keys_count
  */
 class AdminRole extends Model
 {
@@ -33,6 +39,7 @@ class AdminRole extends Model
         'sort_id',
         'permissions',
         'color',
+        'api_eligible',
     ];
 
     /**
@@ -41,6 +48,9 @@ class AdminRole extends Model
     protected $casts = [
         'sort_id' => 'int',
         'permissions' => 'array',
+        'is_system' => 'bool',
+        'is_owner' => 'bool',
+        'api_eligible' => 'bool',
     ];
 
     public static array $validationRules = [
@@ -49,6 +59,7 @@ class AdminRole extends Model
         'sort_id' => 'sometimes|numeric',
         'permissions' => 'nullable|array',
         'color' => 'nullable|string',
+        'api_eligible' => 'sometimes|boolean',
     ];
 
     public $timestamps = false;
@@ -73,12 +84,12 @@ class AdminRole extends Model
     public const AUTH_DELETE = 'auth.delete';
 
     public const BILLING_READ = 'billing.read';
-    public const BILLING_PRODUCTS_CREATE = 'billing.product-create';
-    public const BILLING_PRODUCTS_UPDATE = 'billing.product-update';
-    public const BILLING_PRODUCTS_DELETE = 'billing.product-delete';
-    public const BILLING_CATEGORIES_CREATE = 'billing.category-create';
-    public const BILLING_CATEGORIES_UPDATE = 'billing.category-update';
-    public const BILLING_CATEGORIES_DELETE = 'billing.category-delete';
+    public const BILLING_PRODUCTS_CREATE = 'billing.products-create';
+    public const BILLING_PRODUCTS_UPDATE = 'billing.products-update';
+    public const BILLING_PRODUCTS_DELETE = 'billing.products-delete';
+    public const BILLING_CATEGORIES_CREATE = 'billing.categories-create';
+    public const BILLING_CATEGORIES_UPDATE = 'billing.categories-update';
+    public const BILLING_CATEGORIES_DELETE = 'billing.categories-delete';
     public const BILLING_ORDERS = 'billing.orders';
     public const BILLING_EXCEPTIONS = 'billing.exceptions';
     public const BILLING_UPDATE = 'billing.update';
@@ -120,6 +131,18 @@ class AdminRole extends Model
     public const DATABASES_CREATE = 'databases.create';
     public const DATABASES_UPDATE = 'databases.update';
     public const DATABASES_DELETE = 'databases.delete';
+
+    public const ALLOCATIONS_READ = 'allocations.read';
+    public const ALLOCATIONS_CREATE = 'allocations.create';
+    public const ALLOCATIONS_DELETE = 'allocations.delete';
+
+    public const LOCATIONS_READ = 'locations.read';
+    public const LOCATIONS_UPDATE = 'locations.update';
+
+    public const SERVER_DATABASES_READ = 'server-databases.read';
+    public const SERVER_DATABASES_CREATE = 'server-databases.create';
+    public const SERVER_DATABASES_UPDATE = 'server-databases.update';
+    public const SERVER_DATABASES_DELETE = 'server-databases.delete';
 
     public const NODES_READ = 'nodes.read';
     public const NODES_CREATE = 'nodes.create';
@@ -306,6 +329,23 @@ class AdminRole extends Model
                 'delete' => 'Delete an existing database host.',
             ],
         ],
+        'allocations' => [
+            'description' => 'Permissions to manage node allocations.',
+            'keys' => [
+                'read' => 'View node allocations.',
+                'create' => 'Create node allocations.',
+                'delete' => 'Delete node allocations.',
+            ],
+        ],
+        'server-databases' => [
+            'description' => 'Permissions to manage databases assigned to servers.',
+            'keys' => [
+                'read' => 'View server databases.',
+                'create' => 'Create server databases.',
+                'update' => 'Update server databases and rotate credentials.',
+                'delete' => 'Delete server databases.',
+            ],
+        ],
         'nodes' => [
             'description' => 'Permissions to configure nodes.',
             'keys' => [
@@ -371,15 +411,6 @@ class AdminRole extends Model
                 'export' => 'Export an egg via JSON.',
             ],
         ],
-        'mounts' => [
-            'description' => 'Permissions to configure mounts.',
-            'keys' => [
-                'read' => 'View the current mounts.',
-                'create' => 'Create a new mount.',
-                'update' => 'Update an existing mount.',
-                'delete' => 'Delete an existing mount.',
-            ],
-        ],
         'extensions' => [
             'description' => 'Permissions to configure extensions.',
             'keys' => [
@@ -407,5 +438,37 @@ class AdminRole extends Model
     public static function permissions(): Collection
     {
         return Collection::make(self::$permissions);
+    }
+
+    /**
+     * People this profile is assigned to. Deleting a profile is blocked while
+     * any of these exist, so the panel surfaces the count before the attempt.
+     */
+    public function users(): HasMany
+    {
+        return $this->hasMany(User::class, 'admin_role_id');
+    }
+
+    /**
+     * Application API keys bound to this profile. Scoped to the application key
+     * type — account keys carry no admin_role_id and must never be counted here.
+     */
+    public function applicationKeys(): HasMany
+    {
+        return $this->hasMany(ApiKey::class, 'admin_role_id')
+            ->where('key_type', ApiKey::TYPE_APPLICATION);
+    }
+
+    /**
+     * The built-in Owner profile is the sole source of unrestricted authority.
+     */
+    public function isOwner(): bool
+    {
+        return (bool) $this->is_owner;
+    }
+
+    public function isProtected(): bool
+    {
+        return (bool) $this->is_system;
     }
 }

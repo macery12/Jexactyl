@@ -5,6 +5,7 @@ import { calculateGracePeriodDays } from '@/api/serverBilling';
 // optional — V1 defaults each one at the point of use, and so do we.
 export interface RenewalSettings {
     days?: number;
+    free_renewal_days?: number;
     free_suspension_days?: number;
     suspension_threshold?: number;
     suspension_threshold_percentage?: number;
@@ -66,8 +67,10 @@ export function buildBillingModel(input: {
         : { days: 0, hours: 0 };
     const daysOverdue = daysRemaining < 0 ? Math.abs(daysRemaining) : 0;
 
-    const billingDays = serverBillingDays || renewal.days || 30;
     const isFree = (product?.price ?? 0) === 0;
+    const billingDays = isFree
+        ? (renewal.free_renewal_days ?? 30)
+        : (serverBillingDays || renewal.days || 30);
     const freeGraceDays = renewal.free_suspension_days ?? 7;
 
     // Without a product we can't tell a free plan from a paid one, so fall back

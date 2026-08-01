@@ -9,6 +9,6 @@ class ServerWriteRequest extends ApplicationApiRequest
 {
     public function permission(): string
     {
-        return AdminRole::SERVERS_DELETE;
+        return AdminRole::SERVERS_UPDATE;
     }
 }

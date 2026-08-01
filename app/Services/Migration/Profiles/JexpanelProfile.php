@@ -6,6 +6,7 @@ use Illuminate\Database\Connection;
 use Everest\Services\Migration\TablePlan;
 use Everest\Services\Migration\ImportContext;
 use Everest\Services\Migration\ImportSummary;
+use Everest\Services\Migration\JexpanelAccessProfileImportService;
 
 /**
  * JexPanel v4.x — the closest relative of this panel's schema.
@@ -35,12 +36,10 @@ class JexpanelProfile extends PterodactylProfile
     {
         $plans = parent::tablePlans();
 
-        // Roles have to exist before users, which reference them.
-        $plans = array_merge(['admin_roles' => new TablePlan(table: 'admin_roles')], $plans);
-
         $plans['users'] = new TablePlan(
             table: 'users',
             transforms: ['totp_secret' => fn ($v, $row, ImportContext $ctx) => $ctx->rewrap($v)],
+            converted: ['admin_role_id' => 'rebuilt against imported Access Profiles after copy'],
         );
 
         // Already on the modern column names — nothing to rename or drop.
@@ -80,6 +79,9 @@ class JexpanelProfile extends PterodactylProfile
      */
     public function afterImport(Connection $source, Connection $target, ImportSummary $summary): void
     {
+        app(JexpanelAccessProfileImportService::class)->handle($source, $target, $summary);
+        parent::afterImport($source, $target, $summary);
+
         if (!array_key_exists('server_groups', $summary->copied)) {
             return;
         }

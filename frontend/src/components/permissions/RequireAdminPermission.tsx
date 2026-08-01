@@ -13,7 +13,7 @@ import { FullPageSpinner } from '@/components/ui/Spinner';
 //
 // Fails CLOSED, which is why the loading state is not optional: `held` is empty
 // until the real set lands, so skipping the spinner would deny a legitimate
-// admin on first paint. Root admins resolve to `['*']` without a request.
+// admin on first paint. Owner also resolves through its protected profile.
 export function RequireAdminPermission({
     permission,
     children,

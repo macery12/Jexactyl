@@ -10,6 +10,7 @@ use Everest\Jobs\InstallModpackJob;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\Mods\DownloadModRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetDownloadQueueRequest;
+use Everest\Http\Requests\Api\Client\Servers\Mods\ManageDownloadQueueRequest;
 
 class ModQueueController extends ClientApiController
 {
@@ -36,7 +37,7 @@ class ModQueueController extends ClientApiController
     /**
      * Cancel a pending queue item. Items that are already downloading cannot be cancelled.
      */
-    public function cancel(DownloadModRequest $request, Server $server, string $queueUuid): JsonResponse
+    public function cancel(ManageDownloadQueueRequest $request, Server $server, string $queueUuid): JsonResponse
     {
         $item = DownloadQueue::where('server_id', $server->id)
             ->where('uuid', $queueUuid)
@@ -62,7 +63,7 @@ class ModQueueController extends ClientApiController
      * Body: { uuids?: string[], force?: bool }
      * Omitting `uuids` targets every item for the server.
      */
-    public function bulkClear(DownloadModRequest $request, Server $server): JsonResponse
+    public function bulkClear(ManageDownloadQueueRequest $request, Server $server): JsonResponse
     {
         $uuids = $request->input('uuids');
         $force = (bool) $request->input('force', false);

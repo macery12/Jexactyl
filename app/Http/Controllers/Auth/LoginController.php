@@ -8,6 +8,7 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Exceptions\DisplayException;
+use Everest\Http\Requests\Auth\LoginRequest;
 use Everest\Http\Requests\Auth\RegisterRequest;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -21,6 +22,11 @@ class LoginController extends AbstractLoginController
      */
     public function login(Request $request): JsonResponse
     {
+        // Previously unvalidated: `user[]=x` reached getField(?string) as an array
+        // and became a 500. Applied here rather than by type-hinting LoginRequest,
+        // because AuthenticatesUsers::login() fixes this parameter to Request.
+        $request->validate(LoginRequest::loginRules());
+
         if ($this->hasTooManyLoginAttempts($request)) {
             $this->fireLockoutEvent($request);
             $this->sendLockoutResponse($request);
@@ -48,8 +54,10 @@ class LoginController extends AbstractLoginController
         // told why up front, rather than after typing a TOTP code.
         $this->assertAccountUsable($user);
 
+        $remember = $request->boolean('remember');
+
         if (!$user->use_totp) {
-            return $this->sendLoginResponse($user, $request);
+            return $this->sendLoginResponse($user, $request, $remember);
         }
 
         Activity::event('auth:checkpoint')->withRequestMetadata()->subject($user)->log();
@@ -57,7 +65,7 @@ class LoginController extends AbstractLoginController
         return new JsonResponse([
             'data' => [
                 'complete' => false,
-                'confirmation_token' => $this->issueTwoFactorChallenge($request, $user),
+                'confirmation_token' => $this->issueTwoFactorChallenge($request, $user, $remember),
             ],
         ]);
     }

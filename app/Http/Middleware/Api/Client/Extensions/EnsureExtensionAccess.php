@@ -28,7 +28,7 @@ class EnsureExtensionAccess
             return response('', 404);
         }
 
-        if ($user->root_admin || $server->owner_id === $user->id) {
+        if ($user->isOwner() || $server->owner_id === $user->id) {
             return $next($request);
         }
 

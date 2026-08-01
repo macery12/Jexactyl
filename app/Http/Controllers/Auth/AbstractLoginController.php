@@ -38,14 +38,28 @@ abstract class AbstractLoginController extends Controller
     protected UserSessionService $sessionService;
 
     /**
-     * Lockout time for failed login requests.
+     * Session key holding the "remember me" choice made at the password step, so
+     * it survives the separate request that answers the 2FA checkpoint.
      */
-    protected int $lockoutTime;
+    protected const REMEMBER_SESSION_KEY = 'auth_remember_login';
+
+    /**
+     * Lockout time, in minutes, for failed login requests.
+     *
+     * Named to match ThrottlesLogins::decayMinutes(), which resolves the value
+     * through property_exists(). The previous name ($lockoutTime) was never read
+     * by anything, so the configured lockout was silently ignored in favour of
+     * the trait's 1-minute default.
+     */
+    protected int $decayMinutes;
 
     /**
      * After how many attempts should logins be throttled and locked.
+     *
+     * Likewise named for ThrottlesLogins::maxAttempts(); the old
+     * $maxLoginAttempts was dead and the real limit was the trait's default of 5.
      */
-    protected int $maxLoginAttempts;
+    protected int $maxAttempts;
 
     /**
      * Where to redirect users after login / registration.
@@ -57,11 +71,25 @@ abstract class AbstractLoginController extends Controller
      */
     public function __construct()
     {
-        $this->lockoutTime = config('auth.lockout.time');
-        $this->maxLoginAttempts = (int) config('modules.auth.security.attempts');
+        $this->decayMinutes = (int) config('auth.lockout.time');
+        $this->maxAttempts = (int) config('modules.auth.security.attempts');
         $this->auth = Container::getInstance()->make(AuthManager::class);
         $this->creation = Container::getInstance()->make(UserCreationService::class);
         $this->sessionService = Container::getInstance()->make(UserSessionService::class);
+    }
+
+    /**
+     * The request field holding the login identifier.
+     *
+     * AuthenticatesUsers defaults this to 'email', but every login path here
+     * reads `user` (which accepts a username or an email). ThrottlesLogins builds
+     * its throttle key from $request->input($this->username()), so leaving the
+     * default in place made every key '|<ip>' — one shared bucket per IP for all
+     * accounts, which any single successful login then cleared.
+     */
+    public function username(): string
+    {
+        return 'user';
     }
 
     /**
@@ -103,7 +131,7 @@ abstract class AbstractLoginController extends Controller
      * string nothing on the frontend has ever read — so every SSO user with 2FA
      * enabled was silently bounced back to an empty login form.
      */
-    protected function issueTwoFactorChallenge(Request $request, User $user): string
+    protected function issueTwoFactorChallenge(Request $request, User $user, bool $remember = false): string
     {
         $request->session()->put('auth_confirmation_token', [
             'user_id' => $user->id,
@@ -111,7 +139,24 @@ abstract class AbstractLoginController extends Controller
             'expires_at' => CarbonImmutable::now()->addMinutes(5),
         ]);
 
+        // Kept out of the token payload so it cannot be replayed by a client that
+        // somehow holds the token: the choice was made at the password step and is
+        // only ever read back from this same session.
+        $request->session()->put(self::REMEMBER_SESSION_KEY, $remember);
+
         return $token;
+    }
+
+    /**
+     * The "remember me" choice recorded at the password step of this login.
+     *
+     * A non-destructive read: a mistyped TOTP code must not silently downgrade
+     * the choice on the retry. sendLoginResponse() clears the key once the login
+     * actually completes.
+     */
+    protected function rememberChoice(Request $request): bool
+    {
+        return (bool) $request->session()->get(self::REMEMBER_SESSION_KEY, false);
     }
 
     /**
@@ -283,7 +328,7 @@ abstract class AbstractLoginController extends Controller
      * @throws AccountPendingApprovalException
      * @throws AccountSuspendedException
      */
-    protected function sendLoginResponse(User $user, Request $request): JsonResponse
+    protected function sendLoginResponse(User $user, Request $request, bool $remember = false): JsonResponse
     {
         $this->assertAccountUsable($user);
 
@@ -292,20 +337,30 @@ abstract class AbstractLoginController extends Controller
         $this->completePendingOAuthLink($user, $request);
 
         $request->session()->remove('auth_confirmation_token');
+        $request->session()->forget(self::REMEMBER_SESSION_KEY);
         $request->session()->regenerate();
 
         $this->clearLoginAttempts($request);
 
-        $this->auth->guard()->login($user, true);
+        $guard = $this->auth->guard();
+
+        // Remember was previously hardcoded to true, planting a recaller cookie
+        // valid for SessionGuard's default 576000 minutes (400 days) in every
+        // browser whether the user asked for it or not. It is now opt-in and
+        // bounded by config.
+        if ($remember && method_exists($guard, 'setRememberDuration')) {
+            $guard->setRememberDuration((int) config('auth.remember.duration'));
+        }
+
+        $guard->login($user, $remember);
 
         $deviceId = $request->cookie(UserSessionService::DEVICE_COOKIE);
         $shouldSetCookie = $deviceId === null;
 
-        $this->sessionService->recordLogin($user, $request->session()->getId(), $deviceId);
+        $trackedSession = $this->sessionService->recordLogin($user, $request->session()->getId(), $deviceId);
         Log::info('AbstractLoginController: login response generated', [
             'user_id' => $user->id,
-            'session_id' => $request->session()->getId(),
-            'device_id' => $deviceId,
+            'session_db_id' => $trackedSession->id,
             'set_cookie' => $shouldSetCookie,
         ]);
 

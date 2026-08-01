@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $checksum
  * @property int $bytes
  * @property string|null $upload_id
+ * @property int|null $upload_size
  * @property \Carbon\CarbonImmutable|null $completed_at
  * @property \Carbon\CarbonImmutable $created_at
  * @property \Carbon\CarbonImmutable $updated_at
@@ -42,6 +43,7 @@ class Backup extends Model
         'is_locked' => 'bool',
         'ignored_files' => 'array',
         'bytes' => 'int',
+        'upload_size' => 'int',
         'completed_at' => 'datetime',
     ];
 
@@ -51,6 +53,7 @@ class Backup extends Model
         'checksum' => null,
         'bytes' => 0,
         'upload_id' => null,
+        'upload_size' => null,
     ];
 
     protected $guarded = ['id', 'created_at', 'updated_at', 'deleted_at'];
@@ -66,6 +69,7 @@ class Backup extends Model
         'checksum' => 'nullable|string',
         'bytes' => 'numeric',
         'upload_id' => 'nullable|string',
+        'upload_size' => 'nullable|integer|min:1',
     ];
 
     public function server(): BelongsTo

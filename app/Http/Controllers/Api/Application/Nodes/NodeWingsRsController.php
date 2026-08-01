@@ -9,6 +9,7 @@ use Everest\Repositories\Wings\DaemonWingsRsRepository;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Nodes\WingsRsNodeReadRequest;
 use Everest\Http\Requests\Api\Application\Nodes\WingsRsNodeUpdateRequest;
+use Everest\Http\Requests\Api\Application\Nodes\WingsRsNodeUpgradeRequest;
 
 class NodeWingsRsController extends ApplicationApiController
 {
@@ -22,7 +23,7 @@ class NodeWingsRsController extends ApplicationApiController
     /**
      * POST /api/application/nodes/{node}/detect — Detect Wings-RS and update node type.
      */
-    public function detect(WingsRsNodeReadRequest $request, Node $node): JsonResponse
+    public function detect(WingsRsNodeUpdateRequest $request, Node $node): JsonResponse
     {
         $isSupercharged = $this->detectionService->detect($node);
         $node->refresh();
@@ -101,12 +102,12 @@ class NodeWingsRsController extends ApplicationApiController
     /**
      * POST /api/application/nodes/{node}/upgrade — Trigger Wings-RS self-upgrade.
      *
-     * The daemon is responsible for executing the upgrade. To prevent arbitrary command
-     * injection the panel no longer accepts a caller-controlled restart command; the daemon
-     * must use its own hardcoded restart mechanism. The "headers" field is also removed so
-     * callers cannot inject credentials or bypass daemon-side download security.
+     * The daemon is responsible for scheduling the upgrade. To prevent command
+     * injection the Panel does not accept caller-controlled download headers or
+     * restart commands; the required daemon payload fields are populated from
+     * trusted Panel configuration.
      */
-    public function upgrade(WingsRsNodeUpdateRequest $request, Node $node): JsonResponse
+    public function upgrade(WingsRsNodeUpgradeRequest $request, Node $node): JsonResponse
     {
         if (!$node->isSupercharged()) {
             return new JsonResponse(['error' => 'This node is not running Wings-RS.'], 400);
@@ -119,11 +120,23 @@ class NodeWingsRsController extends ApplicationApiController
             'sha256' => ['required', 'string', 'size:64', 'regex:/^[0-9a-f]{64}$/'],
         ]);
 
-        $this->wingsRsRepository->setNode($node)->upgradeSystem(
+        $applied = $this->wingsRsRepository->setNode($node)->upgradeSystem(
             $request->input('url'),
             $request->input('sha256')
         );
 
-        return new JsonResponse(['success' => true], 202);
+        if (!$applied) {
+            return new JsonResponse([
+                'success' => false,
+                'applied' => false,
+                'message' => 'Wings-RS is configured to ignore Panel-initiated upgrades.',
+            ]);
+        }
+
+        return new JsonResponse([
+            'success' => true,
+            'applied' => true,
+            'message' => 'The Wings-RS upgrade was accepted and scheduled.',
+        ], 202);
     }
 }

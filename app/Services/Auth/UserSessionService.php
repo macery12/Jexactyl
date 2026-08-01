@@ -7,9 +7,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Models\UserSession;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Everest\Events\Email\NewLoginDetected;
 use Illuminate\Support\Facades\Session as SessionFacade;
+use Everest\Exceptions\Http\Auth\AccountSuspendedException;
+use Everest\Exceptions\Http\Auth\AccountPendingApprovalException;
 
 class UserSessionService
 {
@@ -24,53 +27,64 @@ class UserSessionService
      */
     public function recordLogin(User $user, string $sessionId, ?string &$deviceId): UserSession
     {
-        $deviceId = $deviceId ?: Str::uuid()->toString();
-        $fingerprint = $this->fingerprint($deviceId);
-        $now = CarbonImmutable::now();
-        $existingForFingerprint = UserSession::query()
-            ->where('user_id', $user->id)
-            ->where('device_fingerprint', $fingerprint)
-            ->orderByDesc('created_at')
-            ->first();
+        return DB::transaction(function () use ($user, $sessionId, &$deviceId): UserSession {
+            /** @var User $lockedUser */
+            $lockedUser = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            if ($lockedUser->isSuspended()) {
+                throw new AccountSuspendedException();
+            }
+            if ($lockedUser->isPending()) {
+                throw AccountPendingApprovalException::withConfiguredMessage();
+            }
 
-        $session = UserSession::query()->updateOrCreate(
-            [
-                'user_id' => $user->id,
-                'device_fingerprint' => $fingerprint,
-            ],
-            [
-                'session_id' => $sessionId,
-                'device_name' => $this->deviceName(),
-                'user_agent' => $this->userAgent(),
-                'ip_address' => $this->ip(),
-                'location' => $this->location(),
-                'last_activity_at' => $now,
-                'revoked_at' => null,
-            ]
-        );
+            $deviceId = $deviceId ?: Str::uuid()->toString();
+            $fingerprint = $this->fingerprint($deviceId);
+            $now = CarbonImmutable::now();
+            $existingForFingerprint = UserSession::query()
+                ->where('user_id', $lockedUser->id)
+                ->where('device_fingerprint', $fingerprint)
+                ->orderByDesc('created_at')
+                ->first();
 
-        $shouldNotify = $this->shouldNotify($existingForFingerprint);
+            $session = UserSession::query()->updateOrCreate(
+                [
+                    'user_id' => $lockedUser->id,
+                    'device_fingerprint' => $fingerprint,
+                ],
+                [
+                    'session_id' => $sessionId,
+                    'device_name' => $this->deviceName(),
+                    'user_agent' => $this->userAgent(),
+                    'ip_address' => $this->ip(),
+                    'location' => $this->location(),
+                    'last_activity_at' => $now,
+                    'revoked_at' => null,
+                ]
+            );
 
-        if (!$shouldNotify && $existingForFingerprint && $existingForFingerprint->last_notified_at && !$session->last_notified_at) {
-            $session->forceFill(['last_notified_at' => $existingForFingerprint->last_notified_at])->save();
-        }
+            $shouldNotify = $this->shouldNotify($existingForFingerprint);
 
-        if ($shouldNotify) {
-            $session->forceFill(['last_notified_at' => $now])->save();
-            // Generate a unique correlation ID per email send to keep delivery logs distinct.
-            $correlationId = Str::uuid()->toString();
+            if (!$shouldNotify && $existingForFingerprint && $existingForFingerprint->last_notified_at && !$session->last_notified_at) {
+                $session->forceFill(['last_notified_at' => $existingForFingerprint->last_notified_at])->save();
+            }
 
-            event(new NewLoginDetected(
-                $user,
-                $this->ip(),
-                $this->userAgent(),
-                $correlationId,
-                $now,
-                $this->location()
-            ));
-        }
+            if ($shouldNotify) {
+                $session->forceFill(['last_notified_at' => $now])->save();
+                // Generate a unique correlation ID per email send to keep delivery logs distinct.
+                $correlationId = Str::uuid()->toString();
 
-        return $session;
+                event(new NewLoginDetected(
+                    $lockedUser,
+                    $this->ip(),
+                    $this->userAgent(),
+                    $correlationId,
+                    $now,
+                    $this->location()
+                ));
+            }
+
+            return $session;
+        });
     }
 
     /**
@@ -96,6 +110,105 @@ class UserSessionService
     }
 
     /**
+     * Re-establish tracking for a session Laravel just rebuilt from a valid
+     * "remember me" cookie.
+     *
+     * SessionGuard::updateSession() calls session()->regenerate(true) whenever the
+     * recaller logs a user back in, so the new session id never matches the row
+     * written at the original login. Without this, the fail-closed check in
+     * UpdateUserSessionActivity treats every remembered login as an untracked
+     * session and signs the user out — which is what made "remember me" useless
+     * and produced the once-a-day forced logouts.
+     *
+     * Revocation still wins. Revoking now cycles the remember token, so a
+     * signed-out device cannot reach this method at all; the fingerprint check
+     * below is the second line of defence for cookies issued before that shipped.
+     *
+     * Returns null when the caller must reject the request.
+     */
+    public function recordRememberedSession(User $user, string $sessionId): ?UserSession
+    {
+        // Mirrors recordLogin()'s gate: a suspended or held account must not get a
+        // session back just because it still holds a cookie.
+        if ($user->isSuspended() || $user->isPending()) {
+            return null;
+        }
+
+        $fingerprint = $this->fingerprint($this->currentDeviceId());
+
+        return DB::transaction(function () use ($user, $sessionId, $fingerprint): ?UserSession {
+            $existing = UserSession::query()
+                ->where('user_id', $user->id)
+                ->where('device_fingerprint', $fingerprint)
+                ->orderByDesc('last_activity_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$existing) {
+                // No row for this fingerprint, so nothing proves this device was
+                // ever signed in on it. Fail closed and make the user log in again
+                // — the same outcome as before this method existed.
+                //
+                // Creating a row here instead would be friendlier when a signature
+                // legitimately moves (a browser update changes the UA, or the /24
+                // changes on a new network), but it would also let a device whose
+                // session was revoked restore itself whenever its fingerprint no
+                // longer matches the revoked row. Rejecting keeps the middleware
+                // able to tear down a replayed cookie, and costs one re-login.
+                return null;
+            }
+
+            if ($existing->revoked_at) {
+                return null;
+            }
+
+            $now = CarbonImmutable::now();
+
+            // (user_id, session_id) is unique. Nothing should already hold the new
+            // id — the middleware only calls this after failing to find it — but
+            // clear any stale row so the write cannot fail on the index.
+            UserSession::query()
+                ->where('user_id', $user->id)
+                ->where('session_id', $sessionId)
+                ->whereKeyNot($existing->id)
+                ->delete();
+
+            $existing->forceFill([
+                'session_id' => $sessionId,
+                'device_name' => $this->deviceName(),
+                'user_agent' => $this->userAgent(),
+                'ip_address' => $this->ip(),
+                'location' => $this->location(),
+                'last_activity_at' => $now,
+            ])->save();
+
+            return $existing;
+        });
+    }
+
+    /**
+     * Invalidate every "remember me" cookie belonging to this user.
+     *
+     * The recaller cookie is checked against a single per-user remember_token, so
+     * it cannot be revoked per device — cycling the token is the only way to stop
+     * a revoked device walking back in on its cookie. Live sessions are unaffected:
+     * they authenticate from the session payload, not the recaller. The blast
+     * radius is "other devices lose remember-me", not "other devices are signed
+     * out", and SessionGuard::logout() already does exactly this on sign-out.
+     */
+    private function cycleRememberToken(User $user): void
+    {
+        $token = Str::random(60);
+
+        // Query-builder update rather than $user->save(): the model validates on
+        // save, and this must not be able to fail on unrelated attribute rules.
+        User::query()->whereKey($user->id)->update([$user->getRememberTokenName() => $token]);
+
+        $user->setRememberToken($token);
+        $user->syncOriginalAttribute($user->getRememberTokenName());
+    }
+
+    /**
      * Revoke a single session and destroy the backing session storage.
      */
     public function revokeSession(User $user, UserSession $session, bool $destroy = true): void
@@ -104,30 +217,21 @@ class UserSessionService
             Log::warning('UserSessionService: revokeSession blocked for mismatched user', [
                 'user_id' => $user->id,
                 'session_user_id' => $session->user_id,
-                'session_id' => $session->id,
+                'session_db_id' => $session->id,
             ]);
 
             return;
         }
 
         $session->update(['revoked_at' => CarbonImmutable::now()]);
+        $this->cycleRememberToken($user);
 
-        if ($destroy) {
-            SessionFacade::getHandler()->destroy($session->session_id);
-            if (session()->getId() === $session->session_id) {
-                $guard = auth()->guard();
-                if (method_exists($guard, 'logout')) {
-                    $guard->logout();
-                }
-                session()->invalidate();
-                session()->regenerateToken();
-            }
-        }
+        $destroyed = !$destroy || $this->destroyBackingSession($user, $session);
 
         Log::info('UserSessionService: session revoked', [
             'user_id' => $user->id,
             'session_db_id' => $session->id,
-            'destroyed' => $destroy,
+            'destroyed' => $destroyed,
         ]);
     }
 
@@ -151,20 +255,75 @@ class UserSessionService
      */
     public function revokeAll(User $user, ?string $exceptSessionId = null): void
     {
-        $sessions = UserSession::query()
-            ->where('user_id', $user->id)
-            ->when($exceptSessionId, fn ($q) => $q->where('session_id', '!=', $exceptSessionId))
-            ->get();
+        $sessions = DB::transaction(function () use ($user, $exceptSessionId) {
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
+            $query = UserSession::query()
+                ->where('user_id', $user->id)
+                ->when($exceptSessionId !== null, fn ($q) => $q->where('session_id', '!=', $exceptSessionId));
+            $sessions = (clone $query)->get();
+
+            // Mark every matching row before touching an external session
+            // handler. A Redis/filesystem failure cannot leave later rows
+            // authorized merely because their payload was destroyed second.
+            $query->update(['revoked_at' => CarbonImmutable::now()]);
+
+            return $sessions;
+        });
+
+        // Kill every recaller cookie too, otherwise "sign out everywhere" leaves
+        // each revoked device able to re-authenticate from its remember-me cookie
+        // on the next request.
+        $this->cycleRememberToken($user);
+
+        $destroyed = 0;
         foreach ($sessions as $session) {
-            $this->revokeSession($user, $session);
+            $destroyed += (int) $this->destroyBackingSession($user, $session);
         }
 
         Log::info('UserSessionService: revokeAll complete', [
             'user_id' => $user->id,
             'count' => $sessions->count(),
+            'destroyed' => $destroyed,
             'except_session' => $exceptSessionId,
         ]);
+    }
+
+    /**
+     * Destroy session-handler state without weakening the database revocation
+     * boundary when the handler is unavailable.
+     */
+    private function destroyBackingSession(User $user, UserSession $session): bool
+    {
+        $destroyed = false;
+        try {
+            $destroyed = SessionFacade::getHandler()->destroy($session->session_id) !== false;
+        } catch (\Throwable $exception) {
+            Log::warning('UserSessionService: backing session destroy failed', [
+                'user_id' => $user->id,
+                'session_db_id' => $session->id,
+                'exception' => $exception::class,
+            ]);
+        }
+
+        try {
+            if (session()->getId() === $session->session_id) {
+                $guard = auth()->guard();
+                if (method_exists($guard, 'logout')) {
+                    $guard->logout();
+                }
+                session()->invalidate();
+                session()->regenerateToken();
+            }
+        } catch (\Throwable $exception) {
+            Log::warning('UserSessionService: current session cleanup failed', [
+                'user_id' => $user->id,
+                'session_db_id' => $session->id,
+                'exception' => $exception::class,
+            ]);
+        }
+
+        return $destroyed;
     }
 
     /**

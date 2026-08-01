@@ -3,6 +3,7 @@
 namespace Everest\Transformers\Api;
 
 use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Illuminate\Http\Request;
 use Webmozart\Assert\Assert;
 use Everest\Models\AdminRole;
@@ -11,6 +12,8 @@ use Illuminate\Container\Container;
 use Everest\Services\Acl\Api\AdminAcl;
 use League\Fractal\Resource\Collection;
 use League\Fractal\TransformerAbstract;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 /**
  * @method array transform(\Everest\Models\Model $model)
@@ -49,21 +52,19 @@ abstract class Transformer extends TransformerAbstract
     }
 
     /**
-     * Maps each API ACL resource to the AdminRole read-permission that governs it.
-     * Sub-resources without a first-class admin module defer to their nearest owning
-     * module's read permission: allocations and locations are administered under
-     * Nodes, and server databases under the Databases (database-hosts) module.
+     * Maps each API ACL resource to the first-class Access Profile capability
+     * that governs reading it.
      */
     protected const INCLUDE_PERMISSIONS = [
         AdminAcl::RESOURCE_SERVERS => AdminRole::SERVERS_READ,
         AdminAcl::RESOURCE_NODES => AdminRole::NODES_READ,
-        AdminAcl::RESOURCE_ALLOCATIONS => AdminRole::NODES_READ,
-        AdminAcl::RESOURCE_LOCATIONS => AdminRole::NODES_READ,
+        AdminAcl::RESOURCE_ALLOCATIONS => AdminRole::ALLOCATIONS_READ,
+        AdminAcl::RESOURCE_LOCATIONS => AdminRole::LOCATIONS_READ,
         AdminAcl::RESOURCE_USERS => AdminRole::USERS_READ,
         AdminAcl::RESOURCE_NESTS => AdminRole::NESTS_READ,
         AdminAcl::RESOURCE_EGGS => AdminRole::EGGS_READ,
         AdminAcl::RESOURCE_DATABASE_HOSTS => AdminRole::DATABASES_READ,
-        AdminAcl::RESOURCE_SERVER_DATABASES => AdminRole::DATABASES_READ,
+        AdminAcl::RESOURCE_SERVER_DATABASES => AdminRole::SERVER_DATABASES_READ,
     ];
 
     /**
@@ -80,18 +81,17 @@ abstract class Transformer extends TransformerAbstract
             return false;
         }
 
-        if ($user->root_admin) {
-            return true;
-        }
-
         $required = self::INCLUDE_PERMISSIONS[$resource] ?? null;
-        if ($required === null || $user->admin_role_id === null) {
+        if ($required === null) {
             return false;
         }
 
-        // Mirror ApplicationApiRequest::authorize()/canViewPassword(): resolve the
-        // actor's role and test membership of the required read-permission.
-        return in_array($required, AdminRole::find($user->admin_role_id)->permissions ?? [], true);
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            return app(ApplicationApiAccessProfileService::class)->allows($token, $required);
+        }
+
+        return app(AdminAuthorizer::class)->hasCapability($user, $required);
     }
 
     /**

@@ -23,5 +23,15 @@ return [
         // extension, stacked inside the global application limit above.
         'ext_admin_period' => 1,
         'ext_admin' => env('APP_API_EXT_ADMIN_RATELIMIT', 60),
+
+        // File diffing is CPU work in the Panel process, so it has a tighter
+        // per-user budget in addition to the global client API limiter.
+        'file_diff_period' => 1,
+        'file_diff' => env('APP_API_FILE_DIFF_RATELIMIT', 10),
+
+        // Daemons batch activity events. Keep a per-node budget so one
+        // compromised or malfunctioning node cannot exhaust Panel workers.
+        'daemon_activity_period' => 1,
+        'daemon_activity' => env('APP_API_DAEMON_ACTIVITY_RATELIMIT', 60),
     ],
 ];

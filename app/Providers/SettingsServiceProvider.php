@@ -65,6 +65,10 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:billing:paypal_standalone:client_id',
         'modules:billing:paypal_standalone:client_secret',
         'modules:billing:paypal_standalone:mode',
+        // Storefront customisation master toggle. The rich section structure is
+        // stored as a JSON blob under `modules:billing:store:config` and read
+        // directly via Setting::get — only this scalar toggle is hydrated here.
+        'modules:billing:store:enabled',
 
         // Ticket module settings
         'modules:tickets:enabled',

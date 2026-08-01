@@ -90,6 +90,7 @@ class WebhookSeeder extends Seeder
             'admin:users:create',
             'admin:users:update',
             'admin:users:suspend',
+            'admin:users:unsuspend',
             'admin:users:delete',
 
             'admin:webhooks:update',

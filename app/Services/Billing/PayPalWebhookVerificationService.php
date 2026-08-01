@@ -2,16 +2,11 @@
 
 namespace Everest\Services\Billing;
 
-use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Everest\Services\Security\LogSanitizer;
 
 class PayPalWebhookVerificationService
 {
-    private const REPLAY_CACHE_TTL_DAYS = 30;
-    private const TIMESTAMP_TOLERANCE_SECONDS = 300;
-
     private const REQUIRED_HEADERS = [
         'paypal-auth-algo' => 'auth_algo',
         'paypal-cert-url' => 'cert_url',
@@ -46,13 +41,6 @@ class PayPalWebhookVerificationService
             ]);
         }
 
-        if (!$this->hasFreshTimestamp($headers['transmission_time'])) {
-            return $this->failure(400, 'invalid_timestamp', [
-                'event_type' => $request->input('event_type'),
-                'transmission_id' => LogSanitizer::maskIdentifier($headers['transmission_id']),
-            ]);
-        }
-
         $event = $request->json()->all();
         if ($event === []) {
             return $this->failure(400, 'invalid_payload', [
@@ -72,35 +60,11 @@ class PayPalWebhookVerificationService
             ]);
         }
 
-        $cacheKey = $this->replayCacheKey($headers['transmission_id']);
-        if (!Cache::add($cacheKey, true, now()->addDays(self::REPLAY_CACHE_TTL_DAYS))) {
-            return $this->failure(409, 'replayed_webhook', [
-                'event_type' => $request->input('event_type'),
-                'transmission_id' => LogSanitizer::maskIdentifier($headers['transmission_id']),
-            ]);
-        }
-
         return [
             'valid' => true,
             'event_type' => $request->input('event_type'),
             'transmission_id' => $headers['transmission_id'],
         ];
-    }
-
-    private function hasFreshTimestamp(string $timestamp): bool
-    {
-        try {
-            $transmissionTime = CarbonImmutable::parse($timestamp);
-        } catch (\Throwable) {
-            return false;
-        }
-
-        return abs(now()->diffInSeconds($transmissionTime, false)) <= self::TIMESTAMP_TOLERANCE_SECONDS;
-    }
-
-    private function replayCacheKey(string $transmissionId): string
-    {
-        return 'billing:paypal:webhook:transmission:' . sha1($transmissionId);
     }
 
     private function failure(int $status, string $reason, array $context = []): array

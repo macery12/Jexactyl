@@ -3,17 +3,21 @@
 namespace Everest\Tests\Unit\Http\Middleware;
 
 use Everest\Models\User;
+use Everest\Models\AdminRole;
 use Everest\Http\Middleware\AdminAuthenticate;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class AdminAuthenticateTest extends MiddlewareTestCase
 {
     /**
-     * Test that an admin is authenticated with root admin permission.
+     * Test that an Owner Access Profile can enter the admin surface.
      */
-    public function testAdminsAreAuthenticatedWithRootAdminPermission()
+    public function testOwnersAreAuthenticatedThroughTheirAccessProfile()
     {
-        $user = User::factory()->make(['root_admin' => 1]);
+        $user = User::factory()->make();
+        $profile = new AdminRole();
+        $profile->forceFill(['is_owner' => true]);
+        $user->setRelation('adminRole', $profile);
 
         $this->request->shouldReceive('user')->withNoArgs()->once()->andReturn($user);
 
@@ -40,6 +44,34 @@ class AdminAuthenticateTest extends MiddlewareTestCase
         $this->expectException(AccessDeniedHttpException::class);
 
         $user = User::factory()->make(['root_admin' => 0]);
+
+        $this->request->shouldReceive('user')->withNoArgs()->once()->andReturn($user);
+
+        $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
+    }
+
+    public function testSuspendedAdminIsRejected(): void
+    {
+        $this->expectException(AccessDeniedHttpException::class);
+
+        $user = User::factory()->make([
+            'root_admin' => 1,
+            'state' => 'suspended',
+        ]);
+
+        $this->request->shouldReceive('user')->withNoArgs()->once()->andReturn($user);
+
+        $this->getMiddleware()->handle($this->request, $this->getClosureAssertions());
+    }
+
+    public function testPendingAdminIsRejected(): void
+    {
+        $this->expectException(AccessDeniedHttpException::class);
+
+        $user = User::factory()->make([
+            'root_admin' => 1,
+            'state' => 'pending',
+        ]);
 
         $this->request->shouldReceive('user')->withNoArgs()->once()->andReturn($user);
 

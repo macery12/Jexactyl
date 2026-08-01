@@ -15,10 +15,10 @@ class GetUserPermissionsService
      */
     public function handle(Server $server, User $user): array
     {
-        if ($user->root_admin || $user->id === $server->owner_id) {
+        if ($user->isOwner() || $user->id === $server->owner_id) {
             $permissions = ['*'];
 
-            if ($user->root_admin) {
+            if ($user->isOwner()) {
                 $permissions[] = 'admin.websocket.errors';
                 $permissions[] = 'admin.websocket.install';
                 $permissions[] = 'admin.websocket.transfer';

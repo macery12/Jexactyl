@@ -7,13 +7,13 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Stripe\Webhook as StripeWebhook;
-use Everest\Services\Billing\StripeCustomerService;
+use Everest\Models\Billing\PaymentTransaction;
+use Everest\Services\Billing\StripeCaptureService;
+use Everest\Services\Billing\PaymentWebhookRegistry;
+use Everest\Services\Billing\ServerFulfillmentService;
 
 /**
  * Handles incoming Stripe webhook events.
- *
- * Currently processes:
- *  - customer.deleted  → clears the stored stripe_id on the corresponding User
  *
  * Signature verification is performed via Stripe's SDK using the
  * STRIPE_WEBHOOK_SECRET environment variable.
@@ -21,7 +21,8 @@ use Everest\Services\Billing\StripeCustomerService;
 class StripeWebhookController
 {
     public function __construct(
-        private StripeCustomerService $stripeCustomerService,
+        private StripeCaptureService $captureService,
+        private ServerFulfillmentService $fulfillmentService,
     ) {
     }
 
@@ -76,8 +77,9 @@ class StripeWebhookController
                 'error'      => $e->getMessage(),
             ]);
 
-            // Return 200 to prevent Stripe from retrying — the error is logged
-            return response()->json(['ok' => false, 'error' => 'Internal error processing event'], 200);
+            // A verified event is provider evidence. Return a retryable status
+            // until its durable local processing succeeds.
+            return response()->json(['ok' => false, 'error' => 'Internal error processing event'], 500);
         }
 
         return response()->json(['ok' => true]);
@@ -89,15 +91,49 @@ class StripeWebhookController
     private function dispatch(\Stripe\Event $event): void
     {
         match ($event->type) {
-            'customer.deleted' => $this->handleCustomerDeleted($event),
+            PaymentWebhookRegistry::STRIPE_CUSTOMER_DELETED => $this->handleCustomerDeleted($event),
+            PaymentWebhookRegistry::STRIPE_PAYMENT_INTENT_SUCCEEDED => $this->handlePaymentIntentSucceeded($event),
             default => null, // Unhandled events are silently ignored
         };
     }
 
     /**
-     * Handle customer.deleted: clear stripe_id from the matching User record.
+     * Recover a capture that succeeded at Stripe when the browser or Panel
+     * process failed before recording it or completing fulfillment.
+     */
+    private function handlePaymentIntentSucceeded(\Stripe\Event $event): void
+    {
+        $intent = $event->data->object;
+        $intentId = $intent->id ?? null;
+        if (!is_string($intentId) || $intentId === '') {
+            throw new \UnexpectedValueException('payment_intent.succeeded event is missing its intent ID.');
+        }
+
+        /** @var PaymentTransaction|null $transaction */
+        $transaction = PaymentTransaction::query()
+            ->where('processor', 'stripe')
+            ->where('external_id', $intentId)
+            ->first();
+        if ($transaction === null || $transaction->order === null) {
+            Log::info('Stripe capture event has no matching local checkout', [
+                'event_id' => $event->id,
+            ]);
+
+            return;
+        }
+
+        $order = $transaction->order;
+        $this->captureService->record($order, $transaction, $intent);
+        $this->fulfillmentService->fulfillOrder(new Request(), $order);
+    }
+
+    /**
+     * Handle customer.deleted without clearing the matching identifier.
      *
-     * This prevents stale Customer IDs from causing errors on the next checkout.
+     * StripeCustomerService deliberately derives a replacement idempotency key
+     * from the deleted Customer ID and swaps it under a row lock. Retaining the
+     * stale ID until that swap both prevents a delayed webhook from clearing a
+     * newer Customer and avoids reusing the original Customer creation key.
      */
     private function handleCustomerDeleted(\Stripe\Event $event): void
     {
@@ -122,6 +158,9 @@ class StripeWebhookController
             return;
         }
 
-        $this->stripeCustomerService->clearForUser($user);
+        Log::info('Stripe Customer deletion recorded; stale identifier retained for replacement', [
+            'user_id' => $user->id,
+            'customer_id' => $customerId,
+        ]);
     }
 }

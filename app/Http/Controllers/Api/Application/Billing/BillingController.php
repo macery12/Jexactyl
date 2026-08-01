@@ -52,12 +52,13 @@ class BillingController extends ApplicationApiController
             Setting::set('settings::modules:billing:' . $key, $value);
         }
 
-        if (strpos($key, 'keys:') !== 0) {
-            Activity::event('admin:billing:update')
-                ->property('settings', $request->all())
-                ->description('M12Labs billing settings were updated')
-                ->log();
-        }
+        Activity::event('admin:billing:update')
+            ->property('settings', [
+                'key' => $key,
+                'configured' => $value !== null && $value !== '',
+            ])
+            ->description('M12Labs billing settings were updated')
+            ->log();
 
         return $this->returnNoContent();
     }

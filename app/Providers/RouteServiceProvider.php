@@ -39,7 +39,12 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('web')->group(function () {
                 // Admin keeps V1's server-side gates: a guest or non-admin never
                 // receives the admin shell.
-                Route::middleware(['auth.session', RequireTwoFactorAuthentication::class, AdminAuthenticate::class])
+                // 'auth' has to lead: auth.session (AuthenticateSession) no-ops on a
+                // null user, so without it a guest fell through to AdminAuthenticate
+                // and got a bare 403 error page with no way back to the login form.
+                // With it, Handler::unauthenticated() redirects to /auth/login and
+                // AdminAuthenticate is left handling only authenticated-but-not-admin.
+                Route::middleware(['auth', 'auth.session', RequireTwoFactorAuthentication::class, AdminAuthenticate::class])
                     ->prefix('/admin')
                     ->group(base_path('routes/admin.php'));
 
@@ -97,7 +102,12 @@ class RouteServiceProvider extends ServiceProvider
                 return Limit::perMinute(2)->by($request->ip());
             }
 
-            return Limit::perMinute(10);
+            // Must be keyed. Limit::perMinute() leaves the key empty, and
+            // ThrottleRequests hashes md5($limiterName . $limit->key) — so an
+            // unkeyed limit is one bucket shared by every client on the internet,
+            // letting a single host 429 every login, registration and SSO callback
+            // panel-wide with 10 requests a minute.
+            return Limit::perMinute(10)->by($request->ip());
         });
 
         // Configure the throttles for both the application and client APIs below.
@@ -140,6 +150,43 @@ class RouteServiceProvider extends ServiceProvider
                 config('http.rate_limit.ext_admin_period'),
                 config('http.rate_limit.ext_admin')
             )->by('ext-admin:' . $extensionId . ':' . $key);
+        });
+
+        RateLimiter::for('file.diff', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+
+            return Limit::perMinutes(
+                max(1, (int) config('http.rate_limit.file_diff_period', 1)),
+                max(1, (int) config('http.rate_limit.file_diff', 10))
+            )->by('file-diff:' . $key)->response(function () {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => 'Too many file diff requests. Please wait before saving again.',
+                        ],
+                    ],
+                ], 429);
+            });
+        });
+
+        RateLimiter::for('daemon.activity', function (Request $request) {
+            /** @var \Everest\Models\Node|null $node */
+            $node = $request->attributes->get('node');
+            $key = $node?->getKey();
+
+            // DaemonAuthenticate runs before this route limiter. The fallback is
+            // fail-safe for an unexpectedly reordered middleware stack and does
+            // not store the bearer token itself in a cache key.
+            if ($key === null) {
+                $key = hash('sha256', (string) ($request->bearerToken() ?? $request->ip()));
+            }
+
+            return Limit::perMinutes(
+                max(1, (int) config('http.rate_limit.daemon_activity_period', 1)),
+                max(1, (int) config('http.rate_limit.daemon_activity', 60))
+            )->by('daemon-activity:' . $key);
         });
 
         RateLimiter::for('password-reset-ip', fn (Request $request) => Limit::perMinutes(3, 20)->by($request->ip()));

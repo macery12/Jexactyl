@@ -3,7 +3,6 @@
 namespace Everest\Services\Billing;
 
 use Everest\Models\Setting;
-use Everest\Models\Billing\Product;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\Security\LogSanitizer;
@@ -96,62 +95,94 @@ class PayPalPaymentService
      *
      * @throws BillingExceptionClass
      */
-    public function createOrder(Product $product, float $amount, ?int $couponId, string $returnUrl, string $cancelUrl): array
-    {
+    public function createOrder(
+        array $orderData,
+        ?string $idempotencyKey = null,
+    ): array {
         try {
             $token = $this->getAccessToken();
 
-            $orderData = [
-                'intent' => 'CAPTURE',
-                'purchase_units' => [
-                    [
-                        'reference_id' => 'product_' . $product->id,
-                        'description' => $product->name,
-                        'amount' => [
-                            'currency_code' => strtoupper(config('modules.billing.currency.code')),
-                            'value' => number_format($amount, 2, '.', ''),
-                        ],
-                        'custom_id' => json_encode([
-                            'product_id' => $product->id,
-                            'coupon_id' => $couponId,
-                        ]),
-                    ],
-                ],
-                'application_context' => [
-                    'brand_name' => config('app.name'),
-                    'landing_page' => 'BILLING',
-                    'user_action' => 'PAY_NOW',
-                    'return_url' => $returnUrl,
-                    'cancel_url' => $cancelUrl,
-                ],
+            $headers = [
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
             ];
+            if ($idempotencyKey !== null) {
+                $headers['PayPal-Request-Id'] = $idempotencyKey;
+            }
 
             $response = Http::withToken($token)
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json',
-                ])
+                ->withHeaders($headers)
                 ->post($this->getApiUrl() . '/v2/checkout/orders', $orderData);
 
             if (!$response->successful()) {
                 \Log::error('PayPal order creation failed', [
-                    'product_id' => $product->id,
+                    'reference_id' => $orderData['purchase_units'][0]['reference_id'] ?? null,
                     'status' => $response->status(),
                     'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
                 ]);
 
-                throw new BillingExceptionClass('PayPal order creation failed', 'Failed to create PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', null, ['product_id' => $product->id, 'amount' => $amount, 'status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
+                throw new BillingExceptionClass('PayPal order creation failed', 'Failed to create PayPal order. Please try again or contact support.', BillingException::TYPE_PAYMENT, null, 'paypal', null, ['reference_id' => $orderData['purchase_units'][0]['reference_id'] ?? null, 'status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
             }
 
             return $response->json();
         } catch (BillingExceptionClass $e) {
             throw $e;
         } catch (\Exception $e) {
-            \Log::error('PayPal order creation exception', array_merge([
-                'product_id' => $product->id,
-            ], LogSanitizer::exceptionContext($e)));
+            \Log::error('PayPal order creation exception', LogSanitizer::exceptionContext($e));
 
-            throw new BillingExceptionClass('PayPal order creation error', 'An unexpected error occurred while creating PayPal order: ' . $e->getMessage(), BillingException::TYPE_PAYMENT, null, 'paypal', null, ['product_id' => $product->id, 'error' => $e->getMessage()], $e);
+            throw new BillingExceptionClass('PayPal order creation error', 'An unexpected error occurred while creating PayPal order: ' . $e->getMessage(), BillingException::TYPE_PAYMENT, null, 'paypal', null, ['error' => $e->getMessage()], $e);
+        }
+    }
+
+    /**
+     * Reprice and bind a not-yet-approved PayPal order to a finalized local snapshot.
+     */
+    public function updateOrder(
+        string $orderId,
+        float $amount,
+        array $customData,
+        string $referenceId,
+    ): void {
+        try {
+            $token = $this->getAccessToken();
+            $purchaseUnitPath = "/purchase_units/@reference_id=='{$referenceId}'";
+
+            $response = Http::withToken($token)
+                ->withHeaders([
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
+                ])
+                ->patch($this->getApiUrl() . '/v2/checkout/orders/' . $orderId, [
+                    [
+                        'op' => 'replace',
+                        'path' => $purchaseUnitPath . '/amount',
+                        'value' => [
+                            'currency_code' => strtoupper(config('modules.billing.currency.code')),
+                            'value' => number_format($amount, 2, '.', ''),
+                        ],
+                    ],
+                    [
+                        'op' => 'replace',
+                        'path' => $purchaseUnitPath . '/custom_id',
+                        'value' => json_encode($customData, JSON_THROW_ON_ERROR),
+                    ],
+                ]);
+
+            if (!$response->successful()) {
+                \Log::error('PayPal order update failed', [
+                    'order_id' => LogSanitizer::maskIdentifier($orderId),
+                    'status' => $response->status(),
+                    'response_summary' => LogSanitizer::summarizeProviderPayload($response->json()),
+                ]);
+
+                throw new BillingExceptionClass('PayPal order update failed', 'Failed to finalize the PayPal order. Please start a new checkout.', BillingException::TYPE_PAYMENT, null, 'paypal', $orderId, ['status' => $response->status(), 'response_summary' => LogSanitizer::summarizeProviderPayload($response->json())]);
+            }
+        } catch (BillingExceptionClass $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            \Log::error('PayPal order update exception', LogSanitizer::exceptionContext($e));
+
+            throw new BillingExceptionClass('PayPal order update error', 'An unexpected error occurred while finalizing the PayPal order.', BillingException::TYPE_PAYMENT, null, 'paypal', $orderId, [], $e);
         }
     }
 
@@ -204,17 +235,22 @@ class PayPalPaymentService
      *
      * @throws BillingExceptionClass
      */
-    public function captureOrder(string $orderId): array
+    public function captureOrder(string $orderId, ?string $idempotencyKey = null): array
     {
         try {
             $token = $this->getAccessToken();
 
+            $headers = [
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json',
+                'Prefer' => 'return=representation',
+            ];
+            if ($idempotencyKey !== null) {
+                $headers['PayPal-Request-Id'] = $idempotencyKey;
+            }
+
             $response = Http::withToken($token)
-                ->withHeaders([
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json',
-                    'Prefer' => 'return=representation',
-                ])
+                ->withHeaders($headers)
                 ->post($this->getApiUrl() . '/v2/checkout/orders/' . $orderId . '/capture', new \stdClass());
 
             if (!$response->successful()) {

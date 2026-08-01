@@ -125,7 +125,15 @@ class LoginCheckpointControllerTest extends IntegrationTestCase
 
     public function testEndpointAppliesThrottling(): void
     {
-        for ($i = 0; $i < 5; ++$i) {
+        // Driven by config rather than a literal. This used to hard-code 5, which
+        // was AuthenticatesUsers' default rather than the configured limit — the
+        // controller assigned config('modules.auth.security.attempts') to a
+        // property ($maxLoginAttempts) that nothing ever read, so the setting was
+        // inert. The property is now named $maxAttempts, which ThrottlesLogins
+        // resolves, and the configured value genuinely applies.
+        $attempts = (int) config('modules.auth.security.attempts');
+
+        for ($i = 0; $i < $attempts; ++$i) {
             $this->postJson(route('auth.login-checkpoint', ['confirmation_token' => 'token', 'authentication_code' => '123456']))
                 ->assertBadRequest();
         }

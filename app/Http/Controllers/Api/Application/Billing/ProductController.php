@@ -3,15 +3,20 @@
 namespace Everest\Http\Controllers\Api\Application\Billing;
 
 use Ramsey\Uuid\Uuid;
+use Everest\Models\Server;
 use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
+use Everest\Models\Billing\Order;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Product;
 use Everest\Models\Billing\Category;
 use Illuminate\Support\Facades\Cache;
 use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Exceptions\DisplayException;
 use Everest\Services\Billing\BillingCycleService;
+use Everest\Services\Billing\ProductDeletionGuardService;
 use Everest\Transformers\Api\Application\ProductTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
@@ -26,8 +31,10 @@ class ProductController extends ApplicationApiController
     /**
      * ProductController constructor.
      */
-    public function __construct(private BillingCycleService $billingCycleService)
-    {
+    public function __construct(
+        private BillingCycleService $billingCycleService,
+        private ProductDeletionGuardService $deletionGuard,
+    ) {
         parent::__construct();
     }
 
@@ -141,16 +148,31 @@ class ProductController extends ApplicationApiController
     public function update(UpdateBillingProductRequest $request, string $category, string $product): Response
     {
         $productModel = Product::findOrFail((int) $product);
+        $attributes = $this->attributesFrom($request, null);
 
         try {
-            $productModel->update($this->attributesFrom($request, null));
+            $productModel = DB::transaction(function () use ($productModel, $attributes, $request): Product {
+                /** @var Product $productModel */
+                $productModel = Product::query()
+                    ->whereKey($productModel->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            // Update billing cycles if provided
-            if ($request->has('billing_cycles')) {
-                $this->billingCycleService->syncBillingCycles($productModel, $request->input('billing_cycles'));
-            }
+                $this->assertCanApplyPriceChange($productModel, $attributes);
+
+                $productModel->update($attributes);
+
+                // Update billing cycles if provided
+                if ($request->has('billing_cycles')) {
+                    $this->billingCycleService->syncBillingCycles($productModel, $request->input('billing_cycles'));
+                }
+
+                return $productModel;
+            }, 5);
 
             $this->flushStorefrontCache($productModel->category_uuid);
+        } catch (DisplayException $exception) {
+            throw $exception;
         } catch (\Exception $ex) {
             throw new \Exception('Failed to update a product: ' . $ex->getMessage());
         }
@@ -162,6 +184,32 @@ class ProductController extends ApplicationApiController
             ->log();
 
         return $this->returnNoContent();
+    }
+
+    private function assertCanApplyPriceChange(Product $product, array $attributes): void
+    {
+        $willBecomeFree = !$product->isFree()
+            && array_key_exists('price', $attributes)
+            && (float) $attributes['price'] === 0.0;
+        if (!$willBecomeFree) {
+            return;
+        }
+
+        $hasReferencedServers = Server::query()
+            ->where('billing_product_id', $product->id)
+            ->exists();
+        $hasActiveNewServerOrders = Order::query()
+            ->where('product_id', $product->id)
+            ->where('type', Order::TYPE_NEW)
+            ->whereIn('status', [
+                Order::STATUS_PENDING,
+                Order::STATUS_FULFILLING,
+                Order::STATUS_PAYMENT_REVIEW,
+            ])
+            ->exists();
+        if ($hasReferencedServers || $hasActiveNewServerOrders) {
+            throw new DisplayException('This product cannot be made free while servers or active new-server orders still use it. Move the servers and reconcile the orders first.');
+        }
     }
 
     /**
@@ -181,9 +229,18 @@ class ProductController extends ApplicationApiController
      */
     public function delete(DeleteBillingProductRequest $request, string $category, string $product): Response
     {
-        $productModel = Product::findOrFail((int) $product);
-        $categoryUuid = $productModel->category_uuid;
-        $productModel->delete();
+        [$productModel, $categoryUuid] = DB::transaction(function () use ($product): array {
+            $this->deletionGuard->assertDeletable([(int) $product]);
+            /** @var Product $productModel */
+            $productModel = Product::query()
+                ->whereKey((int) $product)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $categoryUuid = $productModel->category_uuid;
+            $productModel->delete();
+
+            return [$productModel, $categoryUuid];
+        });
 
         $this->flushStorefrontCache($categoryUuid);
 

@@ -11,6 +11,7 @@ use Everest\Http\Controllers\Controller;
 use Illuminate\Database\ConnectionInterface;
 use Everest\Services\Eggs\EggConfigurationService;
 use Everest\Repositories\Eloquent\ServerRepository;
+use Everest\Services\Servers\DaemonServerAuthorizationService;
 use Everest\Http\Resources\Wings\ServerConfigurationCollection;
 use Everest\Services\Servers\ServerConfigurationStructureService;
 
@@ -24,6 +25,7 @@ class ServerDetailsController extends Controller
         private ServerRepository $repository,
         private ServerConfigurationStructureService $configurationStructureService,
         private EggConfigurationService $eggConfigurationService,
+        private DaemonServerAuthorizationService $authorization,
     ) {
     }
 
@@ -36,6 +38,11 @@ class ServerDetailsController extends Controller
     public function __invoke(Request $request, string $uuid): JsonResponse
     {
         $server = $this->repository->getByUuid($uuid);
+        $this->authorization->assertCanReadDetails(
+            $this->authorization->node($request),
+            $server,
+            $server->transfer()->first()
+        );
 
         return new JsonResponse([
             'settings' => $this->configurationStructureService->handle($server),

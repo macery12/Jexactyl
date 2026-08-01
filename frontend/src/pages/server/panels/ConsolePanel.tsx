@@ -9,7 +9,6 @@ import { Panel } from './Panel';
 import { useServer } from '@/components/server/ServerContext';
 import { useServerSocket } from '@/state/serverSocket';
 import { SocketEvent, SocketRequest } from '@/lib/Websocket';
-import { usePersistedState } from '@/hooks/usePersistedState';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
 
@@ -46,7 +45,9 @@ export function ConsolePanel() {
     const termRef = useRef<Terminal | null>(null);
     const instance = useServerSocket(s => s.instance);
     const connected = useServerSocket(s => s.connected);
-    const [history, setHistory] = usePersistedState<string[]>(`v2:${server.id}:command_history`, []);
+    // Commands commonly contain passwords or tokens. Keep history in memory
+    // for this component lifetime only.
+    const [history, setHistory] = useState<string[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
 
     const canSend = can(server.permissions, 'control.console');

@@ -21,7 +21,7 @@ class DiscordSrvHelperOwnerRequest extends ClientApiRequest
             return false;
         }
 
-        if (!$user->root_admin && $user->id !== $server->owner_id) {
+        if (!$user->isOwner() && $user->id !== $server->owner_id) {
             return false;
         }
 

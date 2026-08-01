@@ -8,7 +8,6 @@ use Everest\Facades\Activity;
 use Everest\Models\Permission;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
-use Everest\Exceptions\DisplayException;
 use Everest\Repositories\Eloquent\SubuserRepository;
 use Everest\Services\Subusers\SubuserCreationService;
 use Everest\Transformers\Api\Client\SubuserTransformer;
@@ -65,10 +64,6 @@ class SubuserController extends ClientApiController
      */
     public function store(StoreSubuserRequest $request, Server $server): array
     {
-        if ($server->subuser_limit > -1 && $server->subusers()->count() >= $server->subuser_limit) {
-            throw new DisplayException('You cannot add any more subusers to this server.');
-        }
-
         $response = $this->creationService->handle(
             $server,
             $request->input('email'),

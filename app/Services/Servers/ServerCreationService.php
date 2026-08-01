@@ -9,9 +9,12 @@ use Everest\Models\Server;
 use Illuminate\Support\Arr;
 use Webmozart\Assert\Assert;
 use Everest\Models\Allocation;
+use Everest\Models\Billing\Order;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Everest\Models\Objects\DeploymentObject;
 use Illuminate\Database\ConnectionInterface;
+use Everest\Models\Billing\FreeProductEntitlement;
 use Everest\Repositories\Eloquent\ServerRepository;
 use Everest\Repositories\Wings\DaemonServerRepository;
 use Everest\Services\Deployment\FindViableNodesService;
@@ -90,6 +93,52 @@ class ServerCreationService
             $this->storeAssignedAllocations($server, $data);
             $this->storeEggVariables($server, $eggVariableData);
 
+            if (!empty($data['billing_order_id'])) {
+                /** @var Order $billingOrder */
+                $billingOrder = Order::query()
+                    ->whereKey($data['billing_order_id'])
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $claim = $data['billing_fulfillment_claim'] ?? null;
+                $isFreeOrder = $billingOrder->payment_processor === 'free';
+                $requiresFreeProductEntitlement = $isFreeOrder
+                    && $billingOrder->requires_free_product_entitlement;
+                $ownsOrder = $billingOrder->server_id === null
+                    && (
+                        ($isFreeOrder && $billingOrder->status === Order::STATUS_PENDING && $claim === null)
+                        || (
+                            !$isFreeOrder
+                            && $billingOrder->status === Order::STATUS_FULFILLING
+                            && is_string($claim)
+                            && hash_equals((string) $billingOrder->fulfillment_claim, $claim)
+                        )
+                    );
+
+                if (!$ownsOrder) {
+                    throw new \RuntimeException('The billing order no longer owns this fulfillment claim.');
+                }
+
+                $billingOrder->forceFill(['server_id' => $server->id])->saveOrFail();
+
+                // A free entitlement becomes durable in the same local
+                // transaction that creates its server. A later optional-domain
+                // error can therefore never release the uniqueness guard while
+                // leaving a usable daemon server behind.
+                if (
+                    $requiresFreeProductEntitlement
+                    && FreeProductEntitlement::query()
+                        ->where('order_id', $billingOrder->id)
+                        ->where('status', 'reserved')
+                        ->update([
+                            'status' => 'consumed',
+                            'server_id' => $server->id,
+                            'expires_at' => null,
+                        ]) !== 1
+                ) {
+                    throw new \RuntimeException('The free-product entitlement is no longer reserved by this order.');
+                }
+            }
+
             return $server;
         }, 5);
 
@@ -98,7 +147,31 @@ class ServerCreationService
                 Arr::get($data, 'start_on_completion', false) ?? false
             );
         } catch (DaemonConnectionException $exception) {
-            $this->serverDeletionService->withForce()->handle($server);
+            try {
+                // An ambiguous daemon delete must preserve the local server
+                // and order link for reconciliation. Force deletion would
+                // erase that evidence and permit a retry to create a second
+                // orphan workload after a timeout.
+                $this->serverDeletionService->withForce(false)->handle($server);
+
+                if (!empty($data['billing_order_id'])) {
+                    // Clear the output link only after the compensating delete
+                    // succeeded. Until then, stale-claim recovery must refuse
+                    // to provision a second server.
+                    Order::query()
+                        ->whereKey($data['billing_order_id'])
+                        ->where('server_id', $server->id)
+                        ->update(['server_id' => null]);
+                }
+            } catch (\Throwable $cleanupException) {
+                Log::critical('Failed to compensate a daemon server creation failure', [
+                    'server_id' => $server->id,
+                    'billing_order_id' => $data['billing_order_id'] ?? null,
+                    'exception' => $cleanupException::class,
+                ]);
+
+                throw $cleanupException;
+            }
 
             throw $exception;
         }
@@ -160,6 +233,7 @@ class ServerCreationService
             'startup' => Arr::get($data, 'startup'),
             'image' => Arr::get($data, 'image'),
             'billing_product_id' => Arr::get($data, 'billing_product_id') ?? null,
+            'billing_order_id' => Arr::get($data, 'billing_order_id'),
             'billing_days' => Arr::get($data, 'billing_days') ?? null,
             'billing_amount' => Arr::get($data, 'billing_amount') ?? null,
             'renewal_date' => Arr::get($data, 'renewal_date') ?? null,

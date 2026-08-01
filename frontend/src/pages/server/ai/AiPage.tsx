@@ -33,7 +33,7 @@ export default function AiPage() {
     const user = useSession(s => s.user);
     const everest = useFlags(s => s.everest);
 
-    const isAdmin = Boolean(user?.root_admin || user?.admin_role_id);
+    const isAdmin = Boolean(user?.admin_role_id);
     const assistantEnabled = Boolean(everest?.ai.feature_server_assistant);
     const canUseAssistant = isAdmin || assistantEnabled;
 

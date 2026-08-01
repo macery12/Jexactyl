@@ -231,29 +231,34 @@ class FileController extends ClientApiController
      */
     public function writeWithDiff(WriteFileWithDiffRequest $request, Server $server): JsonResponse
     {
-        $file = $request->input('file');
-        $content = $request->input('content');
+        $file = (string) $request->input('file');
+        $content = (string) $request->input('content');
         $originalContent = $request->input('original_content', '');
 
         $this->guardArchiveWritePath($file);
 
-        // Write the new content to the file
-        $this->fileRepository->setServer($server)->putContent($file, $content);
+        // Calculate and bound optional audit metadata before mutating the daemon.
+        // If diff calculation fails, the remote file remains untouched.
+        $diffProperty = null;
 
-        // Build activity log with diff information if it's a text file
-        $activity = Activity::event('server:file.write')->property('file', $file);
-
-        if ($this->diffService->isTextFile($file) && $originalContent !== null) {
+        if ($this->diffService->isTextFile($file) && is_string($originalContent)) {
             $diff = $this->diffService->calculateDiff($originalContent, $content, $file);
-
-            $activity->property('diff', [
+            $diffProperty = [
                 'additions' => $diff['additions'],
                 'deletions' => $diff['deletions'],
                 'hunks' => $diff['hunks'],
                 'is_new_file' => $diff['is_new_file'] ?? false,
                 'large_file' => $diff['large_file'] ?? false,
-            ]);
+                'log_truncated' => $diff['log_truncated'] ?? false,
+            ];
         }
+
+        $activity = Activity::event('server:file.write')->property('file', $file);
+        if ($diffProperty !== null) {
+            $activity->property('diff', $diffProperty);
+        }
+
+        $this->fileRepository->setServer($server)->putContent($file, $content);
 
         $activity->log();
 

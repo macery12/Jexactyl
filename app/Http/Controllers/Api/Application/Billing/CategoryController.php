@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Everest\Models\Billing\Category;
 use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Services\Billing\ProductDeletionGuardService;
 use Everest\Transformers\Api\Application\CategoryTransformer;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
@@ -24,7 +25,7 @@ class CategoryController extends ApplicationApiController
     /**
      * CategoryController constructor.
      */
-    public function __construct()
+    public function __construct(private ProductDeletionGuardService $deletionGuard)
     {
         parent::__construct();
     }
@@ -160,8 +161,17 @@ class CategoryController extends ApplicationApiController
     public function delete(DeleteBillingCategoryRequest $request, Category $category): Response
     {
         DB::transaction(function () use ($category) {
-            // Bulk delete linked products in a single statement. Product has no delete
-            // events/observers, so per-row iteration is unnecessary.
+            $productIds = $category->products()
+                ->orderBy('id')
+                ->pluck('id')
+                ->all();
+            $this->deletionGuard->assertDeletable($productIds);
+            $category->products()
+                ->whereIn('id', $productIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
             $category->products()->forceDelete();
 
             $category->forceDelete();

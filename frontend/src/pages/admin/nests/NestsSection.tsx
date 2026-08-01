@@ -13,8 +13,13 @@ import EggEditorPage from './egg/EggEditorPage';
 // gate, letting anyone with `nests.read` edit eggs — a privilege widening, not
 // just a missing check. The registry is flat, so the gate is restored here.
 // See docs/v1-cutover/01-audit-findings.md #3 (gaps 10-11).
-const eggEditor = (
-    <RequireAdminPermission permission="eggs.read">
+const newEggEditor = (
+    <RequireAdminPermission permission="eggs.create">
+        <EggEditorPage />
+    </RequireAdminPermission>
+);
+const existingEggEditor = (
+    <RequireAdminPermission permission="eggs.update">
         <EggEditorPage />
     </RequireAdminPermission>
 );
@@ -22,8 +27,8 @@ const eggEditor = (
 export default function NestsSection() {
     return (
         <Routes>
-            <Route path=":nestId/eggs/new" element={eggEditor} />
-            <Route path=":nestId/eggs/:eggId" element={eggEditor} />
+            <Route path=":nestId/eggs/new" element={newEggEditor} />
+            <Route path=":nestId/eggs/:eggId" element={existingEggEditor} />
             <Route index element={<NestsWorkspace />} />
             <Route path=":nestId" element={<NestsWorkspace />} />
         </Routes>

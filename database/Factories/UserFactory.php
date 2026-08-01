@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Ramsey\Uuid\Uuid;
 use Everest\Models\User;
 use Illuminate\Support\Str;
+use Everest\Models\AdminRole;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -40,6 +41,13 @@ class UserFactory extends Factory
      */
     public function admin(): static
     {
-        return $this->state(['root_admin' => true]);
+        return $this->state(function (): array {
+            $owner = AdminRole::query()->where('is_owner', true)->firstOrFail();
+
+            return [
+                'admin_role_id' => $owner->id,
+                'root_admin' => true,
+            ];
+        });
     }
 }

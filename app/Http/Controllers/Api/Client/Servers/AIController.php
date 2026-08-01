@@ -99,7 +99,7 @@ class AIController extends ClientApiController
             abort(403, 'The M12Labs-AI module is not enabled.');
         }
 
-        $isPrivileged = $request->user()->root_admin || $request->user()->admin_role_id;
+        $isPrivileged = $request->user()->isOwner();
 
         // Feature-level gating — check the individual component toggle
         $queryType = $request->input('query_type', 'freeform');

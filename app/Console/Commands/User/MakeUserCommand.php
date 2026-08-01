@@ -2,6 +2,7 @@
 
 namespace Everest\Console\Commands\User;
 
+use Everest\Models\AdminRole;
 use Illuminate\Console\Command;
 use Everest\Services\Users\UserCreationService;
 
@@ -9,7 +10,14 @@ class MakeUserCommand extends Command
 {
     protected $description = 'Creates a user on the system via the CLI.';
 
-    protected $signature = 'p:user:make {--email=} {--username=} {--name-first=} {--name-last=} {--password=} {--admin=} {--no-password}';
+    protected $signature = 'p:user:make
+                            {--email=}
+                            {--username=}
+                            {--name-first=}
+                            {--name-last=}
+                            {--password=}
+                            {--admin= : Make this user a Root Admin with full access (true/false)}
+                            {--no-password}';
 
     /**
      * MakeUserCommand constructor.
@@ -25,9 +33,23 @@ class MakeUserCommand extends Command
      * @throws \Exception
      * @throws \Everest\Exceptions\Model\DataValidationException
      */
-    public function handle()
+    public function handle(): int
     {
-        $root_admin = $this->option('admin') ?? $this->confirm(trans('command/messages.user.ask_admin'));
+        $owner = $this->ownerRequested();
+        if ($owner === null) {
+            $this->components->error(trans('command/messages.user.invalid_admin'));
+
+            return self::FAILURE;
+        }
+        $ownerProfile = $owner
+            ? AdminRole::query()->where('is_owner', true)->first()
+            : null;
+        if ($owner && !$ownerProfile) {
+            $this->components->error(trans('command/messages.user.owner_missing'));
+
+            return self::FAILURE;
+        }
+
         $email = $this->option('email') ?? $this->ask(trans('command/messages.user.ask_email'));
         $username = $this->option('username') ?? $this->ask(trans('command/messages.user.ask_username'));
 
@@ -37,12 +59,34 @@ class MakeUserCommand extends Command
             $password = $this->secret(trans('command/messages.user.ask_password'));
         }
 
-        $user = $this->creationService->handle(compact('email', 'username', 'password', 'root_admin'));
+        $data = compact('email', 'username', 'password');
+        if ($ownerProfile) {
+            $data['admin_role_id'] = $ownerProfile->id;
+            $data['root_admin'] = true;
+        }
+
+        $user = $this->creationService->handle($data);
         $this->table(['Field', 'Value'], [
             ['UUID', $user->uuid],
             ['Email', $user->email],
             ['Username', $user->username],
-            ['Admin', $user->root_admin ? 'Yes' : 'No'],
+            ['Root Admin', $user->isOwner() ? 'Yes' : 'No'],
         ]);
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Resolve the optional non-interactive Owner flag without relying on
+     * PHP's unsafe non-empty-string-to-true cast.
+     */
+    private function ownerRequested(): ?bool
+    {
+        $value = $this->option('admin');
+        if ($value === null) {
+            return $this->confirm(trans('command/messages.user.ask_admin'));
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
     }
 }

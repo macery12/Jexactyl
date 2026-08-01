@@ -2,8 +2,11 @@
 
 namespace Everest\Http\Requests\Api\Application;
 
-use Everest\Models\AdminRole;
+use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Everest\Http\Requests\Api\ApiRequest;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 abstract class ApplicationApiRequest extends ApiRequest
 {
@@ -13,24 +16,18 @@ abstract class ApplicationApiRequest extends ApiRequest
      */
     public function authorize(): bool
     {
-        if ($this->user()->root_admin) {
-            return true;
+        $user = ($this->getUserResolver())();
+        if (!$user instanceof User || !$user->isActive() || !method_exists($this, 'permission')) {
+            return false;
         }
 
-        $id = $this->user()->admin_role_id;
-
-        if ($id) {
-            if (method_exists($this, 'permission')) {
-                $required = $this->permission();
-
-                return in_array($required, AdminRole::find($id)->permissions ?? []);
-            }
-
-            return true;
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            return $token->key_type === ApiKey::TYPE_APPLICATION
+                && app(ApplicationApiAccessProfileService::class)->allows($token, $this->permission());
         }
 
-        return false;
-
+        return app(AdminAuthorizer::class)->hasCapability($user, $this->permission());
     }
 
     /**

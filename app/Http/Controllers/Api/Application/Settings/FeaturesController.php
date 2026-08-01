@@ -6,6 +6,7 @@ use Everest\Models\Setting;
 use Illuminate\Http\JsonResponse;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Settings\UpdateFeatureTogglesRequest;
+use Everest\Http\Requests\Api\Application\Settings\GetApplicationSettingsRequest;
 
 class FeaturesController extends ApplicationApiController
 {
@@ -37,7 +38,7 @@ class FeaturesController extends ApplicationApiController
     /**
      * Return the current on/off state of every toggleable feature.
      */
-    public function index(): JsonResponse
+    public function index(GetApplicationSettingsRequest $request): JsonResponse
     {
         $features = [];
         foreach (self::FEATURES as $key => $configPath) {

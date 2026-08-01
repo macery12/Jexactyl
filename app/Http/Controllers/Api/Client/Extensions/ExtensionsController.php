@@ -19,7 +19,7 @@ class ExtensionsController extends ClientApiController
 
     private function isExtensionDisabledForUser(Server $server, $user, string $extensionId): bool
     {
-        if ($user->root_admin || $server->owner_id === $user->id) {
+        if ($user->isOwner() || $server->owner_id === $user->id) {
             return false;
         }
 

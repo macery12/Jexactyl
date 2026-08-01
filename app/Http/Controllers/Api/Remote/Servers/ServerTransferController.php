@@ -2,6 +2,8 @@
 
 namespace Everest\Http\Controllers\Api\Remote\Servers;
 
+use Everest\Models\Server;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Everest\Models\Allocation;
 use Illuminate\Http\JsonResponse;
@@ -11,6 +13,7 @@ use Everest\Http\Controllers\Controller;
 use Illuminate\Database\ConnectionInterface;
 use Everest\Repositories\Eloquent\ServerRepository;
 use Everest\Repositories\Wings\DaemonServerRepository;
+use Everest\Services\Servers\DaemonServerAuthorizationService;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -23,6 +26,7 @@ class ServerTransferController extends Controller
         private ConnectionInterface $connection,
         private ServerRepository $repository,
         private DaemonServerRepository $daemonServerRepository,
+        private DaemonServerAuthorizationService $authorization,
     ) {
     }
 
@@ -31,15 +35,29 @@ class ServerTransferController extends Controller
      *
      * @throws \Throwable
      */
-    public function failure(string $uuid): JsonResponse
+    public function failure(Request $request, string $uuid): JsonResponse
     {
-        $server = $this->repository->getByUuid($uuid);
-        $transfer = $server->transfer;
-        if (is_null($transfer)) {
-            throw new ConflictHttpException('Server is not being transferred.');
-        }
+        $node = $this->authorization->node($request);
 
-        return $this->processFailedTransfer($transfer);
+        $this->connection->transaction(function () use ($node, $uuid) {
+            [$server, $transfer] = $this->getLockedTransfer($uuid);
+
+            if (is_null($transfer)) {
+                // Do not expose the state of another node's server when there is
+                // no active transfer from which to derive participant access.
+                $this->authorization->assertCurrentNode($node, $server);
+                throw new ConflictHttpException('Server is not being transferred.');
+            }
+
+            $this->authorization->assertCanFailTransfer($node, $transfer);
+
+            $transfer->forceFill(['successful' => false])->saveOrFail();
+
+            $allocations = array_merge([$transfer->new_allocation], (array) $transfer->new_additional_allocations);
+            Allocation::query()->whereIn('id', $allocations)->update(['server_id' => null]);
+        });
+
+        return new JsonResponse([], Response::HTTP_NO_CONTENT);
     }
 
     /**
@@ -47,24 +65,29 @@ class ServerTransferController extends Controller
      *
      * @throws \Throwable
      */
-    public function success(string $uuid): JsonResponse
+    public function success(Request $request, string $uuid): JsonResponse
     {
-        $server = $this->repository->getByUuid($uuid);
-        $transfer = $server->transfer;
-        if (is_null($transfer)) {
-            throw new ConflictHttpException('Server is not being transferred.');
-        }
+        $node = $this->authorization->node($request);
 
-        /** @var \Everest\Models\Server $server */
-        $server = $this->connection->transaction(function () use ($server, $transfer) {
-            $allocations = array_merge([$transfer->old_allocation], $transfer->old_additional_allocations);
+        /** @var array{Server, ServerTransfer} $result */
+        $result = $this->connection->transaction(function () use ($node, $uuid) {
+            [$server, $transfer] = $this->getLockedTransfer($uuid);
+
+            if (is_null($transfer)) {
+                $this->authorization->assertCurrentNode($node, $server);
+                throw new ConflictHttpException('Server is not being transferred.');
+            }
+
+            $this->authorization->assertCanCompleteTransfer($node, $transfer);
+
+            $allocations = array_merge([$transfer->old_allocation], (array) $transfer->old_additional_allocations);
 
             // Remove the old allocations for the server and re-assign the server to the new
             // primary allocation and node.
             Allocation::query()->whereIn('id', $allocations)->update(['server_id' => null]);
 
             // Assign the new allocations to the server
-            $newAllocations = array_merge([$transfer->new_allocation], $transfer->new_additional_allocations);
+            $newAllocations = array_merge([$transfer->new_allocation], (array) $transfer->new_additional_allocations);
             Allocation::query()->whereIn('id', $newAllocations)->update(['server_id' => $server->id]);
 
             $server->update([
@@ -72,11 +95,12 @@ class ServerTransferController extends Controller
                 'node_id' => $transfer->new_node,
             ]);
 
-            $server = $server->fresh();
-            $server->transfer->update(['successful' => true]);
+            $transfer->forceFill(['successful' => true])->saveOrFail();
+            $transfer->load('oldNode');
 
-            return $server;
+            return [$server->fresh(), $transfer];
         });
+        [$server, $transfer] = $result;
 
         // Delete the server from the old node making sure to point it to the old node so
         // that we do not delete it from the new node the server was transferred to.
@@ -86,27 +110,33 @@ class ServerTransferController extends Controller
                 ->setNode($transfer->oldNode)
                 ->delete();
         } catch (DaemonConnectionException $exception) {
-            Log::warning($exception, ['transfer_id' => $server->transfer->id]);
+            Log::warning($exception, ['transfer_id' => $transfer->id]);
         }
 
         return new JsonResponse([], Response::HTTP_NO_CONTENT);
     }
 
     /**
-     * Release all the reserved allocations for this transfer and mark it as failed in
-     * the database.
+     * Lock and re-read the server and its active transfer so that authorization
+     * and terminal state changes are made against one serialized snapshot.
      *
-     * @throws \Throwable
+     * @return array{Server, ServerTransfer|null}
      */
-    protected function processFailedTransfer(ServerTransfer $transfer): JsonResponse
+    private function getLockedTransfer(string $uuid): array
     {
-        $this->connection->transaction(function () use (&$transfer) {
-            $transfer->forceFill(['successful' => false])->saveOrFail();
+        $resolved = $this->repository->getByUuid($uuid);
 
-            $allocations = array_merge([$transfer->new_allocation], $transfer->new_additional_allocations);
-            Allocation::query()->whereIn('id', $allocations)->update(['server_id' => null]);
-        });
+        /** @var Server $server */
+        $server = Server::query()->whereKey($resolved->id)->lockForUpdate()->firstOrFail();
 
-        return new JsonResponse([], Response::HTTP_NO_CONTENT);
+        /** @var ServerTransfer|null $transfer */
+        $transfer = ServerTransfer::query()
+            ->where('server_id', $server->id)
+            ->whereNull('successful')
+            ->latest('id')
+            ->lockForUpdate()
+            ->first();
+
+        return [$server, $transfer];
     }
 }

@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Everest\Models\ActivityLogSubject;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Request;
+use Everest\Services\Security\LogSanitizer;
 use Illuminate\Database\ConnectionInterface;
 use Everest\Services\Webhooks\WebhookEventService;
 use Illuminate\Contracts\Auth\Factory as AuthFactory;
@@ -125,10 +126,13 @@ class ActivityLogService
      */
     public function property($key, $value = null): self
     {
-        $properties = $this->getActivity()->properties;
-        $this->activity->properties = is_array($key)
-            ? $properties->merge($key)
-            : $properties->put($key, $value);
+        $properties = $this->getActivity()->properties->all();
+        if (is_array($key)) {
+            $properties = array_merge($properties, $key);
+        } else {
+            $properties[(string) $key] = $value;
+        }
+        $this->activity->properties = collect(LogSanitizer::redactSensitivePayload($properties));
 
         return $this;
     }
@@ -171,13 +175,18 @@ class ActivityLogService
             $activity->description = $description;
         }
 
-        if ($activity->is_admin && !config('activity.enabled.admin')) {
+        // Checkout records are written with the customer as the actor but exist
+        // for operators, so they follow the admin toggle instead of the account
+        // one their actor type would otherwise select.
+        if (in_array($activity->event, ActivityLog::ADMIN_VISIBLE_EVENTS, true)) {
+            if (!config('activity.enabled.admin')) {
+                return null;
+            }
+        } elseif ($activity->is_admin && !config('activity.enabled.admin')) {
             return null;
-        }
-        if ($activity->actor_type === User::class && !config('activity.enabled.account')) {
+        } elseif ($activity->actor_type === User::class && !config('activity.enabled.account')) {
             return null;
-        }
-        if ($activity->actor_type === Server::class && !config('activity.enabled.server')) {
+        } elseif ($activity->actor_type === Server::class && !config('activity.enabled.server')) {
             return null;
         }
 
@@ -309,6 +318,9 @@ class ActivityLogService
         $properties = $activity->properties instanceof Collection
             ? $activity->properties
             : Collection::make($activity->properties ?? []);
+        $properties = Collection::make(
+            LogSanitizer::redactSensitivePayload($properties->toArray())
+        );
 
         $context = $activity->is_admin ? 'admin' : 'client';
         if (!$properties->has('context')) {

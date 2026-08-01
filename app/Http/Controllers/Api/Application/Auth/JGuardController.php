@@ -8,13 +8,16 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\JGuardEntry;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Everest\Exceptions\DisplayException;
+use Everest\Services\Users\UserSuspensionService;
 use Everest\Http\Requests\Api\Application\Auth\GetJGuardRequest;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\Auth\UpdateAuthModuleRequest;
 
 class JGuardController extends ApplicationApiController
 {
-    public function __construct()
+    public function __construct(private UserSuspensionService $suspensionService)
     {
         parent::__construct();
     }
@@ -67,11 +70,16 @@ class JGuardController extends ApplicationApiController
             abort(404, 'User no longer exists; the pending entry has been removed.');
         }
 
-        JGuardEntry::where('user_id', $user->id)
-            ->where('status', JGuardEntry::STATUS_PENDING)
-            ->update(['status' => JGuardEntry::STATUS_APPROVED]);
+        $user = DB::transaction(function () use ($user): User {
+            $updated = JGuardEntry::where('user_id', $user->id)
+                ->where('status', JGuardEntry::STATUS_PENDING)
+                ->update(['status' => JGuardEntry::STATUS_APPROVED]);
+            if ($updated !== 1) {
+                throw new DisplayException('Only a pending jGuard entry can be approved.');
+            }
 
-        $user->update(['state' => null]);
+            return $this->suspensionService->approve($user);
+        });
 
         Activity::event('admin:jguard:approve')
             ->property('user', $user)
@@ -94,11 +102,16 @@ class JGuardController extends ApplicationApiController
             abort(404, 'User no longer exists; the pending entry has been removed.');
         }
 
-        JGuardEntry::where('user_id', $user->id)
-            ->where('status', JGuardEntry::STATUS_PENDING)
-            ->update(['status' => JGuardEntry::STATUS_REJECTED]);
+        $user = DB::transaction(function () use ($user): User {
+            $updated = JGuardEntry::where('user_id', $user->id)
+                ->where('status', JGuardEntry::STATUS_PENDING)
+                ->update(['status' => JGuardEntry::STATUS_REJECTED]);
+            if ($updated !== 1) {
+                throw new DisplayException('Only a pending jGuard entry can be rejected.');
+            }
 
-        $user->update(['state' => 'suspended']);
+            return $this->suspensionService->reject($user);
+        });
 
         Activity::event('admin:jguard:reject')
             ->property('user', $user)

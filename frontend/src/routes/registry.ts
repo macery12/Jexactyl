@@ -5,7 +5,7 @@ import type { EverestConfiguration } from '@/lib/globals';
 export type Flags = EverestConfiguration;
 
 export type ServerCategory = 'general' | 'data' | 'configuration';
-export type AdminCategory = 'general' | 'developers' | 'modules' | 'management' | 'services' | 'extensions';
+export type AdminCategory = 'general' | 'access' | 'developers' | 'modules' | 'management' | 'extensions';
 
 export interface RouteDef {
     /** Path relative to the area mount (e.g. '', 'credentials', 'files/*'). */

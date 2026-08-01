@@ -27,7 +27,8 @@ export function NodeAllocationsTab() {
     const qc = useQueryClient();
     const push = useFlashes(s => s.push);
     const held = useAdminHeld();
-    const canManage = can(held, 'nodes.update');
+    const canCreate = can(held, 'allocations.create');
+    const canDelete = can(held, 'allocations.delete');
     const [toDelete, setToDelete] = useState<NodeAllocation | null>(null);
 
     const { data: allocations, isLoading } = useQuery({
@@ -88,7 +89,7 @@ export function NodeAllocationsTab() {
             }
             bodyClassName="max-h-[36rem] overflow-y-auto"
         >
-            {canManage && (
+            {canCreate && (
                 <form
                     onSubmit={handleSubmit(v => add.mutate(v))}
                     className="mb-4 grid grid-cols-2 gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)]/40 p-3 sm:grid-cols-5"
@@ -129,7 +130,7 @@ export function NodeAllocationsTab() {
                                 <span className="truncate font-mono text-[11px] text-[var(--color-ink-faint)]">
                                     {a.isAssigned ? (a.serverName ?? m['admin.nodes.allocationsTab.assignedLabel']()) : m['admin.nodes.allocationsTab.free']()}
                                 </span>
-                                {canManage && !a.isAssigned && (
+                                {canDelete && !a.isAssigned && (
                                     <button
                                         onClick={() => setToDelete(a)}
                                         className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--color-ink-faint)] opacity-0 transition-opacity hover:text-[var(--color-danger)] group-hover:opacity-100"

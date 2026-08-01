@@ -3,7 +3,6 @@
 namespace Everest\Http\Controllers\Api\Application\Billing;
 
 use Illuminate\Support\Str;
-use Illuminate\Http\Request;
 use Everest\Models\Billing\Order;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Invoice;
@@ -17,6 +16,8 @@ use Everest\Services\Billing\InvoiceStorageService;
 use Everest\Services\Billing\InvoiceGenerationService;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
+use Everest\Http\Requests\Api\Application\Billing\Invoices\GetInvoicesRequest;
+use Everest\Http\Requests\Api\Application\Billing\Invoices\ManageInvoicesRequest;
 
 class InvoiceController extends ApplicationApiController
 {
@@ -31,7 +32,7 @@ class InvoiceController extends ApplicationApiController
     /**
      * List all invoices with filtering and pagination.
      */
-    public function index(Request $request): array
+    public function index(GetInvoicesRequest $request): array
     {
         $perPage = (int) $request->query('per_page', '25');
         if ($perPage < 1 || $perPage > 100) {
@@ -74,7 +75,7 @@ class InvoiceController extends ApplicationApiController
     /**
      * Get a single invoice.
      */
-    public function show(Request $request, string $uuid): JsonResponse
+    public function show(GetInvoicesRequest $request, string $uuid): JsonResponse
     {
         $invoice = Invoice::with(['user', 'order'])->where('uuid', $uuid)->firstOrFail();
 
@@ -85,7 +86,7 @@ class InvoiceController extends ApplicationApiController
      * Get a download URL for the invoice.
      * Generates (or serves from cache) the PDF on demand.
      */
-    public function download(Request $request, string $uuid): JsonResponse
+    public function download(GetInvoicesRequest $request, string $uuid): JsonResponse
     {
         $invoice = Invoice::where('uuid', $uuid)->firstOrFail();
 
@@ -112,7 +113,7 @@ class InvoiceController extends ApplicationApiController
      * Stream the PDF for the given invoice (admin route).
      * On-demand generates the PDF if cache has expired.
      */
-    public function serve(Request $request, string $uuid): \Illuminate\Http\Response
+    public function serve(GetInvoicesRequest $request, string $uuid): \Illuminate\Http\Response
     {
         $invoice = Invoice::where('uuid', $uuid)->firstOrFail();
 
@@ -134,7 +135,7 @@ class InvoiceController extends ApplicationApiController
     /**
      * Void an invoice.
      */
-    public function void(Request $request, string $uuid): JsonResponse
+    public function void(ManageInvoicesRequest $request, string $uuid): JsonResponse
     {
         $request->validate(['reason' => 'nullable|string|max:500']);
 
@@ -160,7 +161,7 @@ class InvoiceController extends ApplicationApiController
      * Regenerate the encrypted data snapshot for an invoice (rebuilds from current order data)
      * and evicts any stale PDF cache so the next download gets a fresh PDF.
      */
-    public function regenerate(Request $request, string $uuid): JsonResponse
+    public function regenerate(ManageInvoicesRequest $request, string $uuid): JsonResponse
     {
         $invoice = Invoice::with(['order', 'user'])->where('uuid', $uuid)->firstOrFail();
 
@@ -215,7 +216,7 @@ class InvoiceController extends ApplicationApiController
     /**
      * Resend the invoice email. Generates a fresh cached PDF if needed before sending.
      */
-    public function resend(Request $request, string $uuid): JsonResponse
+    public function resend(ManageInvoicesRequest $request, string $uuid): JsonResponse
     {
         $invoice = Invoice::with(['order.user', 'order'])->where('uuid', $uuid)->firstOrFail();
 

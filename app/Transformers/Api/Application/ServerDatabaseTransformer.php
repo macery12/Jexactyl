@@ -3,6 +3,7 @@
 namespace Everest\Transformers\Api\Application;
 
 use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Everest\Models\Database;
 use Everest\Models\AdminRole;
 use League\Fractal\Resource\Item;
@@ -10,6 +11,8 @@ use Everest\Services\Acl\Api\AdminAcl;
 use Everest\Transformers\Api\Transformer;
 use League\Fractal\Resource\NullResource;
 use Illuminate\Contracts\Encryption\Encrypter;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\Authorization\ApplicationApiAccessProfileService;
 
 class ServerDatabaseTransformer extends Transformer
 {
@@ -99,14 +102,12 @@ class ServerDatabaseTransformer extends Transformer
             return false;
         }
 
-        if ($user->root_admin) {
-            return true;
+        $token = $user->currentAccessToken();
+        if ($token instanceof ApiKey) {
+            return app(ApplicationApiAccessProfileService::class)
+                ->allows($token, AdminRole::DATABASES_READ);
         }
 
-        if (!$user->admin_role_id) {
-            return false;
-        }
-
-        return in_array(AdminRole::DATABASES_READ, AdminRole::find($user->admin_role_id)->permissions ?? [], true);
+        return app(AdminAuthorizer::class)->hasCapability($user, AdminRole::DATABASES_READ);
     }
 }

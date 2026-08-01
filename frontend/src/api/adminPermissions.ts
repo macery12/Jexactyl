@@ -5,8 +5,8 @@ import http from '@/lib/http';
 // changes: `GET /api/application/permissions` has been live all along — V1
 // consumed it and V2 never did (see docs/v1-cutover/01-audit-findings.md #11).
 //
-// The endpoint sits behind `AuthenticateApplicationUser`, so it is only ever
-// reachable by an admin; a caller without an `admin_role_id` is a root admin.
+// The endpoint sits behind `AuthenticateApplicationUser`, so it is only
+// reachable by an account with an assigned access profile.
 
 export async function getAdminPermissions(): Promise<string[]> {
     const { data } = await http.get('/api/application/permissions');

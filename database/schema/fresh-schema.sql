@@ -202,6 +202,7 @@ CREATE TABLE `api_keys` (
   `expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `acl_enforced` tinyint(1) NOT NULL DEFAULT 0,
   `r_servers` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `r_nodes` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `r_allocations` tinyint(3) unsigned NOT NULL DEFAULT 0,
@@ -1737,4 +1738,3 @@ CREATE TABLE `webhook_events` (
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-

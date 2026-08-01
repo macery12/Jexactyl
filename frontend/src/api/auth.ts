@@ -17,12 +17,15 @@ export interface AuthResponse {
 export async function login(params: {
     user: string;
     password: string;
+    /** Issues a bounded recaller cookie so the session survives an idle lapse. */
+    remember?: boolean;
     captchaToken?: string;
 }): Promise<AuthResponse> {
     await primeCsrf();
     const { data } = await http.post('/auth/login', {
         user: params.user,
         password: params.password,
+        remember: params.remember ?? false,
         'cf-turnstile-response': params.captchaToken,
     });
     return {

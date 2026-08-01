@@ -7,6 +7,7 @@ use Illuminate\Http\Response;
 use Everest\Models\DatabaseHost;
 use Illuminate\Http\JsonResponse;
 use Spatie\QueryBuilder\QueryBuilder;
+use Everest\Services\Security\LogSanitizer;
 use Everest\Services\Databases\Hosts\HostUpdateService;
 use Everest\Services\Databases\Hosts\HostCreationService;
 use Everest\Exceptions\Http\QueryValueOutOfRangeHttpException;
@@ -88,7 +89,7 @@ class DatabaseController extends ApplicationApiController
 
         Activity::event('admin:database-hosts:update')
             ->property('database-host', $databaseHost)
-            ->property('new_data', $request->all())
+            ->property('new_data', LogSanitizer::redactSensitivePayload($request->validated()))
             ->description('A database host was updated')
             ->log();
 

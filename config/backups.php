@@ -17,6 +17,20 @@ return [
     // Note that 5GB is the maximum for a single part when using AWS S3.
     'max_part_size' => env('BACKUP_MAX_PART_SIZE', 5 * 1024 * 1024 * 1024),
 
+    // Hard limits for daemon-requested multipart uploads. The size ceiling follows
+    // S3's current 10,000 x 5 GiB protocol limit, while the lower URL count is an
+    // application work budget that can be raised (but never above 10,000).
+    'max_multipart_size' => env('BACKUP_MAX_MULTIPART_SIZE', 50_000 * 1024 * 1024 * 1024),
+    'max_presigned_parts' => env('BACKUP_MAX_PRESIGNED_PARTS', 1_000),
+    'max_completion_parts' => env('BACKUP_MAX_COMPLETION_PARTS', 10_000),
+
+    // Limit both callback volume and total presigned-URL work per authenticated
+    // node. Small backups can still start in bursts without granting each request
+    // the full signing budget.
+    'remote_upload_rate_limit' => env('BACKUP_REMOTE_UPLOAD_RATE_LIMIT', 60),
+    'remote_upload_part_limit' => env('BACKUP_REMOTE_UPLOAD_PART_LIMIT', 5_000),
+    'remote_upload_rate_period' => env('BACKUP_REMOTE_UPLOAD_RATE_PERIOD', 60),
+
     // The time to wait before automatically failing a backup, time is in minutes and defaults
     // to 6 hours.  To disable this feature, set the value to `0`.
     'prune_age' => env('BACKUP_PRUNE_AGE', 360),

@@ -2,9 +2,12 @@
 
 namespace Everest\Services\Allocations;
 
+use Everest\Models\Node;
 use Everest\Models\Server;
 use Webmozart\Assert\Assert;
 use Everest\Models\Allocation;
+use Everest\Exceptions\DisplayException;
+use Illuminate\Database\ConnectionInterface;
 use Everest\Exceptions\Service\Allocation\AutoAllocationNotEnabledException;
 use Everest\Exceptions\Service\Allocation\NoAutoAllocationSpaceAvailableException;
 
@@ -13,8 +16,10 @@ class FindAssignableAllocationService
     /**
      * FindAssignableAllocationService constructor.
      */
-    public function __construct(private AssignmentService $service)
-    {
+    public function __construct(
+        private AssignmentService $service,
+        private ConnectionInterface $connection,
+    ) {
     }
 
     /**
@@ -22,7 +27,7 @@ class FindAssignableAllocationService
      * no allocation can be found, a new one will be created with a random port between the defined
      * range from the configuration.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      * @throws \Everest\Exceptions\Service\Allocation\CidrOutOfRangeException
      * @throws \Everest\Exceptions\Service\Allocation\InvalidPortMappingException
      * @throws \Everest\Exceptions\Service\Allocation\PortOutOfRangeException
@@ -34,21 +39,48 @@ class FindAssignableAllocationService
             throw new AutoAllocationNotEnabledException();
         }
 
-        // Attempt to find a given available allocation for a server. If one cannot be found
-        // we will fall back to attempting to create a new allocation that can be used for the
-        // server.
-        /** @var Allocation|null $allocation */
-        $allocation = $server->node->allocations()
-            ->where('ip', $server->allocation->ip)
-            ->whereNull('server_id')
-            ->inRandomOrder()
-            ->first();
+        return $this->connection->transaction(function () use ($server): Allocation {
+            /** @var Server $lockedServer */
+            $lockedServer = Server::query()
+                ->with(['node', 'allocation'])
+                ->whereKey($server->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $allocation = $allocation ?? $this->createNewAllocation($server);
+            if ($lockedServer->allocations()->count() >= $lockedServer->allocation_limit) {
+                throw new DisplayException('Cannot assign additional allocations to this server: limit has been reached.');
+            }
 
-        $allocation->update(['server_id' => $server->id]);
+            // Dynamic port creation is a node-wide namespace. Serializing only
+            // on the destination server allows two different servers to choose
+            // the same missing port and race through insert-ignore.
+            /** @var Node $lockedNode */
+            $lockedNode = Node::query()
+                ->whereKey($lockedServer->node_id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        return $allocation->refresh();
+            // Lock the selected free row as well as the server quota row so two
+            // requests cannot claim the same allocation.
+            /** @var Allocation|null $allocation */
+            $allocation = $lockedNode->allocations()
+                ->where('ip', $lockedServer->allocation->ip)
+                ->whereNull('server_id')
+                ->inRandomOrder()
+                ->lockForUpdate()
+                ->first();
+
+            $allocation = $allocation ?? $this->createNewAllocation($lockedServer, $lockedNode);
+            $assigned = Allocation::query()
+                ->whereKey($allocation->id)
+                ->whereNull('server_id')
+                ->update(['server_id' => $lockedServer->id]);
+            if ($assigned !== 1) {
+                throw new NoAutoAllocationSpaceAvailableException();
+            }
+
+            return $allocation->refresh();
+        });
     }
 
     /**
@@ -56,13 +88,13 @@ class FindAssignableAllocationService
      * in the settings. If there are no matches in that range, or something is wrong with the
      * range information provided an exception will be raised.
      *
-     * @throws \Everest\Exceptions\DisplayException
+     * @throws DisplayException
      * @throws \Everest\Exceptions\Service\Allocation\CidrOutOfRangeException
      * @throws \Everest\Exceptions\Service\Allocation\InvalidPortMappingException
      * @throws \Everest\Exceptions\Service\Allocation\PortOutOfRangeException
      * @throws \Everest\Exceptions\Service\Allocation\TooManyPortsInRangeException
      */
-    protected function createNewAllocation(Server $server): Allocation
+    protected function createNewAllocation(Server $server, Node $node): Allocation
     {
         $start = config('everest.client_features.allocations.range_start', null);
         $end = config('everest.client_features.allocations.range_end', null);
@@ -76,7 +108,7 @@ class FindAssignableAllocationService
 
         // Get all of the currently allocated ports for the node so that we can figure out
         // which port might be available.
-        $ports = $server->node->allocations()
+        $ports = $node->allocations()
             ->where('ip', $server->allocation->ip)
             ->whereBetween('port', [$start, $end])
             ->pluck('port');
@@ -91,21 +123,28 @@ class FindAssignableAllocationService
             throw new NoAutoAllocationSpaceAvailableException();
         }
 
-        // Pick a random port out of the remaining available ports.
-        /** @var int $port */
-        $port = $available[array_rand($available)];
+        // Try candidates in random order. AssignmentService deliberately uses
+        // insert-ignore; if an out-of-band creator won a unique-key race, only
+        // accept the row when it is still unassigned and locked by us.
+        shuffle($available);
+        foreach ($available as $port) {
+            $this->service->handle($node, [
+                'ip' => $server->allocation->ip,
+                'allocation_ports' => [$port],
+            ]);
 
-        $this->service->handle($server->node, [
-            'ip' => $server->allocation->ip,
-            'allocation_ports' => [$port],
-        ]);
+            /** @var Allocation|null $allocation */
+            $allocation = $node->allocations()
+                ->where('ip', $server->allocation->ip)
+                ->where('port', $port)
+                ->whereNull('server_id')
+                ->lockForUpdate()
+                ->first();
+            if ($allocation !== null) {
+                return $allocation;
+            }
+        }
 
-        /** @var Allocation $allocation */
-        $allocation = $server->node->allocations()
-            ->where('ip', $server->allocation->ip)
-            ->where('port', $port)
-            ->firstOrFail();
-
-        return $allocation;
+        throw new NoAutoAllocationSpaceAvailableException();
     }
 }

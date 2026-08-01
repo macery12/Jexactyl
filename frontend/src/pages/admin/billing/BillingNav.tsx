@@ -4,6 +4,7 @@ import {
     LayoutDashboard,
     Boxes,
     ShoppingCart,
+    Store,
     FileText,
     Ticket,
     AlertTriangle,
@@ -40,6 +41,7 @@ const GROUPS: Group[] = [
         labelKey: 'billing.nav.groups.catalog',
         items: [
             { to: `${BASE}/products`, icon: Boxes, labelKey: 'billing.nav.products', permission: 'billing.read' },
+            { to: `${BASE}/store`, icon: Store, labelKey: 'billing.nav.storefront', permission: 'billing.update' },
             { to: `${BASE}/coupons`, icon: Ticket, labelKey: 'billing.nav.coupons', permission: 'billing.read' },
         ],
     },

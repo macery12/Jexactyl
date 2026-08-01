@@ -14,6 +14,8 @@ import { NodeConfigurationTab } from './panels/NodeConfigurationTab';
 import { NodeWingsRsTab } from './panels/NodeWingsRsTab';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
+import { can } from '@/lib/can';
+import { useAdminHeld } from '@/layouts/heldPermissions';
 
 type TabId = 'overview' | 'allocations' | 'servers' | 'configuration' | 'wings-rs';
 
@@ -28,6 +30,8 @@ const TABS: { id: TabId; labelKey: string; icon: LucideIcon; supercharged?: bool
 export default function NodeDetailPage() {
     const { id } = useParams();
     const [tab, setTab] = useState<TabId>('overview');
+    const held = useAdminHeld();
+    const visibleTabs = TABS.filter(tabDef => tabDef.id !== 'allocations' || can(held, 'allocations.read'));
 
     const { data: node, isLoading, isError } = useQuery({
         queryKey: ['admin', 'node', id],
@@ -57,7 +61,7 @@ export default function NodeDetailPage() {
                 <NodeHeader />
 
                 <div className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)]">
-                    {TABS.map(tabDef => {
+                    {visibleTabs.map(tabDef => {
                         const isWingsRs = tabDef.supercharged;
                         return (
                             <button
