@@ -71,21 +71,20 @@ export const adminRoutes: RouteDef[] = [
     route('features', { name: 'Features', icon: ToggleRight, category: 'general', permission: 'settings.read', element: FeaturesSection }),
     route('landing/*', { name: 'Landing Page', icon: LayoutTemplate, category: 'general', permission: 'settings.read', element: LandingSection }),
     route('activity', { name: 'Activity', icon: Activity, category: 'general', permission: 'activity.read', element: AdminActivityPage }),
+    route('theme', { name: 'Theme', icon: Palette, category: 'general', permission: 'theme.read', element: ThemeSection }),
 
     // Access Control — one sidebar entry per surface rather than a tab strip
     // inside a single page. `buildNav` groups by category in registry order, so
-    // these three form their own section directly under General, and the command
+    // these form their own section directly under General, and the command
     // palette (which reads the same registry) gains an entry for each.
     route('access/users/*', { name: 'Users', icon: Users, category: 'access', permission: 'users.read', element: UsersSection }),
     route('access/profiles/*', { name: 'Access Profiles', icon: UserCog, category: 'access', permission: 'roles.read', element: AccessProfilesSection }),
     route('access/api-keys/*', { name: 'API Keys', icon: KeyRound, category: 'access', permission: 'api.read', element: ApiKeysSection }),
+    route('auth/*', { name: 'Auth', icon: ShieldCheck, category: 'access', permission: 'auth.read', element: AuthSection }),
     // Bare /admin/access has no page of its own now; send it to the first
     // section the viewer may open.
     route('access', { element: AccessIndexRedirect }),
 
-    route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', permission: 'api.read', element: ApiDocsPage }),
-
-    route('auth/*', { name: 'Auth', icon: ShieldCheck, category: 'modules', permission: 'auth.read', element: AuthSection }),
     route('billing/*', { name: 'Billing', icon: CreditCard, category: 'modules', permission: 'billing.read', condition: f => f.billing.enabled, element: BillingSection }),
     route('custom-domains/*', { name: 'Custom Domains', icon: Globe, category: 'modules', permission: 'custom-domains.read', condition: f => f.custom_domains.enabled, element: CustomDomainsSection }),
     route('tickets/*', { name: 'Tickets', icon: LifeBuoy, category: 'modules', permission: 'tickets.read', condition: f => f.tickets.enabled, element: TicketsSection }),
@@ -94,15 +93,16 @@ export const adminRoutes: RouteDef[] = [
     route('email/*', { name: 'Email', icon: Mail, category: 'modules', permission: 'email.read', condition: f => !!f.email.module_enabled, element: EmailSection }),
     route('webhooks/*', { name: 'Webhooks', icon: Webhook, category: 'modules', permission: 'webhooks.read', condition: f => f.webhooks.enabled, element: WebhooksSection }),
     route('extensions/*', { name: 'Extensions', icon: Puzzle, category: 'modules', permission: 'extensions.read', condition: f => f.extensions.enabled, element: ExtensionsSection }),
-    route('theme', { name: 'Theme', icon: Palette, category: 'modules', permission: 'theme.read', element: ThemeSection }),
     route('alerts/*', { name: 'Alerts', icon: Bell, category: 'modules', permission: 'alerts.read', element: AlertsSection }),
     // V1 filed Links under its 'appearance' category alongside Theme and Alerts;
-    // V2 has no such category, so it joins those two here. No feature flag — the
-    // per-link `visible` column is the operator's off switch (V1 parity).
+    // V2 has no such category, so it joins the other feature modules here. No
+    // feature flag — the per-link `visible` column is the operator's off switch
+    // (V1 parity).
     route('links', { name: 'Links', icon: Link2, category: 'modules', permission: 'links.read', element: LinksSection }),
 
     route('databases/*', { name: 'Databases', icon: Database, category: 'management', permission: 'databases.read', element: DatabasesSection }),
     route('infrastructure/*', { name: 'Infrastructure', icon: Server, category: 'management', permission: ['nodes.read', 'servers.read'], element: InfrastructureSection }),
+    route('nests/*', { name: 'Nests', icon: Egg, category: 'management', permission: 'nests.read', element: NestsSection }),
     // Legacy paths redirect into the merged Infrastructure section (hidden from nav).
     route('nodes/*', { element: NodesRedirect }),
     route('servers/*', { element: ServersRedirect }),
@@ -114,10 +114,12 @@ export const adminRoutes: RouteDef[] = [
     route('api/*', { element: ApiKeysAccessRedirect }),
     route('access/people/*', { element: PeopleAccessRedirect }),
 
-    route('nests/*', { name: 'Nests', icon: Egg, category: 'services', permission: 'nests.read', element: NestsSection }),
-
-    // Admin pages contributed by installed extension packages. Appended last so
+    // Admin pages contributed by installed extension packages. Appended here so
     // they group into their own trailing sidebar section; their static
     // extensions/<route>/* paths outrank the extensions/* management splat.
     ...extensionAdminRoutes,
+
+    // Developers stays a single-item category on purpose, pinned below the
+    // extension sections at the very bottom of the sidebar.
+    route('developers/api-docs', { name: 'API Docs', icon: BookOpen, category: 'developers', permission: 'api.read', element: ApiDocsPage }),
 ];
