@@ -331,6 +331,9 @@ export function SettingsTab() {
 
     const selfHosted = SELF_HOSTED_PROVIDERS.includes(form.provider);
     const isOllama = form.provider === 'ollama';
+    // Saving a different provider discards the stored endpoint and key, so the
+    // "key on file" affordances below must stop claiming one is kept.
+    const providerChanged = form.provider !== settings.provider;
     const presets =
         form.provider === 'anthropic' ? ANTHROPIC_PRESETS : selfHosted ? OLLAMA_PRESETS : OPENAI_PRESETS;
     const discovered = models.length > 0;
@@ -356,11 +359,15 @@ export function SettingsTab() {
                                 setForm(prev => ({
                                     ...prev,
                                     provider: next,
-                                    // Only replace an endpoint that was itself a
-                                    // default; a hand-entered one is kept.
-                                    endpoint: Object.values(DEFAULT_ENDPOINTS).includes(prev.endpoint)
-                                        ? DEFAULT_ENDPOINTS[next]
-                                        : prev.endpoint,
+                                    // The endpoint and key are a single slot
+                                    // shared by every provider, not one slot
+                                    // each, so the previous provider's values
+                                    // cannot carry over: a LAN Ollama address
+                                    // is not a valid Anthropic endpoint, and
+                                    // its key would be rejected there. The
+                                    // backend clears the stored pair to match.
+                                    endpoint: DEFAULT_ENDPOINTS[next],
+                                    key: '',
                                 }));
                             }}
                             options={[
@@ -389,10 +396,10 @@ export function SettingsTab() {
                                     type="password"
                                     value={form.key}
                                     onChange={e => patch('key', e.target.value)}
-                                    placeholder={settings.key ? m['admin.ai.settings.keyKept']() : 'sk-…'}
+                                    placeholder={settings.key && !providerChanged ? m['admin.ai.settings.keyKept']() : 'sk-…'}
                                     autoComplete="new-password"
                                 />
-                                {settings.key && (
+                                {settings.key && !providerChanged && (
                                     <Button
                                         variant="danger"
                                         size="icon"
@@ -406,6 +413,15 @@ export function SettingsTab() {
                         </Field>
                     )}
                 </div>
+
+                {providerChanged && (
+                    <div className="mt-3 flex gap-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-2.5">
+                        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
+                        <p className="text-xs text-[var(--color-ink-muted)]">
+                            {m['admin.ai.settings.providerSwitch']({ provider: settings.provider })}
+                        </p>
+                    </div>
+                )}
             </Panel>
 
             {/* ── Model & performance ── */}

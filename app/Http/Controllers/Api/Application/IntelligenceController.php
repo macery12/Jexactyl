@@ -88,6 +88,8 @@ class IntelligenceController extends ApplicationApiController
      */
     public function update(Intelligence\UpdateIntelligenceSettingsRequest $request): Response
     {
+        // `normalize()` also blanks the endpoint and key when the provider is
+        // changing, since both are a single slot shared across providers.
         foreach ($request->normalize() as $key => $value) {
             if ($key == 'key' && is_bool($value)) {
                 continue;
@@ -118,7 +120,7 @@ class IntelligenceController extends ApplicationApiController
      */
     public function testConnection(GetIntelligenceRequest $request): JsonResponse
     {
-        $cacheKey = 'ai:health:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
+        $cacheKey = 'ai:health:' . $this->connectionFingerprint();
 
         if (!$request->boolean('fresh')) {
             $cached = Cache::get($cacheKey);
@@ -153,7 +155,7 @@ class IntelligenceController extends ApplicationApiController
      */
     public function models(GetIntelligenceRequest $request): JsonResponse
     {
-        $cacheKey = 'ai:models:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
+        $cacheKey = 'ai:models:' . $this->connectionFingerprint();
 
         if (!$request->boolean('fresh')) {
             $cached = Cache::get($cacheKey);
@@ -171,6 +173,20 @@ class IntelligenceController extends ApplicationApiController
         Cache::put($cacheKey, $models, 300);
 
         return response()->json(['data' => $models]);
+    }
+
+    /**
+     * Cache discriminator for anything probed from the live endpoint.
+     *
+     * Keyed on the resolved provider rather than the deprecated `mode`, which
+     * no longer changes when the provider does — a switch would otherwise keep
+     * serving the previous provider's health and model listing.
+     */
+    private function connectionFingerprint(): string
+    {
+        $factory = app(\Everest\Services\AI\ProviderFactory::class);
+
+        return sha1($factory->provider() . '|' . config('modules.ai.endpoint', ''));
     }
 
     /**

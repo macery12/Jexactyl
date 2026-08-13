@@ -3,11 +3,14 @@
 namespace Everest\Http\Requests\Api\Application\Intelligence;
 
 use Everest\Models\AdminRole;
+use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
 {
+    private ?string $storedProvider = null;
+
     public function rules(): array
     {
         return [
@@ -80,6 +83,37 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             $normalized[str_replace('.', ':', $key)] = $this->input($key);
         }
 
+        return $this->resetProviderScopedSettings($normalized);
+    }
+
+    /**
+     * Blank the settings that belong to one provider when a different one is
+     * being saved.
+     *
+     * The endpoint and API key occupy a single slot shared by every provider
+     * rather than one slot each, so without this a switch silently carries the
+     * previous provider's values across — the Anthropic driver left pointing at
+     * a LAN Ollama address, or an OpenAI key sent to Anthropic. Values supplied
+     * in the same request are kept: those were entered for the new provider and
+     * have already been validated against it.
+     *
+     * @param array<string, mixed> $normalized
+     *
+     * @return array<string, mixed>
+     */
+    private function resetProviderScopedSettings(array $normalized): array
+    {
+        if (!isset($normalized['provider']) || $normalized['provider'] === $this->storedProvider()) {
+            return $normalized;
+        }
+
+        foreach (['endpoint', 'key'] as $scoped) {
+            // Blank rather than the new provider's default: ProviderFactory
+            // already substitutes one, so an empty value keeps picking up
+            // whatever that default later becomes.
+            $normalized[$scoped] ??= '';
+        }
+
         return $normalized;
     }
 
@@ -89,12 +123,26 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
     }
 
     /**
+     * The provider currently in effect, read once per request — `rules()` and
+     * `normalize()` both need it and it costs a settings lookup.
+     */
+    private function storedProvider(): string
+    {
+        return $this->storedProvider ??= app(ProviderFactory::class)->provider();
+    }
+
+    /**
      * Hosted providers must be reached over TLS; self-hosted ones are usually
      * a plain-HTTP address on a private network, so http:// stays legal there.
+     *
+     * The tier is judged against the provider *being saved*, falling back to
+     * the stored one — a partial save that touches the endpoint but not the
+     * provider must not be measured against an empty string, which would
+     * demand HTTPS of a perfectly valid local Ollama address.
      */
     private function endpointRule(): callable
     {
-        $provider = (string) $this->input('provider', $this->input('mode', ''));
+        $provider = (string) $this->input('provider', '') ?: $this->storedProvider();
 
         return function ($attribute, $value, $fail) use ($provider) {
             if ($value === null || $value === '') {

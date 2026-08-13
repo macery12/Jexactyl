@@ -406,6 +406,7 @@
   "admin.ai.settings.perUserHint": "Stops one person occupying every slot. 0 removes the limit.",
   "admin.ai.settings.provider": "Provider",
   "admin.ai.settings.providerLabel": "Provider",
+  "admin.ai.settings.providerSwitch": "Switching away from {provider} resets the endpoint and clears the saved API key — both belong to the previous provider. Enter this provider's key before saving, or the connection will fail.",
   "admin.ai.settings.queue": "Inference queue",
   "admin.ai.settings.queueDepth": "Queue depth",
   "admin.ai.settings.queueDepthHint": "Requests are refused once this many are waiting.",
