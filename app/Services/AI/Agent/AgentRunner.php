@@ -391,36 +391,21 @@ class AgentRunner
             $definition->name,
             $arguments,
             $risk,
-            $this->preview($definition, $arguments),
+            ApprovalPreview::for($definition->name, $arguments),
         ));
-    }
-
-    /**
-     * Extra detail the approval card renders — currently the before/after of a
-     * file write, which is the one case where the argument alone is unreadable.
-     */
-    protected function preview(ToolDefinition $definition, array $arguments): ?array
-    {
-        if ($definition->name !== 'files_write') {
-            return null;
-        }
-
-        return [
-            'kind' => 'diff',
-            'file' => $arguments['file'] ?? null,
-            'original' => $arguments['original_content'] ?? '',
-            'updated' => $arguments['content'] ?? '',
-        ];
     }
 
     protected function pushToolResult(AgentContext $context, ToolCallData $call, ToolResult $result): void
     {
-        $context->push(AiMessage::tool(
-            $call->id,
-            $call->name,
-            $result->toModelPayload(),
-            !$result->ok,
-        ));
+        $context->push(
+            AiMessage::tool(
+                $call->id,
+                $call->name,
+                $result->toModelPayload(),
+                !$result->ok,
+            ),
+            TurnRecorder::toolDisplay($result->ok, $result->summary()),
+        );
     }
 
     /**

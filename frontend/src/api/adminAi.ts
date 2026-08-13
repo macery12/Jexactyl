@@ -5,20 +5,53 @@ import { streamAiRequest, type AiStreamCallbacks } from '@/lib/aiStream';
 // analytics and the admin chat playground. Mirrors V1's
 // `api/routes/admin/ai/*` against /api/application/ai/*.
 
+export type AiProvider = 'anthropic' | 'openai' | 'openai_compatible' | 'ollama';
+
+/** Providers the panel talks to over the network rather than paying per token. */
+export const SELF_HOSTED_PROVIDERS: AiProvider[] = ['ollama', 'openai_compatible'];
+
+export interface AiAgentSettings {
+    enabled: boolean;
+    max_steps: number;
+    max_wall_seconds: number;
+    tool_result_bytes: number;
+    max_repairs: number;
+    max_tools: number;
+}
+
+export interface AiConcurrencySettings {
+    slots: number | null;
+    queue_depth: number;
+    max_wait_seconds: number;
+    per_user: number;
+}
+
+export interface AiBudgetSettings {
+    enforce: boolean;
+    monthly_tokens: number;
+}
+
 export interface AiAdminSettings {
     enabled: boolean;
     // true when a key is stored (the key itself is never returned)
     key: boolean;
     endpoint: string;
     model: string;
+    /** Legacy setting, still writable; `provider` is what actually resolves. */
     mode: 'openai' | 'ollama';
+    provider: AiProvider;
+    models: { agent: string; fast: string };
     max_tokens: number;
     temperature: number;
+    context_tokens: number | null;
     keep_alive: string;
     warm: boolean;
     system_prompt: string;
     feature_server_assistant: boolean;
     feature_crash_analysis: boolean;
+    agent: AiAgentSettings;
+    concurrency: AiConcurrencySettings;
+    budget: AiBudgetSettings;
 }
 
 export interface AiSettingsPayload {
@@ -27,13 +60,67 @@ export interface AiSettingsPayload {
     endpoint?: string;
     model?: string;
     mode?: 'openai' | 'ollama';
+    provider?: AiProvider;
+    models?: { agent?: string; fast?: string };
     max_tokens?: number;
     temperature?: number;
+    context_tokens?: number | null;
     keep_alive?: string;
     warm?: boolean;
     system_prompt?: string;
     feature_server_assistant?: boolean;
     feature_crash_analysis?: boolean;
+    agent?: Partial<AiAgentSettings>;
+    concurrency?: Partial<AiConcurrencySettings>;
+    budget?: Partial<AiBudgetSettings>;
+}
+
+export type AiRiskTier = 'safe' | 'write' | 'destructive';
+
+export interface AiToolDefinition {
+    name: string;
+    description: string;
+    scope: 'server' | 'admin';
+    group: string | null;
+    method: string;
+    default_risk: AiRiskTier;
+    risk: AiRiskTier;
+    overridden: boolean;
+    enabled: boolean;
+    permissions: string[];
+}
+
+export interface AiToolCatalogue {
+    data: AiToolDefinition[];
+    groups: Record<string, string>;
+    risks: AiRiskTier[];
+    console: { defaults: string[]; extra: string[] };
+}
+
+export interface AiToolPolicyPayload {
+    risk_overrides: Record<string, AiRiskTier>;
+    disabled_tools: string[];
+    console_safe_commands: string[];
+}
+
+export interface AiInferenceState {
+    queue: {
+        applies: boolean;
+        slots: number;
+        slots_in_use: number;
+        queue_depth: number;
+        [k: string]: unknown;
+    };
+    average_turn_ms: number;
+    resident_models: { name?: string; model?: string; size_vram?: number; [k: string]: unknown }[];
+    capabilities: {
+        model: string;
+        supports_tools: boolean;
+        self_hosted: boolean;
+        max_context_tokens: number | null;
+        warnings: string[];
+    } | null;
+    error?: string;
 }
 
 export interface AiConnectionTest {
@@ -132,4 +219,18 @@ export async function getAiLogs(params: AiLogsParams = {}): Promise<AiLogEntry[]
 
 export function streamAdminAiQuery(query: string, callbacks: AiStreamCallbacks, signal?: AbortSignal): void {
     streamAiRequest('/api/application/ai/query', { query }, callbacks, signal);
+}
+
+export async function getAiTools(): Promise<AiToolCatalogue> {
+    const { data } = await http.get('/api/application/ai/tools');
+    return data as AiToolCatalogue;
+}
+
+export async function updateAiTools(payload: AiToolPolicyPayload): Promise<void> {
+    await http.put('/api/application/ai/tools', payload);
+}
+
+export async function getAiInference(): Promise<AiInferenceState> {
+    const { data } = await http.get('/api/application/ai/inference');
+    return data as AiInferenceState;
 }

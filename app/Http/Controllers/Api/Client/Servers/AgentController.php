@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Models\AiToolCall;
 use Everest\Models\AiUsageLog;
+use Illuminate\Http\JsonResponse;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
 use Illuminate\Support\Facades\Log;
@@ -17,7 +18,9 @@ use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\AgentEvent;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
+use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Support\AiBudgetService;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
@@ -37,6 +40,7 @@ class AgentController extends ClientApiController
         private ToolRegistry $registry,
         private RiskGate $riskGate,
         private AiBudgetService $budget,
+        private TurnRecorder $recorder,
     ) {
         parent::__construct();
     }
@@ -52,25 +56,67 @@ class AgentController extends ClientApiController
             'query' => 'required|string|min:1|max:8000',
             'conversation_id' => 'nullable|integer',
             'console' => 'nullable|string|max:20000',
-            'messages' => 'nullable|array|max:20',
-            'messages.*.role' => 'required_with:messages|in:user,assistant',
-            'messages.*.content' => 'required_with:messages|string|max:4000',
         ]);
 
         $user = $request->user();
         $this->budget->assertWithinBudget($user);
 
+        $query = (string) $request->input('query');
+
+        // The turn owns its conversation. History comes from what the panel
+        // stored rather than from what the client sends back, so a client
+        // cannot rewrite the past to steer the model.
+        $conversation = $this->recorder->ensureConversation(
+            $user,
+            $server,
+            $this->resolveConversationId($request, $user->id, $server->uuid),
+            $query,
+        );
+
         $context = new AgentContext(
             user: $user,
             server: $server,
             turnId: (string) Str::uuid(),
-            conversationId: $this->resolveConversationId($request, $user->id, $server->uuid),
+            conversationId: $conversation?->id,
             consoleBuffer: $request->input('console'),
         );
 
-        $context->withMessages($this->buildHistory($request));
+        $context
+            ->withMessages($this->recorder->loadHistory($conversation?->id))
+            ->withRecorder($this->recorder);
 
-        return $this->stream($context, $server);
+        $context->push(AiMessage::user($query));
+
+        return $this->stream($context, $server, conversation: $conversation);
+    }
+
+    /**
+     * Approvals the user still owes a decision on.
+     *
+     * A suspended turn closes its stream, so without this a reload loses the
+     * only pointer to it and the action silently expires.
+     */
+    public function pending(Request $request, Server $server): JsonResponse
+    {
+        $pending = AiPendingAction::actionable()
+            ->where('user_id', $request->user()->id)
+            ->where('server_uuid', $server->uuid)
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get();
+
+        return response()->json([
+            'data' => $pending->map(fn (AiPendingAction $action) => [
+                'turn_id' => $action->turn_id,
+                'conversation_id' => $action->conversation_id,
+                'tool' => $action->tool_name,
+                'arguments' => $action->arguments,
+                'risk' => $action->risk,
+                'preview' => ApprovalPreview::for($action->tool_name, (array) $action->arguments),
+                'created_at' => $action->created_at?->toIso8601String(),
+                'expires_at' => $action->expires_at?->toIso8601String(),
+            ])->values(),
+        ]);
     }
 
     /**
@@ -114,15 +160,25 @@ class AgentController extends ClientApiController
 
         $pending->update(['status' => AiPendingAction::STATUS_APPROVED]);
 
-        $context = AgentContext::fromState(
+        return $this->stream($this->restore($pending, $user, $server), $server, $pending);
+    }
+
+    /**
+     * Rebuild a suspended turn.
+     *
+     * The recorder is attached only after the stored messages are restored, so
+     * resuming replays the earlier half into the model without writing it to
+     * the transcript a second time.
+     */
+    protected function restore(AiPendingAction $pending, $user, Server $server): AgentContext
+    {
+        return AgentContext::fromState(
             $user,
             $server,
             $pending->turn_id,
             $pending->conversation_id,
             $pending->state,
-        );
-
-        return $this->stream($context, $server, $pending);
+        )->withRecorder($this->recorder);
     }
 
     /**
@@ -152,13 +208,16 @@ class AgentController extends ClientApiController
 
         // Resume the turn with the refusal fed back as the tool result, so the
         // model can offer an alternative instead of the conversation dead-ending.
-        $context = AgentContext::fromState($user, $server, $pending->turn_id, $pending->conversation_id, $pending->state);
-        $context->push(AiMessage::tool(
-            'rejected',
-            $pending->tool_name,
-            json_encode(['ok' => false, 'error' => 'declined_by_user', 'message' => 'The user declined this action. Do not retry it; suggest an alternative or ask what they would prefer.']),
-            true,
-        ));
+        $context = $this->restore($pending, $user, $server);
+        $context->push(
+            AiMessage::tool(
+                'rejected',
+                $pending->tool_name,
+                json_encode(['ok' => false, 'error' => 'declined_by_user', 'message' => 'The user declined this action. Do not retry it; suggest an alternative or ask what they would prefer.']),
+                true,
+            ),
+            TurnRecorder::toolDisplay(false, 'Declined by you'),
+        );
 
         return $this->stream($context, $server, $pending);
     }
@@ -166,17 +225,21 @@ class AgentController extends ClientApiController
     /**
      * Run a turn and write its events to an SSE stream.
      */
-    protected function stream(AgentContext $context, Server $server, ?AiPendingAction $resuming = null): StreamedResponse
-    {
+    protected function stream(
+        AgentContext $context,
+        Server $server,
+        ?AiPendingAction $resuming = null,
+        ?AiConversation $conversation = null,
+    ): StreamedResponse {
         $runner = $this->runner;
-        $budget = $this->budget;
+        $recorder = $this->recorder;
         $userId = $context->user->id;
         $serverUuid = $server->uuid;
         $turnId = $context->turnId;
         $conversationId = $context->conversationId;
         $model = $this->factory->model(ProviderFactory::TASK_AGENT);
 
-        return response()->stream(function () use ($runner, $context, $resuming, $userId, $serverUuid, $turnId, $conversationId, $model) {
+        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model) {
             // A turn legitimately runs for minutes; the client disconnecting
             // must not abort a tool call halfway through.
             set_time_limit(0);
@@ -185,6 +248,12 @@ class AgentController extends ClientApiController
             // Flush a comment immediately so proxies do not 504 while the model
             // is still thinking or the turn is queued.
             $this->write(': keep-alive');
+
+            if ($conversation !== null) {
+                $this->write('data: ' . json_encode(
+                    AgentEvent::conversation($conversation->id, (string) $conversation->title)->toArray()
+                ));
+            }
 
             $startedAt = microtime(true);
             $status = 'success';
@@ -211,6 +280,10 @@ class AgentController extends ClientApiController
             }
 
             $this->write('data: [DONE]');
+
+            // Rolls the conversation's expiry forward the same way a manual
+            // append does, so an active chat is not reaped mid-use.
+            $recorder->touch($conversation);
 
             try {
                 AiUsageLog::create([
@@ -248,12 +321,15 @@ class AgentController extends ClientApiController
         $definition = $this->registry->find($pending->tool_name);
 
         if ($definition === null || !$this->registry->userCanUse($context->user, $context->server, $definition)) {
-            $context->push(AiMessage::tool(
-                'approved',
-                $pending->tool_name,
-                json_encode(['ok' => false, 'error' => 'unavailable', 'message' => 'That tool is no longer available.']),
-                true,
-            ));
+            $context->push(
+                AiMessage::tool(
+                    'approved',
+                    $pending->tool_name,
+                    json_encode(['ok' => false, 'error' => 'unavailable', 'message' => 'That tool is no longer available.']),
+                    true,
+                ),
+                TurnRecorder::toolDisplay(false, 'No longer available'),
+            );
 
             return;
         }
@@ -269,7 +345,10 @@ class AgentController extends ClientApiController
             AgentEvent::toolResult('approved', $definition->name, $result->ok, $result->summary())->toArray()
         ));
 
-        $context->push(AiMessage::tool('approved', $definition->name, $result->toModelPayload(), !$result->ok));
+        $context->push(
+            AiMessage::tool('approved', $definition->name, $result->toModelPayload(), !$result->ok),
+            TurnRecorder::toolDisplay($result->ok, $result->summary()),
+        );
 
         AiToolCall::where('turn_id', $pending->turn_id)
             ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
@@ -291,30 +370,6 @@ class AgentController extends ClientApiController
         }
 
         flush();
-    }
-
-    /**
-     * @return AiMessage[]
-     */
-    protected function buildHistory(Request $request): array
-    {
-        $messages = [];
-
-        foreach (array_slice((array) $request->input('messages', []), -10) as $entry) {
-            if (!is_array($entry) || !isset($entry['role'], $entry['content'])) {
-                continue;
-            }
-
-            if (!in_array($entry['role'], [AiMessage::ROLE_USER, AiMessage::ROLE_ASSISTANT], true)) {
-                continue;
-            }
-
-            $messages[] = new AiMessage($entry['role'], (string) $entry['content']);
-        }
-
-        $messages[] = AiMessage::user((string) $request->input('query'));
-
-        return $messages;
     }
 
     protected function resolveConversationId(Request $request, int $userId, string $serverUuid): ?int

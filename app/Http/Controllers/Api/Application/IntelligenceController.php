@@ -30,19 +30,54 @@ class IntelligenceController extends ApplicationApiController
      */
     public function index(GetIntelligenceRequest $request): JsonResponse
     {
+        $factory = app(\Everest\Services\AI\ProviderFactory::class);
+
         return response()->json([
             'enabled' => boolval(config('modules.ai.enabled', false)),
             'key' => !empty(config('modules.ai.key')),
-            'endpoint' => config('modules.ai.endpoint', 'https://api.openai.com/v1'),
-            'model' => config('modules.ai.model', 'gpt-4.1-mini'),
-            'mode' => config('modules.ai.mode', 'openai'),
-            'max_tokens' => (int) config('modules.ai.max_tokens', 200),
+            'endpoint' => config('modules.ai.endpoint', ''),
+            'model' => config('modules.ai.model', ''),
+
+            // `mode` predates multi-provider support and is still what old
+            // installs are configured with, so the resolved provider is
+            // returned alongside it rather than in place of it.
+            'mode' => config('modules.ai.mode', 'ollama'),
+            'provider' => $factory->provider(),
+            'models' => [
+                'agent' => (string) config('modules.ai.models.agent', ''),
+                'fast' => (string) config('modules.ai.models.fast', ''),
+            ],
+
+            'max_tokens' => (int) config('modules.ai.max_tokens', 1024),
             'temperature' => (float) config('modules.ai.temperature', 0.3),
+            'context_tokens' => config('modules.ai.context_tokens') ? (int) config('modules.ai.context_tokens') : null,
             'keep_alive' => (string) config('modules.ai.keep_alive', '10m'),
             'warm' => boolval(config('modules.ai.warm', false)),
-            'system_prompt' => config('modules.ai.system_prompt', 'You are a helpful assistant for a game server hosting panel. Provide clear, concise, and technical responses.'),
+            'system_prompt' => config('modules.ai.system_prompt', ''),
+
             'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
             'feature_crash_analysis' => boolval(config('modules.ai.feature_crash_analysis', true)),
+
+            'agent' => [
+                'enabled' => boolval(config('modules.ai.agent.enabled', false)),
+                'max_steps' => (int) config('modules.ai.agent.max_steps', 12),
+                'max_wall_seconds' => (int) config('modules.ai.agent.max_wall_seconds', 180),
+                'tool_result_bytes' => (int) config('modules.ai.agent.tool_result_bytes', 12288),
+                'max_repairs' => (int) config('modules.ai.agent.max_repairs', 2),
+                'max_tools' => (int) config('modules.ai.agent.max_tools', 15),
+            ],
+
+            'concurrency' => [
+                'slots' => config('modules.ai.concurrency.slots') ? (int) config('modules.ai.concurrency.slots') : null,
+                'queue_depth' => (int) config('modules.ai.concurrency.queue_depth', 20),
+                'max_wait_seconds' => (int) config('modules.ai.concurrency.max_wait_seconds', 120),
+                'per_user' => (int) config('modules.ai.concurrency.per_user', 1),
+            ],
+
+            'budget' => [
+                'enforce' => boolval(config('modules.ai.budget.enforce', false)),
+                'monthly_tokens' => (int) config('modules.ai.budget.monthly_tokens', 2000000),
+            ],
         ]);
     }
 

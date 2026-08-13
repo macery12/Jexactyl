@@ -1,16 +1,32 @@
 import http from '@/lib/http';
-import { streamAiRequest, type AiStreamCallbacks } from '@/lib/aiStream';
+import {
+    streamAgentRequest,
+    streamAiRequest,
+    type AgentStreamCallbacks,
+    type AiDiffPreview,
+    type AiRisk,
+    type AiStreamCallbacks,
+} from '@/lib/aiStream';
 
-// Client-side AI surface for the server assistant. Mirrors V1's
-// `api/routes/server/{ai,aiConversations}.ts` against the existing endpoints:
-// POST /api/client/servers/{uuid}/ai (SSE stream) and the
-// /ai/conversations CRUD. No backend shape changes.
+// Client-side AI surface for a server. Two endpoints sit behind this:
+// POST /ai for advisory chat, and POST /ai/agent for the tool-calling agent,
+// which can suspend mid-turn and be resumed by /ai/agent/decide.
 
-export type ChatRole = 'user' | 'assistant';
+export type ChatRole = 'user' | 'assistant' | 'tool';
 
 export interface ChatHistoryMessage {
-    role: ChatRole;
+    role: 'user' | 'assistant';
     content: string;
+}
+
+/** A stored message, including the tool steps an agent turn produced. */
+export interface StoredMessage {
+    role: ChatRole;
+    content: string | null;
+    tool_calls: { id: string; name: string; arguments: Record<string, unknown> }[] | null;
+    tool_call_id: string | null;
+    tool_name: string | null;
+    step: number | null;
 }
 
 export interface AiConversation {
@@ -20,6 +36,17 @@ export interface AiConversation {
     expires_at: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface PendingAction {
+    turn_id: string;
+    conversation_id: number | null;
+    tool: string;
+    arguments: Record<string, unknown>;
+    risk: AiRisk;
+    preview: AiDiffPreview | null;
+    created_at: string | null;
+    expires_at: string | null;
 }
 
 export type AiQueryType = 'freeform' | 'log_analysis';
@@ -48,6 +75,58 @@ export function streamServerAiQuery(
     );
 }
 
+/**
+ * Start an agent turn.
+ *
+ * No history is sent: the backend replays what it stored. A turn also opens its
+ * own conversation when none is named, and reports the id back on the stream.
+ */
+export function streamAgentTurn(
+    uuid: string,
+    opts: { query: string; conversationId?: number | null; console?: string | null },
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        `/api/client/servers/${uuid}/ai/agent`,
+        {
+            query: opts.query,
+            conversation_id: opts.conversationId ?? undefined,
+            console: opts.console ?? undefined,
+        },
+        callbacks,
+        signal,
+    );
+}
+
+/**
+ * Resolve an action the turn suspended on, and resume it.
+ *
+ * `confirmation` carries the typed server name a destructive action requires.
+ */
+export function streamAgentDecision(
+    uuid: string,
+    opts: { turnId: string; decision: 'approve' | 'reject'; confirmation?: string },
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        `/api/client/servers/${uuid}/ai/agent/decide`,
+        {
+            turn_id: opts.turnId,
+            decision: opts.decision,
+            confirmation: opts.confirmation ?? undefined,
+        },
+        callbacks,
+        signal,
+    );
+}
+
+export async function listPendingActions(uuid: string): Promise<PendingAction[]> {
+    const { data } = await http.get(`/api/client/servers/${uuid}/ai/agent/pending`);
+    return data.data as PendingAction[];
+}
+
 export async function listConversations(uuid: string): Promise<AiConversation[]> {
     const { data } = await http.get(`/api/client/servers/${uuid}/ai/conversations`);
     return data.data as AiConversation[];
@@ -61,14 +140,11 @@ export async function createConversation(uuid: string, title?: string): Promise<
 export async function loadConversation(
     uuid: string,
     id: number,
-): Promise<{ conversation: AiConversation; messages: ChatHistoryMessage[] }> {
+): Promise<{ conversation: AiConversation; messages: StoredMessage[] }> {
     const { data } = await http.get(`/api/client/servers/${uuid}/ai/conversations/${id}`);
     return {
         conversation: data.data.conversation as AiConversation,
-        messages: (data.data.messages as { role: ChatRole; content: string }[]).map(({ role, content }) => ({
-            role,
-            content,
-        })),
+        messages: data.data.messages as StoredMessage[],
     };
 }
 

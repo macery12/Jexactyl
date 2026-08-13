@@ -112,9 +112,9 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:concurrency:per_user',
         'modules:ai:budget:enforce',
         'modules:ai:budget:monthly_tokens',
-        // NB: the per-tool risk overrides and the console safe-command
-        // allowlist are stored as JSON blobs under `modules:ai:risk_overrides`
-        // and `modules:ai:console:safe_commands`, and read directly via
+        // NB: the tool policy is stored as JSON blobs under
+        // `modules:ai:risk_overrides`, `modules:ai:disabled_tools` and
+        // `modules:ai:console:safe_commands`, and read directly via
         // Setting::get rather than being hydrated into config.
 
         // Webhook module settings

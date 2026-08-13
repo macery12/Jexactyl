@@ -220,6 +220,11 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::get('/models', [Application\IntelligenceController::class, 'models']);
         Route::get('/stats', [Application\IntelligenceController::class, 'stats']);
         Route::get('/logs', [Application\IntelligenceController::class, 'recentLogs']);
+
+        // The agent's tool policy and the live state of the inference backend.
+        Route::get('/tools', [Application\AiAgentController::class, 'tools']);
+        Route::put('/tools', [Application\AiAgentController::class, 'updateTools']);
+        Route::get('/inference', [Application\AiAgentController::class, 'inference']);
     });
 
     /*

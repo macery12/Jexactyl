@@ -68,7 +68,11 @@ class AIConversationController extends ClientApiController
     {
         $conversation = $this->resolveConversation($request, $server, $conversationId);
 
-        $messages = $conversation->messages()->get(['role', 'content', 'created_at']);
+        // Agent turns store their tool steps alongside the prose. Returning
+        // them is what lets a reloaded transcript read the same as the live
+        // turn did, instead of implying the assistant answered out of thin air.
+        $messages = $conversation->messages()
+            ->get(['role', 'content', 'tool_calls', 'tool_call_id', 'tool_name', 'step', 'created_at']);
 
         return response()->json([
             'data' => [

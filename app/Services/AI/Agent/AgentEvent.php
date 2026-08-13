@@ -12,6 +12,7 @@ namespace Everest\Services\AI\Agent;
  */
 class AgentEvent
 {
+    public const TYPE_CONVERSATION = 'conversation';
     public const TYPE_QUEUED = 'queued';
     public const TYPE_TEXT = 'text';
     public const TYPE_TOOL_CALL = 'tool_call';
@@ -26,6 +27,16 @@ class AgentEvent
         public readonly string $type,
         public readonly array $payload = [],
     ) {
+    }
+
+    /**
+     * The conversation this turn is being written to. Emitted first, because a
+     * turn opens its own conversation when the client did not name one and the
+     * client needs the id to select it in the history rail.
+     */
+    public static function conversation(int $id, string $title): self
+    {
+        return new self(self::TYPE_CONVERSATION, ['id' => $id, 'title' => $title]);
     }
 
     public static function queued(int $position, int $ahead, int $etaSeconds): self

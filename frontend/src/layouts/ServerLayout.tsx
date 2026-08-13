@@ -9,6 +9,7 @@ import { useFlags } from '@/state/flags';
 import { getServer } from '@/api/servers';
 import { ServerContext } from '@/components/server/ServerContext';
 import { ServerHeader } from '@/components/server/ServerHeader';
+import { AgentDrawer } from '@/components/ai/AgentDrawer';
 import { useServerSocketConnection } from '@/hooks/useServerSocket';
 import { FullPageSpinner } from '@/components/ui/Spinner';
 
@@ -42,6 +43,10 @@ export default function ServerLayout() {
             ) : (
                 <ServerContext.Provider value={server}>
                     <AppShell groups={groups} header={<ServerHeader />} />
+                    {/* Inside the provider so the drawer reaches the same
+                        server context the pages do, and available on every
+                        server page rather than only the AI one. */}
+                    <AgentDrawer />
                 </ServerContext.Provider>
             )}
         </RequireAuth>

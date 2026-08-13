@@ -41,6 +41,9 @@ class AiConversation extends Model
 
     public function messages(): HasMany
     {
-        return $this->hasMany(AiMessage::class, 'conversation_id')->orderBy('created_at');
+        // Ordered by id, not created_at: an agent turn writes several messages
+        // within the same second, and the column has no sub-second precision,
+        // so timestamps alone would shuffle a turn's tool steps.
+        return $this->hasMany(AiMessage::class, 'conversation_id')->orderBy('id');
     }
 }

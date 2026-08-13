@@ -25,6 +25,8 @@ class AgentContext
 
     public int $repairs = 0;
 
+    private ?TurnRecorder $recorder = null;
+
     public function __construct(
         public readonly User $user,
         public readonly Server $server,
@@ -44,9 +46,29 @@ class AgentContext
         return $this;
     }
 
-    public function push(AiMessage $message): void
+    /**
+     * Persist every message pushed from here on.
+     *
+     * Deliberately attached after any replayed history is loaded, so resuming a
+     * suspended turn does not write its earlier half a second time.
+     */
+    public function withRecorder(?TurnRecorder $recorder): self
+    {
+        $this->recorder = $recorder;
+
+        return $this;
+    }
+
+    /**
+     * @param string|null $persistAs stored instead of the model-facing content,
+     *                               for messages whose wire form is far larger
+     *                               than what the transcript needs
+     */
+    public function push(AiMessage $message, ?string $persistAs = null): void
     {
         $this->messages[] = $message;
+
+        $this->recorder?->record($this->conversationId, $message, $this->step, $persistAs);
     }
 
     /**

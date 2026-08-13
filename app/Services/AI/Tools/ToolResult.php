@@ -77,13 +77,43 @@ class ToolResult
 
     /**
      * A one-line summary for the audit trail and the UI card.
+     *
+     * This is the *only* description of an outcome the user ever sees — neither
+     * the live stream nor the stored transcript carries the shaped result — so
+     * it is worth reading the data for something more useful than "done".
      */
     public function summary(): string
     {
-        if ($this->ok) {
-            return 'Succeeded';
+        if (!$this->ok) {
+            return sprintf('%s: %s', $this->code ?? 'error', $this->detail ?? 'Unknown error');
         }
 
-        return sprintf('%s: %s', $this->code ?? 'error', $this->detail ?? 'Unknown error');
+        if (!is_array($this->data)) {
+            return $this->truncated ? 'Read (truncated)' : 'Done';
+        }
+
+        // Anything built by the list shaper reports how much it found, which is
+        // the one fact a collapsed row can usefully show.
+        if (isset($this->data['count']) && is_numeric($this->data['count'])) {
+            $count = (int) $this->data['count'];
+            $shown = is_array($this->data['items'] ?? null) ? count($this->data['items']) : $count;
+
+            $summary = $count === 1 ? '1 item' : sprintf('%d items', $count);
+
+            return $shown < $count ? sprintf('%s (showing %d)', $summary, $shown) : $summary;
+        }
+
+        // Write-shaped results carry their own evidence.
+        if (isset($this->data['additions']) || isset($this->data['deletions'])) {
+            return sprintf('+%d / -%d lines', (int) ($this->data['additions'] ?? 0), (int) ($this->data['deletions'] ?? 0));
+        }
+
+        foreach (['written' => 'Written', 'created' => 'Created', 'deleted' => 'Deleted', 'renamed' => 'Renamed', 'copied' => 'Copied', 'sent' => 'Sent', 'extracted' => 'Extracted', 'restore_started' => 'Restore started'] as $flag => $label) {
+            if (!empty($this->data[$flag])) {
+                return $label;
+            }
+        }
+
+        return $this->truncated ? 'Read (truncated)' : 'Done';
     }
 }

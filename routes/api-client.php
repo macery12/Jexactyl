@@ -226,6 +226,7 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
         // stream that asked for one closes when the turn suspends.
         Route::post('/ai/agent', [Client\Servers\AgentController::class, 'start']);
         Route::post('/ai/agent/decide', [Client\Servers\AgentController::class, 'decide']);
+        Route::get('/ai/agent/pending', [Client\Servers\AgentController::class, 'pending']);
 
         Route::prefix('/ai/conversations')->group(function () {
             Route::get('/', [Client\Servers\AIConversationController::class, 'index']);

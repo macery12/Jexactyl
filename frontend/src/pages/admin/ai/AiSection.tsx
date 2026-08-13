@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Bot, ListOrdered, MessagesSquare, Settings2, TriangleAlert } from 'lucide-react';
+import { Activity, Bot, ListOrdered, MessagesSquare, Settings2, TriangleAlert, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
-import { getAiSettings } from '@/api/adminAi';
+import { getAiSettings, SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
 import { OverviewTab } from './OverviewTab';
 import { PlaygroundTab } from './PlaygroundTab';
 import { LogsTab } from './LogsTab';
 import { SettingsTab } from './SettingsTab';
+import { ToolsTab } from './ToolsTab';
 
 // Admin AI (M12Labs-AI) — tabbed cockpit over /api/application/ai/*.
 // Overview = health + usage analytics; Playground = admin chat console;
@@ -17,13 +18,14 @@ import { SettingsTab } from './SettingsTab';
 // Module on/off lives in Admin → Features (the V1 EnableAI screen is gone);
 // an unconfigured provider surfaces as a banner steering to Settings.
 
-export type AiTabId = 'overview' | 'playground' | 'logs' | 'settings';
+export type AiTabId = 'overview' | 'playground' | 'logs' | 'settings' | 'tools';
 
 const TABS: { id: AiTabId; labelKey: () => string; icon: LucideIcon }[] = [
     { id: 'overview', labelKey: () => m['admin.ai.tabs.overview'](), icon: Activity },
-    { id: 'playground', labelKey: () => m['admin.ai.tabs.playground'](), icon: MessagesSquare },
-    { id: 'logs', labelKey: () => m['admin.ai.tabs.logs'](), icon: ListOrdered },
     { id: 'settings', labelKey: () => m['admin.ai.tabs.settings'](), icon: Settings2 },
+    { id: 'tools', labelKey: () => m['admin.ai.tabs.tools'](), icon: Wrench },
+    { id: 'logs', labelKey: () => m['admin.ai.tabs.logs'](), icon: ListOrdered },
+    { id: 'playground', labelKey: () => m['admin.ai.tabs.playground'](), icon: MessagesSquare },
 ];
 
 export default function AiSection() {
@@ -42,9 +44,10 @@ export default function AiSection() {
         );
     }
 
-    // Ollama needs endpoint+model; OpenAI additionally needs a stored key.
+    // Self-hosted endpoints need only a URL and a model; hosted providers also
+    // need a stored key before anything will answer.
     const needsConfiguration = settings
-        ? settings.mode === 'ollama'
+        ? SELF_HOSTED_PROVIDERS.includes(settings.provider)
             ? !settings.endpoint || !settings.model
             : !settings.key || !settings.endpoint || !settings.model
         : false;
@@ -95,6 +98,7 @@ export default function AiSection() {
             {tab === 'playground' && <PlaygroundTab />}
             {tab === 'logs' && <LogsTab />}
             {tab === 'settings' && <SettingsTab />}
+            {tab === 'tools' && <ToolsTab />}
         </div>
     );
 }

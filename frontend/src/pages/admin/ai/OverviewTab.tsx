@@ -5,6 +5,7 @@ import { cn } from '@/lib/cn';
 import { Panel } from '@/components/ui/Panel';
 import { Spinner } from '@/components/ui/Spinner';
 import {
+    getAiInference,
     getAiLogs,
     getAiSettings,
     getAiStats,
@@ -61,7 +62,14 @@ function ConnectionCard() {
         queryClient.setQueryData(['admin', 'ai', 'health'], fresh);
     };
 
-    const providerLabel = settings?.mode === 'ollama' ? m['admin.ai.providerOllama']() : m['admin.ai.providerOpenai']();
+    const providerLabel =
+        settings?.provider === 'ollama'
+            ? m['admin.ai.providerOllama']()
+            : settings?.provider === 'anthropic'
+              ? m['admin.ai.providerAnthropic']()
+              : settings?.provider === 'openai_compatible'
+                ? m['admin.ai.providerCompatible']()
+                : m['admin.ai.providerOpenai']();
 
     return (
         <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-4 py-3">
@@ -88,7 +96,7 @@ function ConnectionCard() {
                         ) : (
                             <span className="text-[var(--color-ink-faint)]">{m['admin.ai.overview.testing']()}</span>
                         )}
-                        {settings?.warm && settings.mode === 'ollama' && (
+                        {settings?.warm && settings.provider === 'ollama' && (
                             <span className="ml-2 inline-flex items-center gap-1 text-[var(--color-warning)]">
                                 <Zap className="h-3 w-3" />
                                 {m['admin.ai.overview.warmOn']()}
@@ -110,6 +118,119 @@ function ConnectionCard() {
     );
 }
 
+// Live state of the inference backend.
+//
+// Three numbers decide whether the agent is usable at all: whether the model
+// can call tools, how many turns can run at once, and how many are waiting.
+// Grouping them beats scattering them across settings and a connection test.
+function InferenceCard() {
+    const { data, isLoading, isError } = useQuery({
+        queryKey: ['admin', 'ai', 'inference'],
+        queryFn: getAiInference,
+        refetchInterval: 15_000,
+        retry: false,
+    });
+
+    if (isLoading) {
+        return (
+            <Panel title={m['admin.ai.overview.inference']()}>
+                <div className="flex justify-center py-6">
+                    <Spinner className="h-5 w-5" />
+                </div>
+            </Panel>
+        );
+    }
+
+    if (isError || !data) {
+        return (
+            <Panel title={m['admin.ai.overview.inference']()}>
+                <p className="py-4 text-center text-xs text-[var(--color-ink-faint)]">
+                    {m['admin.ai.overview.inferenceUnavailable']()}
+                </p>
+            </Panel>
+        );
+    }
+
+    const { queue, capabilities } = data;
+    const load = queue.slots > 0 ? Math.min(queue.slots_in_use / queue.slots, 1) : 0;
+
+    return (
+        <Panel title={m['admin.ai.overview.inference']()}>
+            <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                    {capabilities?.supports_tools ? (
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+                    ) : (
+                        <XCircle className="h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-ink)]">
+                        {capabilities?.supports_tools
+                            ? m['admin.ai.overview.toolsSupported']({ model: capabilities.model })
+                            : m['admin.ai.overview.toolsUnsupported']()}
+                    </span>
+                </div>
+
+                {queue.applies ? (
+                    <>
+                        <div>
+                            <div className="mb-1 flex items-center justify-between text-xs">
+                                <span className="text-[var(--color-ink-muted)]">
+                                    {m['admin.ai.overview.slots']()}
+                                </span>
+                                <span className="font-mono tabular-nums text-[var(--color-ink)]">
+                                    {queue.slots_in_use} / {queue.slots}
+                                </span>
+                            </div>
+                            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+                                <div
+                                    className={cn(
+                                        'h-full rounded-full transition-all',
+                                        load >= 1 ? 'bg-[var(--color-warning)]' : 'bg-[var(--brand)]',
+                                    )}
+                                    style={{ width: `${load * 100}%` }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5">
+                                <p className="text-[var(--color-ink-faint)]">{m['admin.ai.overview.waiting']()}</p>
+                                <p className="font-mono tabular-nums text-[var(--color-ink)]">{queue.queue_depth}</p>
+                            </div>
+                            <div className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5">
+                                <p className="text-[var(--color-ink-faint)]">{m['admin.ai.overview.avgTurn']()}</p>
+                                <p className="font-mono tabular-nums text-[var(--color-ink)]">
+                                    {(data.average_turn_ms / 1000).toFixed(1)}s
+                                </p>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <p className="text-xs text-[var(--color-ink-faint)]">{m['admin.ai.overview.queueNotApplicable']()}</p>
+                )}
+
+                {data.resident_models.length > 0 && (
+                    <div>
+                        <p className="mb-1 text-xs text-[var(--color-ink-faint)]">
+                            {m['admin.ai.overview.residentModels']()}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                            {data.resident_models.map((model, index) => (
+                                <span
+                                    key={model.name ?? model.model ?? index}
+                                    className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-ink-muted)]"
+                                >
+                                    {model.name ?? model.model ?? '—'}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </Panel>
+    );
+}
+
 export function OverviewTab({ onViewLogs }: { onViewLogs: () => void }) {
     const { data: stats, isLoading: statsLoading } = useQuery({
         queryKey: ['admin', 'ai', 'stats'],
@@ -128,7 +249,10 @@ export function OverviewTab({ onViewLogs }: { onViewLogs: () => void }) {
     return (
         <div className="space-y-3">
             <div className="grid gap-3 lg:grid-cols-2">
-                <ConnectionCard />
+                <div className="space-y-3">
+                    <ConnectionCard />
+                    <InferenceCard />
+                </div>
                 <div className="grid grid-cols-3 gap-3">
                     <StatTile
                         label={m['admin.ai.overview.requests24h']()}
