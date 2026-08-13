@@ -211,13 +211,14 @@ class AgentController extends ClientApiController
         $context = $this->restore($pending, $user, $server);
         $context->push(
             AiMessage::tool(
-                'rejected',
+                $this->resolveToolCallId($pending, $context),
                 $pending->tool_name,
                 json_encode(['ok' => false, 'error' => 'declined_by_user', 'message' => 'The user declined this action. Do not retry it; suggest an alternative or ask what they would prefer.']),
                 true,
             ),
             TurnRecorder::toolDisplay(false, 'Declined by you'),
         );
+        $this->closeUnresolvedCalls($context);
 
         return $this->stream($context, $server, $pending);
     }
@@ -319,17 +320,19 @@ class AgentController extends ClientApiController
         }
 
         $definition = $this->registry->find($pending->tool_name);
+        $callId = $this->resolveToolCallId($pending, $context);
 
         if ($definition === null || !$this->registry->userCanUse($context->user, $context->server, $definition)) {
             $context->push(
                 AiMessage::tool(
-                    'approved',
+                    $callId,
                     $pending->tool_name,
                     json_encode(['ok' => false, 'error' => 'unavailable', 'message' => 'That tool is no longer available.']),
                     true,
                 ),
                 TurnRecorder::toolDisplay(false, 'No longer available'),
             );
+            $this->closeUnresolvedCalls($context);
 
             return;
         }
@@ -338,21 +341,75 @@ class AgentController extends ClientApiController
         // may have hardened the tool while the approval was outstanding.
         $risk = $this->riskGate->resolve($definition, $pending->arguments);
 
-        $call = new \Everest\Services\AI\Data\AiToolCall('approved', $definition->name, $pending->arguments);
+        $call = new \Everest\Services\AI\Data\AiToolCall($callId, $definition->name, $pending->arguments);
         $result = $runner->runTool($context, $call, $definition, $pending->arguments, $risk);
 
         $this->write('data: ' . json_encode(
-            AgentEvent::toolResult('approved', $definition->name, $result->ok, $result->summary())->toArray()
+            AgentEvent::toolResult($callId, $definition->name, $result->ok, $result->summary())->toArray()
         ));
 
         $context->push(
-            AiMessage::tool('approved', $definition->name, $result->toModelPayload(), !$result->ok),
+            AiMessage::tool($callId, $definition->name, $result->toModelPayload(), !$result->ok),
             TurnRecorder::toolDisplay($result->ok, $result->summary()),
         );
+
+        $this->closeUnresolvedCalls($context);
 
         AiToolCall::where('turn_id', $pending->turn_id)
             ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
             ->update(['status' => AiToolCall::STATUS_APPROVED, 'resolved_at' => now()]);
+    }
+
+    /**
+     * The id the model used when it asked for this call.
+     *
+     * It has to be echoed back verbatim: a tool result is matched to its call
+     * by id, and an id the model never issued is rejected outright. Rows
+     * suspended before the id was persisted fall back to the stored turn state,
+     * which still carries the assistant message that made the request.
+     */
+    protected function resolveToolCallId(AiPendingAction $pending, AgentContext $context): string
+    {
+        if (is_string($pending->tool_call_id) && $pending->tool_call_id !== '') {
+            return $pending->tool_call_id;
+        }
+
+        foreach ($context->unresolvedToolCalls() as $call) {
+            if ($call->name === $pending->tool_name) {
+                return $call->id;
+            }
+        }
+
+        // Nothing to match against — the turn cannot be continued coherently,
+        // but a synthetic id at least keeps the shape valid.
+        return 'call_' . substr($pending->turn_id, 0, 8);
+    }
+
+    /**
+     * Answer any sibling calls the suspension left hanging.
+     *
+     * The model can ask for several tools at once. If one of them needed
+     * approval, the calls queued behind it never ran — and a request whose tool
+     * calls are not all answered is rejected. Telling the model they were
+     * skipped is both valid and useful: it can simply ask again.
+     */
+    protected function closeUnresolvedCalls(AgentContext $context): void
+    {
+        foreach ($context->unresolvedToolCalls() as $call) {
+            $context->push(
+                AiMessage::tool(
+                    $call->id,
+                    $call->name,
+                    json_encode([
+                        'ok' => false,
+                        'error' => 'not_executed',
+                        'message' => 'This call was not run because the turn paused for approval. Request it again if you still need it.',
+                    ]),
+                    true,
+                ),
+                TurnRecorder::toolDisplay(false, 'Skipped'),
+            );
+        }
     }
 
     /**

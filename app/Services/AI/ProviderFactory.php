@@ -89,7 +89,7 @@ class ProviderFactory
             model: $this->model($task),
             maxTokens: (int) $this->setting('max_tokens', config('modules.ai.max_tokens', 1024)),
             temperature: (float) $this->setting('temperature', config('modules.ai.temperature', 0.3)),
-            systemPrompt: (string) ($this->setting('system_prompt', config('modules.ai.system_prompt')) ?: ''),
+            systemPrompt: $this->systemPrompt(),
             keepAlive: (string) ($this->setting('keep_alive', config('modules.ai.keep_alive', '10m')) ?: '10m'),
             timeout: (int) config('modules.ai.timeout', 300),
             connectTimeout: (int) config('modules.ai.connect_timeout', 10),
@@ -133,6 +133,21 @@ class ProviderFactory
         $specific = (string) ($this->setting('models:' . $task, config('modules.ai.models.' . $task)) ?: '');
 
         return $specific !== '' ? $specific : $default;
+    }
+
+    /**
+     * The house system prompt.
+     *
+     * A blank stored value falls back to the packaged default rather than to no
+     * prompt at all: an admin who clears the field is asking for the default
+     * back, and a model given no framing at all answers as a generic chatbot
+     * with no idea it is inside a game server panel.
+     */
+    public function systemPrompt(): string
+    {
+        $prompt = trim((string) ($this->setting('system_prompt', '') ?: ''));
+
+        return $prompt !== '' ? $prompt : trim((string) config('modules.ai.system_prompt', ''));
     }
 
     protected function setting(string $key, mixed $default = null): mixed

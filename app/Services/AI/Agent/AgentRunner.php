@@ -365,6 +365,9 @@ class AgentRunner
                 'user_id' => $context->user->id,
                 'server_uuid' => $context->server->uuid,
                 'tool_name' => $definition->name,
+                // The model's own id for this call. Resuming has to answer with
+                // the same one — a fabricated id is rejected by every provider.
+                'tool_call_id' => $call->id,
                 'risk' => $risk,
                 'arguments' => $arguments,
                 'state' => $context->toState(),

@@ -5,6 +5,7 @@ namespace Everest\Services\AI\Agent;
 use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Services\AI\Data\AiMessage;
+use Everest\Services\AI\Data\AiToolCall;
 
 /**
  * Everything one turn needs, and the state that has to survive a suspension.
@@ -69,6 +70,48 @@ class AgentContext
         $this->messages[] = $message;
 
         $this->recorder?->record($this->conversationId, $message, $this->step, $persistAs);
+    }
+
+    /**
+     * The tool calls from the most recent assistant turn that still have no
+     * result.
+     *
+     * Every provider requires each tool call to be answered before the
+     * conversation can continue — Anthropic rejects the request outright if a
+     * `tool_use` block has no matching `tool_result`. A turn that suspends
+     * partway through a batch of parallel calls leaves exactly that gap: the
+     * calls after the one awaiting approval never ran, so on resume they have
+     * to be closed out rather than silently dropped.
+     *
+     * @return AiToolCall[]
+     */
+    public function unresolvedToolCalls(): array
+    {
+        $calls = [];
+
+        // Walk back to the last assistant message that asked for tools, taking
+        // note of every result seen on the way — those are its answers.
+        $answered = [];
+
+        for ($i = count($this->messages) - 1; $i >= 0; --$i) {
+            $message = $this->messages[$i];
+
+            if ($message->role === AiMessage::ROLE_TOOL) {
+                if ($message->toolCallId !== null) {
+                    $answered[$message->toolCallId] = true;
+                }
+
+                continue;
+            }
+
+            if ($message->role === AiMessage::ROLE_ASSISTANT && $message->toolCalls !== []) {
+                $calls = $message->toolCalls;
+            }
+
+            break;
+        }
+
+        return array_values(array_filter($calls, fn (AiToolCall $call) => !isset($answered[$call->id])));
     }
 
     /**

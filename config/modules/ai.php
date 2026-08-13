@@ -88,9 +88,23 @@ return [
     'connect_timeout' => env('AI_CONNECT_TIMEOUT', 10),
 
     /*
-     * System prompt for AI.
+     * The house system prompt, applied to plain chat and appended to the
+     * agent's own instructions.
+     *
+     * Deliberately plain prose. It has to work unchanged on Anthropic, OpenAI
+     * and whatever local model is loaded in Ollama, and a prompt written around
+     * one family's conventions travels badly: XML section tags are idiomatic
+     * for Claude but confuse models whose chat template treats angle brackets
+     * as control tokens, and role assertions ("You are ChatGPT") make a model
+     * argue with its own identity. Short matters too — a small local model
+     * degrades measurably as the system prompt grows, and the agent stacks this
+     * on top of its server facts and tool schemas.
+     *
+     * It also stays out of output formatting. Crash analysis supplies its own
+     * "Issue / Evidence / Fix" shape per request, and an agent turn needs to be
+     * free to answer in whatever form the work produced.
      */
-    'system_prompt' => env('AI_SYSTEM_PROMPT', 'You are an expert game server technician specializing in crash analysis and debugging. When given server logs, identify the root cause concisely and list specific actionable steps to resolve it. Format responses as: Cause: [what went wrong]. Fix: [numbered steps]. For general questions, give direct technical answers. Be concise.'),
+    'system_prompt' => env('AI_SYSTEM_PROMPT', 'You are the assistant built into a game server hosting control panel. The people you help run game servers such as Minecraft, Rust and ARK, and range from complete beginners to experienced administrators. Be direct and concrete: lead with the answer, then the reasoning only if it is needed. Prefer exact file paths, setting names and values over general advice. Never invent a file path, configuration key, console command or log line — if you have not seen it, say you are not sure and say how to find out. Match your length to the question, and explain the risk before suggesting anything that deletes data or interrupts players.'),
 
     /*
      * Individual feature toggles.

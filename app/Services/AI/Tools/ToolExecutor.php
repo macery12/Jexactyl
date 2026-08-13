@@ -258,16 +258,24 @@ class ToolExecutor
     {
         $code = $first['code'] ?? null;
 
-        if (is_string($code) && $code !== '') {
+        // The panel renders every exception with `class_basename($e)` as its
+        // code, so passing one through puts PHP class names like
+        // `DaemonConnectionException` into the model's context and onto the
+        // user's screen. Only an already-stable machine code is trusted; a
+        // class name is StudlyCase and fails this deliberately.
+        if (is_string($code) && preg_match('/^[a-z][a-z0-9_]*$/', $code)) {
             return $code;
         }
 
-        return match ($status) {
-            403 => 'forbidden',
-            404 => 'not_found',
-            409 => 'conflict',
-            422 => 'validation_failed',
-            429 => 'rate_limited',
+        return match (true) {
+            $status === 403 => 'forbidden',
+            $status === 404 => 'not_found',
+            $status === 409 => 'conflict',
+            $status === 422 => 'validation_failed',
+            $status === 429 => 'rate_limited',
+            // The node, not the panel, is what failed. Worth distinguishing:
+            // the model should wait and retry rather than rephrase.
+            in_array($status, [502, 503, 504], true) => 'node_unavailable',
             default => 'http_error',
         };
     }
@@ -284,17 +292,39 @@ class ToolExecutor
     {
         $detail = $first['detail'] ?? null;
 
-        if (is_string($detail) && trim($detail) !== '') {
-            return Str::limit($detail, 500);
+        if (is_string($detail) && ($cleaned = $this->unwrapDaemonMessage($detail)) !== '') {
+            return Str::limit($cleaned, 500);
         }
 
-        return match ($status) {
-            403 => 'You do not have permission to do that on this server.',
-            404 => 'That resource does not exist, or is not part of this server.',
-            409 => 'The server is not in a state that allows this right now.',
-            429 => 'Too many requests. Wait a moment before trying again.',
+        return match (true) {
+            $status === 403 => 'You do not have permission to do that on this server.',
+            $status === 404 => 'That does not exist. List the parent directory to see what is actually there rather than guessing another path.',
+            $status === 409 => 'The server is not in a state that allows this right now.',
+            $status === 429 => 'Too many requests. Wait a moment before trying again.',
+            in_array($status, [502, 503, 504], true) => 'The machine running this server is not responding right now.',
             default => 'The request failed with status ' . $status . '.',
         };
+    }
+
+    /**
+     * Unwrap the daemon's error envelope.
+     *
+     * `DaemonConnectionException` wraps whatever the node reported in prose and
+     * appends a request id, so a plain "no such directory" reaches the model as
+     * "An error occurred on the remote host: … (request id: <nil>)". The
+     * wrapper is noise the model has to reason past and the request id means
+     * nothing to it — both cost tokens on every subsequent step of the turn.
+     */
+    protected function unwrapDaemonMessage(string $detail): string
+    {
+        if (preg_match('/^An error occurred on the remote host: (.+?)\.?\s*\(request id:.*$/is', $detail, $matches)) {
+            $detail = $matches[1];
+        }
+
+        // The 5xx variant instead carries a trailing "(code: N) (request_id: X)".
+        $detail = preg_replace('/\s*\((?:code|request[ _]id):[^)]*\)/i', '', $detail) ?? $detail;
+
+        return trim($detail);
     }
 
     /**

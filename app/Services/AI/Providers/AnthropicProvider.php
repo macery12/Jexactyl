@@ -123,6 +123,8 @@ class AnthropicProvider extends AbstractProvider
         $stopReason = null;
         $inputTokens = null;
         $outputTokens = null;
+        $cacheRead = 0;
+        $cacheWrite = 0;
 
         foreach ($this->readSse($body) as $frame) {
             $data = $this->decodeSseData($frame['data']);
@@ -134,7 +136,12 @@ class AnthropicProvider extends AbstractProvider
 
             switch ($type) {
                 case 'message_start':
-                    $inputTokens = $data['message']['usage']['input_tokens'] ?? null;
+                    // Includes the cache read/write counts, which sit outside
+                    // `input_tokens` and would otherwise go unbilled.
+                    $startUsage = is_array($data['message']['usage'] ?? null) ? $data['message']['usage'] : [];
+                    $inputTokens = self::promptTokens($startUsage);
+                    $cacheRead = (int) ($startUsage['cache_read_input_tokens'] ?? 0);
+                    $cacheWrite = (int) ($startUsage['cache_creation_input_tokens'] ?? 0);
                     break;
 
                 case 'content_block_start':
@@ -200,7 +207,10 @@ class AnthropicProvider extends AbstractProvider
         );
 
         if ($usage !== []) {
-            yield AiStreamEvent::usage($usage);
+            yield AiStreamEvent::usage($usage + [
+                'cache_read_tokens' => $cacheRead,
+                'cache_write_tokens' => $cacheWrite,
+            ]);
         }
 
         if ($stopReason === 'refusal') {
@@ -233,6 +243,17 @@ class AnthropicProvider extends AbstractProvider
             'max_tokens' => $this->resolveMaxTokens($request),
             'messages' => $this->buildMessages($request),
             'stream' => $stream,
+            // Automatic caching: one top-level breakpoint that the API keeps
+            // moving to the end of the cacheable prefix as the conversation
+            // grows. An agent turn re-sends the system prompt, every tool
+            // schema and the whole transcript on each of up to twelve steps,
+            // so nearly all of that prefix is identical to the step before.
+            //
+            // Reads bill at a tenth of the input rate, so this is a large net
+            // saving despite the 25% write premium. Prompts under the model's
+            // minimum cacheable size are silently not cached and cost nothing
+            // extra, which is why this needs no threshold check of its own.
+            'cache_control' => ['type' => 'ephemeral'],
         ];
 
         $system = $this->resolveSystemPrompt($request);
@@ -346,10 +367,41 @@ class AnthropicProvider extends AbstractProvider
 
     protected function extractUsage(array $usage): array
     {
-        return $this->normaliseUsage(
-            isset($usage['input_tokens']) ? (int) $usage['input_tokens'] : null,
+        $normalised = $this->normaliseUsage(
+            self::promptTokens($usage),
             isset($usage['output_tokens']) ? (int) $usage['output_tokens'] : null,
         );
+
+        if ($normalised === []) {
+            return [];
+        }
+
+        // Carried separately so the admin overview can show caching working;
+        // both are already counted inside prompt_tokens.
+        return $normalised + [
+            'cache_read_tokens' => (int) ($usage['cache_read_input_tokens'] ?? 0),
+            'cache_write_tokens' => (int) ($usage['cache_creation_input_tokens'] ?? 0),
+        ];
+    }
+
+    /**
+     * Total prompt tokens for a turn.
+     *
+     * `input_tokens` counts only what fell *outside* the cache breakpoint, so
+     * reading it alone under-reports a cached request by most of the prompt —
+     * which would quietly make token budgets stop binding as soon as caching
+     * started working. Cached tokens are cheaper, not free, so all three are
+     * summed.
+     */
+    protected static function promptTokens(array $usage): ?int
+    {
+        $keys = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'];
+
+        if (array_intersect_key($usage, array_flip($keys)) === []) {
+            return null;
+        }
+
+        return array_sum(array_map(fn (string $key) => (int) ($usage[$key] ?? 0), $keys));
     }
 
     protected function refusalMessage(array $data): string

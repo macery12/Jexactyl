@@ -390,6 +390,7 @@
   "admin.ai.settings.model": "Model",
   "admin.ai.settings.modelAgent": "Agent model",
   "admin.ai.settings.modelAgentHint": "Runs the tool-calling loop. Must support tool calling.",
+  "admin.ai.settings.modelAvailableHint": "Pick an available model below or type a name.",
   "admin.ai.settings.modelDiscoveredHint": "Pick an installed model below or type a name.",
   "admin.ai.settings.modelFast": "Fast model",
   "admin.ai.settings.modelFastHint": "Used for one-shot work like crash triage and chat titles.",

@@ -2,7 +2,7 @@
 
 namespace Everest\Services\AI\Agent;
 
-use Everest\Models\Setting;
+use Everest\Services\AI\ProviderFactory;
 
 /**
  * Builds the agent's system prompt.
@@ -84,6 +84,10 @@ class SystemPromptBuilder
               leave the rest of the file, including its comments and formatting, untouched.
             - Configuration for mods and plugins lives in files, not in the panel. Look under
               /config, /plugins, /mods and the server's own properties file.
+            - Do not guess at paths. List a directory before reading from it, and if a listing
+              comes back missing, list its parent to see what is actually there rather than
+              trying another guess. A server that has never been started has almost none of
+              the directories a running one does.
             - Some settings are startup variables rather than file contents. Check
               startup_list when a setting is not where you expected it.
             - Many changes only apply after a restart. Say so, and offer to restart — but do
@@ -122,12 +126,14 @@ class SystemPromptBuilder
      */
     protected function operatorPrompt(): ?string
     {
-        $prompt = Setting::get('settings::modules:ai:system_prompt', config('modules.ai.system_prompt'));
+        // Resolved through the factory so a cleared setting falls back to the
+        // packaged default here exactly as it does for plain chat.
+        $prompt = app(ProviderFactory::class)->systemPrompt();
 
-        if (!is_string($prompt) || trim($prompt) === '') {
+        if ($prompt === '') {
             return null;
         }
 
-        return 'Additional instructions from the panel operator: ' . trim($prompt);
+        return 'Additional instructions from the panel operator: ' . $prompt;
     }
 }

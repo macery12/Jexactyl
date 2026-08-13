@@ -370,6 +370,53 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('user', $payload['messages'][0]['role']);
     }
 
+    public function testAnthropicRequestsAutomaticPromptCaching(): void
+    {
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'content' => [['type' => 'text', 'text' => 'ok']],
+            'stop_reason' => 'end_turn',
+        ]))]);
+
+        (new AnthropicProvider(
+            $this->config(ProviderConfig::PROVIDER_ANTHROPIC, ['endpoint' => 'https://api.anthropic.com/v1', 'apiKey' => 'sk-ant-test']),
+            $stack
+        ))->chat(new AiRequest([AiMessage::user('hi')]));
+
+        // A single top-level breakpoint: the API walks it forward to the end of
+        // the cacheable prefix as the transcript grows, which is exactly the
+        // shape an agent turn re-sending its whole history needs.
+        $this->assertSame(['type' => 'ephemeral'], $this->sentPayload()['cache_control'] ?? null);
+    }
+
+    /**
+     * `input_tokens` counts only what fell outside the cache breakpoint, so
+     * reading it alone under-reports a cached turn by most of its prompt — and
+     * token budgets would quietly stop binding once caching started working.
+     */
+    public function testAnthropicCountsCachedTokensTowardsPromptUsage(): void
+    {
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'content' => [['type' => 'text', 'text' => 'ok']],
+            'stop_reason' => 'end_turn',
+            'usage' => [
+                'input_tokens' => 50,
+                'cache_creation_input_tokens' => 500,
+                'cache_read_input_tokens' => 2000,
+                'output_tokens' => 10,
+            ],
+        ]))]);
+
+        $response = (new AnthropicProvider(
+            $this->config(ProviderConfig::PROVIDER_ANTHROPIC, ['endpoint' => 'https://api.anthropic.com/v1', 'apiKey' => 'sk-ant-test']),
+            $stack
+        ))->chat(new AiRequest([AiMessage::user('hi')]));
+
+        $this->assertSame(2550, $response->usage['prompt_tokens']);
+        $this->assertSame(2560, $response->usage['total_tokens']);
+        $this->assertSame(2000, $response->usage['cache_read_tokens']);
+        $this->assertSame(500, $response->usage['cache_write_tokens']);
+    }
+
     public function testAnthropicOmitsSamplingParamsOnModelsThatRejectThem(): void
     {
         $stack = $this->stack([

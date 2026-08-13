@@ -430,7 +430,13 @@ export function SettingsTab() {
                     <div>
                         <Field
                             label={m['admin.ai.settings.model']()}
-                            hint={discovered ? m['admin.ai.settings.modelDiscoveredHint']() : m['admin.ai.settings.modelPresetHint']()}
+                            hint={
+                                !discovered
+                                    ? m['admin.ai.settings.modelPresetHint']()
+                                    : selfHosted
+                                      ? m['admin.ai.settings.modelDiscoveredHint']()
+                                      : m['admin.ai.settings.modelAvailableHint']()
+                            }
                         >
                             <div className="flex items-center gap-2">
                                 <Input value={form.model} onChange={e => patch('model', e.target.value)} className="font-mono" />
@@ -460,7 +466,10 @@ export function SettingsTab() {
                                                 : 'border-[var(--color-border-strong)] text-[var(--color-ink-muted)] hover:border-[var(--color-ink-faint)] hover:text-[var(--color-ink)]',
                                         )}
                                     >
-                                        {discovered && <HardDrive className="h-3 w-3 opacity-60" />}
+                                        {/* A disk icon only means something for a model
+                                            that occupies disk here; a hosted model has
+                                            no local footprint and no size to report. */}
+                                        {selfHosted && discovered && <HardDrive className="h-3 w-3 opacity-60" />}
                                         {id}
                                         {size && <span className="opacity-60">{size}</span>}
                                     </button>
