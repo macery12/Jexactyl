@@ -11,14 +11,27 @@ class AiMessage extends Model
 
     public $timestamps = false;
 
+    public const ROLE_USER = 'user';
+    public const ROLE_ASSISTANT = 'assistant';
+    public const ROLE_SYSTEM = 'system';
+    public const ROLE_TOOL = 'tool';
+
+    public const ROLES = [self::ROLE_USER, self::ROLE_ASSISTANT, self::ROLE_SYSTEM, self::ROLE_TOOL];
+
     protected $fillable = [
         'conversation_id',
         'role',
         'content',
+        'tool_calls',
+        'tool_call_id',
+        'tool_name',
+        'step',
     ];
 
     protected $casts = [
         'created_at' => 'datetime',
+        'tool_calls' => 'array',
+        'step' => 'integer',
     ];
 
     public function conversation(): BelongsTo

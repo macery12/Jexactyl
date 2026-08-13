@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route;
 use Everest\Http\Middleware\TrimStrings;
 use Illuminate\Cache\RateLimiting\Limit;
 use Everest\Http\Middleware\ApiDocsAccess;
+use Everest\Services\AI\Tools\ToolExecutor;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Middleware\AdminAuthenticate;
 use Everest\Http\Middleware\RequireTwoFactorAuthentication;
@@ -120,6 +121,16 @@ class RouteServiceProvider extends ServiceProvider
         RateLimiter::for('api.client', function (Request $request) {
             $key = optional($request->user())->uuid ?: $request->ip();
 
+            // A single agent turn fans out into many sub-requests. Charging
+            // them to the human's budget would let one AI question exhaust the
+            // allowance their browser session is also spending. Agent traffic
+            // gets its own bounded budget instead — bounded, not unlimited, so
+            // internal amplification stays capped.
+            if (ToolExecutor::isInternal($request)) {
+                return Limit::perMinute(config('modules.ai.agent.tool_rate_limit', 240))
+                    ->by('ai-tools:' . $key);
+            }
+
             return Limit::perMinutes(
                 config('http.rate_limit.client_period'),
                 config('http.rate_limit.client')
@@ -128,6 +139,11 @@ class RouteServiceProvider extends ServiceProvider
 
         RateLimiter::for('api.application', function (Request $request) {
             $key = optional($request->user())->uuid ?: $request->ip();
+
+            if (ToolExecutor::isInternal($request)) {
+                return Limit::perMinute(config('modules.ai.agent.tool_rate_limit', 240))
+                    ->by('ai-tools:' . $key);
+            }
 
             return Limit::perMinutes(
                 config('http.rate_limit.application_period'),

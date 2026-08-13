@@ -1,0 +1,308 @@
+<?php
+
+namespace Everest\Services\AI\Tools;
+
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Everest\Facades\Activity;
+use Illuminate\Routing\Route;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Database\DatabaseManager;
+use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Contracts\Foundation\Application;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Support\Facades\Request as RequestFacade;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Everest\Services\Activity\ActivityLogTargetableService;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
+
+/**
+ * Runs a tool by dispatching an internal sub-request through the panel's real
+ * HTTP pipeline.
+ *
+ * This is the core security decision of the agent. Rather than re-implementing
+ * authorization for the agent — which would drift from the browser's the first
+ * time a permission changed — every tool call traverses the exact middleware
+ * stack a browser request does: `AuthenticateServerAccess` (404s a server the
+ * user cannot reach), `ResourceBelongsToServer` (404s cross-server resources),
+ * the endpoint's own FormRequest `permission()` gate, and its validation rules.
+ * There is deliberately no second code path to get wrong.
+ *
+ * Five things this has to get right, each a real failure rather than a
+ * theoretical one:
+ *
+ * 1. **Send no cookies.** They have already been decrypted in place on the
+ *    parent request; re-sending them makes EncryptCookies fail to decrypt,
+ *    which nulls the session cookie, which regenerates the id on the *shared*
+ *    session store, which makes UpdateUserSessionActivity find no tracking
+ *    record and log the user out mid-stream. Auth propagates without them
+ *    because the guard has already resolved and cached the user.
+ * 2. **Clear the matched route's cached controller.** Routes are shared across
+ *    the process and `Route::getController()` memoises onto them; the API
+ *    controllers snapshot the request and call Fractal's `parseIncludes()`,
+ *    which *accumulates* — so one tool's `?include=` would leak into every
+ *    later call on that route.
+ * 3. **Refuse streamed and binary responses.** Their bodies can only be read
+ *    by sending them, which would echo straight into the live SSE stream.
+ * 4. **Send `Accept: application/json`.** Without it a ValidationException
+ *    becomes a 302 with flashed errors and an HttpException renders an HTML
+ *    view, instead of the structured envelope the model can act on.
+ * 5. **Never dispatch inside a transaction.** The exception handler rolls back
+ *    to level 0 when it renders, which would take the caller's transaction
+ *    with it.
+ */
+class ToolExecutor
+{
+    /**
+     * Hard ceiling on the response body handed back to the model. Beyond this
+     * a single directory listing would consume the whole context window.
+     */
+    public const MAX_BODY_BYTES = 12288;
+
+    public function __construct(
+        private Application $app,
+        private DatabaseManager $db,
+    ) {
+    }
+
+    public function execute(ToolInvocation $invocation, int $maxBytes = self::MAX_BODY_BYTES): ToolResult
+    {
+        // The exception handler calls rollBack(0) when it renders, so a failure
+        // inside the sub-request would silently discard the caller's work.
+        if ($this->db->transactionLevel() > 0) {
+            return ToolResult::internalError('Tool calls may not run inside a database transaction.');
+        }
+
+        $parentRequest = $this->app->make('request');
+        $parentRoute = $this->app->resolved(Route::class) ? $this->app->make(Route::class) : null;
+        $obLevel = ob_get_level();
+
+        $target = $this->app->make(ActivityLogTargetableService::class);
+        $snapshot = [$target->actor(), $target->subject(), $target->apiKeyId(), $target->isAdmin()];
+
+        $sub = $this->buildSubRequest($invocation, $parentRequest);
+        $matched = null;
+
+        try {
+            Activity::reset();
+
+            $response = $this->app->make(HttpKernelContract::class)->handle($sub);
+            $matched = $sub->route();
+
+            return $this->toResult($response, $maxBytes);
+        } catch (\Throwable $e) {
+            // Kernel::handle already renders most throwables; anything reaching
+            // here is unexpected, so report it and give the model something
+            // terse that leaks nothing.
+            report($e);
+
+            return ToolResult::internalError('The tool call could not be completed.');
+        } finally {
+            if ($matched instanceof Route) {
+                $matched->controller = null;
+            }
+
+            Activity::reset();
+            $this->restoreLogTarget($target, $snapshot);
+
+            // Re-binding `request` fires the container rebound hooks, which is
+            // what restores the auth guards, the URL generator, and the user
+            // resolver — none of those need handling individually.
+            $this->app->instance('request', $parentRequest);
+            RequestFacade::clearResolvedInstance();
+
+            if ($parentRoute !== null) {
+                $this->app->instance(Route::class, $parentRoute);
+            } else {
+                $this->app->forgetInstance(Route::class);
+            }
+
+            while (ob_get_level() > $obLevel) {
+                ob_end_flush();
+            }
+        }
+    }
+
+    /**
+     * Build the sub-request.
+     *
+     * Deliberately carries no `Cookie`, `Authorization`, `Referer`, or `Origin`
+     * header. Without a session cookie the stateful-request path is skipped
+     * entirely, so CSRF and session handling never run — and the guard's cached
+     * user means the sub-request still authenticates as exactly the same
+     * identity, with the same token instance. The failure mode is closed: if
+     * that cache were somehow cold the request 401s, never escalates.
+     */
+    protected function buildSubRequest(ToolInvocation $invocation, Request $parent): Request
+    {
+        $isRead = $invocation->isRead();
+
+        $sub = Request::create(
+            // Absolute so the URL generator stays correct after the rebind —
+            // signed node URLs for downloads depend on it.
+            uri: $parent->getSchemeAndHttpHost() . $invocation->fullUri(),
+            method: strtoupper($invocation->method),
+            parameters: $isRead ? $invocation->query : [],
+            cookies: [],
+            files: [],
+            server: ['REMOTE_ADDR' => $parent->ip()],
+            content: $isRead ? null : json_encode($invocation->body ?: new \stdClass()),
+        );
+
+        // Mandatory: it is what makes the exception handler emit the JSON
+        // envelope instead of a redirect or an HTML error page.
+        $sub->headers->set('Accept', 'application/json');
+        $sub->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        if (!$isRead) {
+            $sub->headers->set('Content-Type', 'application/json');
+        }
+
+        foreach (['Cookie', 'Authorization', 'Referer', 'Origin', 'X-XSRF-TOKEN', 'X-CSRF-TOKEN'] as $header) {
+            $sub->headers->remove($header);
+        }
+
+        $sub->attributes->set(InternalToolCall::ATTRIBUTE, InternalToolCall::marker());
+        $sub->setUserResolver($parent->getUserResolver());
+
+        return $sub;
+    }
+
+    /**
+     * `setIsAdmin()` is write-only-true, so the flag can only be restored by
+     * resetting first and re-applying.
+     */
+    protected function restoreLogTarget(ActivityLogTargetableService $target, array $snapshot): void
+    {
+        [$actor, $subject, $apiKeyId, $isAdmin] = $snapshot;
+
+        $target->reset();
+
+        if ($actor !== null) {
+            $target->setActor($actor);
+        }
+        if ($subject !== null) {
+            $target->setSubject($subject);
+        }
+        $target->setApiKeyId($apiKeyId);
+        if ($isAdmin) {
+            $target->setIsAdmin();
+        }
+    }
+
+    protected function toResult(Response $response, int $maxBytes): ToolResult
+    {
+        // getContent() returns false on these; the only way to read the body is
+        // to send it, which would write into the caller's live SSE stream.
+        if ($response instanceof StreamedResponse || $response instanceof BinaryFileResponse) {
+            return ToolResult::error(
+                'unsupported_response',
+                'This endpoint streams its response and cannot be called as a tool.'
+            );
+        }
+
+        $status = $response->getStatusCode();
+        $body = (string) $response->getContent();
+        $decoded = json_decode($body, true);
+        $isJson = json_last_error() === JSON_ERROR_NONE;
+
+        if ($status >= 200 && $status < 300) {
+            if (!$isJson) {
+                $truncated = strlen($body) > $maxBytes;
+
+                return ToolResult::ok($truncated ? Str::limit($body, $maxBytes, '') : $body, $truncated);
+            }
+
+            $encoded = json_encode($decoded);
+            if ($encoded !== false && strlen($encoded) > $maxBytes) {
+                return ToolResult::ok(Str::limit($encoded, $maxBytes, ''), true);
+            }
+
+            return ToolResult::ok($decoded);
+        }
+
+        return $this->toError($status, $isJson ? $decoded : null);
+    }
+
+    protected function toError(int $status, ?array $decoded): ToolResult
+    {
+        $errors = is_array($decoded['errors'] ?? null) ? $decoded['errors'] : [];
+        $first = is_array($errors[0] ?? null) ? $errors[0] : [];
+
+        // 422 carries one entry per field with the offending rule — genuinely
+        // good retry signal, so it is surfaced rather than flattened.
+        $fields = null;
+        if ($status === 422 && $errors !== []) {
+            $fields = [];
+            foreach ($errors as $error) {
+                if (!is_array($error)) {
+                    continue;
+                }
+                $field = $error['meta']['source_field'] ?? null;
+                $fields[$field ?: 'request'] = (string) ($error['detail'] ?? 'Invalid value.');
+            }
+        }
+
+        return ToolResult::error(
+            code: $this->errorCode($status, $first),
+            detail: $this->errorDetail($status, $first),
+            status: $status,
+            // 409 means "start the server first"; 422 means "fix your
+            // arguments"; 429/5xx mean "back off". 403/404 mean stop.
+            retryable: in_array($status, [409, 422, 429, 500, 502, 503, 504], true),
+            fields: $fields,
+        );
+    }
+
+    protected function errorCode(int $status, array $first): string
+    {
+        $code = $first['code'] ?? null;
+
+        if (is_string($code) && $code !== '') {
+            return $code;
+        }
+
+        return match ($status) {
+            403 => 'forbidden',
+            404 => 'not_found',
+            409 => 'conflict',
+            422 => 'validation_failed',
+            429 => 'rate_limited',
+            default => 'http_error',
+        };
+    }
+
+    /**
+     * Build the message the model sees.
+     *
+     * `convertExceptionToArray()` injects `source.file`, `source.line`, and a
+     * full `meta.trace` when APP_DEBUG is on. None of that may reach the model
+     * context — it would be echoed to the user's screen over SSE — so only the
+     * detail string is ever read, never the surrounding envelope.
+     */
+    protected function errorDetail(int $status, array $first): string
+    {
+        $detail = $first['detail'] ?? null;
+
+        if (is_string($detail) && trim($detail) !== '') {
+            return Str::limit($detail, 500);
+        }
+
+        return match ($status) {
+            403 => 'You do not have permission to do that on this server.',
+            404 => 'That resource does not exist, or is not part of this server.',
+            409 => 'The server is not in a state that allows this right now.',
+            429 => 'Too many requests. Wait a moment before trying again.',
+            default => 'The request failed with status ' . $status . '.',
+        };
+    }
+
+    /**
+     * Whether a request is agent traffic. Used by the rate limiters to give
+     * tool steps their own budget instead of consuming the human's.
+     */
+    public static function isInternal(Request $request): bool
+    {
+        return InternalToolCall::matches($request->attributes->get(InternalToolCall::ATTRIBUTE));
+    }
+}

@@ -1,0 +1,400 @@
+<?php
+
+namespace Everest\Services\AI\Providers;
+
+use Everest\Services\AI\Data\AiTool;
+use Everest\Services\AI\Data\AiMessage;
+use Everest\Services\AI\Data\AiRequest;
+use Everest\Services\AI\Data\AiResponse;
+use Everest\Services\AI\Data\AiToolCall;
+use Everest\Services\AI\Data\AiStreamEvent;
+use Everest\Services\AI\Data\ProviderCapabilities;
+use Everest\Exceptions\Service\AI\AIServiceException;
+
+/**
+ * Anthropic Messages API driver.
+ *
+ * Three things differ from the OpenAI-shaped providers and are easy to get
+ * wrong: the system prompt is a top-level field rather than a message, tool
+ * results are content blocks inside a *user* message (and consecutive ones
+ * must be merged into a single message), and current models reject sampling
+ * parameters outright rather than ignoring them.
+ */
+class AnthropicProvider extends AbstractProvider
+{
+    public const API_VERSION = '2023-06-01';
+
+    protected const MESSAGES_PATH = 'messages';
+
+    /**
+     * Models that reject `temperature`, `top_p`, and `top_k` with a 400.
+     * Matched by prefix so dated snapshots and aliases both resolve.
+     *
+     * The agent loop pins temperature to 0 during tool selection, which would
+     * hard-fail on these — so the driver drops the parameter instead of
+     * passing it through. Reasoning depth is controlled by `effort` there.
+     */
+    protected const REJECTS_SAMPLING_PARAMS = [
+        'claude-opus-5',
+        'claude-opus-4-8',
+        'claude-opus-4-7',
+        'claude-sonnet-5',
+        'claude-fable-5',
+        'claude-mythos-5',
+    ];
+
+    protected function headers(): array
+    {
+        return [
+            'Content-Type' => 'application/json',
+            'x-api-key' => $this->providerConfig->apiKey,
+            'anthropic-version' => self::API_VERSION,
+        ];
+    }
+
+    public function chat(AiRequest $request): AiResponse
+    {
+        $this->assertConfigured();
+
+        if (($cached = $this->cachedText($request)) !== null) {
+            return new AiResponse($cached, model: $this->resolveModel($request), cached: true);
+        }
+
+        $data = $this->postJson(static::MESSAGES_PATH, $this->buildPayload($request, false));
+
+        $text = '';
+        $toolCalls = [];
+
+        foreach ($data['content'] ?? [] as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $text .= (string) ($block['text'] ?? '');
+            } elseif (($block['type'] ?? '') === 'tool_use') {
+                $toolCalls[] = new AiToolCall(
+                    (string) ($block['id'] ?? ''),
+                    (string) ($block['name'] ?? ''),
+                    is_array($block['input'] ?? null) ? $block['input'] : [],
+                );
+            }
+        }
+
+        $stopReason = $data['stop_reason'] ?? null;
+        $content = trim($text) !== '' ? trim($text) : null;
+
+        if ($stopReason === 'refusal') {
+            return new AiResponse(
+                $content ?? $this->refusalMessage($data),
+                finishReason: AiResponse::FINISH_REFUSAL,
+                usage: $this->extractUsage($data['usage'] ?? []),
+                model: $data['model'] ?? $this->resolveModel($request),
+            );
+        }
+
+        if ($content !== null && $toolCalls === []) {
+            $this->storeText($request, $content);
+        }
+
+        return new AiResponse(
+            $content,
+            $toolCalls,
+            $this->mapFinishReason($stopReason, $toolCalls),
+            $this->extractUsage($data['usage'] ?? []),
+            $data['model'] ?? $this->resolveModel($request),
+        );
+    }
+
+    public function stream(AiRequest $request): \Generator
+    {
+        $this->assertConfigured();
+
+        if (($cached = $this->cachedText($request)) !== null) {
+            yield from $this->replayCached($cached);
+
+            return;
+        }
+
+        $body = $this->postStream(static::MESSAGES_PATH, $this->buildPayload($request, true));
+
+        // Tool arguments stream as `input_json_delta` fragments scoped to the
+        // content block index they belong to, so accumulate per index and
+        // finalise on content_block_stop.
+        $blocks = [];
+        $text = '';
+        $collected = [];
+        $stopReason = null;
+        $inputTokens = null;
+        $outputTokens = null;
+
+        foreach ($this->readSse($body) as $frame) {
+            $data = $this->decodeSseData($frame['data']);
+            if ($data === null) {
+                continue;
+            }
+
+            $type = $frame['event'] ?? ($data['type'] ?? '');
+
+            switch ($type) {
+                case 'message_start':
+                    $inputTokens = $data['message']['usage']['input_tokens'] ?? null;
+                    break;
+
+                case 'content_block_start':
+                    $index = (int) ($data['index'] ?? 0);
+                    $block = $data['content_block'] ?? [];
+
+                    if (($block['type'] ?? '') === 'tool_use') {
+                        $blocks[$index] = [
+                            'id' => (string) ($block['id'] ?? ''),
+                            'name' => (string) ($block['name'] ?? ''),
+                            'json' => '',
+                        ];
+
+                        yield AiStreamEvent::toolCallStart($blocks[$index]['id'], $blocks[$index]['name']);
+                    }
+                    break;
+
+                case 'content_block_delta':
+                    $index = (int) ($data['index'] ?? 0);
+                    $delta = $data['delta'] ?? [];
+
+                    if (($delta['type'] ?? '') === 'text_delta') {
+                        $piece = (string) ($delta['text'] ?? '');
+                        if ($piece !== '') {
+                            $text .= $piece;
+
+                            yield AiStreamEvent::text($piece);
+                        }
+                    } elseif (($delta['type'] ?? '') === 'input_json_delta' && isset($blocks[$index])) {
+                        $blocks[$index]['json'] .= (string) ($delta['partial_json'] ?? '');
+                    }
+                    break;
+
+                case 'content_block_stop':
+                    $index = (int) ($data['index'] ?? 0);
+                    if (isset($blocks[$index])) {
+                        $call = AiToolCall::fromJsonArguments(
+                            $blocks[$index]['id'],
+                            $blocks[$index]['name'],
+                            // An empty fragment stream means a no-argument call.
+                            $blocks[$index]['json'] !== '' ? $blocks[$index]['json'] : '{}',
+                        );
+                        $collected[] = $call;
+                        unset($blocks[$index]);
+
+                        yield AiStreamEvent::toolCall($call);
+                    }
+                    break;
+
+                case 'message_delta':
+                    $stopReason = $data['delta']['stop_reason'] ?? $stopReason;
+                    $outputTokens = $data['usage']['output_tokens'] ?? $outputTokens;
+                    break;
+
+                case 'error':
+                    throw new AIServiceException('AI service error: ' . (string) ($data['error']['message'] ?? 'Unknown error'));
+            }
+        }
+
+        $usage = $this->normaliseUsage(
+            $inputTokens !== null ? (int) $inputTokens : null,
+            $outputTokens !== null ? (int) $outputTokens : null,
+        );
+
+        if ($usage !== []) {
+            yield AiStreamEvent::usage($usage);
+        }
+
+        if ($stopReason === 'refusal') {
+            yield AiStreamEvent::done(AiResponse::FINISH_REFUSAL);
+
+            return;
+        }
+
+        if ($collected === [] && $text !== '') {
+            $this->storeText($request, $text);
+        }
+
+        yield AiStreamEvent::done($this->mapFinishReason($stopReason, $collected));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Payload
+    |--------------------------------------------------------------------------
+    */
+
+    protected function buildPayload(AiRequest $request, bool $stream): array
+    {
+        $model = $this->resolveModel($request);
+
+        $payload = [
+            'model' => $model,
+            // Required by the Messages API — unlike the OpenAI shape, there is
+            // no server-side default.
+            'max_tokens' => $this->resolveMaxTokens($request),
+            'messages' => $this->buildMessages($request),
+            'stream' => $stream,
+        ];
+
+        $system = $this->resolveSystemPrompt($request);
+        if ($system !== '') {
+            $payload['system'] = $system;
+        }
+
+        if (!$this->rejectsSamplingParams($model)) {
+            $payload['temperature'] = $this->resolveTemperature($request);
+        }
+
+        if ($request->hasTools()) {
+            $payload['tools'] = array_map(fn (AiTool $t) => $t->toAnthropicFormat(), $request->tools);
+            $payload['tool_choice'] = $this->mapToolChoice($request->toolChoice);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Whether this model rejects sampling parameters with a 400.
+     */
+    protected function rejectsSamplingParams(string $model): bool
+    {
+        foreach (self::REJECTS_SAMPLING_PARAMS as $prefix) {
+            if (str_starts_with($model, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function mapToolChoice(string $choice): array
+    {
+        return match ($choice) {
+            AiRequest::TOOL_CHOICE_REQUIRED => ['type' => 'any'],
+            AiRequest::TOOL_CHOICE_NONE => ['type' => 'none'],
+            default => ['type' => 'auto'],
+        };
+    }
+
+    /**
+     * Convert the canonical message list into Anthropic's shape.
+     *
+     * Tool results are user-role content blocks, and the API expects every
+     * result for one assistant turn in a *single* user message — splitting
+     * them across messages trains the model out of parallel tool calls, so
+     * consecutive tool messages are merged here.
+     */
+    protected function buildMessages(AiRequest $request): array
+    {
+        $messages = [];
+        $pendingResults = [];
+
+        $flush = function () use (&$messages, &$pendingResults): void {
+            if ($pendingResults !== []) {
+                $messages[] = ['role' => 'user', 'content' => $pendingResults];
+                $pendingResults = [];
+            }
+        };
+
+        foreach ($request->messages as $message) {
+            if ($message->role === AiMessage::ROLE_TOOL) {
+                $pendingResults[] = array_filter([
+                    'type' => 'tool_result',
+                    'tool_use_id' => $message->toolCallId,
+                    'content' => (string) $message->content,
+                    'is_error' => $message->isError ?: null,
+                ], fn ($v) => $v !== null);
+
+                continue;
+            }
+
+            $flush();
+
+            // A system message inside the history has nowhere to go in this
+            // API — fold it into the user turn rather than dropping it.
+            if ($message->role === AiMessage::ROLE_SYSTEM) {
+                $messages[] = ['role' => 'user', 'content' => (string) $message->content];
+
+                continue;
+            }
+
+            if ($message->role === AiMessage::ROLE_ASSISTANT && $message->hasToolCalls()) {
+                $content = [];
+                if ($message->content !== null && trim($message->content) !== '') {
+                    $content[] = ['type' => 'text', 'text' => $message->content];
+                }
+                foreach ($message->toolCalls as $call) {
+                    $content[] = [
+                        'type' => 'tool_use',
+                        'id' => $call->id,
+                        'name' => $call->name,
+                        'input' => $call->arguments ?: new \stdClass(),
+                    ];
+                }
+
+                $messages[] = ['role' => 'assistant', 'content' => $content];
+
+                continue;
+            }
+
+            $messages[] = ['role' => $message->role, 'content' => (string) $message->content];
+        }
+
+        $flush();
+
+        return $messages;
+    }
+
+    protected function extractUsage(array $usage): array
+    {
+        return $this->normaliseUsage(
+            isset($usage['input_tokens']) ? (int) $usage['input_tokens'] : null,
+            isset($usage['output_tokens']) ? (int) $usage['output_tokens'] : null,
+        );
+    }
+
+    protected function refusalMessage(array $data): string
+    {
+        $category = $data['stop_details']['category'] ?? null;
+
+        return $category
+            ? sprintf('The AI provider declined this request (%s). Rephrasing it will not usually help.', $category)
+            : 'The AI provider declined this request.';
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Probes
+    |--------------------------------------------------------------------------
+    */
+
+    public function capabilities(?string $model = null): ProviderCapabilities
+    {
+        return new ProviderCapabilities(
+            supportsTools: true,
+            supportsStructuredOutput: true,
+            selfHosted: false,
+            maxContextTokens: $this->providerConfig->contextTokens,
+        );
+    }
+
+    public function listModels(): array
+    {
+        $data = $this->getJson('models', $this->providerConfig->connectTimeout);
+
+        return array_values(array_map(
+            fn ($m) => ['id' => (string) ($m['id'] ?? 'unknown'), 'size' => null],
+            $data['data'] ?? []
+        ));
+    }
+
+    public function health(): bool
+    {
+        try {
+            return $this->listModels() !== [];
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Anthropic health check failed: ' . $e->getMessage());
+
+            return false;
+        }
+    }
+}

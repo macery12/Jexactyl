@@ -86,14 +86,36 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:key',
         'modules:ai:endpoint',
         'modules:ai:model',
+        'modules:ai:provider',
+        // Deprecated in favour of `provider`; still hydrated so installs that
+        // predate the multi-provider rework keep resolving a driver.
         'modules:ai:mode',
+        'modules:ai:models:agent',
+        'modules:ai:models:fast',
         'modules:ai:max_tokens',
         'modules:ai:temperature',
+        'modules:ai:context_tokens',
         'modules:ai:system_prompt',
         'modules:ai:feature_server_assistant',
         'modules:ai:feature_crash_analysis',
         'modules:ai:keep_alive',
         'modules:ai:warm',
+        'modules:ai:agent:enabled',
+        'modules:ai:agent:max_steps',
+        'modules:ai:agent:max_wall_seconds',
+        'modules:ai:agent:tool_result_bytes',
+        'modules:ai:agent:max_repairs',
+        'modules:ai:agent:max_tools',
+        'modules:ai:concurrency:slots',
+        'modules:ai:concurrency:queue_depth',
+        'modules:ai:concurrency:max_wait_seconds',
+        'modules:ai:concurrency:per_user',
+        'modules:ai:budget:enforce',
+        'modules:ai:budget:monthly_tokens',
+        // NB: the per-tool risk overrides and the console safe-command
+        // allowlist are stored as JSON blobs under `modules:ai:risk_overrides`
+        // and `modules:ai:console:safe_commands`, and read directly via
+        // Setting::get rather than being hydrated into config.
 
         // Webhook module settings
         'modules:webhooks:enabled',

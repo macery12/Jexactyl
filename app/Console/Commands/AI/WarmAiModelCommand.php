@@ -22,9 +22,9 @@ class WarmAiModelCommand extends Command
             Setting::get('settings::modules:ai:warm', config('modules.ai.warm', false)),
             FILTER_VALIDATE_BOOLEAN
         );
-        $mode = Setting::get('settings::modules:ai:mode', config('modules.ai.mode', 'openai'));
+        $provider = app(\Everest\Services\AI\ProviderFactory::class)->provider();
 
-        if (!$enabled || !$warm || $mode !== 'ollama') {
+        if (!$enabled || !$warm || $provider !== \Everest\Services\AI\Data\ProviderConfig::PROVIDER_OLLAMA) {
             $this->line('AI warm-up skipped (disabled, warm-up off, or provider is not Ollama).');
 
             return Command::SUCCESS;
