@@ -13,10 +13,17 @@ class AiConversation extends Model
     protected $fillable = [
         'user_id',
         'server_uuid',
+        'scope',
         'title',
         'is_saved',
         'expires_at',
     ];
+
+    /** Conversations opened from a server's own assistant. */
+    public const SCOPE_SERVER = 'server';
+
+    /** Conversations opened from the admin assistant, which have no server. */
+    public const SCOPE_ADMIN = 'admin';
 
     protected $casts = [
         'is_saved' => 'boolean',

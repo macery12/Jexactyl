@@ -100,13 +100,14 @@ export function streamAgentTurn(
 }
 
 /**
- * Resolve an action the turn suspended on, and resume it.
+ * Resolve whatever the turn suspended on, and resume it.
  *
- * `confirmation` carries the typed server name a destructive action requires.
+ * `confirmation` carries the typed server name a destructive action requires;
+ * `answer` carries the user's reply when the model asked a question.
  */
 export function streamAgentDecision(
     uuid: string,
-    opts: { turnId: string; decision: 'approve' | 'reject'; confirmation?: string },
+    opts: { turnId: string; decision: 'approve' | 'reject' | 'answer'; confirmation?: string; answer?: string },
     callbacks: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
@@ -116,6 +117,7 @@ export function streamAgentDecision(
             turn_id: opts.turnId,
             decision: opts.decision,
             confirmation: opts.confirmation ?? undefined,
+            answer: opts.answer ?? undefined,
         },
         callbacks,
         signal,

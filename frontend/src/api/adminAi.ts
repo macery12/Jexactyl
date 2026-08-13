@@ -1,9 +1,9 @@
 import http from '@/lib/http';
-import { streamAiRequest, type AiStreamCallbacks } from '@/lib/aiStream';
+import { streamAgentRequest, type AgentStreamCallbacks, type AiRisk } from '@/lib/aiStream';
 
 // Admin AI (M12Labs-AI) module — settings, health, model discovery, usage
-// analytics and the admin chat playground. Mirrors V1's
-// `api/routes/admin/ai/*` against /api/application/ai/*.
+// analytics and the admin assistant. Mirrors V1's `api/routes/admin/ai/*`
+// against /api/application/ai/*.
 
 export type AiProvider = 'anthropic' | 'openai' | 'openai_compatible' | 'ollama';
 
@@ -12,6 +12,8 @@ export const SELF_HOSTED_PROVIDERS: AiProvider[] = ['ollama', 'openai_compatible
 
 export interface AiAgentSettings {
     enabled: boolean;
+    /** The admin assistant, gated separately from the customer-facing agent. */
+    admin_enabled: boolean;
     max_steps: number;
     max_wall_seconds: number;
     tool_result_bytes: number;
@@ -217,10 +219,6 @@ export async function getAiLogs(params: AiLogsParams = {}): Promise<AiLogEntry[]
     return data as AiLogEntry[];
 }
 
-export function streamAdminAiQuery(query: string, callbacks: AiStreamCallbacks, signal?: AbortSignal): void {
-    streamAiRequest('/api/application/ai/query', { query }, callbacks, signal);
-}
-
 export async function getAiTools(): Promise<AiToolCatalogue> {
     const { data } = await http.get('/api/application/ai/tools');
     return data as AiToolCatalogue;
@@ -233,4 +231,97 @@ export async function updateAiTools(payload: AiToolPolicyPayload): Promise<void>
 export async function getAiInference(): Promise<AiInferenceState> {
     const { data } = await http.get('/api/application/ai/inference');
     return data as AiInferenceState;
+}
+
+/*
+|--------------------------------------------------------------------------
+| The admin assistant
+|--------------------------------------------------------------------------
+|
+| Same event stream as the server assistant — `streamAgentRequest` takes a URL
+| rather than an identifier, so nothing in the reader needed changing. What
+| differs is only the endpoint and the absence of a server.
+*/
+
+export interface AdminPendingAction {
+    turn_id: string;
+    conversation_id: number | null;
+    tool: string;
+    arguments: Record<string, unknown>;
+    risk: AiRisk;
+    created_at: string | null;
+    expires_at: string | null;
+}
+
+export interface AdminAgentConversation {
+    id: number;
+    title: string;
+    is_saved: boolean;
+    expires_at: string | null;
+    updated_at: string | null;
+}
+
+export interface AdminAgentMessage {
+    role: 'user' | 'assistant' | 'tool' | 'system';
+    content: string | null;
+    tool_name: string | null;
+    step: number | null;
+}
+
+export function streamAdminAgentTurn(
+    opts: { query: string; conversationId?: number | null },
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        '/api/application/ai/agent',
+        {
+            query: opts.query,
+            conversation_id: opts.conversationId ?? undefined,
+        },
+        callbacks,
+        signal,
+    );
+}
+
+export function streamAdminAgentDecision(
+    opts: { turnId: string; decision: 'approve' | 'reject' | 'answer'; answer?: string },
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        '/api/application/ai/agent/decide',
+        {
+            turn_id: opts.turnId,
+            decision: opts.decision,
+            answer: opts.answer ?? undefined,
+        },
+        callbacks,
+        signal,
+    );
+}
+
+export async function listAdminPendingActions(): Promise<AdminPendingAction[]> {
+    const { data } = await http.get('/api/application/ai/agent/pending');
+    return data.data as AdminPendingAction[];
+}
+
+export async function listAdminAgentConversations(): Promise<AdminAgentConversation[]> {
+    const { data } = await http.get('/api/application/ai/agent/conversations');
+    return data.data as AdminAgentConversation[];
+}
+
+export async function getAdminAgentConversation(
+    id: number,
+): Promise<{ id: number; title: string; is_saved: boolean; messages: AdminAgentMessage[] }> {
+    const { data } = await http.get(`/api/application/ai/agent/conversations/${id}`);
+    return data.data;
+}
+
+export async function toggleAdminAgentConversationSave(id: number): Promise<void> {
+    await http.patch(`/api/application/ai/agent/conversations/${id}/save`);
+}
+
+export async function deleteAdminAgentConversation(id: number): Promise<void> {
+    await http.delete(`/api/application/ai/agent/conversations/${id}`);
 }

@@ -3,14 +3,21 @@
 namespace Everest\Services\AI\Agent;
 
 use Everest\Services\AI\ProviderFactory;
+use Everest\Services\Authorization\AdminAuthorizer;
 
 /**
  * Builds the agent's system prompt.
  *
- * Two jobs. First, ground the model in *this* server — egg, state, limits — so
- * it stops guessing at things it can look up. Second, set the operating rules
- * that keep a tool-calling loop useful rather than chatty: read before you
- * write, one step at a time, say what you found.
+ * Two jobs. First, ground the model in what it is working on — a server's egg,
+ * state and limits, or the acting administrator's access level — so it stops
+ * guessing at things it can look up. Second, set the operating rules that keep
+ * a tool-calling loop useful rather than chatty: read before you write, one
+ * step at a time, say what you found.
+ *
+ * The two surfaces get separate sections rather than one prompt with caveats.
+ * A server turn should never be told about the product catalogue, and an admin
+ * turn should never be told to look in /plugins — a rule a model cannot act on
+ * still costs tokens on every step and still occasionally gets tried.
  *
  * The behavioural section is deliberately explicit about not narrating
  * intentions. A model that says "I'll read the config now" and then ends its
@@ -27,15 +34,15 @@ class SystemPromptBuilder
 
     public function build(AgentContext $context): string
     {
-        $sections = [
-            $this->role(),
-            $this->serverFacts($context),
-            $this->rules(),
-        ];
+        $sections = $context->server === null
+            ? [$this->adminRole(), $this->adminFacts($context), $this->adminRules()]
+            : [$this->role(), $this->serverFacts($context), $this->rules()];
 
         if (($console = $this->console($context)) !== null) {
             $sections[] = $console;
         }
+
+        $sections[] = $this->questionRule();
 
         if (($custom = $this->operatorPrompt()) !== null) {
             $sections[] = $custom;
@@ -98,6 +105,96 @@ class SystemPromptBuilder
             - Report what you actually did, referring to real paths and values from tool
               results. Do not claim a change you did not make.
             PROMPT;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin surface
+    |--------------------------------------------------------------------------
+    |
+    | A separate set of sections rather than a variation on the server ones: the
+    | two surfaces share a loop but almost nothing else. The server agent works
+    | on files and a console; this one works on records, and telling it about
+    | files_write or /plugins would only invite it to try.
+    */
+
+    protected function adminRole(): string
+    {
+        return 'You are the administrator\'s assistant inside a game server hosting control panel. '
+            . 'You have tools that read and change the panel itself — customers, their servers, the '
+            . 'product catalogue, coupons and support tickets. Use them to find things out rather '
+            . 'than asking the administrator to go and look.';
+    }
+
+    /**
+     * What the acting administrator may actually do.
+     *
+     * Stated up front because the alternative is the model proposing work it
+     * will then be refused, which reads to the user as the panel being broken
+     * rather than as permissions working.
+     */
+    protected function adminFacts(AgentContext $context): string
+    {
+        $user = $context->user;
+
+        // Loaded once and cached on the model: this runs on every step of the
+        // turn, and AdminAuthorizer::profile() re-queries whenever the relation
+        // is absent.
+        $user->loadMissing('adminRole');
+
+        $authorizer = app(AdminAuthorizer::class);
+
+        $facts = [
+            'Administrator: ' . $user->username,
+            'Access level: ' . ($authorizer->isOwner($user)
+                ? 'owner — every capability'
+                : 'delegated — only the tools you have been given are available to you'),
+        ];
+
+        return "Who you are working for:\n- " . implode("\n- ", $facts);
+    }
+
+    protected function adminRules(): string
+    {
+        return <<<'PROMPT'
+            How to work:
+
+            - Act, don't narrate. If you need to look something up, call the tool in the same
+              turn. Never end your reply with an intention like "let me check that" — do it.
+            - Look before you change. Read the record you are about to edit so you can say what
+              it is changing from, and so you do not overwrite a field you never looked at.
+            - Identifiers come from tool results, never from memory. List categories to get a
+              category id, list users to get a user id. If you do not have an id, go and get it
+              rather than guessing a number.
+            - When you change a product, a coupon or a price, say plainly who it affects: existing
+              customers on that plan, everyone on that node, and whether it takes effect now.
+            - You cannot read a customer's server files, console or logs from here. If the question
+              is about what a specific server is doing, say so and point the administrator at that
+              server's own assistant.
+            - You cannot delete anything, suspend anyone, or reinstall a server. Those are
+              deliberately not available to you — say so plainly and let the administrator do it by
+              hand rather than looking for a way round.
+            - If a tool comes back forbidden, that is the administrator's own permissions, not a
+              fault. Say which permission the action needs and stop.
+            - Report what you actually did, quoting real ids and values from tool results. Do not
+              claim a change you did not make.
+            PROMPT;
+    }
+
+    /**
+     * How to use `ask_user`. Shared by both surfaces.
+     *
+     * Worth its own section because the failure mode is asymmetric: a model
+     * that asks too little makes a wrong assumption the user can see and
+     * correct, while a model that asks too much burns the turn's whole step
+     * budget on a conversation that never touched the panel.
+     */
+    protected function questionRule(): string
+    {
+        return 'If you have an ask_user tool, use it only when the answer would change what you do '
+            . 'next and no tool can tell you. Do not use it to confirm something you could look up, '
+            . 'to announce what you are about to do, or to ask permission — changes you propose are '
+            . 'already shown to the user for approval before they run.';
     }
 
     /**

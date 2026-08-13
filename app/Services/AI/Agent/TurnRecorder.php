@@ -6,6 +6,7 @@ use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Models\AiConversation;
 use Illuminate\Support\Facades\Log;
+use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Models\AiMessage as MessageRecord;
 use Everest\Services\AI\Data\AiMessage as MessageData;
 
@@ -46,13 +47,19 @@ class TurnRecorder
      * Returns null only when persistence is impossible, in which case the turn
      * still runs — losing the transcript is worth less than losing the turn.
      */
-    public function ensureConversation(User $user, Server $server, ?int $conversationId, string $seedTitle): ?AiConversation
+    public function ensureConversation(User $user, ?Server $server, ?int $conversationId, string $seedTitle): ?AiConversation
     {
+        // Admin turns have no server. Matching on the column alone would let an
+        // admin conversation be reopened from a server chat whose own server had
+        // since been deleted, so the scope is matched explicitly.
+        $scope = $server === null ? ToolDefinition::SCOPE_ADMIN : ToolDefinition::SCOPE_SERVER;
+
         try {
             if ($conversationId !== null) {
                 $existing = AiConversation::query()
                     ->where('user_id', $user->id)
-                    ->where('server_uuid', $server->uuid)
+                    ->where('scope', $scope)
+                    ->where('server_uuid', $server?->uuid)
                     ->find($conversationId);
 
                 if ($existing !== null) {
@@ -64,7 +71,8 @@ class TurnRecorder
 
             return AiConversation::create([
                 'user_id' => $user->id,
-                'server_uuid' => $server->uuid,
+                'server_uuid' => $server?->uuid,
+                'scope' => $scope,
                 'title' => $this->title($seedTitle),
                 'is_saved' => false,
                 'expires_at' => now()->addDays(AiConversation::EXPIRY_DAYS),

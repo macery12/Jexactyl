@@ -2,8 +2,17 @@ import { useEffect, useState } from 'react';
 import { BellRing } from 'lucide-react';
 import { m } from '@/i18n';
 import { Button } from '@/components/ui/Button';
-import type { PendingAction } from '@/api/ai';
 import { toolLabel } from './toolMeta';
+
+/**
+ * The parts of a pending action this banner needs, common to both surfaces —
+ * the admin one carries no diff preview, since it registers no file tools.
+ */
+export interface PendingSummary {
+    turn_id: string;
+    tool: string;
+    expires_at: string | null;
+}
 
 // An approval the user walked away from.
 //
@@ -11,7 +20,7 @@ import { toolLabel } from './toolMeta';
 // hour. Without something pointing back at it, the user sees an assistant that
 // simply stopped mid-task and never learns why — so the moment they return to
 // the server, this says what is waiting and how long it has left.
-export function PendingBanner({ action, onReview }: { action: PendingAction; onReview: () => void }) {
+export function PendingBanner({ action, onReview }: { action: PendingSummary; onReview: () => void }) {
     // A ticking clock rather than stored minutes: the countdown is derived from
     // the expiry, so the only state is "time has passed".
     const [, tick] = useState(0);

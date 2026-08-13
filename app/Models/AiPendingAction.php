@@ -35,6 +35,7 @@ class AiPendingAction extends Model
         'conversation_id',
         'user_id',
         'server_uuid',
+        'scope',
         'tool_name',
         'tool_call_id',
         'risk',

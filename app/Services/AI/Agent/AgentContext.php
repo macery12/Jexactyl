@@ -6,13 +6,20 @@ use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Data\AiToolCall;
+use Everest\Services\AI\Tools\ToolDefinition;
 
 /**
  * Everything one turn needs, and the state that has to survive a suspension.
  *
- * The server is bound here from the route the turn was opened on. Nothing in
- * the turn can change it — that binding is what confines the agent to a single
- * server regardless of what the model asks for.
+ * For a server turn the server is bound here from the route the turn was opened
+ * on. Nothing in the turn can change it — that binding is what confines the
+ * agent to a single server regardless of what the model asks for.
+ *
+ * An admin turn has no server: it acts on the panel itself through the
+ * Application API, where authorization is by AdminRole capability rather than
+ * by subuser permission on a subject. A null server is therefore the
+ * discriminator between the two surfaces, and `scope()` is the only thing that
+ * should read it as such.
  */
 class AgentContext
 {
@@ -26,15 +33,32 @@ class AgentContext
 
     public int $repairs = 0;
 
+    /**
+     * Questions the model has put to the user this turn. Capped separately from
+     * steps: a question costs a whole step plus a full model call, and a model
+     * that is unsure will happily spend the turn asking instead of looking.
+     */
+    public int $questions = 0;
+
     private ?TurnRecorder $recorder = null;
 
     public function __construct(
         public readonly User $user,
-        public readonly Server $server,
+        public readonly ?Server $server,
         public readonly string $turnId,
         public readonly ?int $conversationId = null,
         public readonly ?string $consoleBuffer = null,
     ) {
+    }
+
+    /**
+     * Which toolset and which authorization model this turn runs under.
+     */
+    public function scope(): string
+    {
+        return $this->server === null
+            ? ToolDefinition::SCOPE_ADMIN
+            : ToolDefinition::SCOPE_SERVER;
     }
 
     /**
@@ -128,11 +152,12 @@ class AgentContext
             'active_groups' => $this->activeGroups,
             'step' => $this->step,
             'repairs' => $this->repairs,
+            'questions' => $this->questions,
             'console_buffer' => $this->consoleBuffer,
         ];
     }
 
-    public static function fromState(User $user, Server $server, string $turnId, ?int $conversationId, array $state): self
+    public static function fromState(User $user, ?Server $server, string $turnId, ?int $conversationId, array $state): self
     {
         $context = new self(
             $user,
@@ -152,6 +177,7 @@ class AgentContext
         ));
         $context->step = (int) ($state['step'] ?? 0);
         $context->repairs = (int) ($state['repairs'] ?? 0);
+        $context->questions = (int) ($state['questions'] ?? 0);
 
         return $context;
     }

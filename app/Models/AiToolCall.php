@@ -31,6 +31,7 @@ class AiToolCall extends Model
         'conversation_id',
         'user_id',
         'server_uuid',
+        'scope',
         'tool_name',
         'risk',
         'step',

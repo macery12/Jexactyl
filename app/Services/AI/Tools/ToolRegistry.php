@@ -6,7 +6,10 @@ use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\Support\SchemaValidator;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\ServerTools;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
  * The explicit allowlist of everything the agent may do.
@@ -31,6 +34,7 @@ class ToolRegistry
     public function __construct(
         private RiskGate $riskGate,
         private SchemaValidator $validator,
+        private AdminAuthorizer $authorizer,
     ) {
     }
 
@@ -44,11 +48,29 @@ class ToolRegistry
         }
 
         $indexed = [];
-        foreach (ServerTools::all() as $definition) {
-            $indexed[$definition->name] = $definition;
+
+        // One flat name => definition map across every scope. Admin tools are
+        // prefixed `admin_` for that reason: a collision here would silently
+        // shadow a tool, and the operator's risk overrides and disable list are
+        // keyed by bare name too, so it would misconfigure both at once.
+        foreach ([ServerTools::all(), AdminTools::all(), SharedTools::all()] as $set) {
+            foreach ($set as $definition) {
+                $indexed[$definition->name] = $definition;
+            }
         }
 
         return $this->indexed = $indexed;
+    }
+
+    /**
+     * Descriptions for every group across every scope, for the meta-tool and
+     * the admin catalogue.
+     *
+     * @return array<string, string>
+     */
+    public function groupDescriptions(): array
+    {
+        return ServerTools::GROUP_DESCRIPTIONS + AdminTools::GROUP_DESCRIPTIONS;
     }
 
     public function find(string $name): ?ToolDefinition
@@ -70,11 +92,49 @@ class ToolRegistry
      */
     public function forServer(User $user, Server $server, array $activeGroups = []): array
     {
+        return $this->offered(
+            ToolDefinition::SCOPE_SERVER,
+            $activeGroups,
+            fn (ToolDefinition $definition) => $this->userCanUse($user, $server, $definition),
+        );
+    }
+
+    /**
+     * The tools offered for one turn on the panel itself.
+     *
+     * The admin surface has no subject model to authorize against — an admin
+     * acts across every user, server and product — so the filter is the acting
+     * administrator's own AdminRole capabilities. As on the server side this is
+     * a UX and token-efficiency measure: `AuthorizeApplicationUser` and the
+     * endpoint's own `ApplicationApiRequest::authorize()` both re-check the
+     * identical capability on every call.
+     *
+     * @param string[] $activeGroups
+     *
+     * @return ToolDefinition[]
+     */
+    public function forAdmin(User $user, array $activeGroups = []): array
+    {
+        return $this->offered(
+            ToolDefinition::SCOPE_ADMIN,
+            $activeGroups,
+            fn (ToolDefinition $definition) => $this->adminCanUse($user, $definition),
+        );
+    }
+
+    /**
+     * @param string[] $activeGroups
+     * @param callable(ToolDefinition): bool $permitted
+     *
+     * @return ToolDefinition[]
+     */
+    private function offered(string $scope, array $activeGroups, callable $permitted): array
+    {
         $disabled = $this->riskGate->disabledTools();
         $available = [];
 
         foreach ($this->all() as $definition) {
-            if ($definition->scope !== ToolDefinition::SCOPE_SERVER) {
+            if (!$definition->inScope($scope)) {
                 continue;
             }
 
@@ -87,7 +147,7 @@ class ToolRegistry
                 continue;
             }
 
-            if (!$this->userCanUse($user, $server, $definition)) {
+            if (!$permitted($definition)) {
                 continue;
             }
 
@@ -112,6 +172,36 @@ class ToolRegistry
     }
 
     /**
+     * Whether the acting administrator holds every capability a tool needs.
+     *
+     * Asked through `hasCapability()` rather than by inspecting
+     * `AdminAuthorizer::capabilities()`, which returns the literal `['*']` for
+     * an owner — a sentinel that never matches a real capability string.
+     */
+    public function adminCanUse(User $user, ToolDefinition $definition): bool
+    {
+        foreach ($definition->permissions as $capability) {
+            if (!$this->authorizer->hasCapability($user, $capability)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether the acting user may run a tool on the surface the turn is bound
+     * to. The one place resume has to ask, since an operator may have changed
+     * the user's access while an approval was outstanding.
+     */
+    public function canUse(User $user, ?Server $server, ToolDefinition $definition): bool
+    {
+        return $server === null
+            ? $this->adminCanUse($user, $definition)
+            : $this->userCanUse($user, $server, $definition);
+    }
+
+    /**
      * Groups that hold at least one tool this user could use, so the meta-tool
      * only ever advertises groups that would actually yield something.
      *
@@ -119,7 +209,37 @@ class ToolRegistry
      */
     public function availableGroups(User $user, Server $server, array $activeGroups = []): array
     {
+        return $this->groupsFor(
+            ToolDefinition::SCOPE_SERVER,
+            $activeGroups,
+            fn (ToolDefinition $definition) => $this->userCanUse($user, $server, $definition),
+        );
+    }
+
+    /**
+     * @param string[] $activeGroups
+     *
+     * @return array<string, string> group => description
+     */
+    public function availableAdminGroups(User $user, array $activeGroups = []): array
+    {
+        return $this->groupsFor(
+            ToolDefinition::SCOPE_ADMIN,
+            $activeGroups,
+            fn (ToolDefinition $definition) => $this->adminCanUse($user, $definition),
+        );
+    }
+
+    /**
+     * @param string[] $activeGroups
+     * @param callable(ToolDefinition): bool $permitted
+     *
+     * @return array<string, string>
+     */
+    private function groupsFor(string $scope, array $activeGroups, callable $permitted): array
+    {
         $disabled = $this->riskGate->disabledTools();
+        $descriptions = $this->groupDescriptions();
         $groups = [];
 
         foreach ($this->all() as $definition) {
@@ -127,15 +247,19 @@ class ToolRegistry
                 continue;
             }
 
+            if (!$definition->inScope($scope)) {
+                continue;
+            }
+
             if (in_array($definition->name, $disabled, true)) {
                 continue;
             }
 
-            if (!$this->userCanUse($user, $server, $definition)) {
+            if (!$permitted($definition)) {
                 continue;
             }
 
-            $groups[$definition->group] = ServerTools::GROUP_DESCRIPTIONS[$definition->group] ?? $definition->group;
+            $groups[$definition->group] = $descriptions[$definition->group] ?? $definition->group;
         }
 
         return $groups;
@@ -219,5 +343,39 @@ class ToolRegistry
         }
 
         return $context;
+    }
+
+    /**
+     * The identifiers an admin-scoped tool interpolates into its URI.
+     *
+     * Unlike the server surface, these are model-supplied — an administrator
+     * legitimately acts across every user, product and category, so there is no
+     * route context to bind them from and no honest way to pretend otherwise.
+     * The containment is different in kind rather than absent: the registry is
+     * an explicit allowlist, capabilities gate the class of action on every
+     * call, `scopeBindings()` 404s a child that is not under the named parent,
+     * and no admin tool is registered at DESTRUCTIVE tier.
+     */
+    public function adminContext(array $arguments = []): array
+    {
+        $context = [];
+
+        foreach (['user', 'server', 'category', 'product', 'coupon', 'ticket', 'cycle', 'id'] as $key) {
+            if (isset($arguments[$key]) && is_scalar($arguments[$key])) {
+                $context[$key] = (string) $arguments[$key];
+            }
+        }
+
+        return $context;
+    }
+
+    /**
+     * The URI context for whichever surface the turn is bound to.
+     */
+    public function contextFor(?Server $server, array $arguments = []): array
+    {
+        return $server === null
+            ? $this->adminContext($arguments)
+            : $this->serverContext($server, $arguments);
     }
 }

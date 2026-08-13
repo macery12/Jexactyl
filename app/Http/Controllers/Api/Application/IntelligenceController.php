@@ -60,6 +60,7 @@ class IntelligenceController extends ApplicationApiController
 
             'agent' => [
                 'enabled' => boolval(config('modules.ai.agent.enabled', false)),
+                'admin_enabled' => boolval(config('modules.ai.agent.admin_enabled', false)),
                 'max_steps' => (int) config('modules.ai.agent.max_steps', 12),
                 'max_wall_seconds' => (int) config('modules.ai.agent.max_wall_seconds', 180),
                 'tool_result_bytes' => (int) config('modules.ai.agent.tool_result_bytes', 12288),

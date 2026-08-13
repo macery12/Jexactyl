@@ -19,12 +19,12 @@ type ApprovalEntry = Extract<ChatEntry, { kind: 'approval' }>;
 // by hand, and the same string the backend re-checks.
 export function ApprovalCard({
     entry,
-    serverName,
+    confirmPhrase,
     disabled,
     onDecide,
 }: {
     entry: ApprovalEntry;
-    serverName: string;
+    confirmPhrase: string;
     disabled: boolean;
     onDecide: (decision: 'approve' | 'reject', confirmation?: string) => void;
 }) {
@@ -51,7 +51,7 @@ export function ApprovalCard({
         );
     }
 
-    const confirmMatches = typed.trim().toLowerCase() === serverName.toLowerCase();
+    const confirmMatches = typed.trim().toLowerCase() === confirmPhrase.toLowerCase();
 
     return (
         <>
@@ -157,7 +157,7 @@ export function ApprovalCard({
                         <p className="text-sm text-[var(--color-ink)]">
                             {m['server.ai.approval.confirmBody']({
                                 tool: toolLabel(entry.tool),
-                                server: serverName,
+                                server: confirmPhrase,
                             })}
                         </p>
                     </div>
@@ -168,11 +168,11 @@ export function ApprovalCard({
                         </pre>
                     )}
 
-                    <Field label={m['server.ai.approval.confirmLabel']({ server: serverName })}>
+                    <Field label={m['server.ai.approval.confirmLabel']({ server: confirmPhrase })}>
                         <Input
                             value={typed}
                             onChange={e => setTyped(e.target.value)}
-                            placeholder={serverName}
+                            placeholder={confirmPhrase}
                             autoFocus
                         />
                     </Field>

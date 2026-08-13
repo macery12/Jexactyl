@@ -107,19 +107,26 @@ function ToggleRow({
     description,
     checked,
     onChange,
+    disabled = false,
 }: {
     title: string;
     description: string;
     checked: boolean;
     onChange: (next: boolean) => void;
+    disabled?: boolean;
 }) {
     return (
-        <div className="flex items-start justify-between gap-4 rounded-lg border border-[var(--color-border-strong)] p-3.5">
+        <div
+            className={cn(
+                'flex items-start justify-between gap-4 rounded-lg border border-[var(--color-border-strong)] p-3.5',
+                disabled && 'opacity-55',
+            )}
+        >
             <div className="min-w-0">
                 <p className="text-sm font-medium text-[var(--color-ink)]">{title}</p>
                 <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">{description}</p>
             </div>
-            <Switch checked={checked} onChange={onChange} label={title} />
+            <Switch checked={checked} onChange={onChange} label={title} disabled={disabled} />
         </div>
     );
 }
@@ -149,6 +156,7 @@ export function SettingsTab() {
         feature_crash_analysis: true,
 
         agent_enabled: false,
+        agent_admin_enabled: false,
         agent_max_steps: 12,
         agent_max_wall_seconds: 180,
         agent_tool_result_bytes: 12288,
@@ -188,6 +196,7 @@ export function SettingsTab() {
             feature_crash_analysis: settings.feature_crash_analysis ?? true,
 
             agent_enabled: settings.agent?.enabled ?? false,
+            agent_admin_enabled: settings.agent?.admin_enabled ?? false,
             agent_max_steps: settings.agent?.max_steps ?? 12,
             agent_max_wall_seconds: settings.agent?.max_wall_seconds ?? 180,
             agent_tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
@@ -263,6 +272,7 @@ export function SettingsTab() {
             feature_crash_analysis: form.feature_crash_analysis,
             agent: {
                 enabled: form.agent_enabled,
+                admin_enabled: form.agent_admin_enabled,
                 max_steps: form.agent_max_steps,
                 max_wall_seconds: form.agent_max_wall_seconds,
                 tool_result_bytes: form.agent_tool_result_bytes,
@@ -588,6 +598,14 @@ export function SettingsTab() {
                         description={m['admin.ai.settings.agentEnabledHint']()}
                         checked={form.agent_enabled}
                         onChange={v => patch('agent_enabled', v)}
+                    />
+
+                    <ToggleRow
+                        title={m['admin.ai.settings.adminAgentEnabled']()}
+                        description={m['admin.ai.settings.adminAgentEnabledHint']()}
+                        checked={form.agent_admin_enabled}
+                        onChange={v => patch('agent_admin_enabled', v)}
+                        disabled={!form.agent_enabled}
                     />
 
                     <FieldGrid>

@@ -33,6 +33,13 @@ export type AgentEvent =
           risk: AiRisk;
           preview?: AiDiffPreview;
       }
+    | {
+          type: 'question_required';
+          turn_id: string;
+          question: string;
+          options: { label: string; description?: string }[];
+          allow_other: boolean;
+      }
     | { type: 'operation'; uuid: string; kind: string; status: string }
     | { type: 'step'; step: number; max_steps: number }
     | { type: 'done'; reason: string }

@@ -7,25 +7,25 @@ import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { getAiSettings, SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
 import { OverviewTab } from './OverviewTab';
-import { PlaygroundTab } from './PlaygroundTab';
+import { AgentTab } from './AgentTab';
 import { LogsTab } from './LogsTab';
 import { SettingsTab } from './SettingsTab';
 import { ToolsTab } from './ToolsTab';
 
 // Admin AI (M12Labs-AI) — tabbed cockpit over /api/application/ai/*.
-// Overview = health + usage analytics; Playground = admin chat console;
+// Overview = health + usage analytics; Assistant = the tool-calling admin agent;
 // Logs = full request log with filters; Settings = provider configuration.
 // Module on/off lives in Admin → Features (the V1 EnableAI screen is gone);
 // an unconfigured provider surfaces as a banner steering to Settings.
 
-export type AiTabId = 'overview' | 'playground' | 'logs' | 'settings' | 'tools';
+export type AiTabId = 'overview' | 'agent' | 'logs' | 'settings' | 'tools';
 
 const TABS: { id: AiTabId; labelKey: () => string; icon: LucideIcon }[] = [
     { id: 'overview', labelKey: () => m['admin.ai.tabs.overview'](), icon: Activity },
+    { id: 'agent', labelKey: () => m['admin.ai.tabs.agent'](), icon: MessagesSquare },
     { id: 'settings', labelKey: () => m['admin.ai.tabs.settings'](), icon: Settings2 },
     { id: 'tools', labelKey: () => m['admin.ai.tabs.tools'](), icon: Wrench },
     { id: 'logs', labelKey: () => m['admin.ai.tabs.logs'](), icon: ListOrdered },
-    { id: 'playground', labelKey: () => m['admin.ai.tabs.playground'](), icon: MessagesSquare },
 ];
 
 export default function AiSection() {
@@ -95,7 +95,9 @@ export default function AiSection() {
             </div>
 
             {tab === 'overview' && <OverviewTab onViewLogs={() => setTab('logs')} />}
-            {tab === 'playground' && <PlaygroundTab />}
+            {tab === 'agent' && (
+                <AgentTab enabled={Boolean(settings?.agent.enabled && settings?.agent.admin_enabled)} />
+            )}
             {tab === 'logs' && <LogsTab />}
             {tab === 'settings' && <SettingsTab />}
             {tab === 'tools' && <ToolsTab />}

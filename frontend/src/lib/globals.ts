@@ -175,7 +175,16 @@ export interface EverestConfiguration {
     };
     tickets: { enabled: boolean; maxCount: number };
     billing: BillingConfig;
-    ai: { enabled: boolean; feature_server_assistant: boolean; [k: string]: unknown };
+    ai: {
+        enabled: boolean;
+        feature_server_assistant: boolean;
+        feature_crash_analysis: boolean;
+        /** The customer-facing tool-calling agent. */
+        feature_agent: boolean;
+        /** The admin assistant, which also requires feature_agent. */
+        feature_admin_agent: boolean;
+        [k: string]: unknown;
+    };
     mods: { enabled: boolean; [k: string]: unknown };
     webhooks: { enabled: boolean; [k: string]: unknown };
     // `enabled` = mail delivery is configured; `module_enabled` = admin has

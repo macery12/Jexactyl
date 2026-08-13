@@ -6,24 +6,22 @@ use Everest\Models\Server;
 use Everest\Models\Setting;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
-use Everest\Models\AiToolCall;
-use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
-use Illuminate\Support\Facades\Log;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\ProviderFactory;
-use Everest\Services\AI\Agent\AgentEvent;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Support\AiBudgetService;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
+use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 
 /**
  * The tool-calling agent.
@@ -31,9 +29,16 @@ use Everest\Http\Controllers\Api\Client\ClientApiController;
  * Kept separate from AIController — which remains the plain chat and crash
  * analysis surface — because the two have genuinely different contracts: this
  * one can suspend mid-turn and be resumed by a later request.
+ *
+ * The streaming, resume and suspension mechanics live in HandlesAgentTurns,
+ * shared with the admin assistant. What stays here is what is genuinely
+ * server-specific: binding the server from the route, scoping every lookup to
+ * it, and confirming a destructive action by typing the server's name.
  */
 class AgentController extends ClientApiController
 {
+    use HandlesAgentTurns;
+
     public function __construct(
         private AgentRunner $runner,
         private ProviderFactory $factory,
@@ -43,6 +48,31 @@ class AgentController extends ClientApiController
         private TurnRecorder $recorder,
     ) {
         parent::__construct();
+    }
+
+    protected function agentRunner(): AgentRunner
+    {
+        return $this->runner;
+    }
+
+    protected function toolRegistry(): ToolRegistry
+    {
+        return $this->registry;
+    }
+
+    protected function toolRiskGate(): RiskGate
+    {
+        return $this->riskGate;
+    }
+
+    protected function turnRecorder(): TurnRecorder
+    {
+        return $this->recorder;
+    }
+
+    protected function providerFactory(): ProviderFactory
+    {
+        return $this->factory;
     }
 
     /**
@@ -87,11 +117,11 @@ class AgentController extends ClientApiController
 
         $context->push(AiMessage::user($query));
 
-        return $this->stream($context, $server, conversation: $conversation);
+        return $this->streamTurn($context, conversation: $conversation);
     }
 
     /**
-     * Approvals the user still owes a decision on.
+     * Approvals and questions the user still owes a decision on.
      *
      * A suspended turn closes its stream, so without this a reload loses the
      * only pointer to it and the action silently expires.
@@ -120,7 +150,7 @@ class AgentController extends ClientApiController
     }
 
     /**
-     * Approve or reject a suspended action, then resume the turn.
+     * Approve, reject or answer a suspended action, then resume the turn.
      *
      * The decision arrives on a fresh request because the stream that asked
      * for it closed when the turn suspended — an approval can be minutes
@@ -132,8 +162,9 @@ class AgentController extends ClientApiController
 
         $request->validate([
             'turn_id' => 'required|uuid',
-            'decision' => 'required|string|in:approve,reject',
+            'decision' => 'required|string|in:approve,reject,answer',
             'confirmation' => 'nullable|string|max:255',
+            'answer' => 'nullable|string|max:500',
         ]);
 
         $user = $request->user();
@@ -151,8 +182,21 @@ class AgentController extends ClientApiController
             abort(404, 'That pending action no longer exists, or has expired.');
         }
 
-        if ($request->input('decision') === 'reject') {
-            return $this->resolveRejection($pending, $server, $user);
+        $decision = (string) $request->input('decision');
+        $context = $this->restoreTurn($pending, $user, $server);
+
+        if ($decision === 'reject') {
+            $this->applyRejection($pending, $context);
+
+            return $this->streamTurn($context, $pending);
+        }
+
+        if ($decision === 'answer') {
+            $this->assertAnswerable($pending);
+            $this->budget->assertWithinBudget($user);
+            $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+
+            return $this->streamTurn($context, $pending);
         }
 
         $this->assertConfirmed($request, $pending, $server);
@@ -160,25 +204,7 @@ class AgentController extends ClientApiController
 
         $pending->update(['status' => AiPendingAction::STATUS_APPROVED]);
 
-        return $this->stream($this->restore($pending, $user, $server), $server, $pending);
-    }
-
-    /**
-     * Rebuild a suspended turn.
-     *
-     * The recorder is attached only after the stored messages are restored, so
-     * resuming replays the earlier half into the model without writing it to
-     * the transcript a second time.
-     */
-    protected function restore(AiPendingAction $pending, $user, Server $server): AgentContext
-    {
-        return AgentContext::fromState(
-            $user,
-            $server,
-            $pending->turn_id,
-            $pending->conversation_id,
-            $pending->state,
-        )->withRecorder($this->recorder);
+        return $this->streamTurn($context, $pending);
     }
 
     /**
@@ -198,235 +224,16 @@ class AgentController extends ClientApiController
         }
     }
 
-    protected function resolveRejection(AiPendingAction $pending, Server $server, $user): StreamedResponse
-    {
-        $pending->update(['status' => AiPendingAction::STATUS_REJECTED]);
-
-        AiToolCall::where('turn_id', $pending->turn_id)
-            ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
-            ->update(['status' => AiToolCall::STATUS_REJECTED, 'resolved_at' => now()]);
-
-        // Resume the turn with the refusal fed back as the tool result, so the
-        // model can offer an alternative instead of the conversation dead-ending.
-        $context = $this->restore($pending, $user, $server);
-        $context->push(
-            AiMessage::tool(
-                $this->resolveToolCallId($pending, $context),
-                $pending->tool_name,
-                json_encode(['ok' => false, 'error' => 'declined_by_user', 'message' => 'The user declined this action. Do not retry it; suggest an alternative or ask what they would prefer.']),
-                true,
-            ),
-            TurnRecorder::toolDisplay(false, 'Declined by you'),
-        );
-        $this->closeUnresolvedCalls($context);
-
-        return $this->stream($context, $server, $pending);
-    }
-
     /**
-     * Run a turn and write its events to an SSE stream.
+     * Only a question can be answered. Anything else arriving with
+     * `decision: answer` is a client bug, and running the pending tool on the
+     * strength of it would be an approval nobody gave.
      */
-    protected function stream(
-        AgentContext $context,
-        Server $server,
-        ?AiPendingAction $resuming = null,
-        ?AiConversation $conversation = null,
-    ): StreamedResponse {
-        $runner = $this->runner;
-        $recorder = $this->recorder;
-        $userId = $context->user->id;
-        $serverUuid = $server->uuid;
-        $turnId = $context->turnId;
-        $conversationId = $context->conversationId;
-        $model = $this->factory->model(ProviderFactory::TASK_AGENT);
-
-        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model) {
-            // A turn legitimately runs for minutes; the client disconnecting
-            // must not abort a tool call halfway through.
-            set_time_limit(0);
-            ignore_user_abort(true);
-
-            // Flush a comment immediately so proxies do not 504 while the model
-            // is still thinking or the turn is queued.
-            $this->write(': keep-alive');
-
-            if ($conversation !== null) {
-                $this->write('data: ' . json_encode(
-                    AgentEvent::conversation($conversation->id, (string) $conversation->title)->toArray()
-                ));
-            }
-
-            $startedAt = microtime(true);
-            $status = 'success';
-            $error = null;
-            $toolCalls = 0;
-
-            try {
-                if ($resuming !== null) {
-                    $this->resumeApprovedCall($runner, $context, $resuming);
-                }
-
-                $runner->run($context, function (AgentEvent $event) use (&$toolCalls) {
-                    if ($event->type === AgentEvent::TYPE_TOOL_CALL) {
-                        ++$toolCalls;
-                    }
-
-                    $this->write('data: ' . json_encode($event->toArray()));
-                });
-            } catch (\Throwable $e) {
-                $status = 'error';
-                $error = $e->getMessage();
-                Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
-                $this->write('data: ' . json_encode(AgentEvent::error('The AI ran into a problem. Please try again.')->toArray()));
-            }
-
-            $this->write('data: [DONE]');
-
-            // Rolls the conversation's expiry forward the same way a manual
-            // append does, so an active chat is not reaped mid-use.
-            $recorder->touch($conversation);
-
-            try {
-                AiUsageLog::create([
-                    'user_id' => $userId,
-                    'server_uuid' => $serverUuid,
-                    'conversation_id' => $conversationId,
-                    'turn_id' => $turnId,
-                    'step' => $context->step,
-                    'tool_calls_count' => $toolCalls,
-                    'model' => $model ?: 'unknown',
-                    'source' => 'agent',
-                    'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-                    'status' => $status,
-                    'error_message' => $error,
-                ]);
-            } catch (\Throwable $e) {
-                Log::warning('Failed to write AI usage log: ' . $e->getMessage());
-            }
-        }, 200, [
-            'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
-            'X-Accel-Buffering' => 'no',
-        ]);
-    }
-
-    /**
-     * Run the call the user just approved, then let the loop carry on.
-     */
-    protected function resumeApprovedCall(AgentRunner $runner, AgentContext $context, AiPendingAction $pending): void
+    protected function assertAnswerable(AiPendingAction $pending): void
     {
-        if ($pending->status !== AiPendingAction::STATUS_APPROVED) {
-            return;
+        if ($pending->tool_name !== SharedTools::ASK_USER) {
+            abort(422, 'That pending action is waiting for approval, not an answer.');
         }
-
-        $definition = $this->registry->find($pending->tool_name);
-        $callId = $this->resolveToolCallId($pending, $context);
-
-        if ($definition === null || !$this->registry->userCanUse($context->user, $context->server, $definition)) {
-            $context->push(
-                AiMessage::tool(
-                    $callId,
-                    $pending->tool_name,
-                    json_encode(['ok' => false, 'error' => 'unavailable', 'message' => 'That tool is no longer available.']),
-                    true,
-                ),
-                TurnRecorder::toolDisplay(false, 'No longer available'),
-            );
-            $this->closeUnresolvedCalls($context);
-
-            return;
-        }
-
-        // Re-resolve the tier rather than trusting the stored one: an operator
-        // may have hardened the tool while the approval was outstanding.
-        $risk = $this->riskGate->resolve($definition, $pending->arguments);
-
-        $call = new \Everest\Services\AI\Data\AiToolCall($callId, $definition->name, $pending->arguments);
-        $result = $runner->runTool($context, $call, $definition, $pending->arguments, $risk);
-
-        $this->write('data: ' . json_encode(
-            AgentEvent::toolResult($callId, $definition->name, $result->ok, $result->summary())->toArray()
-        ));
-
-        $context->push(
-            AiMessage::tool($callId, $definition->name, $result->toModelPayload(), !$result->ok),
-            TurnRecorder::toolDisplay($result->ok, $result->summary()),
-        );
-
-        $this->closeUnresolvedCalls($context);
-
-        AiToolCall::where('turn_id', $pending->turn_id)
-            ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
-            ->update(['status' => AiToolCall::STATUS_APPROVED, 'resolved_at' => now()]);
-    }
-
-    /**
-     * The id the model used when it asked for this call.
-     *
-     * It has to be echoed back verbatim: a tool result is matched to its call
-     * by id, and an id the model never issued is rejected outright. Rows
-     * suspended before the id was persisted fall back to the stored turn state,
-     * which still carries the assistant message that made the request.
-     */
-    protected function resolveToolCallId(AiPendingAction $pending, AgentContext $context): string
-    {
-        if (is_string($pending->tool_call_id) && $pending->tool_call_id !== '') {
-            return $pending->tool_call_id;
-        }
-
-        foreach ($context->unresolvedToolCalls() as $call) {
-            if ($call->name === $pending->tool_name) {
-                return $call->id;
-            }
-        }
-
-        // Nothing to match against — the turn cannot be continued coherently,
-        // but a synthetic id at least keeps the shape valid.
-        return 'call_' . substr($pending->turn_id, 0, 8);
-    }
-
-    /**
-     * Answer any sibling calls the suspension left hanging.
-     *
-     * The model can ask for several tools at once. If one of them needed
-     * approval, the calls queued behind it never ran — and a request whose tool
-     * calls are not all answered is rejected. Telling the model they were
-     * skipped is both valid and useful: it can simply ask again.
-     */
-    protected function closeUnresolvedCalls(AgentContext $context): void
-    {
-        foreach ($context->unresolvedToolCalls() as $call) {
-            $context->push(
-                AiMessage::tool(
-                    $call->id,
-                    $call->name,
-                    json_encode([
-                        'ok' => false,
-                        'error' => 'not_executed',
-                        'message' => 'This call was not run because the turn paused for approval. Request it again if you still need it.',
-                    ]),
-                    true,
-                ),
-                TurnRecorder::toolDisplay(false, 'Skipped'),
-            );
-        }
-    }
-
-    /**
-     * Write one SSE frame.
-     *
-     * `ob_flush()` emits a notice when no buffer is active, which would land
-     * as garbage in the middle of the stream — hence the level check.
-     */
-    protected function write(string $line): void
-    {
-        echo $line . "\n\n";
-
-        if (ob_get_level() > 0) {
-            @ob_flush();
-        }
-
-        flush();
     }
 
     protected function resolveConversationId(Request $request, int $userId, string $serverUuid): ?int

@@ -39,6 +39,7 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'feature_crash_analysis' => 'nullable|bool',
 
             'agent.enabled' => 'nullable|bool',
+            'agent.admin_enabled' => 'nullable|bool',
             // A turn is bounded three ways because any one of them alone can be
             // escaped: a model can loop cheaply, stall expensively, or both.
             'agent.max_steps' => 'nullable|integer|min:1|max:50',

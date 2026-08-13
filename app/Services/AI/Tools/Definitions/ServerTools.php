@@ -19,6 +19,8 @@ use Everest\Services\AI\Tools\ToolDefinition;
  */
 class ServerTools
 {
+    use DefinesToolSchemas;
+
     public const GROUP_BACKUPS = 'backups';
     public const GROUP_ARCHIVES = 'archives';
     public const GROUP_DATABASES = 'databases';
@@ -592,55 +594,5 @@ class ServerTools
                 ),
             ),
         ];
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Schema helpers
-    |--------------------------------------------------------------------------
-    */
-
-    private static function object(array $properties, array $required = []): array
-    {
-        return [
-            'type' => 'object',
-            // An empty PHP array encodes as a JSON array, which providers
-            // reject where an object is required.
-            'properties' => $properties ?: new \stdClass(),
-            'required' => $required,
-        ];
-    }
-
-    private static function string(string $description): array
-    {
-        return ['type' => 'string', 'description' => $description];
-    }
-
-    private static function enum(array $values, string $description): array
-    {
-        return ['type' => 'string', 'enum' => $values, 'description' => $description];
-    }
-
-    /**
-     * Map a Fractal collection down to the fields the model needs, capped.
-     */
-    private static function mapList(mixed $data, callable $map, int $limit): array
-    {
-        $rows = is_array($data['data'] ?? null) ? $data['data'] : [];
-        $total = count($rows);
-        $items = [];
-
-        foreach (array_slice($rows, 0, $limit) as $row) {
-            $attributes = is_array($row['attributes'] ?? null) ? $row['attributes'] : (is_array($row) ? $row : []);
-            $items[] = $map($attributes);
-        }
-
-        $result = ['items' => $items, 'count' => $total];
-
-        if ($total > $limit) {
-            $result['note'] = sprintf('Showing the first %d of %d entries.', $limit, $total);
-        }
-
-        return $result;
     }
 }

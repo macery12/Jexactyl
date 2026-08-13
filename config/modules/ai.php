@@ -122,6 +122,15 @@ return [
         'enabled' => env('AI_AGENT_ENABLED', false),
 
         /*
+         * The admin assistant, which acts on the panel itself rather than on a
+         * server. Gated separately: turning on the customer-facing agent should
+         * not silently hand the panel's own controls to a model. Its tools are
+         * additionally filtered by the acting administrator's own capabilities,
+         * and re-checked on every call.
+         */
+        'admin_enabled' => env('AI_AGENT_ADMIN_ENABLED', false),
+
+        /*
          * Hard caps on a single turn. A turn ends when the model stops
          * requesting tools, or when one of these is hit.
          */

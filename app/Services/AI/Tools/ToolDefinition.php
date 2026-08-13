@@ -38,14 +38,27 @@ class ToolDefinition
     public const SCOPE_ADMIN = 'admin';
 
     /**
+     * Offered on every surface. Only meaningful for host-handled tools, which
+     * touch no API and therefore have no scope of their own.
+     */
+    public const SCOPE_SHARED = 'shared';
+
+    /**
      * @param string $uriTemplate path with `{server}` substituted from the turn's
-     *                            bound context — never from model output
+     *                            bound context — never from model output. Empty
+     *                            for a host-handled tool.
      * @param string[] $permissions checked before dispatch as defence in depth; the
-     *                              endpoint's own gate remains authoritative
+     *                              endpoint's own gate remains authoritative. For an
+     *                              admin-scoped tool these are AdminRole capabilities
+     *                              rather than subuser permissions.
      * @param string|null $group null means part of the always-available base set
      * @param callable|null $resultShaper trims a raw response down to what the model needs
      * @param bool $sharesHumanThrottle set for endpoints behind a literal `throttle:n,m`,
      *                                  which no limiter callback can exempt
+     * @param bool $hostHandled resolved by the runner itself rather than dispatched.
+     *                          Declared here rather than synthesised at prompt time
+     *                          so it still appears in the admin tool catalogue and
+     *                          obeys the operator's disable list.
      */
     public function __construct(
         public readonly string $name,
@@ -61,7 +74,16 @@ class ToolDefinition
         public readonly bool $sharesHumanThrottle = false,
         public readonly array $bodyFields = [],
         public readonly array $queryFields = [],
+        public readonly bool $hostHandled = false,
     ) {
+    }
+
+    /**
+     * Whether this tool is offered on the given surface.
+     */
+    public function inScope(string $scope): bool
+    {
+        return $this->scope === $scope || $this->scope === self::SCOPE_SHARED;
     }
 
     /**

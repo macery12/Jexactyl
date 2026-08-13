@@ -101,6 +101,7 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:keep_alive',
         'modules:ai:warm',
         'modules:ai:agent:enabled',
+        'modules:ai:agent:admin_enabled',
         'modules:ai:agent:max_steps',
         'modules:ai:agent:max_wall_seconds',
         'modules:ai:agent:tool_result_bytes',

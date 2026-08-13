@@ -225,6 +225,20 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::get('/tools', [Application\AiAgentController::class, 'tools']);
         Route::put('/tools', [Application\AiAgentController::class, 'updateTools']);
         Route::get('/inference', [Application\AiAgentController::class, 'inference']);
+
+        // The admin assistant. `decide` resolves an approval or a question the
+        // turn suspended on — both arrive on a fresh request, because the stream
+        // that asked closes when the turn suspends.
+        Route::post('/agent', [Application\AiAgentController::class, 'start']);
+        Route::post('/agent/decide', [Application\AiAgentController::class, 'decide']);
+        Route::get('/agent/pending', [Application\AiAgentController::class, 'pending']);
+
+        Route::prefix('/agent/conversations')->group(function () {
+            Route::get('/', [Application\AiAgentController::class, 'conversations']);
+            Route::get('/{conversationId}', [Application\AiAgentController::class, 'conversation']);
+            Route::patch('/{conversationId}/save', [Application\AiAgentController::class, 'toggleSaveConversation']);
+            Route::delete('/{conversationId}', [Application\AiAgentController::class, 'deleteConversation']);
+        });
     });
 
     /*

@@ -12,6 +12,7 @@ use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Tools\ToolInvocation;
 use Everest\Services\AI\Support\SchemaValidator;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
+use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 /**
@@ -35,6 +36,7 @@ class AgentToolExecutorTest extends ClientApiIntegrationTestCase
         $this->registry = new ToolRegistry(
             new RiskGate(new ConsoleCommandGate()),
             new SchemaValidator(),
+            $this->app->make(AdminAuthorizer::class),
         );
     }
 

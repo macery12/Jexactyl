@@ -18,6 +18,7 @@ class AgentEvent
     public const TYPE_TOOL_CALL = 'tool_call';
     public const TYPE_TOOL_RESULT = 'tool_result';
     public const TYPE_APPROVAL_REQUIRED = 'approval_required';
+    public const TYPE_QUESTION_REQUIRED = 'question_required';
     public const TYPE_OPERATION = 'operation';
     public const TYPE_STEP = 'step';
     public const TYPE_DONE = 'done';
@@ -92,6 +93,29 @@ class AgentEvent
             'risk' => $risk,
             'preview' => $preview,
         ], fn ($v) => $v !== null));
+    }
+
+    /**
+     * The turn has suspended to put a question to the user.
+     *
+     * Structurally the same suspension as an approval — the turn is persisted
+     * and the stream closes — but it carries no risk tier, because nothing is
+     * waiting to be run. The answer arrives on the same decide endpoint.
+     *
+     * @param array<int, array{label: string, description?: string}> $options
+     */
+    public static function questionRequired(
+        string $turnId,
+        string $question,
+        array $options,
+        bool $allowOther = false,
+    ): self {
+        return new self(self::TYPE_QUESTION_REQUIRED, [
+            'turn_id' => $turnId,
+            'question' => $question,
+            'options' => $options,
+            'allow_other' => $allowOther,
+        ]);
     }
 
     public static function operation(string $uuid, string $kind, string $status): self

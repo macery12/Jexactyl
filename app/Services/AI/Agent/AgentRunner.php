@@ -20,6 +20,7 @@ use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\ToolCallSalvager;
 use Everest\Exceptions\Service\AI\AIServiceException;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
 
 /**
@@ -97,8 +98,7 @@ class AgentRunner
             ++$context->step;
             $emit(AgentEvent::step($context->step, $maxSteps));
 
-            $definitions = $this->registry->forServer($context->user, $context->server, $context->activeGroups);
-            $groups = $this->registry->availableGroups($context->user, $context->server, $context->activeGroups);
+            [$definitions, $groups] = $this->offerings($context);
             $tools = $this->capTools($this->registry->toAiTools($definitions, $groups));
 
             $response = $this->callModel($context, $tools, $emit);
@@ -133,6 +133,27 @@ class AgentRunner
         }
 
         $emit(AgentEvent::done('step_limit'));
+    }
+
+    /**
+     * The tools and groups on offer this step, for whichever surface the turn
+     * is bound to.
+     *
+     * @return array{0: ToolDefinition[], 1: array<string, string>}
+     */
+    protected function offerings(AgentContext $context): array
+    {
+        if ($context->server === null) {
+            return [
+                $this->registry->forAdmin($context->user, $context->activeGroups),
+                $this->registry->availableAdminGroups($context->user, $context->activeGroups),
+            ];
+        }
+
+        return [
+            $this->registry->forServer($context->user, $context->server, $context->activeGroups),
+            $this->registry->availableGroups($context->user, $context->server, $context->activeGroups),
+        ];
     }
 
     /**
@@ -290,6 +311,15 @@ class AgentRunner
         }
 
         $arguments = $validation['value'];
+
+        // Host-handled tools never reach the panel, so they have no risk tier
+        // worth resolving and no dispatch to gate. `ask_user` is a suspension in
+        // its own right — asking *is* the pause — so it is handled before the
+        // risk gate rather than through it.
+        if ($definition->hostHandled) {
+            return $this->handleHostCall($context, $call, $definition, $arguments, $emit);
+        }
+
         $risk = $this->riskGate->resolve($definition, $arguments);
 
         $emit(AgentEvent::toolCall($call->id, $definition->name, $arguments, $risk));
@@ -308,6 +338,59 @@ class AgentRunner
     }
 
     /**
+     * Resolve a tool the runner owns, without touching the panel.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function handleHostCall(
+        AgentContext $context,
+        ToolCallData $call,
+        ToolDefinition $definition,
+        array $arguments,
+        callable $emit,
+    ): string {
+        if ($definition->name !== SharedTools::ASK_USER) {
+            $this->pushToolResult($context, $call, ToolResult::error(
+                'unknown_tool',
+                sprintf('There is no tool called "%s" available here.', $definition->name),
+            ));
+
+            return 'continued';
+        }
+
+        $question = trim((string) ($arguments['question'] ?? ''));
+        $options = SharedTools::normaliseOptions($arguments['options'] ?? []);
+
+        // A question with nothing to choose between is not a question the UI can
+        // render. Fed back rather than thrown so the model can rephrase.
+        if ($question === '' || count($options) < 2) {
+            $this->pushToolResult($context, $call, ToolResult::error(
+                'invalid_arguments',
+                'A question needs text and at least two distinct options. Ask again, or just answer.',
+                retryable: true,
+            ));
+
+            return 'continued';
+        }
+
+        if ($context->questions >= SharedTools::MAX_QUESTIONS_PER_TURN) {
+            $this->pushToolResult($context, $call, ToolResult::error(
+                'question_limit',
+                'You have already asked as many questions as this turn allows. Make a reasonable '
+                    . 'assumption, say clearly which one you made, and carry on.',
+            ));
+
+            return 'continued';
+        }
+
+        ++$context->questions;
+
+        $this->suspendForQuestion($context, $call, $question, $options, (bool) ($arguments['allow_other'] ?? false), $emit);
+
+        return 'suspended';
+    }
+
+    /**
      * Execute an approved or automatic call and record it for audit.
      */
     public function runTool(
@@ -321,7 +404,8 @@ class AgentRunner
             'turn_id' => $context->turnId,
             'conversation_id' => $context->conversationId,
             'user_id' => $context->user->id,
-            'server_uuid' => $context->server->uuid,
+            'server_uuid' => $context->server?->uuid,
+            'scope' => $context->scope(),
             'tool_name' => $definition->name,
             'risk' => $risk,
             'step' => $context->step,
@@ -331,7 +415,7 @@ class AgentRunner
 
         $startedAt = microtime(true);
 
-        $invocation = $definition->invoke($arguments, $this->registry->serverContext($context->server, $arguments));
+        $invocation = $definition->invoke($arguments, $this->registry->contextFor($context->server, $arguments));
         $result = $definition->shape($this->executor->execute($invocation, $this->toolResultBytes()));
 
         $record->update([
@@ -358,30 +442,14 @@ class AgentRunner
         string $risk,
         callable $emit,
     ): void {
-        AiPendingAction::updateOrCreate(
-            ['turn_id' => $context->turnId],
-            [
-                'conversation_id' => $context->conversationId,
-                'user_id' => $context->user->id,
-                'server_uuid' => $context->server->uuid,
-                'tool_name' => $definition->name,
-                // The model's own id for this call. Resuming has to answer with
-                // the same one — a fabricated id is rejected by every provider.
-                'tool_call_id' => $call->id,
-                'risk' => $risk,
-                'arguments' => $arguments,
-                'state' => $context->toState(),
-                'step' => $context->step,
-                'status' => AiPendingAction::STATUS_PENDING,
-                'expires_at' => now()->addMinutes(AiPendingAction::EXPIRY_MINUTES),
-            ]
-        );
+        $this->persistPending($context, $call, $definition->name, $arguments, $risk);
 
         AiToolCall::create([
             'turn_id' => $context->turnId,
             'conversation_id' => $context->conversationId,
             'user_id' => $context->user->id,
-            'server_uuid' => $context->server->uuid,
+            'server_uuid' => $context->server?->uuid,
+            'scope' => $context->scope(),
             'tool_name' => $definition->name,
             'risk' => $risk,
             'step' => $context->step,
@@ -396,6 +464,69 @@ class AgentRunner
             $risk,
             ApprovalPreview::for($definition->name, $arguments),
         ));
+    }
+
+    /**
+     * Persist the turn and stop, so the user can answer a question.
+     *
+     * No AiToolCall row: nothing was executed and nothing is waiting to be, so
+     * an audit entry would only add noise to a trail whose whole purpose is
+     * recording what the model did to the panel.
+     *
+     * @param array<int, array{label: string, description?: string}> $options
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function suspendForQuestion(
+        AgentContext $context,
+        ToolCallData $call,
+        string $question,
+        array $options,
+        bool $allowOther,
+        callable $emit,
+    ): void {
+        $arguments = [
+            'question' => $question,
+            'options' => $options,
+            'allow_other' => $allowOther,
+        ];
+
+        $this->persistPending($context, $call, SharedTools::ASK_USER, $arguments, ToolDefinition::RISK_SAFE);
+
+        $emit(AgentEvent::questionRequired($context->turnId, $question, $options, $allowOther));
+    }
+
+    /**
+     * Write the suspended turn.
+     *
+     * Shared by both kinds of pause: the state that has to survive is the same,
+     * and a second copy of it is a second place for a resume bug to hide.
+     */
+    protected function persistPending(
+        AgentContext $context,
+        ToolCallData $call,
+        string $toolName,
+        array $arguments,
+        string $risk,
+    ): void {
+        AiPendingAction::updateOrCreate(
+            ['turn_id' => $context->turnId],
+            [
+                'conversation_id' => $context->conversationId,
+                'user_id' => $context->user->id,
+                'server_uuid' => $context->server?->uuid,
+                'scope' => $context->scope(),
+                'tool_name' => $toolName,
+                // The model's own id for this call. Resuming has to answer with
+                // the same one — a fabricated id is rejected by every provider.
+                'tool_call_id' => $call->id,
+                'risk' => $risk,
+                'arguments' => $arguments,
+                'state' => $context->toState(),
+                'step' => $context->step,
+                'status' => AiPendingAction::STATUS_PENDING,
+                'expires_at' => now()->addMinutes(AiPendingAction::EXPIRY_MINUTES),
+            ]
+        );
     }
 
     protected function pushToolResult(AgentContext $context, ToolCallData $call, ToolResult $result): void

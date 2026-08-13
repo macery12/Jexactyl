@@ -2,6 +2,7 @@ import {
     Activity,
     Archive,
     Boxes,
+    ChartLine,
     Database,
     Download,
     FileCog,
@@ -10,14 +11,23 @@ import {
     FileText,
     FolderPlus,
     Folders,
+    Gauge,
     HardDriveDownload,
+    HelpCircle,
     Info,
+    LifeBuoy,
     Network,
+    Package,
     Power,
+    Receipt,
     Save,
+    Server,
     Terminal,
+    Ticket,
     Timer,
+    ToggleLeft,
     Trash2,
+    Users,
     Wrench,
     type LucideIcon,
 } from 'lucide-react';
@@ -70,6 +80,39 @@ const META: Record<string, ToolMeta> = {
     mods_installed: { icon: Boxes },
 
     activate_tool_group: { icon: Wrench, primary: 'group' },
+    ask_user: { icon: HelpCircle, primary: 'question' },
+
+    // Admin scope. Every name is prefixed so it cannot collide with a
+    // server-scoped tool in the registry's flat name map.
+    admin_overview: { icon: Gauge },
+    admin_users_list: { icon: Users },
+    admin_user_view: { icon: Users, primary: 'user' },
+    admin_servers_list: { icon: Server },
+    admin_server_view: { icon: Server, primary: 'server' },
+    admin_activity: { icon: Activity },
+
+    admin_billing_analytics: { icon: ChartLine },
+    admin_categories_list: { icon: Folders },
+    admin_products_list: { icon: Package },
+    admin_product_view: { icon: Package, primary: 'product' },
+    admin_cycles_list: { icon: Timer, primary: 'product' },
+    admin_product_create: { icon: Package, primary: 'name' },
+    admin_product_update: { icon: Package, primary: 'product' },
+
+    admin_coupons_list: { icon: Ticket },
+    admin_coupon_view: { icon: Ticket, primary: 'coupon' },
+    admin_coupon_create: { icon: Ticket, primary: 'code' },
+    admin_coupon_update: { icon: Ticket, primary: 'coupon' },
+    admin_orders_list: { icon: Receipt },
+    admin_node_pricing_list: { icon: ChartLine },
+    admin_node_pricing_update: { icon: ChartLine, primary: 'id' },
+
+    admin_tickets_list: { icon: LifeBuoy },
+    admin_ticket_view: { icon: LifeBuoy, primary: 'ticket' },
+    admin_ticket_messages: { icon: LifeBuoy, primary: 'ticket' },
+
+    admin_features: { icon: ToggleLeft },
+    admin_presets_list: { icon: Boxes },
 };
 
 /**
