@@ -168,9 +168,32 @@ export interface AiStats {
         avg_latency_ms: number | null;
     };
     last_24h: { requests: number; tokens: number };
-    last_7d: { requests: number; tokens: number; cache_hits: number };
+    last_7d: {
+        requests: number;
+        tokens: number;
+        prompt_tokens: number;
+        completion_tokens: number;
+        cache_hits: number;
+        errors: number;
+    };
+    /** Panel-wide, since the start of the month — the window a budget is measured in. */
+    month_to_date_tokens: number;
+    /**
+     * Latency bucketed rather than averaged: an agent turn is many model calls
+     * and a chat is one, so a mean over the two describes neither.
+     */
+    latency: {
+        under_1s: number;
+        to_5s: number;
+        to_15s: number;
+        to_60s: number;
+        over_60s: number;
+        slowest_ms: number | null;
+        avg_ms: number | null;
+    } | null;
     daily_series: { date: string; requests: number }[];
     top_users: { username: string; email: string | null; requests: number }[];
+    /** Keyed by every source present in the window — client, agent, admin, admin-agent, modpack. */
     source_breakdown: Record<string, number>;
 }
 
@@ -190,7 +213,7 @@ export interface AiLogEntry {
 
 export interface AiLogsParams {
     limit?: number;
-    source?: 'client' | 'admin' | '';
+    source?: 'client' | 'agent' | 'admin' | 'admin-agent' | 'modpack' | '';
     status?: 'success' | 'error' | '';
     search?: string;
 }

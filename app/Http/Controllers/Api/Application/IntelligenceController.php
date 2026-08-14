@@ -347,7 +347,40 @@ class IntelligenceController extends ApplicationApiController
 
         // Last 7 days
         $last7d = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
-            ->selectRaw('COUNT(*) as requests, SUM(COALESCE(total_tokens, 0)) as tokens, SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END) as cache_hits')
+            ->selectRaw('
+                COUNT(*) as requests,
+                SUM(COALESCE(total_tokens, 0)) as tokens,
+                SUM(COALESCE(prompt_tokens, 0)) as prompt_tokens,
+                SUM(COALESCE(completion_tokens, 0)) as completion_tokens,
+                SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END) as cache_hits,
+                SUM(CASE WHEN status = "error" THEN 1 ELSE 0 END) as errors
+            ')
+            ->first();
+
+        // Month to date, which is the window a monthly token budget is measured
+        // against. Panel-wide rather than per-user: the budget the operator set
+        // is the panel's, and a per-user figure cannot be summed back into it
+        // from here without loading every user.
+        $monthTokens = (int) AiUsageLog::where('created_at', '>=', $now->copy()->startOfMonth())
+            ->sum('total_tokens');
+
+        // Latency spread, bucketed rather than averaged.
+        //
+        // An agent turn is many model calls and a chat is one, so the two live
+        // in the same column with wildly different shapes — a mean over them
+        // describes neither. Buckets show the bimodality directly, and are
+        // portable SQL where a percentile function is not.
+        $latency = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
+            ->whereNotNull('latency_ms')
+            ->selectRaw('
+                SUM(CASE WHEN latency_ms < 1000 THEN 1 ELSE 0 END) as under_1s,
+                SUM(CASE WHEN latency_ms >= 1000 AND latency_ms < 5000 THEN 1 ELSE 0 END) as to_5s,
+                SUM(CASE WHEN latency_ms >= 5000 AND latency_ms < 15000 THEN 1 ELSE 0 END) as to_15s,
+                SUM(CASE WHEN latency_ms >= 15000 AND latency_ms < 60000 THEN 1 ELSE 0 END) as to_60s,
+                SUM(CASE WHEN latency_ms >= 60000 THEN 1 ELSE 0 END) as over_60s,
+                MAX(latency_ms) as slowest_ms,
+                ROUND(AVG(latency_ms)) as avg_ms
+            ')
             ->first();
 
         // Requests per day for the last 7 days (for sparkline)
@@ -383,7 +416,10 @@ class IntelligenceController extends ApplicationApiController
                 'requests' => $row->requests,
             ]);
 
-        // Source breakdown (client vs admin, last 7 days)
+        // Every source that produced traffic in the window, not a fixed pair.
+        // There are five in the codebase — client, agent, admin, admin-agent
+        // and modpack — and a UI that reads two of them by name reports a panel
+        // running nothing but agent turns as almost entirely idle.
         $sourceBreakdown = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
             ->selectRaw('source, COUNT(*) as requests')
             ->groupBy('source')
@@ -394,6 +430,8 @@ class IntelligenceController extends ApplicationApiController
             'all_time' => $allTime,
             'last_24h' => $last24h,
             'last_7d' => $last7d,
+            'month_to_date_tokens' => $monthTokens,
+            'latency' => $latency,
             'daily_series' => $series,
             'top_users' => $topUsers,
             'source_breakdown' => $sourceBreakdown,
@@ -416,7 +454,10 @@ class IntelligenceController extends ApplicationApiController
         $query = AiUsageLog::with('user:id,username,email', 'server:uuid,name')
             ->orderByDesc('created_at');
 
-        if (in_array($source, ['client', 'admin'], true)) {
+        // All five producers, not the two the filter used to know: narrowing to
+        // "client" excluded every agent turn, which on a panel using the agent
+        // is most of the log.
+        if (in_array($source, ['client', 'agent', 'admin', 'admin-agent', 'modpack'], true)) {
             $query->where('source', $source);
         }
         if (in_array($status, ['success', 'error'], true)) {

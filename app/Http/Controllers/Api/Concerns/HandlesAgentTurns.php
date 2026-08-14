@@ -134,6 +134,13 @@ trait HandlesAgentTurns
                     'tool_calls_count' => $toolCalls,
                     'model' => $model ?: 'unknown',
                     'source' => $serverUuid === null ? 'admin-agent' : 'agent',
+                    // Summed across every model call the turn made, not just
+                    // the last one. Without these the monthly token budget has
+                    // nothing to count on precisely the workload that spends
+                    // the most — an agent turn is many calls, a chat is one.
+                    'prompt_tokens' => $context->usage['prompt_tokens'],
+                    'completion_tokens' => $context->usage['completion_tokens'],
+                    'total_tokens' => $context->usage['total_tokens'],
                     'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
                     'status' => $status,
                     'error_message' => $error,

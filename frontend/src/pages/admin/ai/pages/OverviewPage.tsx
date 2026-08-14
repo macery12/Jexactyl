@@ -14,15 +14,47 @@ import {
     type AiStats,
 } from '@/api/adminAi';
 import { LogTable } from './LogTable';
+import { sourceChip, sourceLabel, sourceTone } from '../sources';
 
-function StatTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+// A labelled figure on one dense line.
+//
+// Deliberately not a big-numeral tile: a row of those is the revenue-dashboard
+// idiom, and this page is an ops readout for a service whose interesting
+// numbers are distributions rather than totals. The figure is mono and
+// tabular so a column of them lines up and can be scanned.
+function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
     return (
-        <div className="flex flex-col gap-1 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-4 py-3">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--color-ink-muted)]">
-                {label}
+        <div className="flex items-baseline justify-between gap-4 border-b border-[var(--color-border)]/60 py-1.5 last:border-0">
+            <span className="text-xs text-[var(--color-ink-faint)]">{label}</span>
+            <span className="text-right">
+                <span className="font-mono text-sm tabular-nums text-[var(--color-ink)]">{value}</span>
+                {sub && <span className="ml-1.5 text-[11px] text-[var(--color-ink-faint)]">{sub}</span>}
             </span>
-            <span className="text-xl font-semibold tabular-nums text-[var(--color-ink)]">{value}</span>
-            {sub && <span className="text-xs text-[var(--color-ink-faint)]">{sub}</span>}
+        </div>
+    );
+}
+
+// One bucket of the latency spread. Width is share of the window's requests,
+// so an install whose turns are mostly fast reads as a single wide bar at the
+// top and a stub at the bottom.
+function LatencyBar({ label, count, total, warn }: { label: string; count: number; total: number; warn?: boolean }) {
+    const share = total > 0 ? count / total : 0;
+
+    return (
+        <div className="flex items-center gap-2.5">
+            <span className="w-14 shrink-0 text-right font-mono text-[11px] text-[var(--color-ink-faint)]">{label}</span>
+            <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+                <div
+                    className={cn(
+                        'h-full rounded-full transition-all',
+                        warn ? 'bg-[var(--color-warning)]' : 'bg-[var(--brand)]/70',
+                    )}
+                    style={{ width: `${Math.max(share * 100, count > 0 ? 3 : 0)}%` }}
+                />
+            </div>
+            <span className="w-8 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--color-ink-muted)]">
+                {count}
+            </span>
         </div>
     );
 }
@@ -242,91 +274,179 @@ export default function OverviewPage() {
         queryFn: () => getAiLogs({ limit: 10 }),
     });
 
+    const { data: settings } = useQuery({ queryKey: ['admin', 'ai', 'settings'], queryFn: getAiSettings });
+
     const fmt = (n: number | null | undefined) => (n ?? 0).toLocaleString();
-    const successRate = stats?.all_time.total_requests
-        ? Math.round((stats.all_time.successful / stats.all_time.total_requests) * 100)
-        : null;
+    const secs = (ms: number | null | undefined) => (ms == null ? '—' : `${(ms / 1000).toFixed(1)}s`);
+
+    const latency = stats?.latency;
+    const latencyTotal = latency
+        ? latency.under_1s + latency.to_5s + latency.to_15s + latency.to_60s + latency.over_60s
+        : 0;
+
+    // Sorted by volume so the dominant source leads, rather than by a fixed
+    // order that buries whatever is actually running.
+    const sources = Object.entries(stats?.source_breakdown ?? {})
+        .filter(([, count]) => count > 0)
+        .sort(([, a], [, b]) => b - a);
+
+    const budget = settings?.budget;
+    const budgetShare =
+        budget?.enforce && budget.monthly_tokens > 0
+            ? Math.min((stats?.month_to_date_tokens ?? 0) / budget.monthly_tokens, 1)
+            : null;
 
     return (
         <div className="space-y-3">
-            <div className="grid gap-3 lg:grid-cols-2">
-                <div className="space-y-3">
-                    <ConnectionCard />
-                    <InferenceCard />
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                    <StatTile
-                        label={m['admin.ai.overview.requests24h']()}
-                        value={statsLoading ? '…' : fmt(stats?.last_24h.requests)}
-                        sub={m['admin.ai.overview.tokens']({ count: fmt(stats?.last_24h.tokens) })}
-                    />
-                    <StatTile
-                        label={m['admin.ai.overview.requests7d']()}
-                        value={statsLoading ? '…' : fmt(stats?.last_7d.requests)}
-                        sub={m['admin.ai.overview.cacheHits']({ count: fmt(stats?.last_7d.cache_hits) })}
-                    />
-                    <StatTile
-                        label={m['admin.ai.overview.allTime']()}
-                        value={statsLoading ? '…' : fmt(stats?.all_time.total_requests)}
-                        sub={
-                            successRate !== null
-                                ? m['admin.ai.overview.successRate']({
-                                      rate: String(successRate),
-                                      latency: fmt(stats?.all_time.avg_latency_ms),
-                                  })
-                                : undefined
-                        }
-                    />
-                </div>
+            <ConnectionCard />
+
+            <div className="grid gap-3 xl:grid-cols-3">
+                <Panel title={m['admin.ai.overview.activityTitle']()}>
+                    <div className="space-y-3">
+                        <div className="flex items-end justify-between gap-4">
+                            <ActivityBars series={stats?.daily_series ?? []} />
+                            <div className="text-right">
+                                <p className="font-mono text-lg tabular-nums leading-none text-[var(--color-ink)]">
+                                    {statsLoading ? '…' : fmt(stats?.last_7d.requests)}
+                                </p>
+                                <p className="mt-1 text-[11px] text-[var(--color-ink-faint)]">
+                                    {m['admin.ai.overview.turns7d']()}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div>
+                            {sources.map(([source, count]) => (
+                                <div
+                                    key={source}
+                                    className="flex items-center justify-between gap-3 border-b border-[var(--color-border)]/60 py-1.5 last:border-0"
+                                >
+                                    <span
+                                        className={cn(
+                                            'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                                            sourceChip[sourceTone(source)],
+                                        )}
+                                    >
+                                        {sourceLabel(source)}
+                                    </span>
+                                    <span className="font-mono text-sm tabular-nums text-[var(--color-ink)]">
+                                        {fmt(count)}
+                                    </span>
+                                </div>
+                            ))}
+                            {sources.length === 0 && (
+                                <p className="py-3 text-center text-xs text-[var(--color-ink-faint)]">
+                                    {m['admin.ai.overview.noUsage']()}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                </Panel>
+
+                <Panel
+                    title={m['admin.ai.overview.latencyTitle']()}
+                    right={
+                        <span className="font-mono text-[11px] tabular-nums text-[var(--color-ink-faint)]">
+                            {m['admin.ai.overview.avgLabel']({ value: secs(latency?.avg_ms) })}
+                        </span>
+                    }
+                >
+                    {latencyTotal === 0 ? (
+                        <p className="py-3 text-center text-xs text-[var(--color-ink-faint)]">
+                            {m['admin.ai.overview.noUsage']()}
+                        </p>
+                    ) : (
+                        <div className="space-y-2">
+                            <LatencyBar label="< 1s" count={latency?.under_1s ?? 0} total={latencyTotal} />
+                            <LatencyBar label="1–5s" count={latency?.to_5s ?? 0} total={latencyTotal} />
+                            <LatencyBar label="5–15s" count={latency?.to_15s ?? 0} total={latencyTotal} />
+                            <LatencyBar label="15–60s" count={latency?.to_60s ?? 0} total={latencyTotal} />
+                            <LatencyBar label="> 60s" count={latency?.over_60s ?? 0} total={latencyTotal} warn />
+                            <p className="pt-1 text-[11px] text-[var(--color-ink-faint)]">
+                                {m['admin.ai.overview.slowest']({ value: secs(latency?.slowest_ms) })}
+                            </p>
+                        </div>
+                    )}
+                </Panel>
+
+                <Panel title={m['admin.ai.overview.costTitle']()}>
+                    <div>
+                        <Metric
+                            label={m['admin.ai.overview.tokensIn']()}
+                            value={fmt(stats?.last_7d.prompt_tokens)}
+                        />
+                        <Metric
+                            label={m['admin.ai.overview.tokensOut']()}
+                            value={fmt(stats?.last_7d.completion_tokens)}
+                        />
+                        <Metric
+                            label={m['admin.ai.overview.cacheHitsLabel']()}
+                            value={fmt(stats?.last_7d.cache_hits)}
+                        />
+                        <Metric
+                            label={m['admin.ai.overview.errorsLabel']()}
+                            value={fmt(stats?.last_7d.errors)}
+                        />
+                        <Metric
+                            label={m['admin.ai.overview.monthToDate']()}
+                            value={fmt(stats?.month_to_date_tokens)}
+                        />
+                    </div>
+
+                    {budgetShare !== null ? (
+                        <div className="mt-3">
+                            <div className="mb-1 flex items-center justify-between text-[11px]">
+                                <span className="text-[var(--color-ink-faint)]">
+                                    {m['admin.ai.overview.budgetLabel']()}
+                                </span>
+                                <span className="font-mono tabular-nums text-[var(--color-ink-muted)]">
+                                    {Math.round(budgetShare * 100)}%
+                                </span>
+                            </div>
+                            <div className="h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+                                <div
+                                    className={cn(
+                                        'h-full rounded-full transition-all',
+                                        budgetShare >= 0.9 ? 'bg-[var(--color-warning)]' : 'bg-[var(--brand)]',
+                                    )}
+                                    style={{ width: `${budgetShare * 100}%` }}
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <Link
+                            to="/admin/ai/limits"
+                            className="mt-3 block text-[11px] text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink)]"
+                        >
+                            {m['admin.ai.overview.budgetOff']()}
+                        </Link>
+                    )}
+                </Panel>
             </div>
 
-            {stats && (
-                <div className="grid gap-3 lg:grid-cols-2">
-                    <Panel title={m['admin.ai.overview.activityTitle']()}>
-                        <div className="flex items-end justify-between gap-4">
-                            <ActivityBars series={stats.daily_series} />
-                            <dl className="space-y-1 text-xs">
-                                <div className="flex justify-between gap-6">
-                                    <dt className="text-[var(--color-ink-faint)]">{m['admin.ai.overview.sourceClient']()}</dt>
-                                    <dd className="font-medium tabular-nums text-[var(--color-ink)]">
-                                        {fmt(stats.source_breakdown['client'])}
-                                    </dd>
-                                </div>
-                                <div className="flex justify-between gap-6">
-                                    <dt className="text-[var(--color-ink-faint)]">{m['admin.ai.overview.sourceAdmin']()}</dt>
-                                    <dd className="font-medium tabular-nums text-[var(--color-ink)]">
-                                        {fmt(stats.source_breakdown['admin'])}
-                                    </dd>
-                                </div>
-                                <div className="flex justify-between gap-6">
-                                    <dt className="text-[var(--color-ink-faint)]">{m['admin.ai.overview.errors']()}</dt>
-                                    <dd className="font-medium tabular-nums text-[var(--color-danger)]">
-                                        {fmt(stats.all_time.errors)}
-                                    </dd>
-                                </div>
-                            </dl>
-                        </div>
-                    </Panel>
-                    <Panel title={m['admin.ai.overview.topUsers']()}>
-                        {stats.top_users.length === 0 ? (
-                            <p className="py-3 text-center text-xs text-[var(--color-ink-faint)]">
-                                {m['admin.ai.overview.noUsage']()}
-                            </p>
-                        ) : (
-                            <div className="space-y-1.5">
-                                {stats.top_users.map(u => (
-                                    <div key={u.username} className="flex items-center justify-between">
-                                        <span className="truncate text-xs text-[var(--color-ink)]">{u.username}</span>
-                                        <span className="font-mono text-xs tabular-nums text-[var(--color-ink-faint)]">
-                                            {m['admin.ai.overview.requestCount']({ count: String(u.requests) })}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </Panel>
+            <div className="grid gap-3 xl:grid-cols-3">
+                <div className="xl:col-span-2">
+                    <InferenceCard />
                 </div>
-            )}
+                <Panel title={m['admin.ai.overview.topUsers']()}>
+                    {(stats?.top_users.length ?? 0) === 0 ? (
+                        <p className="py-3 text-center text-xs text-[var(--color-ink-faint)]">
+                            {m['admin.ai.overview.noUsage']()}
+                        </p>
+                    ) : (
+                        <div className="space-y-1.5">
+                            {stats?.top_users.map(user => (
+                                <div key={user.username} className="flex items-center justify-between gap-3">
+                                    <span className="truncate text-xs text-[var(--color-ink)]">{user.username}</span>
+                                    <span className="font-mono text-xs tabular-nums text-[var(--color-ink-faint)]">
+                                        {m['admin.ai.overview.requestCount']({ count: String(user.requests) })}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </Panel>
+            </div>
 
             <Panel
                 title={m['admin.ai.overview.recentTitle']()}

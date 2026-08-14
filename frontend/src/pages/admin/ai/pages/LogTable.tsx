@@ -3,6 +3,7 @@ import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import type { AiLogEntry } from '@/api/adminAi';
+import { sourceChip, sourceLabel, sourceTone } from '../sources';
 
 // Shared request-log table used by the overview (recent 10) and the Logs tab
 // (filtered, up to 500). Cached responses carry a lightning badge — they cost
@@ -56,12 +57,10 @@ export function LogTable({ logs, loading }: { logs: AiLogEntry[]; loading: boole
                                 <span
                                     className={cn(
                                         'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                                        log.source === 'admin'
-                                            ? 'bg-[var(--brand-soft)] text-[var(--brand)]'
-                                            : 'bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]',
+                                        sourceChip[sourceTone(log.source)],
                                     )}
                                 >
-                                    {log.source === 'admin' ? m['admin.ai.logs.sourceAdmin']() : m['admin.ai.logs.sourceClient']()}
+                                    {sourceLabel(log.source)}
                                 </span>
                             </td>
                             <td className="px-3 py-1.5 font-mono tabular-nums text-[var(--color-ink-muted)]">

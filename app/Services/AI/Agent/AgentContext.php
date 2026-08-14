@@ -42,6 +42,23 @@ class AgentContext
     public int $questions = 0;
 
     /**
+     * What the turn has cost so far, summed across every model call it made.
+     *
+     * A turn is many calls — one per step, plus repairs — and each reports its
+     * own usage. Accumulating here rather than logging per call is what makes a
+     * turn's cost answerable at all: the caller writes one usage row when the
+     * stream closes, and a token budget that counts rows would otherwise be
+     * counting turns while being charged for calls.
+     *
+     * Carried through {@see toState()} because a turn that suspends for an
+     * approval and resumes is still one turn. Dropping it there would bill the
+     * operator for the steps after the approval and nothing before it.
+     *
+     * @var array{prompt_tokens: int, completion_tokens: int, total_tokens: int}
+     */
+    public array $usage = ['prompt_tokens' => 0, 'completion_tokens' => 0, 'total_tokens' => 0];
+
+    /**
      * The administrator's audited session on a customer's server, once one has
      * been approved. Null on every server turn — the customer's own assistant
      * needs no such thing, it is already on their server.
@@ -206,6 +223,7 @@ class AgentContext
             'step' => $this->step,
             'repairs' => $this->repairs,
             'questions' => $this->questions,
+            'usage' => $this->usage,
             'console_buffer' => $this->consoleBuffer,
             'assist' => $this->assist?->toArray(),
             'redactions' => $this->redactions->toArray(),
@@ -233,6 +251,7 @@ class AgentContext
         $context->step = (int) ($state['step'] ?? 0);
         $context->repairs = (int) ($state['repairs'] ?? 0);
         $context->questions = (int) ($state['questions'] ?? 0);
+        $context->addUsage(is_array($state['usage'] ?? null) ? $state['usage'] : []);
         $context->redactions = RedactionMap::fromArray($state['redactions'] ?? null);
 
         // Restored without its server, and therefore inert: `targetServer()`
@@ -241,6 +260,28 @@ class AgentContext
         $context->assist = AssistBinding::fromArray($state['assist'] ?? null);
 
         return $context;
+    }
+
+    /**
+     * Fold one model call's reported usage into the turn's total.
+     *
+     * Providers disagree about which fields they send — some report a total,
+     * some only the two halves, some (a streamed OpenAI-compatible call with
+     * usage disabled) nothing at all. A missing total is derived rather than
+     * left at zero, since a turn that was measurably charged should not read as
+     * free just because the endpoint declined to do the addition.
+     *
+     * @param array<string, mixed> $usage
+     */
+    public function addUsage(array $usage): void
+    {
+        $prompt = (int) ($usage['prompt_tokens'] ?? 0);
+        $completion = (int) ($usage['completion_tokens'] ?? 0);
+        $total = (int) ($usage['total_tokens'] ?? 0);
+
+        $this->usage['prompt_tokens'] += $prompt;
+        $this->usage['completion_tokens'] += $completion;
+        $this->usage['total_tokens'] += $total ?: $prompt + $completion;
     }
 
     /**

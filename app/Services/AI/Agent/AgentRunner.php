@@ -282,6 +282,15 @@ class AgentRunner
                     }
                     break;
 
+                    // Every step reports its own cost and the turn is the unit
+                    // anyone is billed in, so it accumulates on the context
+                    // rather than being read off the last call — which would
+                    // report a twelve-step turn as costing whatever step twelve
+                    // happened to cost.
+                case AiStreamEvent::TYPE_USAGE:
+                    $context->addUsage($event->usage);
+                    break;
+
                 case AiStreamEvent::TYPE_ERROR:
                     throw new AIServiceException((string) $event->error);
             }
@@ -324,6 +333,12 @@ class AgentRunner
             foreach ($provider->stream($request) as $event) {
                 if ($event->type === AiStreamEvent::TYPE_TEXT) {
                     $repaired .= (string) $event->text;
+                } elseif ($event->type === AiStreamEvent::TYPE_USAGE) {
+                    // A repair is a second inference on the whole transcript,
+                    // which is the most expensive thing a step can do. Charging
+                    // it is the only way the cost of a model that keeps
+                    // malforming its calls is ever visible.
+                    $context->addUsage($event->usage);
                 } elseif ($event->type === AiStreamEvent::TYPE_TOOL_CALL && $event->toolCall !== null) {
                     return [$event->toolCall];
                 }

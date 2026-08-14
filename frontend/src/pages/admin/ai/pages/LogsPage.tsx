@@ -6,6 +6,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Select } from '@/components/ui/Select';
 import { getAiLogs, type AiLogsParams } from '@/api/adminAi';
 import { LogTable } from './LogTable';
+import { AI_SOURCES, sourceLabel } from '../sources';
 
 // Full request log — search by user, filter by source/status, newest 500.
 export default function LogsPage() {
@@ -65,13 +66,12 @@ export default function LogsPage() {
                 </div>
                 <Select
                     value={source || 'all'}
-                    onChange={v => setSource(v === 'all' ? '' : (v as 'client' | 'admin'))}
+                    onChange={v => setSource(v === 'all' ? '' : (v as NonNullable<AiLogsParams['source']>))}
                     options={[
                         { value: 'all', label: m['admin.ai.logs.allSources']() },
-                        { value: 'client', label: m['admin.ai.logs.sourceClient']() },
-                        { value: 'admin', label: m['admin.ai.logs.sourceAdmin']() },
+                        ...AI_SOURCES.map(entry => ({ value: entry, label: sourceLabel(entry) })),
                     ]}
-                    className="h-9 w-36 text-xs"
+                    className="h-9 w-44 text-xs"
                 />
                 <Select
                     value={status || 'all'}
