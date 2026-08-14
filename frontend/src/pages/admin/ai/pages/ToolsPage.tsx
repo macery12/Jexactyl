@@ -34,7 +34,7 @@ function riskLabel(risk: AiRiskTier): string {
           : m['admin.ai.tools.riskDestructive']();
 }
 
-export function ToolsTab() {
+export default function ToolsPage() {
     const queryClient = useQueryClient();
     const push = useFlashes(s => s.push);
 

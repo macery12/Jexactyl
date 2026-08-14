@@ -534,9 +534,15 @@ class AnthropicProvider extends AbstractProvider
 
     public function capabilities(?string $model = null): ProviderCapabilities
     {
+        // Resolved rather than ignored: sampling support is a property of the
+        // model, not of the driver, and the panel asks this question to decide
+        // whether to offer a temperature control at all.
+        $model = $model ?: $this->providerConfig->model;
+
         return new ProviderCapabilities(
             supportsTools: true,
             supportsStructuredOutput: true,
+            supportsSampling: !$this->rejectsSamplingParams($model),
             selfHosted: false,
             maxContextTokens: $this->providerConfig->contextTokens,
         );

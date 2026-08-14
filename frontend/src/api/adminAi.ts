@@ -132,6 +132,12 @@ export interface AiInferenceState {
     capabilities: {
         model: string;
         supports_tools: boolean;
+        /**
+         * False on models that reject `temperature` outright, where the driver
+         * drops the parameter. Comes from the probe rather than a prefix list
+         * duplicated here, which would drift from the driver's own.
+         */
+        supports_sampling: boolean;
         self_hosted: boolean;
         max_context_tokens: number | null;
         warnings: string[];

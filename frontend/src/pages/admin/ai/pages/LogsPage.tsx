@@ -8,7 +8,7 @@ import { getAiLogs, type AiLogsParams } from '@/api/adminAi';
 import { LogTable } from './LogTable';
 
 // Full request log — search by user, filter by source/status, newest 500.
-export function LogsTab() {
+export default function LogsPage() {
     const [source, setSource] = useState<NonNullable<AiLogsParams['source']>>('');
     const [status, setStatus] = useState<NonNullable<AiLogsParams['status']>>('');
     const [search, setSearch] = useState('');

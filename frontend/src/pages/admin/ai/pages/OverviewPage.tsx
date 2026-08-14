@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, RefreshCw, XCircle, Zap } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Panel } from '@/components/ui/Panel';
@@ -231,7 +232,7 @@ function InferenceCard() {
     );
 }
 
-export function OverviewTab({ onViewLogs }: { onViewLogs: () => void }) {
+export default function OverviewPage() {
     const { data: stats, isLoading: statsLoading } = useQuery({
         queryKey: ['admin', 'ai', 'stats'],
         queryFn: getAiStats,
@@ -330,13 +331,12 @@ export function OverviewTab({ onViewLogs }: { onViewLogs: () => void }) {
             <Panel
                 title={m['admin.ai.overview.recentTitle']()}
                 right={
-                    <button
-                        type="button"
-                        onClick={onViewLogs}
+                    <Link
+                        to="/admin/ai/logs"
                         className="text-xs text-[var(--color-ink-faint)] transition-colors hover:text-[var(--color-ink)]"
                     >
                         {m['admin.ai.overview.viewAll']()}
-                    </button>
+                    </Link>
                 }
                 flush
             >

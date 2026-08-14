@@ -1,42 +1,37 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Activity, Bot, ListOrdered, Settings2, TriangleAlert, Wrench } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { TriangleAlert } from 'lucide-react';
 import { m } from '@/i18n';
-import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
-import { getAiSettings, SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
-import { OverviewTab } from './OverviewTab';
-import { LogsTab } from './LogsTab';
-import { SettingsTab } from './SettingsTab';
-import { ToolsTab } from './ToolsTab';
+import { SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
+import { AiNav } from './AiNav';
+import { useAiSettings } from './useAiSettingsForm';
+import OverviewPage from './pages/OverviewPage';
+import ProviderPage from './pages/ProviderPage';
+import GenerationPage from './pages/GenerationPage';
+import AgentPage from './pages/AgentPage';
+import ToolsPage from './pages/ToolsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import PerformancePage from './pages/PerformancePage';
+import LimitsPage from './pages/LimitsPage';
+import LogsPage from './pages/LogsPage';
 
-// Admin AI (M12Labs-AI) — tabbed cockpit over /api/application/ai/*.
-// Overview = health + usage analytics; Logs = full request log with filters;
-// Settings = provider configuration; Tools = the agent's tool catalogue.
+// Admin AI (M12Labs-AI) — mounted at the admin `ai/*` splat.
+//
+// Was a single page with a useState tab strip and one 910-line settings form.
+// Both problems were the same problem: nothing had an address. A tab could not
+// be linked, browser-back left the section entirely, and every setting shared
+// one save button whether or not the configured provider honoured it. Each rail
+// item is now a route with its own slice of the settings document and its own
+// save, mirroring the email section.
 //
 // The assistant itself is not here. It lived as a tab for exactly one release,
 // which buried a conversation you return to daily inside a section that is
 // otherwise configuration — it has its own page at the top of the sidebar now.
-// Module on/off lives in Admin → Features (the V1 EnableAI screen is gone);
-// an unconfigured provider surfaces as a banner steering to Settings.
-
-export type AiTabId = 'overview' | 'logs' | 'settings' | 'tools';
-
-const TABS: { id: AiTabId; labelKey: () => string; icon: LucideIcon }[] = [
-    { id: 'overview', labelKey: () => m['admin.ai.tabs.overview'](), icon: Activity },
-    { id: 'settings', labelKey: () => m['admin.ai.tabs.settings'](), icon: Settings2 },
-    { id: 'tools', labelKey: () => m['admin.ai.tabs.tools'](), icon: Wrench },
-    { id: 'logs', labelKey: () => m['admin.ai.tabs.logs'](), icon: ListOrdered },
-];
-
+// Module on/off lives in Admin → Features; an unconfigured provider surfaces as
+// a banner steering to Provider.
 export default function AiSection() {
-    const [tab, setTab] = useState<AiTabId>('overview');
-
-    const { data: settings, isLoading } = useQuery({
-        queryKey: ['admin', 'ai', 'settings'],
-        queryFn: getAiSettings,
-    });
+    const { data: settings, isLoading } = useAiSettings();
+    const { pathname } = useLocation();
 
     if (isLoading) {
         return (
@@ -55,51 +50,44 @@ export default function AiSection() {
         : false;
 
     return (
-        <div className="space-y-4">
-            <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--brand)]/12 text-[var(--brand)]">
-                    <Bot className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                    <h2 className="text-base font-semibold text-[var(--color-ink)]">{m['admin.ai.title']()}</h2>
-                    <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.ai.subtitle']()}</p>
-                </div>
-            </div>
+        <div className="flex flex-col gap-6">
+            <header>
+                <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
+                    {m['admin.ai.title']()}
+                </h1>
+                <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.ai.subtitle']()}</p>
+            </header>
 
-            {needsConfiguration && tab !== 'settings' && (
-                <button
-                    type="button"
-                    onClick={() => setTab('settings')}
-                    className="flex w-full items-center gap-3 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-left transition-colors hover:bg-[var(--color-warning)]/15"
+            {/* Not while you are already on the page it points at — a banner
+                telling you to go where you are is noise. */}
+            {needsConfiguration && pathname !== '/admin/ai/provider' && (
+                <Link
+                    to="/admin/ai/provider"
+                    className="flex items-center gap-3 rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 transition-colors hover:bg-[var(--color-warning)]/15"
                 >
                     <TriangleAlert className="h-4 w-4 shrink-0 text-[var(--color-warning)]" />
                     <span className="text-sm text-[var(--color-ink)]">{m['admin.ai.needsConfiguration']()}</span>
-                </button>
+                </Link>
             )}
 
-            <div className="flex flex-wrap items-center gap-1 border-b border-[var(--color-border)]">
-                {TABS.map(def => (
-                    <button
-                        key={def.id}
-                        type="button"
-                        onClick={() => setTab(def.id)}
-                        className={cn(
-                            'flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors',
-                            tab === def.id
-                                ? 'border-[var(--brand)] font-medium text-[var(--color-ink)]'
-                                : 'border-transparent text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
-                        )}
-                    >
-                        <def.icon className="h-3.5 w-3.5" />
-                        {def.labelKey()}
-                    </button>
-                ))}
+            <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
+                <AiNav />
+                <div className="min-w-0 flex-1">
+                    <Routes>
+                        <Route index element={<OverviewPage />} />
+                        <Route path="provider" element={<ProviderPage />} />
+                        <Route path="generation" element={<GenerationPage />} />
+                        <Route path="agent" element={<AgentPage />} />
+                        <Route path="tools" element={<ToolsPage />} />
+                        <Route path="privacy" element={<PrivacyPage />} />
+                        <Route path="performance" element={<PerformancePage />} />
+                        <Route path="limits" element={<LimitsPage />} />
+                        <Route path="logs" element={<LogsPage />} />
+                        {/* Catches the retired tab links and anything mistyped. */}
+                        <Route path="*" element={<Navigate to="/admin/ai" replace />} />
+                    </Routes>
+                </div>
             </div>
-
-            {tab === 'overview' && <OverviewTab onViewLogs={() => setTab('logs')} />}
-            {tab === 'logs' && <LogsTab />}
-            {tab === 'settings' && <SettingsTab />}
-            {tab === 'tools' && <ToolsTab />}
         </div>
     );
 }

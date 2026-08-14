@@ -485,6 +485,7 @@ class AiAgentController extends ApplicationApiController
             $payload['capabilities'] = [
                 'model' => $model,
                 'supports_tools' => $capabilities->supportsTools,
+                'supports_sampling' => $capabilities->supportsSampling,
                 'self_hosted' => $capabilities->selfHosted,
                 'max_context_tokens' => $capabilities->maxContextTokens,
                 'warnings' => $capabilities->warnings,
