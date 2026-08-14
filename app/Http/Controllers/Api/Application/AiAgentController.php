@@ -18,6 +18,7 @@ use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Privacy\RedactionMap;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\AiBudgetService;
@@ -123,6 +124,19 @@ class AiAgentController extends ApplicationApiController
         $context
             ->withMessages($this->recorder->loadHistory($conversation?->id))
             ->withRecorder($this->recorder);
+
+        // Carried forward so a token minted three turns ago still means the same
+        // person, and so the transcript on screen does not acquire a second name
+        // for somebody it has already been talking about.
+        $context->redactions = $this->recorder->loadRedactions($conversation);
+
+        // A session opened on an earlier turn carries over, but only as far as
+        // the capability check lets it: restoreAssist re-reads the server and
+        // re-asks whether this administrator may still reach it, so a profile
+        // narrowed since the approval closes the session rather than honouring
+        // it.
+        $context->assist = $this->recorder->loadAssist($conversation);
+        $this->restoreAssist($context);
 
         $context->push(AiMessage::user($query));
 
@@ -244,6 +258,16 @@ class AiAgentController extends ApplicationApiController
                 'id' => $conversation->id,
                 'title' => $conversation->title,
                 'is_saved' => (bool) $conversation->is_saved,
+                // The tokens this transcript was written against. Sent so the
+                // administrator reads the values rather than the placeholders —
+                // they are entitled to both, and it is the model that was not.
+                // `all()` rather than the raw column: the stored shape carries
+                // the map's salt alongside its values, and the salt is what
+                // stops the tokens the provider sees from being a stable
+                // pseudonym across conversations. It has no business on a wire
+                // that a browser reads.
+                'redactions' => RedactionMap::fromArray($conversation->redactions)->all(),
+                'assist' => $conversation->assist ?: null,
                 'messages' => $conversation->messages->map(fn ($message) => [
                     'role' => $message->role,
                     'content' => $message->content,
@@ -268,6 +292,23 @@ class AiAgentController extends ApplicationApiController
         ]);
 
         return response()->json(['data' => ['id' => $conversation->id, 'is_saved' => $saved]]);
+    }
+
+    /**
+     * End the assist session a conversation has open.
+     *
+     * Access is re-authorized on every turn anyway, so this closes a door that
+     * was already being checked — but an administrator who has finished with a
+     * customer's server should be able to say so and see it stop, rather than
+     * having to trust that starting a new chat was enough.
+     */
+    public function endAssist(AgentConversationRequest $request, int $conversationId): JsonResponse
+    {
+        $conversation = $this->ownConversations($request->user()->id)->findOrFail($conversationId);
+
+        $conversation->update(['assist' => null]);
+
+        return response()->json(['data' => ['id' => $conversation->id, 'assist' => null]]);
     }
 
     public function deleteConversation(AgentConversationRequest $request, int $conversationId): Response

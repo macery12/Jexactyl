@@ -160,11 +160,13 @@ class AdminAgentScopeTest extends TestCase
         // a user that was never persisted.
         $user->setRelation('adminRole', null);
 
-        $prompt = (new SystemPromptBuilder())->build(new AgentContext($user, null, 'turn-uuid'));
+        $prompt = app(SystemPromptBuilder::class)->build(new AgentContext($user, null, 'turn-uuid'));
 
         $this->assertStringNotContainsString('files_write', $prompt);
         $this->assertStringNotContainsString('/plugins', $prompt);
-        $this->assertStringContainsString('cannot read a customer', $prompt);
+        // It can now get inside a customer's server, but only by asking for a
+        // session that an administrator approves — never by default.
+        $this->assertStringContainsString('cannot see inside a customer\'s server by default', $prompt);
     }
 
     public function testScopeIsDerivedFromTheBoundServer(): void

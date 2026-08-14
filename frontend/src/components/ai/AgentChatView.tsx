@@ -4,10 +4,13 @@ import { Bot } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import type { StoreApi, UseBoundStore } from 'zustand';
-import type { AgentChatState } from '@/state/agentChat';
+import { restoreRedactions, type AgentChatState } from '@/state/agentChat';
 import type { AiDiffPreview, AiRisk } from '@/lib/aiStream';
 import { ChatComposer } from './ChatComposer';
 import { ChatMarkdown } from './ChatMarkdown';
+import { ActivityRow } from './ActivityRow';
+import { AssistBanner } from './AssistBanner';
+import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallRow } from './ToolCallRow';
 import { ApprovalCard } from './ApprovalCard';
 import { QuestionCard } from './QuestionCard';
@@ -40,6 +43,7 @@ export function AgentChatView({
     suggestions = [],
     orphaned = [],
     header,
+    onEndAssist,
 }: {
     store: UseBoundStore<StoreApi<AgentChatState>>;
     compact?: boolean;
@@ -53,11 +57,16 @@ export function AgentChatView({
     orphaned?: OrphanedPending[];
     /** Rendered on the composer's left, above the input. */
     header?: ReactNode;
+    /** Close an open assist session. Absent on surfaces that cannot open one. */
+    onEndAssist?: () => void;
 }) {
     const entries = useStore(s => s.entries);
     const loading = useStore(s => s.loading);
     const queue = useStore(s => s.queue);
     const step = useStore(s => s.step);
+    const activity = useStore(s => s.activity);
+    const redactions = useStore(s => s.redactions);
+    const assist = useStore(s => s.assist);
     const slowHint = useStore(s => s.slowHint);
     const send = useStore(s => s.send);
     const cancel = useStore(s => s.cancel);
@@ -71,7 +80,7 @@ export function AgentChatView({
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [entries, queue]);
+    }, [entries, queue, activity?.phase]);
 
     // Not wrapped in useCallback: the React Compiler memoizes it, and a manual
     // memo here infers different dependencies than the ones written down, which
@@ -129,8 +138,12 @@ export function AgentChatView({
                                 );
                             }
 
+                            if (entry.kind === 'reasoning') {
+                                return <ThinkingBlock key={entry.key} entry={entry} />;
+                            }
+
                             if (entry.kind === 'tool') {
-                                return <ToolCallRow key={entry.key} entry={entry} />;
+                                return <ToolCallRow key={entry.key} entry={entry} redactions={redactions} />;
                             }
 
                             if (entry.kind === 'approval') {
@@ -170,7 +183,7 @@ export function AgentChatView({
                                             entry.error && 'text-[var(--color-danger)]',
                                         )}
                                     >
-                                        <ChatMarkdown content={entry.content} />
+                                        <ChatMarkdown content={restoreRedactions(entry.content, redactions)} />
                                         {entry.streaming && (
                                             <span className="ml-0.5 inline-block h-4 w-2 animate-pulse rounded-sm bg-[var(--brand)] align-text-bottom" />
                                         )}
@@ -179,7 +192,18 @@ export function AgentChatView({
                             );
                         })}
 
-                        {queue && <QueueBanner queue={queue} />}
+                        {queue ? (
+                            <QueueBanner queue={queue} />
+                        ) : (
+                            // Suppressed while prose is streaming: the caret in
+                            // the bubble already says the same thing, and two
+                            // live indicators reading differently is worse than
+                            // one. The queue banner outranks it outright — a
+                            // turn that has not started is not working yet.
+                            loading && activity && activity.phase !== 'writing' && (
+                                <ActivityRow activity={activity} />
+                            )
+                        )}
                         <div ref={bottomRef} />
                     </div>
                 )}
@@ -187,6 +211,12 @@ export function AgentChatView({
 
             <div className="shrink-0 px-4 pb-3 pt-1">
                 <div className={cn('mx-auto w-full', compact ? 'max-w-none' : 'max-w-3xl')}>
+                    {assist && (
+                        <div className="mb-2">
+                            <AssistBanner session={assist} onEnd={onEndAssist} />
+                        </div>
+                    )}
+
                     {orphaned.length > 0 && (
                         <div className="mb-2 flex flex-col gap-2">
                             {orphaned.map(action => (

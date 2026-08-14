@@ -15,10 +15,14 @@ class AgentEvent
     public const TYPE_CONVERSATION = 'conversation';
     public const TYPE_QUEUED = 'queued';
     public const TYPE_TEXT = 'text';
+    public const TYPE_REASONING = 'reasoning';
+    public const TYPE_TOOL_PENDING = 'tool_pending';
     public const TYPE_TOOL_CALL = 'tool_call';
     public const TYPE_TOOL_RESULT = 'tool_result';
     public const TYPE_APPROVAL_REQUIRED = 'approval_required';
     public const TYPE_QUESTION_REQUIRED = 'question_required';
+    public const TYPE_REDACTION = 'redaction';
+    public const TYPE_ASSIST = 'assist';
     public const TYPE_OPERATION = 'operation';
     public const TYPE_STEP = 'step';
     public const TYPE_DONE = 'done';
@@ -56,6 +60,30 @@ class AgentEvent
         return new self(self::TYPE_TEXT, ['content' => $delta]);
     }
 
+    /**
+     * The model's own reasoning, on its own channel.
+     *
+     * Kept apart from TYPE_TEXT rather than folded into it because only one of
+     * the two is the answer: reasoning is working-out, shown collapsed and never
+     * replayed as part of the transcript.
+     */
+    public static function reasoning(string $delta): self
+    {
+        return new self(self::TYPE_REASONING, ['content' => $delta]);
+    }
+
+    /**
+     * A tool call the model has named but not finished writing.
+     *
+     * Arguments stream after the name, and on a slow model that gap is seconds
+     * of apparently nothing happening. This fills it: the row appears saying
+     * what is about to run, and TYPE_TOOL_CALL fills in the detail.
+     */
+    public static function toolPending(string $id, string $tool): self
+    {
+        return new self(self::TYPE_TOOL_PENDING, ['id' => $id, 'tool' => $tool]);
+    }
+
     public static function toolCall(string $id, string $tool, array $arguments, string $risk): self
     {
         return new self(self::TYPE_TOOL_CALL, [
@@ -66,14 +94,28 @@ class AgentEvent
         ]);
     }
 
-    public static function toolResult(string $id, string $tool, bool $ok, string $summary): self
-    {
-        return new self(self::TYPE_TOOL_RESULT, [
+    /**
+     * @param mixed $result the shaped payload the model was handed, echoed to the
+     *                      client so a user can check the assistant's account of
+     *                      it against the thing itself. Live only — the stored
+     *                      transcript keeps the summary alone.
+     */
+    public static function toolResult(
+        string $id,
+        string $tool,
+        bool $ok,
+        string $summary,
+        mixed $result = null,
+        ?int $durationMs = null,
+    ): self {
+        return new self(self::TYPE_TOOL_RESULT, array_filter([
             'id' => $id,
             'tool' => $tool,
             'ok' => $ok,
             'summary' => $summary,
-        ]);
+            'result' => $result,
+            'duration_ms' => $durationMs,
+        ], fn ($v) => $v !== null));
     }
 
     /**
@@ -115,6 +157,44 @@ class AgentEvent
             'question' => $question,
             'options' => $options,
             'allow_other' => $allowOther,
+        ]);
+    }
+
+    /**
+     * Personal data that was kept out of the request, and what it really was.
+     *
+     * This runs the opposite way to every other event here: the model got the
+     * token and the browser gets the value. That is the whole design — the point
+     * of redaction is that the inference provider never sees a customer's
+     * address, not that the administrator is kept from seeing it. They can read
+     * it in the user table already, and a transcript full of `[email_1]` with no
+     * way to resolve it would just get the feature switched off.
+     *
+     * Sent as a delta of what is newly minted, so a long turn does not repeat
+     * the whole map on every tool result.
+     *
+     * @param array<string, string> $values token => original
+     */
+    public static function redaction(array $values): self
+    {
+        return new self(self::TYPE_REDACTION, ['values' => $values]);
+    }
+
+    /**
+     * An audited assist session has opened, or widened, on a customer's server.
+     *
+     * Emitted so the transcript can carry a standing banner naming the server:
+     * the difference between reading the panel's records and reading somebody's
+     * files should never be something an administrator has to infer from which
+     * tools happen to be running.
+     */
+    public static function assist(string $serverUuid, string $serverName, bool $writable, string $reason): self
+    {
+        return new self(self::TYPE_ASSIST, [
+            'server_uuid' => $serverUuid,
+            'server_name' => $serverName,
+            'writable' => $writable,
+            'reason' => $reason,
         ]);
     }
 

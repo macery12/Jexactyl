@@ -27,6 +27,14 @@ class AiMessage
      * @param AiToolCall[] $toolCalls tool calls requested by an assistant turn
      * @param string|null $toolCallId the call this message answers (tool role only)
      * @param bool $isError whether a tool-role message carries a failure
+     * @param array $reasoning provider-native reasoning blocks from this turn,
+     *                         stored opaquely. Anthropic rejects a request whose
+     *                         final assistant turn made a tool call but dropped
+     *                         the thinking that led to it, so these have to
+     *                         survive a suspension and come back untouched.
+     *                         Every driver ignores blocks it does not recognise,
+     *                         which is what makes them safe to carry across a
+     *                         provider switch mid-conversation.
      */
     public function __construct(
         public readonly string $role,
@@ -35,6 +43,7 @@ class AiMessage
         public readonly ?string $toolCallId = null,
         public readonly ?string $toolName = null,
         public readonly bool $isError = false,
+        public readonly array $reasoning = [],
     ) {
     }
 
@@ -43,9 +52,9 @@ class AiMessage
         return new self(self::ROLE_USER, $content);
     }
 
-    public static function assistant(?string $content, array $toolCalls = []): self
+    public static function assistant(?string $content, array $toolCalls = [], array $reasoning = []): self
     {
-        return new self(self::ROLE_ASSISTANT, $content, $toolCalls);
+        return new self(self::ROLE_ASSISTANT, $content, $toolCalls, reasoning: $reasoning);
     }
 
     public static function system(string $content): self
@@ -75,6 +84,7 @@ class AiMessage
             'tool_call_id' => $this->toolCallId,
             'tool_name' => $this->toolName,
             'is_error' => $this->isError ?: null,
+            'reasoning' => $this->reasoning ?: null,
         ], fn ($value) => $value !== null);
     }
 
@@ -92,6 +102,13 @@ class AiMessage
             isset($data['tool_call_id']) ? (string) $data['tool_call_id'] : null,
             isset($data['tool_name']) ? (string) $data['tool_name'] : null,
             (bool) ($data['is_error'] ?? false),
+            // Filtered to arrays on the way back in: this survives a round trip
+            // through JSON in a database column, and a malformed entry would
+            // otherwise reach a provider payload builder as a scalar.
+            array_values(array_filter(
+                is_array($data['reasoning'] ?? null) ? $data['reasoning'] : [],
+                'is_array'
+            )),
         );
     }
 }

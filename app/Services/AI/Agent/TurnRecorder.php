@@ -6,6 +6,7 @@ use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Models\AiConversation;
 use Illuminate\Support\Facades\Log;
+use Everest\Services\AI\Privacy\RedactionMap;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Models\AiMessage as MessageRecord;
 use Everest\Services\AI\Data\AiMessage as MessageData;
@@ -168,9 +169,15 @@ class TurnRecorder
     }
 
     /**
-     * Roll the conversation's expiry forward, the same way a manual append does.
+     * Roll the conversation's expiry forward, the same way a manual append does,
+     * and store any redaction tokens the turn minted.
+     *
+     * The map is folded into what is already stored rather than replacing it:
+     * this turn's context started from the stored map, but a turn that resumed
+     * from a suspension carries only what its own state held, and overwriting
+     * would lose every token minted before the pause.
      */
-    public function touch(?AiConversation $conversation): void
+    public function touch(?AiConversation $conversation, ?AgentContext $context = null): void
     {
         if ($conversation === null) {
             return;
@@ -181,10 +188,44 @@ class TurnRecorder
                 $conversation->expires_at = now()->addDays(AiConversation::EXPIRY_DAYS);
             }
 
+            if ($context !== null && !$context->redactions->isEmpty()) {
+                $merged = RedactionMap::fromArray($conversation->redactions);
+                $merged->merge($context->redactions);
+                $conversation->redactions = $merged->toArray();
+            }
+
+            // Only ever written, never cleared from here: a turn that ran without
+            // resolving the binding (the capability was withdrawn, the server was
+            // deleted) has already refused the access, and blanking the column on
+            // its way past would hide from the administrator that a session was
+            // ever open.
+            if ($context?->assist !== null) {
+                $conversation->assist = $context->assist->toArray();
+            }
+
             $conversation->save();
         } catch (\Throwable $e) {
             Log::warning('Failed to touch an AI conversation: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * The tokens a conversation has already minted, so a resumed or continued
+     * turn keeps calling the same person the same thing.
+     */
+    public function loadRedactions(?AiConversation $conversation): RedactionMap
+    {
+        return RedactionMap::fromArray($conversation?->redactions);
+    }
+
+    /**
+     * The assist session this conversation had open, still detached from its
+     * server. The caller re-reads the server and re-checks the capability before
+     * it grants anything.
+     */
+    public function loadAssist(?AiConversation $conversation): ?AssistBinding
+    {
+        return AssistBinding::fromArray($conversation?->assist);
     }
 
     /**

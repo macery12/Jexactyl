@@ -71,7 +71,7 @@ export default function AiPage() {
         if (loading || conv.id === conversationId) return;
 
         loadConversation(server.uuid, conv.id)
-            .then(({ messages }) => loadTranscript(conv.id, messages))
+            .then(({ messages, redactions }) => loadTranscript(conv.id, messages, redactions))
             .catch(() => loadFailed());
     };
 

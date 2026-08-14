@@ -19,6 +19,11 @@ class AiRequest
      * @param array|null $responseSchema JSON Schema forcing structured output. Used by the
      *                                   repair path to make a local model emit a valid tool
      *                                   call after it has produced a malformed one.
+     * @param bool $reasoning ask the model to think before answering, where it can. Set by
+     *                        the agent loop and not by plain chat: reasoning is worth its
+     *                        latency when choosing between fifteen tools, and not worth it
+     *                        when answering a question about port forwarding. Drivers whose
+     *                        model cannot reason ignore it.
      */
     public function __construct(
         public readonly array $messages,
@@ -30,6 +35,7 @@ class AiRequest
         public readonly ?float $temperature = null,
         public readonly ?array $responseSchema = null,
         public readonly bool $noCache = false,
+        public readonly bool $reasoning = false,
     ) {
     }
 
@@ -53,6 +59,7 @@ class AiRequest
             $this->temperature,
             $this->responseSchema,
             $this->noCache,
+            $this->reasoning,
         );
     }
 
@@ -71,6 +78,7 @@ class AiRequest
             $this->temperature,
             $this->responseSchema,
             $this->noCache,
+            $this->reasoning,
         );
     }
 
@@ -91,6 +99,26 @@ class AiRequest
             $this->temperature,
             $schema,
             true,
+            $this->reasoning,
+        );
+    }
+
+    /**
+     * Ask for reasoning on this request.
+     */
+    public function withReasoning(bool $reasoning = true): self
+    {
+        return new self(
+            $this->messages,
+            $this->systemPrompt,
+            $this->tools,
+            $this->toolChoice,
+            $this->model,
+            $this->maxTokens,
+            $this->temperature,
+            $this->responseSchema,
+            $this->noCache,
+            $reasoning,
         );
     }
 
@@ -106,6 +134,7 @@ class AiRequest
             $temperature ?? $this->temperature,
             $this->responseSchema,
             $this->noCache,
+            $this->reasoning,
         );
     }
 }

@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Everest\Models\AiMessage;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\AiConversation;
+use Everest\Services\AI\Privacy\RedactionMap;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class AIConversationController extends ClientApiController
@@ -77,6 +78,13 @@ class AIConversationController extends ClientApiController
         return response()->json([
             'data' => [
                 'conversation' => $conversation->only(['id', 'title', 'is_saved', 'expires_at', 'created_at', 'updated_at']),
+                // What the tokens in this transcript stand for. The values never
+                // reached the model; they belong to the person reading, who owns
+                // this server and everything on it.
+                // `all()` rather than the raw column, which also carries the
+                // map's salt — the thing that keeps the provider's tokens from
+                // being a stable pseudonym across conversations.
+                'redactions' => RedactionMap::fromArray($conversation->redactions)->all(),
                 'messages' => $messages,
             ],
         ]);

@@ -154,6 +154,17 @@ class AdminRole extends Model
     public const SERVERS_UPDATE = 'servers.update';
     public const SERVERS_DELETE = 'servers.delete';
 
+    /**
+     * Read a customer's server through an audited AI assist session.
+     *
+     * Deliberately separate from `servers.update`, which edits the panel's own
+     * record of a server. This one reaches inside it — the files, the startup
+     * variables, the console — so it is the one capability that lets a
+     * non-Owner past `AuthenticateServerAccess`, and it should be granted like
+     * that fact is true.
+     */
+    public const SERVERS_ASSIST = 'servers.assist';
+
     public const SERVER_PRESETS_READ = 'server-presets.read';
     public const SERVER_PRESETS_CREATE = 'server-presets.create';
     public const SERVER_PRESETS_UPDATE = 'server-presets.update';
@@ -362,6 +373,7 @@ class AdminRole extends Model
                 'create' => 'Create a new server.',
                 'update' => 'Update an existing server.',
                 'delete' => 'Delete an existing server.',
+                'assist' => 'Diagnose a customer\'s server with the AI assistant, reading its files and startup settings. Every session is approved first and logged to the customer\'s own activity feed.',
             ],
         ],
         'server-presets' => [

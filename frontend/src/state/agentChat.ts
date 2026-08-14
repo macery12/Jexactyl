@@ -36,14 +36,26 @@ export type ChatEntry =
     | { kind: 'user'; key: string; content: string }
     | { kind: 'assistant'; key: string; content: string; streaming?: boolean; error?: boolean }
     | {
+          kind: 'reasoning';
+          key: string;
+          content: string;
+          streaming?: boolean;
+          /** When the block opened, so its duration can be fixed as it closes. */
+          startedAt: number;
+          seconds?: number;
+      }
+    | {
           kind: 'tool';
           key: string;
           callId: string;
           tool: string;
           args: Record<string, unknown>;
           risk: AiRisk;
-          status: 'running' | 'ok' | 'error';
+          status: 'pending' | 'running' | 'ok' | 'error';
           summary?: string;
+          /** The shaped payload the model received. Session-only; a reloaded transcript has none. */
+          result?: unknown;
+          durationMs?: number;
       }
     | {
           kind: 'approval';
@@ -70,6 +82,37 @@ export interface QueuePosition {
     position: number;
     ahead: number;
     etaSeconds: number;
+}
+
+/**
+ * What the turn is doing right now, for the live row at the foot of the
+ * transcript.
+ *
+ * `waiting` covers the stretch between sending and the model's first token,
+ * which is where an agent looks most like it has hung. `startedAt` is what the
+ * row counts up from — a wait is only unnerving when you cannot see it being
+ * measured.
+ */
+export interface Activity {
+    phase: 'waiting' | 'reasoning' | 'writing' | 'calling' | 'running';
+    /** The tool being named or run, for the phases that have one. */
+    tool?: string;
+    startedAt: number;
+}
+
+/**
+ * The audited session this conversation has open on a customer's server.
+ *
+ * Held as state rather than as a transcript entry because it is a standing fact
+ * about the conversation, not a thing that happened in it: once it is open,
+ * every row below it is a row about somebody else's server, and that should be
+ * visible without scrolling back to find the moment it started.
+ */
+export interface AssistSession {
+    serverUuid: string;
+    serverName: string;
+    writable: boolean;
+    reason: string;
 }
 
 export type AgentDecision = 'approve' | 'reject' | 'answer';
@@ -133,8 +176,17 @@ export interface AgentChatState {
     loading: boolean;
     queue: QueuePosition | null;
     step: { step: number; maxSteps: number } | null;
+    activity: Activity | null;
     slowHint: boolean;
     drawerOpen: boolean;
+    /**
+     * token => the real value it stands for, for the personal data that was kept
+     * out of the model's request. Resolved at render time rather than folded
+     * into the entries, so one map serves prose, tool arguments and payloads
+     * alike and a token that arrives after the text it appears in still lands.
+     */
+    redactions: Record<string, string>;
+    assist: AssistSession | null;
     /** Whether this surface offers a plain-chat mode alongside the agent. */
     readonly supportsChat: boolean;
 
@@ -144,8 +196,17 @@ export interface AgentChatState {
     toggleDrawer: () => void;
 
     newChat: () => void;
-    loadTranscript: (conversationId: number, messages: StoredMessage[]) => void;
+    loadTranscript: (
+        conversationId: number,
+        messages: StoredMessage[],
+        redactions?: Record<string, string>,
+    ) => void;
     loadFailed: () => void;
+    /**
+     * Set or clear the assist banner from outside a turn — restoring one when a
+     * transcript is opened, or taking it down when the session is ended.
+     */
+    setAssist: (session: AssistSession | null) => void;
 
     send: (query: string, consoleBuffer?: string | null) => void;
     decide: (turnId: string, decision: 'approve' | 'reject', confirmation?: string) => void;
@@ -189,42 +250,99 @@ export function createAgentChatStore(
             });
         };
 
-        const appendText = (delta: string) => {
-            clearSlowTimer();
-            set(state => {
-                const entries = [...state.entries];
-                const last = entries[entries.length - 1];
-
-                if (last?.kind === 'assistant' && last.streaming) {
-                    entries[entries.length - 1] = { ...last, content: last.content + delta };
-                } else {
-                    entries.push({ kind: 'assistant', key: nextKey(), content: delta, streaming: true });
-                }
-
-                return { entries, slowHint: false };
-            });
-        };
-
-        /** Close any open assistant bubble, dropping it if nothing was written. */
+        /**
+         * Close every open streaming block.
+         *
+         * Every kind is swept rather than just the tail, because a step can emit
+         * reasoning and then prose: by the time the answer bubble opens, the
+         * reasoning block is no longer last but is still marked streaming, and
+         * would otherwise pulse a caret forever.
+         *
+         * An assistant bubble that received nothing is dropped; a reasoning block
+         * is kept regardless, since how long the model thought is worth showing
+         * even when the thought itself was brief.
+         */
         const sealAssistant = () => {
             set(state => {
-                const index = state.entries.length - 1;
-                const last = state.entries[index];
-                if (last?.kind !== 'assistant' || !last.streaming) return state;
+                if (!state.entries.some(e => (e.kind === 'assistant' || e.kind === 'reasoning') && e.streaming)) {
+                    return state;
+                }
 
-                const entries = [...state.entries];
-                if (last.content.trim() === '') entries.pop();
-                else entries[index] = { ...last, streaming: false };
+                const entries: ChatEntry[] = [];
+
+                for (const entry of state.entries) {
+                    if (entry.kind === 'reasoning' && entry.streaming) {
+                        entries.push({
+                            ...entry,
+                            streaming: false,
+                            seconds: Math.max(1, Math.round((Date.now() - entry.startedAt) / 1000)),
+                        });
+                    } else if (entry.kind === 'assistant' && entry.streaming) {
+                        if (entry.content.trim() !== '') entries.push({ ...entry, streaming: false });
+                    } else {
+                        entries.push(entry);
+                    }
+                }
 
                 return { entries };
             });
         };
 
+        /** Append a delta to the open block of `kind`, opening one if needed. */
+        const appendDelta = (kind: 'assistant' | 'reasoning', delta: string) => {
+            clearSlowTimer();
+            set(state => {
+                const entries = [...state.entries];
+                const index = entries.length - 1;
+                const last = entries[index];
+
+                if (last?.kind === kind && last.streaming) {
+                    entries[index] = { ...last, content: last.content + delta };
+
+                    return { entries, slowHint: false };
+                }
+
+                // Switching channel closes whatever was open, so an interleaved
+                // step reads top to bottom rather than growing in two places.
+                const closed: ChatEntry[] = entries.map(entry => {
+                    if (entry.kind === 'reasoning' && entry.streaming) {
+                        return {
+                            ...entry,
+                            streaming: false,
+                            seconds: Math.max(1, Math.round((Date.now() - entry.startedAt) / 1000)),
+                        };
+                    }
+                    if (entry.kind === 'assistant' && entry.streaming) {
+                        return { ...entry, streaming: false };
+                    }
+
+                    return entry;
+                });
+
+                closed.push(
+                    kind === 'reasoning'
+                        ? { kind, key: nextKey(), content: delta, streaming: true, startedAt: Date.now() }
+                        : { kind, key: nextKey(), content: delta, streaming: true },
+                );
+
+                return {
+                    entries: closed,
+                    slowHint: false,
+                    activity: {
+                        phase: kind === 'reasoning' ? 'reasoning' : 'writing',
+                        startedAt: Date.now(),
+                    },
+                };
+            });
+        };
+
+        const appendText = (delta: string) => appendDelta('assistant', delta);
+
         const settle = () => {
             clearSlowTimer();
             controller = null;
             sealAssistant();
-            set({ loading: false, queue: null, step: null, slowHint: false });
+            set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
         };
 
         const fail = (message: string) => {
@@ -235,6 +353,7 @@ export function createAgentChatStore(
                 loading: false,
                 queue: null,
                 step: null,
+                activity: null,
                 slowHint: false,
                 entries: [...state.entries, { kind: 'assistant', key: nextKey(), content: message, error: true }],
             }));
@@ -244,7 +363,7 @@ export function createAgentChatStore(
         const suspend = () => {
             clearSlowTimer();
             controller = null;
-            set({ loading: false, queue: null, step: null, slowHint: false });
+            set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
         };
 
         const handleEvent = (event: AgentEvent) => {
@@ -258,38 +377,101 @@ export function createAgentChatStore(
                     break;
 
                 case 'step':
-                    set({ queue: null, step: { step: event.step, maxSteps: event.max_steps } });
+                    set({
+                        queue: null,
+                        step: { step: event.step, maxSteps: event.max_steps },
+                        activity: { phase: 'waiting', startedAt: Date.now() },
+                    });
                     break;
 
                 case 'text':
                     appendText(event.content);
                     break;
 
+                case 'reasoning':
+                    appendDelta('reasoning', event.content);
+                    break;
+
+                // The model has named a call but is still writing its arguments.
+                // The row goes up now so the wait has something attached to it.
+                case 'tool_pending':
+                    clearSlowTimer();
+                    sealAssistant();
+                    set(state =>
+                        state.entries.some(e => e.kind === 'tool' && e.callId === event.id)
+                            ? state
+                            : {
+                                  slowHint: false,
+                                  activity: { phase: 'calling', tool: event.tool, startedAt: Date.now() },
+                                  entries: [
+                                      ...state.entries,
+                                      {
+                                          kind: 'tool',
+                                          key: nextKey(),
+                                          callId: event.id,
+                                          tool: event.tool,
+                                          args: {},
+                                          risk: 'safe',
+                                          status: 'pending',
+                                      },
+                                  ],
+                              },
+                    );
+                    break;
+
                 case 'tool_call':
                     clearSlowTimer();
                     sealAssistant();
-                    set(state => ({
-                        slowHint: false,
-                        entries: [
-                            ...state.entries,
-                            {
-                                kind: 'tool',
-                                key: nextKey(),
-                                callId: event.id,
-                                tool: event.tool,
-                                args: event.arguments,
-                                risk: event.risk,
-                                status: 'running',
-                            },
-                        ],
-                    }));
+                    set(state => {
+                        // Usually an upgrade of the row `tool_pending` already
+                        // put up. Providers that emit calls whole never send
+                        // that event, so the row is created here instead.
+                        const announced = state.entries.some(e => e.kind === 'tool' && e.callId === event.id);
+
+                        return {
+                            slowHint: false,
+                            activity: { phase: 'running', tool: event.tool, startedAt: Date.now() },
+                            entries: announced
+                                ? state.entries.map(entry =>
+                                      entry.kind === 'tool' && entry.callId === event.id
+                                          ? {
+                                                ...entry,
+                                                args: event.arguments,
+                                                risk: event.risk,
+                                                status: 'running',
+                                            }
+                                          : entry,
+                                  )
+                                : [
+                                      ...state.entries,
+                                      {
+                                          kind: 'tool',
+                                          key: nextKey(),
+                                          callId: event.id,
+                                          tool: event.tool,
+                                          args: event.arguments,
+                                          risk: event.risk,
+                                          status: 'running',
+                                      },
+                                  ],
+                        };
+                    });
                     break;
 
                 case 'tool_result':
                     set(state => ({
+                        activity: { phase: 'waiting', startedAt: Date.now() },
                         entries: state.entries.map(entry =>
-                            entry.kind === 'tool' && entry.callId === event.id && entry.status === 'running'
-                                ? { ...entry, status: event.ok ? 'ok' : 'error', summary: event.summary }
+                            entry.kind === 'tool' &&
+                            entry.callId === event.id &&
+                            (entry.status === 'running' || entry.status === 'pending')
+                                ? {
+                                      ...entry,
+                                      status: event.ok ? 'ok' : 'error',
+                                      summary: event.summary,
+                                      result: event.result,
+                                      durationMs: event.duration_ms,
+                                  }
                                 : entry,
                         ),
                     }));
@@ -302,6 +484,7 @@ export function createAgentChatStore(
                         // until the user decides, so the composer is released.
                         loading: false,
                         step: null,
+                        activity: null,
                         entries: [
                             ...state.entries,
                             {
@@ -317,11 +500,27 @@ export function createAgentChatStore(
                     }));
                     break;
 
+                case 'redaction':
+                    set(state => ({ redactions: { ...state.redactions, ...event.values } }));
+                    break;
+
+                case 'assist':
+                    set({
+                        assist: {
+                            serverUuid: event.server_uuid,
+                            serverName: event.server_name,
+                            writable: event.writable,
+                            reason: event.reason,
+                        },
+                    });
+                    break;
+
                 case 'question_required':
                     sealAssistant();
                     set(state => ({
                         loading: false,
                         step: null,
+                        activity: null,
                         entries: [
                             ...state.entries,
                             {
@@ -369,7 +568,13 @@ export function createAgentChatStore(
             clearSlowTimer();
             slowTimer = setTimeout(() => set({ slowHint: true }), SLOW_HINT_MS);
 
-            set({ loading: true, slowHint: false, queue: null, step: null });
+            set({
+                loading: true,
+                slowHint: false,
+                queue: null,
+                step: null,
+                activity: { phase: 'waiting', startedAt: Date.now() },
+            });
 
             return controller.signal;
         };
@@ -389,8 +594,11 @@ export function createAgentChatStore(
             loading: false,
             queue: null,
             step: null,
+            activity: null,
             slowHint: false,
             drawerOpen: false,
+            redactions: {},
+            assist: null,
             supportsChat: typeof adapter.chat === 'function',
 
             bind: target => {
@@ -409,8 +617,11 @@ export function createAgentChatStore(
                     loading: false,
                     queue: null,
                     step: null,
+                    activity: null,
                     slowHint: false,
                     drawerOpen: false,
+                    redactions: {},
+                    assist: null,
                 });
             },
 
@@ -420,12 +631,36 @@ export function createAgentChatStore(
 
             newChat: () => {
                 if (get().loading) return;
-                set({ conversationId: null, entries: [], queue: null, step: null });
+                // A new conversation is a new session: whatever server the last
+                // one was inside, this one starts outside it again.
+                set({
+                    conversationId: null,
+                    entries: [],
+                    queue: null,
+                    step: null,
+                    activity: null,
+                    redactions: {},
+                    assist: null,
+                });
             },
 
-            loadTranscript: (conversationId, messages) => {
-                set({ conversationId, entries: fromStored(messages), queue: null, step: null });
+            loadTranscript: (conversationId, messages, redactions) => {
+                set({
+                    conversationId,
+                    entries: fromStored(messages),
+                    queue: null,
+                    step: null,
+                    activity: null,
+                    // Replaced rather than merged: these are the tokens *this*
+                    // transcript was written against, and carrying the last
+                    // conversation's map across would resolve a token to
+                    // somebody else.
+                    redactions: redactions ?? {},
+                    assist: null,
+                });
             },
+
+            setAssist: session => set({ assist: session }),
 
             loadFailed: () => {
                 set(state => ({
@@ -533,7 +768,7 @@ export function createAgentChatStore(
                             ? { ...entry, content: `${entry.content}\n\n*${m['server.ai.cancelled']()}*` }
                             : entry,
                 );
-                set({ loading: false, queue: null, step: null, slowHint: false });
+                set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
             },
 
             restorePending: pending => {
@@ -544,6 +779,47 @@ export function createAgentChatStore(
             },
         };
     });
+}
+
+/**
+ * Put the real values back into something the model wrote.
+ *
+ * Applied at render time rather than to the stored entry, for two reasons. A
+ * token can arrive after the prose that mentions it — the redaction event and
+ * the text deltas are independent — so rewriting on arrival would miss it. And
+ * keeping the entries as the model saw them means the transcript we hold and the
+ * transcript the model read are the same thing, which is what makes the tool
+ * payload panel worth opening.
+ *
+ * Cheap enough to do per render: the map is bounded at 250 entries and only
+ * non-empty when redaction actually fired.
+ */
+export function restoreRedactions(text: string, map: Record<string, string>): string {
+    if (text === '' || Object.keys(map).length === 0) return text;
+
+    // Tokens are `[kind_hex]` — the hex being a slice of an HMAC of the value,
+    // so that two maps for the same person agree and two maps for different
+    // people cannot collide. A single pass over the pattern is enough, and it
+    // cannot re-enter a value that happens to contain one.
+    return text.replace(/\[[a-z]+_[0-9a-f]+]/g, token => map[token] ?? token);
+}
+
+/**
+ * The same, over a decoded JSON payload.
+ */
+export function restoreRedactionsDeep(value: unknown, map: Record<string, string>): unknown {
+    if (Object.keys(map).length === 0) return value;
+
+    if (typeof value === 'string') return restoreRedactions(value, map);
+    if (Array.isArray(value)) return value.map(item => restoreRedactionsDeep(item, map));
+
+    if (value !== null && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [key, item] of Object.entries(value)) out[key] = restoreRedactionsDeep(item, map);
+        return out;
+    }
+
+    return value;
 }
 
 /**

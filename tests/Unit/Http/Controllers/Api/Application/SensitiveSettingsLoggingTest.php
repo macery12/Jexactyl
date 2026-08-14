@@ -9,6 +9,7 @@ use Everest\Services\AI\OpenAIService;
 use Illuminate\Support\Facades\Artisan;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\Mods\ModrinthService;
+use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Http\Controllers\Api\Application\ModsController;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 use Everest\Http\Controllers\Api\Application\PluginsController;
@@ -31,7 +32,10 @@ class SensitiveSettingsLoggingTest extends TestCase
         $repository->shouldReceive('set')->twice();
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
 
-        $controller = new IntelligenceController(\Mockery::mock(OpenAIService::class));
+        $controller = new IntelligenceController(
+            \Mockery::mock(OpenAIService::class),
+            app(PiiRedactor::class),
+        );
         $request = \Mockery::mock(UpdateIntelligenceSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([
             'key' => 'super-secret-ai-key',

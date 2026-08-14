@@ -16,10 +16,13 @@ use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Data\AiStreamEvent;
 use Everest\Services\AI\Tools\ToolExecutor;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\AI\Tools\ToolDefinition;
+use Everest\Services\AI\Tools\ToolInvocation;
 use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\ToolCallSalvager;
 use Everest\Exceptions\Service\AI\AIServiceException;
+use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
 
@@ -41,6 +44,8 @@ class AgentRunner
         private RiskGate $riskGate,
         private ToolCallSalvager $salvager,
         private SystemPromptBuilder $promptBuilder,
+        private PiiRedactor $redactor,
+        private AssistAuthorizer $assist,
     ) {
     }
 
@@ -105,6 +110,7 @@ class AgentRunner
 
             $calls = $response['calls'];
             $text = $response['text'];
+            $reasoning = $response['reasoning'];
 
             // Nothing structured came back. If the text looks like a botched
             // call, spend a repair round under a schema-constrained grammar
@@ -121,7 +127,10 @@ class AgentRunner
                 return;
             }
 
-            $context->push(AiMessage::assistant($text !== '' ? $text : null, $calls));
+            // The reasoning rides with the calls it produced. Anthropic verifies
+            // that pairing on the next request and rejects the turn if the
+            // thinking that led to a tool call has gone missing.
+            $context->push(AiMessage::assistant($text !== '' ? $text : null, $calls, $reasoning));
 
             foreach ($calls as $call) {
                 $outcome = $this->handleCall($context, $call, $definitions, $emit);
@@ -143,48 +152,128 @@ class AgentRunner
      */
     protected function offerings(AgentContext $context): array
     {
-        if ($context->server === null) {
+        if ($context->server !== null) {
             return [
-                $this->registry->forAdmin($context->user, $context->activeGroups),
-                $this->registry->availableAdminGroups($context->user, $context->activeGroups),
+                $this->registry->forServer($context->user, $context->server, $context->activeGroups),
+                $this->registry->availableGroups($context->user, $context->server, $context->activeGroups),
             ];
         }
 
+        $definitions = $this->registry->forAdmin($context->user, $context->activeGroups);
+        $groups = $this->registry->availableAdminGroups($context->user, $context->activeGroups);
+
+        if ($context->assist !== null && $context->targetServer() !== null) {
+            return [$this->assistOfferings($context), $groups];
+        }
+
+        // Nothing to widen until a session exists, and a tool the model cannot
+        // use is a tool it will try anyway.
         return [
-            $this->registry->forServer($context->user, $context->server, $context->activeGroups),
-            $this->registry->availableGroups($context->user, $context->server, $context->activeGroups),
+            array_values(array_filter(
+                $definitions,
+                fn (ToolDefinition $d) => $d->name !== AdminTools::ASSIST_ALLOW_WRITES
+            )),
+            $groups,
         ];
     }
 
     /**
-     * One model call. Text streams straight through; tool calls are collected.
+     * The tools on offer once an assist session is open.
+     *
+     * Narrower than "admin tools plus server tools", and deliberately so. The
+     * offered set is capped because local models degrade past roughly fifteen
+     * tools, and the two sets together comfortably exceed it — so rather than
+     * let `capTools()` truncate an arbitrary tail, this states what a diagnostic
+     * session is actually for. The server's own tools come first because they
+     * are the point; the handful of admin tools that survive are the ones that
+     * answer a question *about* this server or the person who reported it.
+     * Panel-wide browsing is not part of the job and comes back the moment the
+     * session is not the subject.
+     *
+     * Escalating narrows it further, because the server side grows and the cap
+     * does not. The two assist tools go first, having run out of meaning — there
+     * is no wider grant left to ask for, and the tool that opens a session is
+     * noise while one is open on the very server the turn is about — and the
+     * panel records go with them, for the reason given on
+     * `AssistBinding::WRITABLE_COMPANION_TOOLS`. `AssistSessionTest` fails if
+     * either phase outgrows the cap, because the alternative is `capTools()`
+     * silently dropping the tail at exactly the point a session starts changing
+     * things.
+     *
+     * @return ToolDefinition[]
+     */
+    protected function assistOfferings(AgentContext $context): array
+    {
+        $binding = $context->assist;
+
+        $companions = $binding->writable
+            ? AssistBinding::WRITABLE_COMPANION_TOOLS
+            : array_merge(
+                AssistBinding::COMPANION_TOOLS,
+                [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES]
+            );
+
+        $offered = array_filter(
+            $this->registry->forAdmin($context->user, $context->activeGroups),
+            fn (ToolDefinition $d) => in_array($d->name, $companions, true)
+                // A session that cannot ask which of two fixes to apply will
+                // pick one, on someone else's server.
+                || $d->scope === ToolDefinition::SCOPE_SHARED
+        );
+
+        return array_merge(
+            $this->registry->forAssist($binding->tools(), $binding->abilities),
+            array_values($offered),
+        );
+    }
+
+    /**
+     * One model call. Text and reasoning stream straight through; tool calls
+     * are collected.
      *
      * @param AiTool[] $tools
      * @param callable(AgentEvent): void $emit
      *
-     * @return array{text: string, calls: ToolCallData[]}
+     * @return array{text: string, calls: ToolCallData[], reasoning: array<int, array>}
      */
     protected function callModel(AgentContext $context, array $tools, callable $emit): array
     {
         $provider = $this->factory->make(ProviderFactory::TASK_AGENT);
 
-        $request = new AiRequest(
+        $request = (new AiRequest(
             messages: $context->messages,
             systemPrompt: $this->promptBuilder->build($context),
             tools: $tools,
             // Tool selection benefits from determinism far more than prose
             // does; the configured temperature applies to the final answer.
             temperature: $tools !== [] ? 0.0 : null,
-        );
+        ))->withReasoning($this->reasoningEnabled());
 
         $text = '';
         $calls = [];
+        $reasoning = [];
 
         foreach ($provider->stream($request) as $event) {
             switch ($event->type) {
                 case AiStreamEvent::TYPE_TEXT:
                     $text .= (string) $event->text;
                     $emit(AgentEvent::text((string) $event->text));
+                    break;
+
+                case AiStreamEvent::TYPE_REASONING:
+                    $emit(AgentEvent::reasoning((string) $event->text));
+                    break;
+
+                case AiStreamEvent::TYPE_REASONING_BLOCK:
+                    $reasoning[] = $event->reasoningBlock;
+                    break;
+
+                    // Named but not yet fully written. Announced so the UI can say
+                    // what is coming while the arguments are still arriving.
+                case AiStreamEvent::TYPE_TOOL_CALL_START:
+                    if ($event->toolCall !== null) {
+                        $emit(AgentEvent::toolPending($event->toolCall->id, $event->toolCall->name));
+                    }
                     break;
 
                 case AiStreamEvent::TYPE_TOOL_CALL:
@@ -198,7 +287,7 @@ class AgentRunner
             }
         }
 
-        return ['text' => $text, 'calls' => $calls];
+        return ['text' => $text, 'calls' => $calls, 'reasoning' => $reasoning];
     }
 
     /**
@@ -312,12 +401,13 @@ class AgentRunner
 
         $arguments = $validation['value'];
 
-        // Host-handled tools never reach the panel, so they have no risk tier
-        // worth resolving and no dispatch to gate. `ask_user` is a suspension in
-        // its own right — asking *is* the pause — so it is handled before the
-        // risk gate rather than through it.
-        if ($definition->hostHandled) {
-            return $this->handleHostCall($context, $call, $definition, $arguments, $emit);
+        // `ask_user` is a suspension in its own right — asking *is* the pause —
+        // so it is handled before the risk gate rather than through it. Every
+        // other host-handled tool goes through the gate like anything else: they
+        // touch no endpoint, but opening somebody else's server is exactly the
+        // kind of act an approval card exists for.
+        if ($definition->hostHandled && $definition->name === SharedTools::ASK_USER) {
+            return $this->handleQuestion($context, $call, $arguments, $emit);
         }
 
         $risk = $this->riskGate->resolve($definition, $arguments);
@@ -330,34 +420,59 @@ class AgentRunner
             return 'suspended';
         }
 
-        $result = $this->runTool($context, $call, $definition, $arguments, $risk);
-        $emit(AgentEvent::toolResult($call->id, $definition->name, $result->ok, $result->summary()));
+        $startedAt = microtime(true);
+        $result = $definition->hostHandled
+            ? $this->runHostTool($context, $call, $definition, $arguments, $emit)
+            : $this->runTool($context, $call, $definition, $arguments, $risk);
+
+        $this->emitRedactions($context, $emit);
+
+        $emit(AgentEvent::toolResult(
+            $call->id,
+            $definition->name,
+            $result->ok,
+            $result->summary(),
+            // The shaped payload, exactly as the model received it. Sent live so
+            // a claim in the answer can be checked against its evidence; not
+            // stored, because the transcript is not an audit of panel state.
+            $result->ok ? $result->data : null,
+            (int) round((microtime(true) - $startedAt) * 1000),
+        ));
+
         $this->pushToolResult($context, $call, $result);
 
         return 'continued';
     }
 
     /**
-     * Resolve a tool the runner owns, without touching the panel.
+     * Hand the browser the values that were kept out of the request.
+     *
+     * Runs after every call rather than at the end of the turn: the tool row it
+     * belongs to is on screen already, and a transcript that reads `[email_1]`
+     * for ten seconds before resolving is worse than one that never did.
      *
      * @param callable(AgentEvent): void $emit
      */
-    protected function handleHostCall(
+    protected function emitRedactions(AgentContext $context, callable $emit): void
+    {
+        $fresh = $context->redactions->drainFresh();
+
+        if ($fresh !== []) {
+            $emit(AgentEvent::redaction($fresh));
+        }
+    }
+
+    /**
+     * Put the model's question to the user, or refuse to.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function handleQuestion(
         AgentContext $context,
         ToolCallData $call,
-        ToolDefinition $definition,
         array $arguments,
         callable $emit,
     ): string {
-        if ($definition->name !== SharedTools::ASK_USER) {
-            $this->pushToolResult($context, $call, ToolResult::error(
-                'unknown_tool',
-                sprintf('There is no tool called "%s" available here.', $definition->name),
-            ));
-
-            return 'continued';
-        }
-
         $question = trim((string) ($arguments['question'] ?? ''));
         $options = SharedTools::normaliseOptions($arguments['options'] ?? []);
 
@@ -391,6 +506,131 @@ class AgentRunner
     }
 
     /**
+     * Resolve a tool the runner owns rather than dispatching.
+     *
+     * Public because the resume path runs it too: a host tool that suspended for
+     * approval has to complete after the click, exactly as a dispatched one does.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    public function runHostTool(
+        AgentContext $context,
+        ToolCallData $call,
+        ToolDefinition $definition,
+        array $arguments,
+        callable $emit,
+    ): ToolResult {
+        return match ($definition->name) {
+            AdminTools::ASSIST_SERVER => $this->openAssist($context, $arguments, $emit),
+            AdminTools::ASSIST_ALLOW_WRITES => $this->escalateAssist($context, $arguments, $emit),
+            default => ToolResult::error(
+                'unknown_tool',
+                sprintf('There is no tool called "%s" available here.', $definition->name),
+            ),
+        };
+    }
+
+    /**
+     * Bind this turn to a customer's server.
+     *
+     * By the time this runs the administrator has already approved it — the tool
+     * is WRITE tier, so the call suspended and came back through the approval
+     * card. What is left is to check that the grant is still real: the
+     * capability is asked for again here rather than trusted from the offered
+     * tool list, because an Access Profile can be narrowed while a card sits on
+     * screen.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function openAssist(AgentContext $context, array $arguments, callable $emit): ToolResult
+    {
+        if (!$this->assist->permitted($context->user)) {
+            return ToolResult::error(
+                'forbidden',
+                'You do not have permission to open a session on a customer\'s server. That needs the '
+                    . '"servers.assist" capability. Say so and stop.',
+            );
+        }
+
+        $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
+
+        if ($server === null) {
+            return ToolResult::error(
+                'not_found',
+                'No server matches that id. List the customer\'s servers and use an id from the result.',
+                retryable: true,
+            );
+        }
+
+        $binding = new AssistBinding(
+            serverUuid: $server->uuid,
+            serverName: (string) $server->name,
+            reason: trim((string) ($arguments['reason'] ?? '')),
+            ticketId: isset($arguments['ticket']) && is_numeric($arguments['ticket'])
+                ? (int) $arguments['ticket']
+                : null,
+        );
+
+        $context->bindAssist($binding, $server);
+        $this->assist->record($context->user, $server, $binding);
+
+        $emit(AgentEvent::assist($server->uuid, (string) $server->name, false, $binding->reason));
+
+        return ToolResult::ok([
+            'server' => $server->name,
+            'access' => 'read-only',
+            'tools' => $binding->tools(),
+            'note' => 'You can now read this server. Start with server_status, then look at the files '
+                . 'or startup variables the symptom points at. You cannot change anything yet.',
+        ]);
+    }
+
+    /**
+     * Widen an open session to allow changes.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function escalateAssist(AgentContext $context, array $arguments, callable $emit): ToolResult
+    {
+        $server = $context->targetServer();
+
+        if ($context->assist === null || $server === null) {
+            return ToolResult::error(
+                'no_session',
+                'There is no server session open to widen. Open one with ' . AdminTools::ASSIST_SERVER . ' first.',
+            );
+        }
+
+        if (!$this->assist->permitted($context->user)) {
+            return ToolResult::error(
+                'forbidden',
+                'You no longer have permission to act on this server.',
+            );
+        }
+
+        if ($context->assist->writable) {
+            return ToolResult::ok(['access' => 'read-write', 'note' => 'You already have write access here.']);
+        }
+
+        $reason = trim((string) ($arguments['reason'] ?? ''));
+        $binding = $context->assist->escalated();
+
+        $context->bindAssist($binding, $server);
+        $this->assist->record($context->user, $server, $binding, escalation: true);
+
+        $emit(AgentEvent::assist($server->uuid, $binding->serverName, true, $reason ?: $binding->reason));
+
+        return ToolResult::ok([
+            'server' => $binding->serverName,
+            'access' => 'read-write',
+            'tools' => $binding->tools(),
+            'note' => 'You may now edit files, change startup variables, change the Docker image and restart this server. '
+                . 'Read a file before writing it, change the least you can, and say what you changed. '
+                . 'The panel tools you no longer have were for reading records you have already read.',
+        ]);
+    }
+
+    /**
      * Execute an approved or automatic call and record it for audit.
      */
     public function runTool(
@@ -400,11 +640,17 @@ class AgentRunner
         array $arguments,
         string $risk,
     ): ToolResult {
+        // A server-scoped tool records the server it actually touched, which
+        // during an assist session is the customer's rather than none at all —
+        // the audit trail is the whole justification for the feature.
+        $target = $context->targetServer();
+        $subject = $definition->scope === ToolDefinition::SCOPE_SERVER ? $target : $context->server;
+
         $record = AiToolCall::create([
             'turn_id' => $context->turnId,
             'conversation_id' => $context->conversationId,
             'user_id' => $context->user->id,
-            'server_uuid' => $context->server?->uuid,
+            'server_uuid' => $subject?->uuid,
             'scope' => $context->scope(),
             'tool_name' => $definition->name,
             'risk' => $risk,
@@ -415,8 +661,13 @@ class AgentRunner
 
         $startedAt = microtime(true);
 
-        $invocation = $definition->invoke($arguments, $this->registry->contextFor($context->server, $arguments));
-        $result = $definition->shape($this->executor->execute($invocation, $this->toolResultBytes()));
+        $invocation = $definition->invoke(
+            $arguments,
+            $this->registry->contextForTool($definition, $target, $arguments)
+        );
+
+        $result = $definition->shape($this->dispatch($context, $definition, $invocation));
+        $result = $this->redact($context, $result);
 
         $record->update([
             'status' => $result->ok ? AiToolCall::STATUS_SUCCEEDED : AiToolCall::STATUS_FAILED,
@@ -427,6 +678,50 @@ class AgentRunner
         ]);
 
         return $result;
+    }
+
+    /**
+     * Send the sub-request, opening the assist window around it if this call
+     * needs one.
+     *
+     * The window is this narrow on purpose. `AuthenticateServerAccess` and
+     * `ServerPolicy` both consult the session, and a session left open for the
+     * turn would mean any later dispatch in the same PHP request inherited an
+     * administrator's access to a customer's server. Opened here, it covers one
+     * call and closes in a `finally` whatever that call does.
+     */
+    protected function dispatch(AgentContext $context, ToolDefinition $definition, ToolInvocation $invocation): ToolResult
+    {
+        $run = fn () => $this->executor->execute($invocation, $this->toolResultBytes());
+
+        $needsSession = $context->assist !== null
+            && $context->server === null
+            && $definition->scope === ToolDefinition::SCOPE_SERVER;
+
+        return $needsSession
+            ? $this->assist->during($context->user, $context->assist, $run)
+            : $run();
+    }
+
+    /**
+     * Take personal data out of a tool result before the model sees it.
+     *
+     * Applied here, on the shaped payload, rather than at the provider boundary:
+     * this is the last point at which the data is still structured, and field
+     * names are most of what makes redaction accurate. By the time a result has
+     * been encoded into a message it is prose, and only the patterns are left.
+     */
+    protected function redact(AgentContext $context, ToolResult $result): ToolResult
+    {
+        if (!$result->ok) {
+            return $result;
+        }
+
+        $redacted = $this->redactor->redact($result->data, $context->redactions);
+
+        return $redacted === $result->data
+            ? $result
+            : ToolResult::ok($redacted, $result->truncated);
     }
 
     /**
@@ -582,6 +877,19 @@ class AgentRunner
     protected function maxTools(): int
     {
         return max(4, (int) $this->setting('agent:max_tools', config('modules.ai.agent.max_tools', 15)));
+    }
+
+    /**
+     * Whether to ask the model to think before it acts.
+     *
+     * On by default: choosing between fifteen tools is exactly the work
+     * reasoning helps with, and the visible thinking is most of what makes a
+     * long turn legible. An operator paying per token can turn it off, and a
+     * model that cannot reason ignores the request either way.
+     */
+    protected function reasoningEnabled(): bool
+    {
+        return (bool) $this->setting('agent:reasoning', config('modules.ai.agent.reasoning', true));
     }
 
     protected function toolResultBytes(): int

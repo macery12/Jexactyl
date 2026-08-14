@@ -142,11 +142,17 @@ export async function createConversation(uuid: string, title?: string): Promise<
 export async function loadConversation(
     uuid: string,
     id: number,
-): Promise<{ conversation: AiConversation; messages: StoredMessage[] }> {
+): Promise<{
+    conversation: AiConversation;
+    messages: StoredMessage[];
+    /** token => the value it stands for, for anything redacted on the way to the model. */
+    redactions: Record<string, string>;
+}> {
     const { data } = await http.get(`/api/client/servers/${uuid}/ai/conversations/${id}`);
     return {
         conversation: data.data.conversation as AiConversation,
         messages: data.data.messages as StoredMessage[],
+        redactions: (data.data.redactions ?? {}) as Record<string, string>,
     };
 }
 

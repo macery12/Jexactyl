@@ -162,14 +162,20 @@ class ServerTools
                     return [
                         'variables' => $variables,
                         'startup_command' => $data['meta']['startup_command'] ?? null,
-                        'docker_image' => $data['meta']['docker_images'] ?? null,
+                        // Singular is the image in use; plural is the egg's
+                        // allowlist, keyed by the label the panel shows. These
+                        // were one key once, and a model reading "docker_image"
+                        // as the current image when it was really the map had
+                        // no way to tell it had been misled.
+                        'docker_image' => $data['meta']['docker_image'] ?? null,
+                        'docker_images' => $data['meta']['docker_images'] ?? null,
                     ];
                 },
             ),
 
             new ToolDefinition(
                 name: 'startup_set',
-                description: 'Change one startup variable. Only variables reported as editable by startup_list can be changed; the egg\'s own validation rules still apply.',
+                description: 'Change one startup variable. Only variables reported as editable by startup_list can be changed; the egg\'s own validation rules still apply. The Docker image is not a startup variable — use startup_image_set for that.',
                 parameters: self::object([
                     'key' => self::string('The variable key, exactly as returned by startup_list.'),
                     'value' => self::string('The new value.'),
@@ -183,6 +189,24 @@ class ServerTools
                     'key' => $data['attributes']['env_variable'] ?? null,
                     'value' => $data['attributes']['server_value'] ?? null,
                 ],
+            ),
+
+            new ToolDefinition(
+                name: 'startup_image_set',
+                description: 'Change the Docker image the server runs in. This is what decides the runtime version — a Minecraft 1.12 server on a Java 19 image will not boot, and the fix is this tool, not a startup variable. Pass one of the values from startup_list\'s docker_images map, exactly as written; a value outside that map is refused. The change takes effect on the next start, so restart afterwards.',
+                parameters: self::object([
+                    'docker_image' => self::string('The image to switch to — a value from startup_list\'s docker_images map, not the label beside it.'),
+                ], ['docker_image']),
+                method: 'PUT',
+                uriTemplate: self::BASE . '/settings/docker-image',
+                risk: ToolDefinition::RISK_WRITE,
+                // Its own permission, separate from startup.update: a subuser
+                // who may edit variables is not thereby allowed to change the
+                // runtime out from under the server.
+                permissions: [Permission::ACTION_STARTUP_DOCKER_IMAGE],
+                bodyFields: ['docker_image'],
+                // 204, so there is no body to shape.
+                resultShaper: static fn () => ['updated' => true],
             ),
         ];
     }

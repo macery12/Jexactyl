@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\OpenAIService;
 use Everest\Services\Email\EmailRedactor;
 use Illuminate\Support\Facades\RateLimiter;
+use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Http\Requests\Api\Application\Intelligence;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
 
@@ -20,8 +21,10 @@ class IntelligenceController extends ApplicationApiController
     /**
      * IntelligenceController constructor.
      */
-    public function __construct(private OpenAIService $aiService)
-    {
+    public function __construct(
+        private OpenAIService $aiService,
+        private PiiRedactor $redactor,
+    ) {
         parent::__construct();
     }
 
@@ -61,6 +64,7 @@ class IntelligenceController extends ApplicationApiController
             'agent' => [
                 'enabled' => boolval(config('modules.ai.agent.enabled', false)),
                 'admin_enabled' => boolval(config('modules.ai.agent.admin_enabled', false)),
+                'reasoning' => boolval(config('modules.ai.agent.reasoning', true)),
                 'max_steps' => (int) config('modules.ai.agent.max_steps', 12),
                 'max_wall_seconds' => (int) config('modules.ai.agent.max_wall_seconds', 180),
                 'tool_result_bytes' => (int) config('modules.ai.agent.tool_result_bytes', 12288),
@@ -78,6 +82,16 @@ class IntelligenceController extends ApplicationApiController
             'budget' => [
                 'enforce' => boolval(config('modules.ai.budget.enforce', false)),
                 'monthly_tokens' => (int) config('modules.ai.budget.monthly_tokens', 2000000),
+            ],
+
+            // Read through the redactor rather than off config: the category
+            // list is a JSON blob that is never hydrated into config, and it is
+            // the redactor that knows an unset value means "the defaults" rather
+            // than "none selected".
+            'privacy' => [
+                'enabled' => $this->redactor->enabled(),
+                'categories' => $this->redactor->activeKinds(),
+                'available' => PiiRedactor::KINDS,
             ],
         ]);
     }

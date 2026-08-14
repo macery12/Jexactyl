@@ -23,8 +23,19 @@ export type AgentEvent =
     | { type: 'conversation'; id: number; title: string }
     | { type: 'queued'; position: number; ahead: number; eta_seconds: number }
     | { type: 'text'; content: string }
+    | { type: 'reasoning'; content: string }
+    | { type: 'tool_pending'; id: string; tool: string }
     | { type: 'tool_call'; id: string; tool: string; arguments: Record<string, unknown>; risk: AiRisk }
-    | { type: 'tool_result'; id: string; tool: string; ok: boolean; summary: string }
+    | {
+          type: 'tool_result';
+          id: string;
+          tool: string;
+          ok: boolean;
+          summary: string;
+          /** The shaped payload the model was given. Live only — never replayed from storage. */
+          result?: unknown;
+          duration_ms?: number;
+      }
     | {
           type: 'approval_required';
           turn_id: string;
@@ -39,6 +50,24 @@ export type AgentEvent =
           question: string;
           options: { label: string; description?: string }[];
           allow_other: boolean;
+      }
+    | {
+          /**
+           * Personal data the panel kept out of the request, and what it really
+           * was. Runs the opposite way to every other event: the model got the
+           * token, the browser gets the value — the point of redaction is that
+           * the inference provider never saw it, not that the user cannot.
+           */
+          type: 'redaction';
+          values: Record<string, string>;
+      }
+    | {
+          /** An audited admin session has opened, or widened, on a customer's server. */
+          type: 'assist';
+          server_uuid: string;
+          server_name: string;
+          writable: boolean;
+          reason: string;
       }
     | { type: 'operation'; uuid: string; kind: string; status: string }
     | { type: 'step'; step: number; max_steps: number }

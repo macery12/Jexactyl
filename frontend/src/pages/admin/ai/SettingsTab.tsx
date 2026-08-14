@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { HardDrive, KeyRound, RefreshCw, Trash2, TriangleAlert, Wifi } from 'lucide-react';
-import { m } from '@/i18n';
+import { m, td } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
@@ -23,6 +23,7 @@ import {
     updateAiSettings,
     SELF_HOSTED_PROVIDERS,
     type AiConnectionTest,
+    type AiPiiCategory,
     type AiProvider,
     type AiSettingsPayload,
 } from '@/api/adminAi';
@@ -157,6 +158,7 @@ export function SettingsTab() {
 
         agent_enabled: false,
         agent_admin_enabled: false,
+        agent_reasoning: true,
         agent_max_steps: 12,
         agent_max_wall_seconds: 180,
         agent_tool_result_bytes: 12288,
@@ -169,6 +171,9 @@ export function SettingsTab() {
 
         budget_enforce: false,
         budget_monthly_tokens: 2_000_000,
+
+        privacy_enabled: true,
+        privacy_categories: [] as AiPiiCategory[],
     });
     const [hydrated, setHydrated] = useState(false);
     const [confirmKeyDelete, setConfirmKeyDelete] = useState(false);
@@ -197,6 +202,7 @@ export function SettingsTab() {
 
             agent_enabled: settings.agent?.enabled ?? false,
             agent_admin_enabled: settings.agent?.admin_enabled ?? false,
+            agent_reasoning: settings.agent?.reasoning ?? true,
             agent_max_steps: settings.agent?.max_steps ?? 12,
             agent_max_wall_seconds: settings.agent?.max_wall_seconds ?? 180,
             agent_tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
@@ -209,6 +215,12 @@ export function SettingsTab() {
 
             budget_enforce: settings.budget?.enforce ?? false,
             budget_monthly_tokens: settings.budget?.monthly_tokens ?? 2_000_000,
+
+            privacy_enabled: settings.privacy?.enabled ?? true,
+            // The backend resolves an unset list to the defaults, so what
+            // arrives is always the categories actually in force rather than a
+            // literal empty selection.
+            privacy_categories: settings.privacy?.categories ?? [],
         });
         setHydrated(true);
     }, [settings, hydrated]);
@@ -273,6 +285,7 @@ export function SettingsTab() {
             agent: {
                 enabled: form.agent_enabled,
                 admin_enabled: form.agent_admin_enabled,
+                reasoning: form.agent_reasoning,
                 max_steps: form.agent_max_steps,
                 max_wall_seconds: form.agent_max_wall_seconds,
                 tool_result_bytes: form.agent_tool_result_bytes,
@@ -287,6 +300,10 @@ export function SettingsTab() {
             budget: {
                 enforce: form.budget_enforce,
                 monthly_tokens: form.budget_monthly_tokens,
+            },
+            privacy: {
+                enabled: form.privacy_enabled,
+                categories: form.privacy_categories,
             },
         };
 
@@ -590,6 +607,67 @@ export function SettingsTab() {
                 </Panel>
             )}
 
+            {/* ── Privacy ── */}
+            <Panel title={m['admin.ai.settings.privacy']()}>
+                <div className="space-y-3">
+                    <ToggleRow
+                        title={m['admin.ai.settings.privacyEnabled']()}
+                        description={m['admin.ai.settings.privacyEnabledHint']()}
+                        checked={form.privacy_enabled}
+                        onChange={v => patch('privacy_enabled', v)}
+                    />
+
+                    <div
+                        className={cn(
+                            'rounded-lg border border-[var(--color-border-strong)] p-3.5',
+                            !form.privacy_enabled && 'opacity-55',
+                        )}
+                    >
+                        <p className="text-sm font-medium text-[var(--color-ink)]">
+                            {m['admin.ai.settings.privacyCategories']()}
+                        </p>
+                        <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">
+                            {m['admin.ai.settings.privacyCategoriesHint']()}
+                        </p>
+
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {(settings?.privacy?.available ?? []).map(category => (
+                                <label
+                                    key={category}
+                                    className={cn(
+                                        'flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--color-border)] px-3 py-2',
+                                        !form.privacy_enabled && 'pointer-events-none',
+                                    )}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        className="mt-0.5 accent-[var(--brand)]"
+                                        checked={form.privacy_categories.includes(category)}
+                                        disabled={!form.privacy_enabled}
+                                        onChange={e =>
+                                            patch(
+                                                'privacy_categories',
+                                                e.target.checked
+                                                    ? [...form.privacy_categories, category]
+                                                    : form.privacy_categories.filter(c => c !== category),
+                                            )
+                                        }
+                                    />
+                                    <span className="min-w-0">
+                                        <span className="block text-xs font-medium text-[var(--color-ink)]">
+                                            {td(`admin.ai.settings.pii.${category}`, category)}
+                                        </span>
+                                        <span className="mt-0.5 block text-[11px] text-[var(--color-ink-faint)]">
+                                            {td(`admin.ai.settings.pii.${category}Hint`, '')}
+                                        </span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </Panel>
+
             {/* ── Agent ── */}
             <Panel title={m['admin.ai.settings.agent']()}>
                 <div className="space-y-3">
@@ -605,6 +683,14 @@ export function SettingsTab() {
                         description={m['admin.ai.settings.adminAgentEnabledHint']()}
                         checked={form.agent_admin_enabled}
                         onChange={v => patch('agent_admin_enabled', v)}
+                        disabled={!form.agent_enabled}
+                    />
+
+                    <ToggleRow
+                        title={m['admin.ai.settings.agentReasoning']()}
+                        description={m['admin.ai.settings.agentReasoningHint']()}
+                        checked={form.agent_reasoning}
+                        onChange={v => patch('agent_reasoning', v)}
                         disabled={!form.agent_enabled}
                     />
 

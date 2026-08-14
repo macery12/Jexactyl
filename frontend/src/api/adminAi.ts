@@ -14,6 +14,8 @@ export interface AiAgentSettings {
     enabled: boolean;
     /** The admin assistant, gated separately from the customer-facing agent. */
     admin_enabled: boolean;
+    /** Ask the model to think before acting, where it can. */
+    reasoning: boolean;
     max_steps: number;
     max_wall_seconds: number;
     tool_result_bytes: number;
@@ -31,6 +33,16 @@ export interface AiConcurrencySettings {
 export interface AiBudgetSettings {
     enforce: boolean;
     monthly_tokens: number;
+}
+
+export type AiPiiCategory = 'email' | 'ip' | 'name' | 'phone' | 'address' | 'payment' | 'secret';
+
+/** What is stripped out of tool results and attached context before a request leaves the panel. */
+export interface AiPrivacySettings {
+    enabled: boolean;
+    categories: AiPiiCategory[];
+    /** Every category the redactor knows, so the UI never hardcodes the list. */
+    available: AiPiiCategory[];
 }
 
 export interface AiAdminSettings {
@@ -54,6 +66,7 @@ export interface AiAdminSettings {
     agent: AiAgentSettings;
     concurrency: AiConcurrencySettings;
     budget: AiBudgetSettings;
+    privacy: AiPrivacySettings;
 }
 
 export interface AiSettingsPayload {
@@ -75,6 +88,7 @@ export interface AiSettingsPayload {
     agent?: Partial<AiAgentSettings>;
     concurrency?: Partial<AiConcurrencySettings>;
     budget?: Partial<AiBudgetSettings>;
+    privacy?: { enabled?: boolean; categories?: AiPiiCategory[] };
 }
 
 export type AiRiskTier = 'safe' | 'write' | 'destructive';
@@ -268,6 +282,30 @@ export interface AdminAgentMessage {
     step: number | null;
 }
 
+/** An audited session this conversation has open on a customer's server. */
+export interface AdminAssistSession {
+    server_uuid: string;
+    server_name: string;
+    reason: string;
+    abilities: string[];
+    ticket_id: number | null;
+    writable: boolean;
+}
+
+export interface AdminAgentTranscript {
+    id: number;
+    title: string;
+    is_saved: boolean;
+    /**
+     * token => the value it stands for. The transcript holds tokens because the
+     * model did; the map is what turns them back into something readable for the
+     * administrator, who was never the one being kept from seeing them.
+     */
+    redactions: Record<string, string>;
+    assist: AdminAssistSession | null;
+    messages: AdminAgentMessage[];
+}
+
 export function streamAdminAgentTurn(
     opts: { query: string; conversationId?: number | null },
     callbacks: AgentStreamCallbacks,
@@ -311,11 +349,20 @@ export async function listAdminAgentConversations(): Promise<AdminAgentConversat
     return data.data as AdminAgentConversation[];
 }
 
-export async function getAdminAgentConversation(
-    id: number,
-): Promise<{ id: number; title: string; is_saved: boolean; messages: AdminAgentMessage[] }> {
+export async function getAdminAgentConversation(id: number): Promise<AdminAgentTranscript> {
     const { data } = await http.get(`/api/application/ai/agent/conversations/${id}`);
-    return data.data;
+    return data.data as AdminAgentTranscript;
+}
+
+/**
+ * End the assist session a conversation has open on a customer's server.
+ *
+ * The capability behind it is re-checked on every turn regardless, so this is
+ * not what makes the access stop — it is what lets an administrator who has
+ * finished say so, and see it stop.
+ */
+export async function endAdminAssist(conversationId: number): Promise<void> {
+    await http.delete(`/api/application/ai/agent/conversations/${conversationId}/assist`);
 }
 
 export async function toggleAdminAgentConversationSave(id: number): Promise<void> {

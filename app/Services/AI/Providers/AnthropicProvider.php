@@ -43,6 +43,37 @@ class AnthropicProvider extends AbstractProvider
         'claude-mythos-5',
     ];
 
+    /**
+     * Models taking `thinking: {type: adaptive}`, where the model decides how
+     * long to think rather than being handed a fixed token budget.
+     *
+     * Wider than REJECTS_SAMPLING_PARAMS: the 4.6 pair accepts sampling
+     * parameters but reasons adaptively too. Older models take a
+     * `budget_tokens` form that is not worth carrying — they are not what
+     * anyone points an agent at.
+     */
+    protected const SUPPORTS_ADAPTIVE_THINKING = [
+        'claude-opus-5',
+        'claude-opus-4-8',
+        'claude-opus-4-7',
+        'claude-opus-4-6',
+        'claude-sonnet-5',
+        'claude-sonnet-4-6',
+        'claude-fable-5',
+        'claude-mythos-5',
+    ];
+
+    /**
+     * Headroom for a reasoning request.
+     *
+     * `max_tokens` bounds thinking *and* the answer together, and the panel
+     * default is sized for a chat reply. Left alone, a model would spend the
+     * whole allowance thinking and stop at `max_tokens` with its tool call
+     * half-written. This is a ceiling, not a reservation — unused tokens are
+     * not billed.
+     */
+    protected const REASONING_MIN_MAX_TOKENS = 8192;
+
     protected function headers(): array
     {
         return [
@@ -118,6 +149,7 @@ class AnthropicProvider extends AbstractProvider
         // content block index they belong to, so accumulate per index and
         // finalise on content_block_stop.
         $blocks = [];
+        $thoughts = [];
         $text = '';
         $collected = [];
         $stopReason = null;
@@ -156,6 +188,16 @@ class AnthropicProvider extends AbstractProvider
                         ];
 
                         yield AiStreamEvent::toolCallStart($blocks[$index]['id'], $blocks[$index]['name']);
+                    } elseif (($block['type'] ?? '') === 'thinking') {
+                        $thoughts[$index] = ['type' => 'thinking', 'thinking' => '', 'signature' => ''];
+                    } elseif (($block['type'] ?? '') === 'redacted_thinking') {
+                        // Encrypted by the API rather than shown. Nothing to
+                        // display, but it still has to be echoed back or the
+                        // assistant turn is incomplete.
+                        $thoughts[$index] = [
+                            'type' => 'redacted_thinking',
+                            'data' => (string) ($block['data'] ?? ''),
+                        ];
                     }
                     break;
 
@@ -170,6 +212,17 @@ class AnthropicProvider extends AbstractProvider
 
                             yield AiStreamEvent::text($piece);
                         }
+                    } elseif (($delta['type'] ?? '') === 'thinking_delta' && isset($thoughts[$index])) {
+                        $piece = (string) ($delta['thinking'] ?? '');
+                        if ($piece !== '') {
+                            $thoughts[$index]['thinking'] .= $piece;
+
+                            yield AiStreamEvent::reasoning($piece);
+                        }
+                    } elseif (($delta['type'] ?? '') === 'signature_delta' && isset($thoughts[$index])) {
+                        // The block is rejected on the next request without
+                        // this, so it is accumulated rather than displayed.
+                        $thoughts[$index]['signature'] .= (string) ($delta['signature'] ?? '');
                     } elseif (($delta['type'] ?? '') === 'input_json_delta' && isset($blocks[$index])) {
                         $blocks[$index]['json'] .= (string) ($delta['partial_json'] ?? '');
                     }
@@ -188,6 +241,10 @@ class AnthropicProvider extends AbstractProvider
                         unset($blocks[$index]);
 
                         yield AiStreamEvent::toolCall($call);
+                    } elseif (isset($thoughts[$index])) {
+                        yield AiStreamEvent::reasoningBlock($thoughts[$index]);
+
+                        unset($thoughts[$index]);
                     }
                     break;
 
@@ -235,12 +292,15 @@ class AnthropicProvider extends AbstractProvider
     protected function buildPayload(AiRequest $request, bool $stream): array
     {
         $model = $this->resolveModel($request);
+        $thinking = $request->reasoning && $this->supportsAdaptiveThinking($model);
 
         $payload = [
             'model' => $model,
             // Required by the Messages API — unlike the OpenAI shape, there is
             // no server-side default.
-            'max_tokens' => $this->resolveMaxTokens($request),
+            'max_tokens' => $thinking
+                ? max($this->resolveMaxTokens($request), self::REASONING_MIN_MAX_TOKENS)
+                : $this->resolveMaxTokens($request),
             'messages' => $this->buildMessages($request),
             'stream' => $stream,
             // Automatic caching: one top-level breakpoint that the API keeps
@@ -261,7 +321,11 @@ class AnthropicProvider extends AbstractProvider
             $payload['system'] = $system;
         }
 
-        if (!$this->rejectsSamplingParams($model)) {
+        // Sampling parameters and thinking are mutually exclusive: a model that
+        // takes both rejects temperature once thinking is on.
+        if ($thinking) {
+            $payload['thinking'] = ['type' => 'adaptive'];
+        } elseif (!$this->rejectsSamplingParams($model)) {
             $payload['temperature'] = $this->resolveTemperature($request);
         }
 
@@ -278,7 +342,22 @@ class AnthropicProvider extends AbstractProvider
      */
     protected function rejectsSamplingParams(string $model): bool
     {
-        foreach (self::REJECTS_SAMPLING_PARAMS as $prefix) {
+        return $this->matchesPrefix($model, self::REJECTS_SAMPLING_PARAMS);
+    }
+
+    protected function supportsAdaptiveThinking(string $model): bool
+    {
+        return $this->matchesPrefix($model, self::SUPPORTS_ADAPTIVE_THINKING);
+    }
+
+    /**
+     * Matched by prefix so dated snapshots and aliases both resolve.
+     *
+     * @param string[] $prefixes
+     */
+    protected function matchesPrefix(string $model, array $prefixes): bool
+    {
+        foreach ($prefixes as $prefix) {
             if (str_starts_with($model, $prefix)) {
                 return true;
             }
@@ -339,7 +418,12 @@ class AnthropicProvider extends AbstractProvider
             }
 
             if ($message->role === AiMessage::ROLE_ASSISTANT && $message->hasToolCalls()) {
-                $content = [];
+                // Thinking first, and unaltered. The API verifies the signature
+                // against the block's exact text, so this is the one thing in
+                // the transcript that must survive a round trip through the
+                // database byte for byte.
+                $content = $this->thinkingBlocks($message);
+
                 if ($message->content !== null && trim($message->content) !== '') {
                     $content[] = ['type' => 'text', 'text' => $message->content];
                 }
@@ -363,6 +447,35 @@ class AnthropicProvider extends AbstractProvider
         $flush();
 
         return $messages;
+    }
+
+    /**
+     * This message's reasoning, in the shape the API accepts back.
+     *
+     * Filtered rather than trusted: `AiMessage::$reasoning` is opaque storage
+     * that may have been written by a different provider entirely if the
+     * operator switched between a suspension and its resume, and an unsigned or
+     * foreign block is a 400 rather than something the API ignores.
+     */
+    protected function thinkingBlocks(AiMessage $message): array
+    {
+        $blocks = [];
+
+        foreach ($message->reasoning as $block) {
+            $type = $block['type'] ?? '';
+
+            if ($type === 'thinking' && ($block['signature'] ?? '') !== '' && ($block['thinking'] ?? '') !== '') {
+                $blocks[] = [
+                    'type' => 'thinking',
+                    'thinking' => (string) $block['thinking'],
+                    'signature' => (string) $block['signature'],
+                ];
+            } elseif ($type === 'redacted_thinking' && ($block['data'] ?? '') !== '') {
+                $blocks[] = ['type' => 'redacted_thinking', 'data' => (string) $block['data']];
+            }
+        }
+
+        return $blocks;
     }
 
     protected function extractUsage(array $usage): array

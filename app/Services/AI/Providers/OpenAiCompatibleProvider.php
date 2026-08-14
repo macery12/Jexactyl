@@ -94,6 +94,19 @@ class OpenAiCompatibleProvider extends AbstractProvider
 
             $delta = $choice['delta'] ?? [];
 
+            // Reasoning models on this wire format put their thinking on a
+            // sibling key rather than in `content`. There is no agreed name for
+            // it — DeepSeek and vLLM use `reasoning_content`, OpenRouter and
+            // Groq use `reasoning` — and nothing has to be echoed back, so both
+            // are read and neither is required.
+            foreach (['reasoning_content', 'reasoning'] as $key) {
+                if (isset($delta[$key]) && is_string($delta[$key]) && $delta[$key] !== '') {
+                    yield AiStreamEvent::reasoning($delta[$key]);
+
+                    break;
+                }
+            }
+
             if (isset($delta['content']) && is_string($delta['content']) && $delta['content'] !== '') {
                 $text .= $delta['content'];
 

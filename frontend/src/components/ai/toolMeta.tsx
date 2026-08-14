@@ -3,6 +3,7 @@ import {
     Archive,
     Boxes,
     ChartLine,
+    Container,
     Database,
     Download,
     FileCog,
@@ -22,6 +23,7 @@ import {
     Receipt,
     Save,
     Server,
+    ShieldAlert,
     Terminal,
     Ticket,
     Timer,
@@ -55,6 +57,7 @@ const META: Record<string, ToolMeta> = {
 
     startup_list: { icon: FileCog },
     startup_set: { icon: FileCog, primary: 'key' },
+    startup_image_set: { icon: Container, primary: 'docker_image' },
 
     files_list: { icon: Folders, primary: 'directory' },
     files_read: { icon: FileText, primary: 'file' },
@@ -110,6 +113,10 @@ const META: Record<string, ToolMeta> = {
     admin_tickets_list: { icon: LifeBuoy },
     admin_ticket_view: { icon: LifeBuoy, primary: 'ticket' },
     admin_ticket_messages: { icon: LifeBuoy, primary: 'ticket' },
+    // The server is the primary argument rather than the reason: the row has to
+    // answer "whose server?" at a glance, and the reason is on the banner.
+    admin_assist_server: { icon: ShieldAlert, primary: 'server' },
+    admin_assist_allow_writes: { icon: ShieldAlert },
 
     admin_features: { icon: ToggleLeft },
     admin_presets_list: { icon: Boxes },

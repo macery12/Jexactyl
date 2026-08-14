@@ -46,9 +46,19 @@ class AdminTools
     public const GROUP_DESCRIPTIONS = [
         self::GROUP_BILLING => 'Read the product catalogue, and create or edit products.',
         self::GROUP_COMMERCE => 'Coupons, orders and per-node pricing multipliers.',
-        self::GROUP_SUPPORT => 'Read support tickets and their conversations.',
+        self::GROUP_SUPPORT => 'Read support tickets and their conversations, and open a diagnostic session on the server a ticket is about.',
         self::GROUP_PANEL => 'Read panel feature toggles and server presets.',
     ];
+
+    /**
+     * Opens an audited session on a customer's server.
+     */
+    public const ASSIST_SERVER = 'admin_assist_server';
+
+    /**
+     * Widens an open session from read-only to read-write.
+     */
+    public const ASSIST_ALLOW_WRITES = 'admin_assist_allow_writes';
 
     private const BASE = '/api/application';
 
@@ -578,7 +588,16 @@ class AdminTools
                     'title' => $t['title'] ?? null,
                     'status' => $t['status'] ?? null,
                     'priority' => $t['priority'] ?? null,
-                    'user_id' => $t['user_id'] ?? null,
+                    // The transformer nests the whole user record rather than
+                    // emitting a flat user_id, so the id is read out of it —
+                    // reading `user_id` here would hand the model a column of
+                    // nulls and it would go looking for the reporter by name.
+                    'user_id' => $t['user']['id'] ?? ($t['user_id'] ?? null),
+                    // Null on every ticket raised before the field existed, and
+                    // on any raised since through a form that does not ask. The
+                    // agent is told to fall back to the reporter's server list
+                    // rather than treating a null as "no server involved".
+                    'server_id' => $t['server_id'] ?? null,
                     'last_reply_at' => $t['last_reply_at'] ?? null,
                 ], self::LIST_LIMIT),
                 queryFields: ['filter', 'per_page', 'page'],
@@ -586,7 +605,9 @@ class AdminTools
 
             new ToolDefinition(
                 name: 'admin_ticket_view',
-                description: 'Full detail for one ticket, by numeric id.',
+                description: 'Full detail for one ticket, by numeric id. If server_id is set the '
+                    . 'customer told us which server the ticket is about; if it is null, look up '
+                    . 'what servers the reporting user owns instead.',
                 parameters: self::object([
                     'ticket' => self::string('The numeric ticket id.'),
                 ], ['ticket']),
@@ -609,10 +630,62 @@ class AdminTools
                 permissions: [AdminRole::TICKETS_READ],
                 group: self::GROUP_SUPPORT,
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $m) => [
-                    'user_id' => $m['user_id'] ?? null,
+                    // As on the listing, the author arrives nested. The username
+                    // is kept rather than only the id because a ticket thread
+                    // reads as a conversation and "who said this" is most of
+                    // what makes it diagnosable.
+                    'author_id' => $m['author']['id'] ?? ($m['user_id'] ?? null),
+                    'author' => $m['author']['username'] ?? null,
+                    'internal_note' => $m['internal_note'] ?? false,
                     'message' => $m['message'] ?? null,
                     'created_at' => $m['created_at'] ?? null,
                 ], self::LIST_LIMIT),
+            ),
+
+            new ToolDefinition(
+                name: self::ASSIST_SERVER,
+                description: 'Open a read-only diagnostic session on one customer\'s server, so you can '
+                    . 'look at its files, startup settings and current state the way its owner could. '
+                    . 'Use this when a ticket is about a specific server and you cannot answer it from '
+                    . 'the panel\'s own records. The administrator has to approve it, and the customer '
+                    . 'sees it in their activity log, so give a reason that would make sense to them. '
+                    . 'You cannot change anything with this — ask for writes separately if a fix needs one.',
+                parameters: self::object([
+                    'server' => self::string('The server\'s numeric id or uuid, from admin_servers_list.'),
+                    'reason' => self::string(
+                        'One line on why you need to look, in plain language. This is shown to the '
+                        . 'administrator on the approval and written to the customer\'s activity log.'
+                    ),
+                    'ticket' => self::integer('The ticket id this is about, when there is one.'),
+                ], ['server', 'reason']),
+                method: '',
+                uriTemplate: '',
+                // WRITE rather than SAFE despite reading nothing itself: what it
+                // does is grant access to somebody else's data, and that is a
+                // decision a person makes, not a step the model takes.
+                risk: ToolDefinition::RISK_WRITE,
+                scope: ToolDefinition::SCOPE_ADMIN,
+                permissions: [AdminRole::SERVERS_ASSIST],
+                group: self::GROUP_SUPPORT,
+                hostHandled: true,
+            ),
+
+            new ToolDefinition(
+                name: self::ASSIST_ALLOW_WRITES,
+                description: 'Ask to be allowed to change the server you are currently assisting — '
+                    . 'editing a config file, changing a startup variable, restarting it. Only ask '
+                    . 'once you have found the problem and can say exactly what you would change and '
+                    . 'why. The administrator approves this separately from the session itself.',
+                parameters: self::object([
+                    'reason' => self::string('What you want to change and why, in one or two sentences.'),
+                ], ['reason']),
+                method: '',
+                uriTemplate: '',
+                risk: ToolDefinition::RISK_WRITE,
+                scope: ToolDefinition::SCOPE_ADMIN,
+                permissions: [AdminRole::SERVERS_ASSIST],
+                group: self::GROUP_SUPPORT,
+                hostHandled: true,
             ),
         ];
     }

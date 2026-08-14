@@ -30,6 +30,15 @@ class AdminToolsTest extends TestCase
         }
 
         foreach (AdminTools::all() as $definition) {
+            // A host-handled tool is resolved by the runner and dispatches
+            // nothing, so it has no route to point at — and asserting one would
+            // only force a fake URI into the definition.
+            if ($definition->hostHandled) {
+                $this->assertSame('', $definition->uriTemplate, $definition->name);
+
+                continue;
+            }
+
             $this->assertArrayHasKey(
                 $this->normalise($definition->uriTemplate),
                 $registered,

@@ -95,6 +95,7 @@ class OllamaProvider extends AbstractProvider
         $finish = null;
         $collected = [];
         $announced = 0;
+        $inThink = false;
 
         foreach ($this->readNdjson($body) as $frame) {
             if (isset($frame['error'])) {
@@ -103,11 +104,30 @@ class OllamaProvider extends AbstractProvider
 
             $message = $frame['message'] ?? [];
 
+            // Ollama splits reasoning off into its own field for models whose
+            // template it knows. Nothing has to be echoed back — unlike
+            // Anthropic, the API keeps no signature over it.
+            $thought = $message['thinking'] ?? null;
+            if (is_string($thought) && $thought !== '') {
+                yield AiStreamEvent::reasoning($thought);
+            }
+
             $delta = $message['content'] ?? null;
             if (is_string($delta) && $delta !== '') {
-                $text .= $delta;
+                // For a model whose template Ollama does not know, the same
+                // reasoning arrives inline as <think> tags instead. Left alone
+                // it renders as the answer.
+                foreach ($this->splitReasoning($delta, $inThink) as [$channel, $piece]) {
+                    if ($channel === 'reasoning') {
+                        yield AiStreamEvent::reasoning($piece);
 
-                yield AiStreamEvent::text($delta);
+                        continue;
+                    }
+
+                    $text .= $piece;
+
+                    yield AiStreamEvent::text($piece);
+                }
             }
 
             // Unlike the OpenAI wire format, Ollama emits each tool call whole
@@ -173,6 +193,58 @@ class OllamaProvider extends AbstractProvider
         }
 
         return $payload;
+    }
+
+    /**
+     * Route one content delta between the answer and the reasoning channel.
+     *
+     * Reasoning models that Ollama has no template for wrap their reasoning in
+     * `<think>…</think>` inside ordinary content. A tag can straddle two
+     * deltas, so the open state is carried by reference across calls rather than
+     * inferred from the fragment in hand.
+     *
+     * A tag split across the boundary — `<thi` then `nk>` — is the one case not
+     * handled, and deliberately: buffering to cover it would stall the visible
+     * stream on every delta to catch something Ollama emits whole.
+     *
+     * @return array<int, array{0: string, 1: string}> channel and piece, in order
+     */
+    protected function splitReasoning(string $delta, bool &$inThink): array
+    {
+        if (!$inThink && !str_contains($delta, '<think>')) {
+            return [['text', $delta]];
+        }
+
+        $pieces = [];
+        $rest = $delta;
+
+        while ($rest !== '') {
+            if ($inThink) {
+                $close = strpos($rest, '</think>');
+                if ($close === false) {
+                    $pieces[] = ['reasoning', $rest];
+                    break;
+                }
+
+                $pieces[] = ['reasoning', substr($rest, 0, $close)];
+                $rest = substr($rest, $close + 8);
+                $inThink = false;
+
+                continue;
+            }
+
+            $open = strpos($rest, '<think>');
+            if ($open === false) {
+                $pieces[] = ['text', $rest];
+                break;
+            }
+
+            $pieces[] = ['text', substr($rest, 0, $open)];
+            $rest = substr($rest, $open + 7);
+            $inThink = true;
+        }
+
+        return array_values(array_filter($pieces, fn (array $p) => $p[1] !== ''));
     }
 
     protected function buildMessages(AiRequest $request): array

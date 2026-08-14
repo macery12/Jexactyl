@@ -4,28 +4,32 @@ import { Bot, Plus, TriangleAlert } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
+import { Spinner } from '@/components/ui/Spinner';
 import { AgentChatView, orphanedPending } from '@/components/ai/AgentChatView';
 import { useAdminAgentChat } from '@/state/agentChat';
 import type { ChatRole } from '@/api/ai';
 import {
     deleteAdminAgentConversation,
+    endAdminAssist,
     getAdminAgentConversation,
+    getAiSettings,
     listAdminAgentConversations,
     listAdminPendingActions,
     type AdminAgentConversation,
 } from '@/api/adminAi';
 
-// The admin assistant.
+// The admin assistant, as a page of its own at the top of the sidebar.
 //
-// Replaces the Playground, which was a single-turn console with no tools and no
-// memory — it could describe what to change but never look anything up, which on
-// an admin surface is most of the value.
+// It began as a tab inside Admin → AI, which put a conversation you might return
+// to several times a day three clicks deep, behind a section that is otherwise
+// provider configuration and telemetry. Admin → AI is now what its name says;
+// this is the thing you actually talk to.
 //
-// Unlike the server assistant this has no chat/agent toggle: a plain chat about
-// the panel's own records cannot read them, so there is nothing for the cheaper
-// path to answer.
+// Unlike the server assistant it has no chat/agent toggle: a plain chat about the
+// panel's own records cannot read them, so there is nothing for the cheaper path
+// to answer.
 
-export function AgentTab({ enabled }: { enabled: boolean }) {
+export default function AssistantPage() {
     const queryClient = useQueryClient();
 
     const entries = useAdminAgentChat(s => s.entries);
@@ -34,6 +38,17 @@ export function AgentTab({ enabled }: { enabled: boolean }) {
     const newChat = useAdminAgentChat(s => s.newChat);
     const loadTranscript = useAdminAgentChat(s => s.loadTranscript);
     const loadFailed = useAdminAgentChat(s => s.loadFailed);
+    const setAssist = useAdminAgentChat(s => s.setAssist);
+
+    // Read from settings rather than the injected feature flags: those are
+    // rendered once per page load, so an operator who has just switched the
+    // assistant on would be told it is off until they reloaded.
+    const { data: settings, isLoading: settingsLoading } = useQuery({
+        queryKey: ['admin', 'ai', 'settings'],
+        queryFn: getAiSettings,
+    });
+
+    const enabled = Boolean(settings?.agent.enabled && settings?.agent.admin_enabled);
 
     const { data: pending = [] } = useQuery({
         queryKey: ['admin', 'ai', 'agent-pending'],
@@ -55,18 +70,6 @@ export function AgentTab({ enabled }: { enabled: boolean }) {
         }
     }, [loading, queryClient]);
 
-    if (!enabled) {
-        return (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-[var(--color-border)] px-6 py-16 text-center">
-                <TriangleAlert className="h-6 w-6 text-[var(--color-warning)]" />
-                <p className="text-sm font-medium text-[var(--color-ink)]">{m['admin.ai.agent.disabledTitle']()}</p>
-                <p className="max-w-md text-sm text-[var(--color-ink-muted)]">
-                    {m['admin.ai.agent.disabledBody']()}
-                </p>
-            </div>
-        );
-    }
-
     const open = async (id: number) => {
         if (loading) return;
 
@@ -87,9 +90,37 @@ export function AgentTab({ enabled }: { enabled: boolean }) {
                         tool_calls: null,
                         step: message.step,
                     })),
+                conversation.redactions,
             );
+
+            if (conversation.assist) {
+                setAssist({
+                    serverUuid: conversation.assist.server_uuid,
+                    serverName: conversation.assist.server_name,
+                    writable: conversation.assist.writable,
+                    reason: conversation.assist.reason,
+                });
+            }
         } catch {
             loadFailed();
+        }
+    };
+
+    // Ends the session server-side and takes the banner down. The access was
+    // being re-checked on every turn anyway; this is so an administrator who has
+    // finished can say so and watch it stop, rather than having to trust that
+    // opening a new chat was enough.
+    const endAssist = async () => {
+        if (conversationId === null) {
+            setAssist(null);
+
+            return;
+        }
+
+        try {
+            await endAdminAssist(conversationId);
+        } finally {
+            setAssist(null);
         }
     };
 
@@ -99,8 +130,26 @@ export function AgentTab({ enabled }: { enabled: boolean }) {
         void queryClient.invalidateQueries({ queryKey: ['admin', 'ai', 'agent-conversations'] });
     };
 
+    if (settingsLoading) {
+        return (
+            <div className="flex items-center justify-center py-24">
+                <Spinner className="h-7 w-7" />
+            </div>
+        );
+    }
+
+    if (!enabled) {
+        return (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-[var(--color-border)] px-6 py-16 text-center">
+                <TriangleAlert className="h-6 w-6 text-[var(--color-warning)]" />
+                <p className="text-sm font-medium text-[var(--color-ink)]">{m['admin.ai.agent.disabledTitle']()}</p>
+                <p className="max-w-md text-sm text-[var(--color-ink-muted)]">{m['admin.ai.agent.disabledBody']()}</p>
+            </div>
+        );
+    }
+
     return (
-        <div className="flex h-[calc(100vh-19rem)] min-h-[28rem] gap-3">
+        <div className="flex h-[calc(100vh-10.5rem)] min-h-[28rem] gap-3">
             <aside className="hidden w-56 shrink-0 flex-col gap-1 overflow-y-auto lg:flex">
                 <Button size="sm" variant="outline" onClick={newChat} disabled={loading} className="mb-1">
                     <Plus className="h-3.5 w-3.5" />
@@ -173,6 +222,7 @@ export function AgentTab({ enabled }: { enabled: boolean }) {
                         ...action,
                         preview: null,
                     }))}
+                    onEndAssist={() => void endAssist()}
                 />
             </div>
         </div>

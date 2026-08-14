@@ -1,28 +1,30 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Bot, ListOrdered, MessagesSquare, Settings2, TriangleAlert, Wrench } from 'lucide-react';
+import { Activity, Bot, ListOrdered, Settings2, TriangleAlert, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { getAiSettings, SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
 import { OverviewTab } from './OverviewTab';
-import { AgentTab } from './AgentTab';
 import { LogsTab } from './LogsTab';
 import { SettingsTab } from './SettingsTab';
 import { ToolsTab } from './ToolsTab';
 
 // Admin AI (M12Labs-AI) — tabbed cockpit over /api/application/ai/*.
-// Overview = health + usage analytics; Assistant = the tool-calling admin agent;
-// Logs = full request log with filters; Settings = provider configuration.
+// Overview = health + usage analytics; Logs = full request log with filters;
+// Settings = provider configuration; Tools = the agent's tool catalogue.
+//
+// The assistant itself is not here. It lived as a tab for exactly one release,
+// which buried a conversation you return to daily inside a section that is
+// otherwise configuration — it has its own page at the top of the sidebar now.
 // Module on/off lives in Admin → Features (the V1 EnableAI screen is gone);
 // an unconfigured provider surfaces as a banner steering to Settings.
 
-export type AiTabId = 'overview' | 'agent' | 'logs' | 'settings' | 'tools';
+export type AiTabId = 'overview' | 'logs' | 'settings' | 'tools';
 
 const TABS: { id: AiTabId; labelKey: () => string; icon: LucideIcon }[] = [
     { id: 'overview', labelKey: () => m['admin.ai.tabs.overview'](), icon: Activity },
-    { id: 'agent', labelKey: () => m['admin.ai.tabs.agent'](), icon: MessagesSquare },
     { id: 'settings', labelKey: () => m['admin.ai.tabs.settings'](), icon: Settings2 },
     { id: 'tools', labelKey: () => m['admin.ai.tabs.tools'](), icon: Wrench },
     { id: 'logs', labelKey: () => m['admin.ai.tabs.logs'](), icon: ListOrdered },
@@ -95,9 +97,6 @@ export default function AiSection() {
             </div>
 
             {tab === 'overview' && <OverviewTab onViewLogs={() => setTab('logs')} />}
-            {tab === 'agent' && (
-                <AgentTab enabled={Boolean(settings?.agent.enabled && settings?.agent.admin_enabled)} />
-            )}
             {tab === 'logs' && <LogsTab />}
             {tab === 'settings' && <SettingsTab />}
             {tab === 'tools' && <ToolsTab />}

@@ -155,6 +155,43 @@ return [
          * sharply past roughly fifteen; the rest are reached through tool groups.
          */
         'max_tools' => env('AI_AGENT_MAX_TOOLS', 15),
+
+        /*
+         * Ask the model to reason before it acts, where the model supports it.
+         *
+         * Two things come out of this: better tool selection, and a visible
+         * account of why a step was taken — which is most of what makes a
+         * twelve-step turn readable rather than a wall of rows. It costs output
+         * tokens and some latency before the first visible word, so it is left
+         * switchable. Models that cannot reason ignore it rather than failing.
+         */
+        'reasoning' => env('AI_AGENT_REASONING', true),
+    ],
+
+    /*
+     * Keeping personal data out of the request.
+     *
+     * The panel knows its customers' addresses, their IPs and whatever they
+     * typed into a support ticket, and an agent that can read the user table
+     * will send all of it to whatever inference endpoint is configured unless
+     * something stops it. On by default: an operator who has not thought about
+     * this yet is better served by the cautious answer, and the cost of being
+     * wrong in that direction is a token instead of an address.
+     *
+     * Applies to tool results and to context the panel attaches by itself —
+     * never to what the administrator types, which would break lookup by email
+     * for no gain, since they chose to send it.
+     */
+    'privacy' => [
+        'enabled' => env('AI_PRIVACY_REDACT', true),
+
+        /*
+         * Which categories are swept. `secret` is absent by default: strings
+         * shaped like tokens overlap with backup uuids, file hashes and docker
+         * digests that the agent legitimately needs, so it trades capability for
+         * safety in a way that should be an operator's decision.
+         */
+        'categories' => ['email', 'ip', 'name', 'phone', 'address', 'payment'],
     ],
 
     /*

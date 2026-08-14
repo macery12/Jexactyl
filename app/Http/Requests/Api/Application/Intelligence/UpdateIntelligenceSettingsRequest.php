@@ -5,6 +5,7 @@ namespace Everest\Http\Requests\Api\Application\Intelligence;
 use Everest\Models\AdminRole;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Data\ProviderConfig;
+use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
@@ -40,6 +41,7 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
 
             'agent.enabled' => 'nullable|bool',
             'agent.admin_enabled' => 'nullable|bool',
+            'agent.reasoning' => 'nullable|bool',
             // A turn is bounded three ways because any one of them alone can be
             // escaped: a model can loop cheaply, stall expensively, or both.
             'agent.max_steps' => 'nullable|integer|min:1|max:50',
@@ -47,6 +49,13 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'agent.tool_result_bytes' => 'nullable|integer|min:1024|max:131072',
             'agent.max_repairs' => 'nullable|integer|min:0|max:5',
             'agent.max_tools' => 'nullable|integer|min:4|max:64',
+
+            // The category list is validated against the redactor's own constants
+            // rather than a literal, so adding a category in one place cannot
+            // leave it silently unsettable here.
+            'privacy.enabled' => 'nullable|bool',
+            'privacy.categories' => 'nullable|array',
+            'privacy.categories.*' => 'string|in:' . implode(',', PiiRedactor::KINDS),
 
             'concurrency.slots' => 'nullable|integer|min:1|max:64',
             'concurrency.queue_depth' => 'nullable|integer|min:0|max:500',
@@ -82,6 +91,13 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             }
 
             $normalized[str_replace('.', ':', $key)] = $this->input($key);
+        }
+
+        // Settings values are strings. An array reaching Setting::set stringifies
+        // to "Array" without raising anything, so the category list is encoded
+        // here — the same JSON-blob treatment the tool policy already gets.
+        if (is_array($normalized['privacy:categories'] ?? null)) {
+            $normalized['privacy:categories'] = json_encode(array_values($normalized['privacy:categories']));
         }
 
         return $this->resetProviderScopedSettings($normalized);

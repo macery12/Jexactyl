@@ -6,6 +6,7 @@ use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Data\AiToolCall;
+use Everest\Services\AI\Privacy\RedactionMap;
 use Everest\Services\AI\Tools\ToolDefinition;
 
 /**
@@ -40,6 +41,26 @@ class AgentContext
      */
     public int $questions = 0;
 
+    /**
+     * The administrator's audited session on a customer's server, once one has
+     * been approved. Null on every server turn — the customer's own assistant
+     * needs no such thing, it is already on their server.
+     */
+    public ?AssistBinding $assist = null;
+
+    /**
+     * Tokens minted for personal data this conversation has seen, so the same
+     * address reads the same way on step nine as it did on step two.
+     */
+    public RedactionMap $redactions;
+
+    /**
+     * The model behind {@see $assist}. Resolved when the binding is made rather
+     * than serialised with it, so a suspended turn carries a uuid through the
+     * database and re-reads the row — and re-authorizes it — on resume.
+     */
+    private ?Server $assistServer = null;
+
     private ?TurnRecorder $recorder = null;
 
     public function __construct(
@@ -49,16 +70,41 @@ class AgentContext
         public readonly ?int $conversationId = null,
         public readonly ?string $consoleBuffer = null,
     ) {
+        $this->redactions = new RedactionMap();
     }
 
     /**
      * Which toolset and which authorization model this turn runs under.
+     *
+     * An assist binding does not change this. An administrator diagnosing a
+     * customer's server is still on the admin surface — still authorized by
+     * AdminRole capability, still writing `scope: admin` audit rows — they have
+     * simply been granted a named list of abilities on one server. Reading the
+     * binding as a scope change would hand them the customer's whole toolset.
      */
     public function scope(): string
     {
         return $this->server === null
             ? ToolDefinition::SCOPE_ADMIN
             : ToolDefinition::SCOPE_SERVER;
+    }
+
+    /**
+     * The server a server-scoped tool acts on this turn.
+     *
+     * For a server turn that is the bound server and nothing can change it. For
+     * an admin turn it is whichever server an approved assist session named, or
+     * null when none has been.
+     */
+    public function targetServer(): ?Server
+    {
+        return $this->server ?? $this->assistServer;
+    }
+
+    public function bindAssist(AssistBinding $binding, Server $server): void
+    {
+        $this->assist = $binding;
+        $this->assistServer = $server;
     }
 
     /**
@@ -144,6 +190,13 @@ class AgentContext
      * Only the model-visible conversation and the loop counters: the user and
      * server are re-resolved and re-authorized on resume rather than trusted
      * from stored state.
+     *
+     * The assist binding is the one thing here that grants access rather than
+     * describing it, so what is written is a uuid and a list of ability names —
+     * never a resolved model, never a capability decision. `fromState()`
+     * deliberately does not rebuild the server: the caller re-reads the row and
+     * re-checks the administrator's capability before calling `bindAssist()`,
+     * which is why a binding cannot outlive the permission that created it.
      */
     public function toState(): array
     {
@@ -154,6 +207,8 @@ class AgentContext
             'repairs' => $this->repairs,
             'questions' => $this->questions,
             'console_buffer' => $this->consoleBuffer,
+            'assist' => $this->assist?->toArray(),
+            'redactions' => $this->redactions->toArray(),
         ];
     }
 
@@ -178,7 +233,21 @@ class AgentContext
         $context->step = (int) ($state['step'] ?? 0);
         $context->repairs = (int) ($state['repairs'] ?? 0);
         $context->questions = (int) ($state['questions'] ?? 0);
+        $context->redactions = RedactionMap::fromArray($state['redactions'] ?? null);
+
+        // Restored without its server, and therefore inert: `targetServer()`
+        // still returns null and no server-scoped tool can resolve a URI until
+        // the caller has re-read the server and re-checked the capability.
+        $context->assist = AssistBinding::fromArray($state['assist'] ?? null);
 
         return $context;
+    }
+
+    /**
+     * The uuid a restored binding is waiting to be re-attached to, if any.
+     */
+    public function pendingAssistUuid(): ?string
+    {
+        return $this->assistServer === null ? $this->assist?->serverUuid : null;
     }
 }

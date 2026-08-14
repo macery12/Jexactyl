@@ -3,6 +3,7 @@
 namespace Everest\Services\AI\Agent;
 
 use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\Authorization\AdminAuthorizer;
 
 /**
@@ -19,10 +20,12 @@ use Everest\Services\Authorization\AdminAuthorizer;
  * turn should never be told to look in /plugins — a rule a model cannot act on
  * still costs tokens on every step and still occasionally gets tried.
  *
- * The behavioural section is deliberately explicit about not narrating
- * intentions. A model that says "I'll read the config now" and then ends its
- * turn has burned a step and produced nothing, which is the single most common
- * way an agent loop wastes a user's time.
+ * The behavioural section asks for a line of narration before each tool call and
+ * forbids ending a turn on one. Those are close enough to be worth stating
+ * separately: an earlier revision said only "act, don't narrate", which did stop
+ * the model burning a step on an announcement — and also stripped out every
+ * word explaining why a step was being taken, leaving a user watching rows
+ * appear with no account of what the assistant thought it was doing.
  */
 class SystemPromptBuilder
 {
@@ -32,14 +35,26 @@ class SystemPromptBuilder
      */
     public const MAX_CONSOLE_CHARS = 4000;
 
+    public function __construct(private PiiRedactor $redactor)
+    {
+    }
+
     public function build(AgentContext $context): string
     {
         $sections = $context->server === null
             ? [$this->adminRole(), $this->adminFacts($context), $this->adminRules()]
             : [$this->role(), $this->serverFacts($context), $this->rules()];
 
+        if (($assist = $this->assistFacts($context)) !== null) {
+            $sections[] = $assist;
+        }
+
         if (($console = $this->console($context)) !== null) {
             $sections[] = $console;
+        }
+
+        if (($privacy = $this->privacyRule($context)) !== null) {
+            $sections[] = $privacy;
         }
 
         $sections[] = $this->questionRule();
@@ -83,8 +98,10 @@ class SystemPromptBuilder
         return <<<'PROMPT'
             How to work:
 
-            - Act, don't narrate. If you need to look at a file, call the tool in the same
-              turn. Never end your reply with an intention like "let me check that" — do it.
+            - Say what you are doing, then do it. One short line before you call a tool —
+              "checking the server properties" — so the user can follow along, and then the
+              call in the same turn. What you must never do is stop there: a reply that ends
+              on "let me check that" with no tool call has done nothing at all.
             - Read before you write. files_write needs the file's exact current contents, so
               always call files_read first and pass what it returned as original_content.
             - Change the least you can. Edit the specific setting you were asked about and
@@ -159,8 +176,10 @@ class SystemPromptBuilder
         return <<<'PROMPT'
             How to work:
 
-            - Act, don't narrate. If you need to look something up, call the tool in the same
-              turn. Never end your reply with an intention like "let me check that" — do it.
+            - Say what you are doing, then do it. One short line before you call a tool —
+              "let me see which categories exist" — so the administrator can follow along,
+              and then the call in the same turn. What you must never do is stop there: a
+              reply that ends on an intention with no tool call has done nothing at all.
             - Look before you change. Read the record you are about to edit so you can say what
               it is changing from, and so you do not overwrite a field you never looked at.
             - Identifiers come from tool results, never from memory. List categories to get a
@@ -168,9 +187,14 @@ class SystemPromptBuilder
               rather than guessing a number.
             - When you change a product, a coupon or a price, say plainly who it affects: existing
               customers on that plan, everyone on that node, and whether it takes effect now.
-            - You cannot read a customer's server files, console or logs from here. If the question
-              is about what a specific server is doing, say so and point the administrator at that
-              server's own assistant.
+            - You cannot see inside a customer's server by default. If the question is about what one
+              specific server is doing — it will not start, it is lagging, a plugin is broken — open a
+              session on it with admin_assist_server and say why. If you have no such tool, say that
+              looking inside the server is not something you have been given and stop.
+            - When a ticket is about a server, find out which one before asking for access. Read the
+              ticket first: if it names a server_id, use it. If it does not, list the servers the
+              person who filed it owns — one server means you have your answer, several means ask
+              them which.
             - You cannot delete anything, suspend anyone, or reinstall a server. Those are
               deliberately not available to you — say so plainly and let the administrator do it by
               hand rather than looking for a way round.
@@ -179,6 +203,72 @@ class SystemPromptBuilder
             - Report what you actually did, quoting real ids and values from tool results. Do not
               claim a change you did not make.
             PROMPT;
+    }
+
+    /**
+     * The customer's server this administrator is presently inside.
+     *
+     * Stated as its own section, after the surface's own rules, because it
+     * changes what the turn is about: the tools on offer are no longer the
+     * panel's, and the thing being read belongs to somebody who is not in the
+     * room. That is worth saying in words rather than leaving the model to infer
+     * it from a tool list.
+     */
+    protected function assistFacts(AgentContext $context): ?string
+    {
+        $binding = $context->assist;
+
+        if ($binding === null || $context->targetServer() === null) {
+            return null;
+        }
+
+        $lines = [
+            'Server: ' . $binding->serverName,
+            'Access: ' . ($binding->writable
+                ? 'read and write — you may edit files, change startup variables and restart it'
+                : 'read only — you can look at anything, and change nothing'),
+            'Reason given: ' . ($binding->reason !== '' ? $binding->reason : 'not stated'),
+        ];
+
+        if ($binding->ticketId !== null) {
+            $lines[] = 'Ticket: #' . $binding->ticketId;
+        }
+
+        $closing = $binding->writable
+            ? 'Read a file before you write it, change the least you can, and say plainly what you '
+                . 'changed and why. Say when a restart is needed rather than restarting a server with '
+                . 'players on it unannounced.'
+            : 'If fixing this needs a change, do not describe a workaround the customer must type — '
+                . 'say what you would change, and ask for write access with '
+                . 'admin_assist_allow_writes.';
+
+        return "You are working inside a customer's server. It is not yours and not the panel's; the "
+            . "owner can see in their own activity log that you looked.\n- "
+            . implode("\n- ", $lines)
+            . "\n\n" . $closing;
+    }
+
+    /**
+     * Why some values arrive as tokens.
+     *
+     * Without this the model reads `[email_1]` as either a bug or a literal
+     * string, and will do one of two unhelpful things: apologise for the panel
+     * being broken, or try to use it as an address. Told what it is, it uses it
+     * the way it is meant to be used — as a stable handle for a person it does
+     * not need to identify.
+     */
+    protected function privacyRule(AgentContext $context): ?string
+    {
+        if (!$this->redactor->enabled()) {
+            return null;
+        }
+
+        return 'Some values in tool results are replaced with tokens like [email_1] or [ip_2] before '
+            . 'they reach you, because personal data does not leave this panel. A token is stable: the '
+            . 'same [email_1] is the same person every time you see it, so you can reason about who is '
+            . 'who. Use them exactly as they appear and never guess at what is behind one. The person '
+            . 'reading your reply sees the real values, so writing "[email_1] has three servers" is '
+            . 'perfectly clear to them.';
     }
 
     /**
@@ -211,7 +301,14 @@ class SystemPromptBuilder
             return null;
         }
 
-        $trimmed = mb_substr($buffer, -self::MAX_CONSOLE_CHARS);
+        // Redacted like any tool result. A console buffer is the single richest
+        // source of personal data the panel handles — every join line carries a
+        // player's address — and it is the one thing here the panel attaches by
+        // itself rather than the user choosing to send.
+        $trimmed = $this->redactor->redactText(
+            mb_substr($buffer, -self::MAX_CONSOLE_CHARS),
+            $context->redactions
+        );
 
         return "Recent console output from this server:\n```\n" . $trimmed . "\n```";
     }

@@ -29,6 +29,10 @@ class TicketTransformer extends Transformer
             'title' => $model->title,
             'status' => $model->status,
             'priority' => $model->priority,
+            // Null on every ticket raised before the column existed, and on any
+            // raised through a form that does not yet ask which server the
+            // problem is about.
+            'server_id' => $model->server_id,
             'last_reply_at' => $model->last_reply_at?->toIso8601String(),
             'user' => $model->user,
             'assigned_to' => $model->assignedTo,

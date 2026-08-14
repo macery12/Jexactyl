@@ -16,6 +16,8 @@ use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Tools\ToolDefinition;
+use Everest\Services\AI\Agent\AssistAuthorizer;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
@@ -78,6 +80,18 @@ trait HandlesAgentTurns
                 ));
             }
 
+            // Re-announced at the top of every turn that carries one, so the
+            // banner naming the customer's server is on screen before the first
+            // token arrives rather than only on the turn that opened it.
+            if ($context->assist !== null && $context->targetServer() !== null) {
+                $this->write('data: ' . json_encode(AgentEvent::assist(
+                    $context->assist->serverUuid,
+                    $context->assist->serverName,
+                    $context->assist->writable,
+                    $context->assist->reason,
+                )->toArray()));
+            }
+
             $startedAt = microtime(true);
             $status = 'success';
             $error = null;
@@ -105,8 +119,10 @@ trait HandlesAgentTurns
             $this->write('data: [DONE]');
 
             // Rolls the conversation's expiry forward the same way a manual
-            // append does, so an active chat is not reaped mid-use.
-            $recorder->touch($conversation);
+            // append does, so an active chat is not reaped mid-use, and banks
+            // the turn's redaction tokens and assist session against the
+            // conversation so neither has to be re-established on the next turn.
+            $recorder->touch($conversation, $context);
 
             try {
                 AiUsageLog::create([
@@ -141,13 +157,51 @@ trait HandlesAgentTurns
      */
     protected function restoreTurn(AiPendingAction $pending, $user, ?Server $server): AgentContext
     {
-        return AgentContext::fromState(
+        $context = AgentContext::fromState(
             $user,
             $server,
             $pending->turn_id,
             $pending->conversation_id,
             $pending->state,
         )->withRecorder($this->turnRecorder());
+
+        $this->restoreAssist($context);
+
+        return $context;
+    }
+
+    /**
+     * Re-attach an assist session to its server, or drop it.
+     *
+     * `fromState()` deliberately rebuilds a binding without its server, leaving
+     * it inert. This is where it becomes real again — and it becomes real only
+     * if the server still exists and the administrator still holds
+     * `servers.assist`. Neither answer is read from the stored blob, because the
+     * blob was written before the administrator went to lunch and their Access
+     * Profile may have been narrowed while the approval sat on screen.
+     *
+     * A binding that fails either check is simply dropped: the turn resumes on
+     * the admin surface with no access to the customer's server, which is what
+     * an administrator without the capability should have had all along.
+     */
+    protected function restoreAssist(AgentContext $context): void
+    {
+        $binding = $context->assist;
+
+        if ($binding === null || $context->pendingAssistUuid() === null) {
+            return;
+        }
+
+        $authorizer = app(AssistAuthorizer::class);
+        $server = $authorizer->reauthorize($context->user, $binding);
+
+        if ($server === null) {
+            $context->assist = null;
+
+            return;
+        }
+
+        $context->bindAssist($binding, $server);
     }
 
     /**
@@ -210,7 +264,7 @@ trait HandlesAgentTurns
         $definition = $this->toolRegistry()->find($pending->tool_name);
         $callId = $this->resolveToolCallId($pending, $context);
 
-        if ($definition === null || !$this->toolRegistry()->canUse($context->user, $context->server, $definition)) {
+        if ($definition === null || !$this->stillUsable($context, $definition)) {
             $context->push(
                 AiMessage::tool(
                     $callId,
@@ -230,10 +284,25 @@ trait HandlesAgentTurns
         $risk = $this->toolRiskGate()->resolve($definition, $pending->arguments);
 
         $call = new ToolCallData($callId, $definition->name, $pending->arguments);
-        $result = $runner->runTool($context, $call, $definition, $pending->arguments, $risk);
+        $emit = fn (AgentEvent $event) => $this->write('data: ' . json_encode($event->toArray()));
 
-        $this->write('data: ' . json_encode(
-            AgentEvent::toolResult($callId, $definition->name, $result->ok, $result->summary())->toArray()
+        $startedAt = microtime(true);
+        $result = $definition->hostHandled
+            ? $runner->runHostTool($context, $call, $definition, $pending->arguments, $emit)
+            : $runner->runTool($context, $call, $definition, $pending->arguments, $risk);
+
+        $fresh = $context->redactions->drainFresh();
+        if ($fresh !== []) {
+            $emit(AgentEvent::redaction($fresh));
+        }
+
+        $emit(AgentEvent::toolResult(
+            $callId,
+            $definition->name,
+            $result->ok,
+            $result->summary(),
+            $result->ok ? $result->data : null,
+            (int) round((microtime(true) - $startedAt) * 1000),
         ));
 
         $context->push(
@@ -246,6 +315,35 @@ trait HandlesAgentTurns
         AiToolCall::where('turn_id', $pending->turn_id)
             ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
             ->update(['status' => AiToolCall::STATUS_APPROVED, 'resolved_at' => now()]);
+    }
+
+    /**
+     * Whether an approved call may still run.
+     *
+     * Asked again on resume rather than trusted from the moment it was offered,
+     * because an approval can sit on screen for minutes and an operator may have
+     * changed something in between.
+     *
+     * A server-scoped tool reached through an assist session is judged against
+     * the *binding* rather than the acting user's own access to that server —
+     * which they do not have, and which is the entire point of the binding.
+     * `restoreAssist()` has already re-checked the capability behind it, so a
+     * binding present here is one that has just been re-authorized.
+     */
+    protected function stillUsable(AgentContext $context, $definition): bool
+    {
+        $registry = $this->toolRegistry();
+
+        if (
+            $context->assist !== null
+            && $context->server === null
+            && $definition->scope === ToolDefinition::SCOPE_SERVER
+        ) {
+            return $context->targetServer() !== null
+                && $registry->assistPermits($definition, $context->assist->tools(), $context->assist->abilities);
+        }
+
+        return $registry->canUse($context->user, $context->server, $definition);
     }
 
     /**

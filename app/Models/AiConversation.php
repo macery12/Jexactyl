@@ -15,6 +15,8 @@ class AiConversation extends Model
         'server_uuid',
         'scope',
         'title',
+        'redactions',
+        'assist',
         'is_saved',
         'expires_at',
     ];
@@ -28,6 +30,16 @@ class AiConversation extends Model
     protected $casts = [
         'is_saved' => 'boolean',
         'expires_at' => 'datetime',
+        // token => original value, for the personal data kept out of the
+        // requests this conversation made. Written so a transcript reloaded
+        // tomorrow still reads as something other than `[email_1]`, and dropped
+        // with the conversation when it expires.
+        'redactions' => 'array',
+        // The audited session open on a customer's server. Stored so a
+        // follow-up question in the same conversation does not need re-approving
+        // — the capability behind it is re-checked on every turn regardless, so
+        // this grants nothing on its own.
+        'assist' => 'array',
     ];
 
     /** How many days before an unsaved conversation expires. */

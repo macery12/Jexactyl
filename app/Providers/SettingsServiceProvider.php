@@ -102,6 +102,7 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:warm',
         'modules:ai:agent:enabled',
         'modules:ai:agent:admin_enabled',
+        'modules:ai:agent:reasoning',
         'modules:ai:agent:max_steps',
         'modules:ai:agent:max_wall_seconds',
         'modules:ai:agent:tool_result_bytes',
@@ -113,10 +114,12 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:concurrency:per_user',
         'modules:ai:budget:enforce',
         'modules:ai:budget:monthly_tokens',
+        'modules:ai:privacy:enabled',
         // NB: the tool policy is stored as JSON blobs under
         // `modules:ai:risk_overrides`, `modules:ai:disabled_tools` and
         // `modules:ai:console:safe_commands`, and read directly via
         // Setting::get rather than being hydrated into config.
+        // `modules:ai:privacy:categories` is a JSON list read the same way.
 
         // Webhook module settings
         'modules:webhooks:enabled',

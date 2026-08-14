@@ -115,6 +115,10 @@ class AgentController extends ClientApiController
             ->withMessages($this->recorder->loadHistory($conversation?->id))
             ->withRecorder($this->recorder);
 
+        // Carried forward so a token minted on an earlier turn still stands for
+        // the same value on this one.
+        $context->redactions = $this->recorder->loadRedactions($conversation);
+
         $context->push(AiMessage::user($query));
 
         return $this->streamTurn($context, conversation: $conversation);

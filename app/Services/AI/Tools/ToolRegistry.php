@@ -123,6 +123,72 @@ class ToolRegistry
     }
 
     /**
+     * The server-scoped tools an administrator's assist session may use.
+     *
+     * Takes plain arrays rather than the binding object so this file stays free
+     * of any dependency on the agent loop — the registry is a catalogue, and it
+     * should not need to know what an assist session is to describe one.
+     *
+     * Both lists have to agree for a tool to appear, and they are checked
+     * independently on purpose. The names decide what the model is *shown*; the
+     * abilities decide what the panel will actually *run*, and are the same
+     * strings `ServerPolicy` is asked about at dispatch. A tool that appeared in
+     * one list but not the other would be offered and then refused, which is
+     * ugly but safe; the reverse cannot happen, because the ability list is
+     * still the boundary.
+     *
+     * The group gate is deliberately skipped: a binding names its tools
+     * outright, so there is nothing left for a group to reveal.
+     *
+     * @param string[] $toolNames
+     * @param string[] $abilities
+     *
+     * @return ToolDefinition[]
+     */
+    public function forAssist(array $toolNames, array $abilities): array
+    {
+        $disabled = $this->riskGate->disabledTools();
+        $available = [];
+
+        foreach ($this->all() as $definition) {
+            if ($definition->scope !== ToolDefinition::SCOPE_SERVER) {
+                continue;
+            }
+
+            if (in_array($definition->name, $disabled, true)) {
+                continue;
+            }
+
+            if ($this->assistPermits($definition, $toolNames, $abilities)) {
+                $available[] = $definition;
+            }
+        }
+
+        return $available;
+    }
+
+    /**
+     * Whether one tool is within an assist session's grant.
+     *
+     * @param string[] $toolNames
+     * @param string[] $abilities
+     */
+    public function assistPermits(ToolDefinition $definition, array $toolNames, array $abilities): bool
+    {
+        if (!in_array($definition->name, $toolNames, true)) {
+            return false;
+        }
+
+        foreach ($definition->permissions as $permission) {
+            if (!in_array($permission, $abilities, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @param string[] $activeGroups
      * @param callable(ToolDefinition): bool $permitted
      *
@@ -377,5 +443,22 @@ class ToolRegistry
         return $server === null
             ? $this->adminContext($arguments)
             : $this->serverContext($server, $arguments);
+    }
+
+    /**
+     * The URI context for one specific tool.
+     *
+     * Branches on the *tool's* scope rather than on whether a server is present,
+     * which matters once an admin turn can have both. During an assist session
+     * `admin_ticket_view` and `files_read` run in the same turn with a server in
+     * hand, and only the second of them wants it interpolated — asking "is there
+     * a server?" would feed a server uuid into the admin URI builder and quietly
+     * mangle every id the model supplied.
+     */
+    public function contextForTool(ToolDefinition $definition, ?Server $server, array $arguments = []): array
+    {
+        return $definition->scope === ToolDefinition::SCOPE_SERVER && $server !== null
+            ? $this->serverContext($server, $arguments)
+            : $this->adminContext($arguments);
     }
 }
