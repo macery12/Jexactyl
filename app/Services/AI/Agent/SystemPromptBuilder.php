@@ -2,9 +2,12 @@
 
 namespace Everest\Services\AI\Agent;
 
+use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
  * Builds the agent's system prompt.
@@ -39,8 +42,15 @@ class SystemPromptBuilder
     {
     }
 
-    public function build(AgentContext $context): string
+    /**
+     * @param AiTool[] $tools the set actually offered this step, so the prompt
+     *                        describes the tools the model has rather than the
+     *                        ones the panel can in principle provide
+     */
+    public function build(AgentContext $context, array $tools = []): string
     {
+        $offered = array_map(static fn (AiTool $tool) => $tool->name, $tools);
+
         $sections = $context->server === null
             ? [$this->adminRole(), $this->adminFacts($context), $this->adminRules()]
             : [$this->role(), $this->serverFacts($context), $this->rules()];
@@ -57,13 +67,46 @@ class SystemPromptBuilder
             $sections[] = $privacy;
         }
 
-        $sections[] = $this->questionRule();
+        if (($groups = $this->groupRule($offered)) !== null) {
+            $sections[] = $groups;
+        }
+
+        if (($question = $this->questionRule($offered)) !== null) {
+            $sections[] = $question;
+        }
 
         if (($custom = $this->operatorPrompt()) !== null) {
             $sections[] = $custom;
         }
 
         return implode("\n\n", array_filter($sections));
+    }
+
+    /**
+     * That the toolset can be widened at all.
+     *
+     * Nothing said this before, on either surface. The mechanism was described
+     * only in the meta-tool's own description, which is the one place a model
+     * that has decided it lacks a capability has already stopped reading — so
+     * the usual outcome was an apology for being unable to do something that
+     * was one call away. Stated only when the tool is actually on offer, since
+     * on a narrow assist session it is not.
+     *
+     * @param string[] $offered
+     */
+    protected function groupRule(array $offered): ?string
+    {
+        if (!in_array(ToolRegistry::META_ACTIVATE_GROUP, $offered, true)) {
+            return null;
+        }
+
+        return 'The tools you can see are not all the tools there are. When a task needs a '
+            . 'capability none of your current tools covers, call activate_tool_group to load '
+            . 'the group that has it, then carry on in the same turn — it lists what each group '
+            . 'contains. Do not tell the user you are unable to do something until you have '
+            . 'checked that list. Equally, do not load a group on the chance it might help: '
+            . 'everything you need to read or inspect is already in front of you, and the '
+            . 'groups hold the tools that change or remove things.';
     }
 
     protected function role(): string
@@ -272,19 +315,41 @@ class SystemPromptBuilder
     }
 
     /**
-     * How to use `ask_user`. Shared by both surfaces.
+     * When to put a question to the user.
      *
-     * Worth its own section because the failure mode is asymmetric: a model
-     * that asks too little makes a wrong assumption the user can see and
-     * correct, while a model that asks too much burns the turn's whole step
-     * budget on a conversation that never touched the panel.
+     * Previously three prohibitions and no permission, which read as a warning
+     * rather than a capability and left the tool essentially unused — the model
+     * would instead pick one of the candidates and act, which is the worse
+     * failure of the two, because a wrong guess acts on someone's live server
+     * while a question merely costs a step.
+     *
+     * The cases are named concretely for the same reason the rules elsewhere
+     * name paths: "when it is ambiguous" is a judgement a small model makes
+     * badly, and "when two files match" is one it makes well.
+     *
+     * @param string[] $offered
      */
-    protected function questionRule(): string
+    protected function questionRule(array $offered): ?string
     {
-        return 'If you have an ask_user tool, use it only when the answer would change what you do '
-            . 'next and no tool can tell you. Do not use it to confirm something you could look up, '
-            . 'to announce what you are about to do, or to ask permission — changes you propose are '
-            . 'already shown to the user for approval before they run.';
+        if (!in_array(SharedTools::ASK_USER, $offered, true)) {
+            return null;
+        }
+
+        return <<<'PROMPT'
+            Asking the user:
+
+            - Use ask_user when the work has more than one reasonable target and picking wrong
+              would mean acting on the wrong thing — two config files that both match, a setting
+              that appears in several places, an instruction that could mean either of two
+              servers. Offer the candidates you found as the options.
+            - Ask before you act, not after. A question is cheap; undoing a change to the wrong
+              file is not.
+            - Do not ask what a tool can tell you. Look first, and ask only about what the
+              results left genuinely open.
+            - Do not ask for permission or confirmation. Anything you propose that changes the
+              server is already shown to the user to approve before it runs, so asking "shall I?"
+              spends a step to arrive back where you started.
+            PROMPT;
     }
 
     /**

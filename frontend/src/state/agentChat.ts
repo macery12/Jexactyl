@@ -35,6 +35,17 @@ export interface QuestionOption {
 export type ChatEntry =
     | { kind: 'user'; key: string; content: string }
     | { kind: 'assistant'; key: string; content: string; streaming?: boolean; error?: boolean }
+    /**
+     * Why the turn stopped, when it stopped for a reason that is not an answer.
+     *
+     * Its own kind rather than an error bubble: hitting the step ceiling is a
+     * boundary working as designed, not a fault, and styling it as a failure
+     * would teach people to distrust a limit that is protecting them. What it
+     * must not do is stay silent — a turn that gives up looks exactly like a
+     * turn that finished, and that is the difference between an assistant that
+     * ran out of room and one that is simply unreliable.
+     */
+    | { kind: 'notice'; key: string; content: string }
     | {
           kind: 'reasoning';
           key: string;
@@ -539,7 +550,27 @@ export function createAgentChatStore(
                     fail(event.error);
                     break;
 
-                case 'done':
+                case 'done': {
+                    // 'complete' is the ordinary ending and speaks for itself —
+                    // the answer is right there. The two ceilings do not: the
+                    // stream simply closes, and nothing on screen distinguishes
+                    // "finished" from "stopped".
+                    const ended =
+                        event.reason === 'step_limit'
+                            ? m['server.ai.endedStepLimit']()
+                            : event.reason === 'time_limit'
+                              ? m['server.ai.endedTimeLimit']()
+                              : null;
+
+                    if (ended !== null) {
+                        sealAssistant();
+                        set(state => ({
+                            entries: [...state.entries, { kind: 'notice', key: nextKey(), content: ended }],
+                        }));
+                    }
+                    break;
+                }
+
                 case 'operation':
                     break;
             }

@@ -103,8 +103,13 @@ class AgentRunner
             ++$context->step;
             $emit(AgentEvent::step($context->step, $maxSteps));
 
+            // Capped before conversion, not after: the cap has to tell a base
+            // tool from a grouped one, and an AiTool has dropped that by the
+            // time it is wire-shaped. `toAiTools()` appends the group meta-tool
+            // afterwards, which is what keeps it out of the budget.
             [$definitions, $groups] = $this->offerings($context);
-            $tools = $this->capTools($this->registry->toAiTools($definitions, $groups));
+            $definitions = $this->capDefinitions($context, $definitions);
+            $tools = $this->registry->toAiTools($definitions, $groups);
 
             $response = $this->callModel($context, $tools, $emit);
 
@@ -115,12 +120,36 @@ class AgentRunner
             // Nothing structured came back. If the text looks like a botched
             // call, spend a repair round under a schema-constrained grammar
             // rather than throwing away the step.
+            $repaired = false;
+
             if ($calls === [] && $this->shouldRepair($context, $text)) {
                 ++$context->repairs;
+                $repaired = true;
                 $calls = $this->repair($context, $tools, $text);
             }
 
             if ($calls === []) {
+                // A repair that produced nothing means `$text` is the malformed
+                // call that triggered it — `looksLikeAttempt()` said so. Pushing
+                // it as the answer would put a wall of half-written JSON on the
+                // user's screen labelled as a completed turn, which is exactly
+                // the failure mode of the small local models the salvager exists
+                // for. Better to say what happened.
+                if ($repaired) {
+                    Log::warning('AI agent turn abandoned: unrepairable tool call', [
+                        'turn' => $context->turnId,
+                        'step' => $context->step,
+                    ]);
+
+                    $emit(AgentEvent::error(
+                        'The model tried to use a tool but could not write the request correctly. '
+                            . 'This usually means the model is too small for the number of tools it was '
+                            . 'offered — try again, or ask an administrator to lower the tool limit.'
+                    ));
+
+                    return;
+                }
+
                 $context->push(AiMessage::assistant($text));
                 $emit(AgentEvent::done('complete'));
 
@@ -242,7 +271,11 @@ class AgentRunner
 
         $request = (new AiRequest(
             messages: $context->messages,
-            systemPrompt: $this->promptBuilder->build($context),
+            // The offered set is passed because two of the prompt's sections are
+            // about tools that may not be on the table this step — the group
+            // meta-tool and `ask_user`. Built without it they return null, which
+            // silently drops the guidance on every step but a repair.
+            systemPrompt: $this->promptBuilder->build($context, $tools),
             tools: $tools,
             // Tool selection benefits from determinism far more than prose
             // does; the configured temperature applies to the final answer.
@@ -324,7 +357,7 @@ class AgentRunner
                     AiMessage::assistant($text),
                     AiMessage::user('That was not a valid tool call. Reply with only the JSON object for the tool you want to call.'),
                 ]),
-                systemPrompt: $this->promptBuilder->build($context),
+                systemPrompt: $this->promptBuilder->build($context, $tools),
                 tools: $tools,
                 temperature: 0.0,
             ))->withResponseSchema($this->salvager->repairSchema($tools));
@@ -374,7 +407,7 @@ class AgentRunner
                 $context->activeGroups[] = $group;
             }
 
-            $this->pushToolResult($context, $call, ToolResult::ok(['activated' => $group]));
+            $this->pushToolResult($context, $call, ToolResult::ok($this->activationReport($context, $group)));
 
             return 'continued';
         }
@@ -758,7 +791,13 @@ class AgentRunner
             'turn_id' => $context->turnId,
             'conversation_id' => $context->conversationId,
             'user_id' => $context->user->id,
-            'server_uuid' => $context->server?->uuid,
+            // The server this call will actually touch, which during an assist
+            // session is the customer's rather than none at all. Reading
+            // `$context->server` here recorded null on exactly the calls that
+            // most need attributing: an admin turn has no bound server by
+            // construction, so every approval-gated write on somebody else's
+            // machine was audited against nothing.
+            'server_uuid' => $context->targetServer()?->uuid,
             'scope' => $context->scope(),
             'tool_name' => $definition->name,
             'risk' => $risk,
@@ -823,7 +862,9 @@ class AgentRunner
             [
                 'conversation_id' => $context->conversationId,
                 'user_id' => $context->user->id,
-                'server_uuid' => $context->server?->uuid,
+                // See `suspend()`: the server the pending call is against, not
+                // the surface's own binding.
+                'server_uuid' => $context->targetServer()?->uuid,
                 'scope' => $context->scope(),
                 'tool_name' => $toolName,
                 // The model's own id for this call. Resuming has to answer with
@@ -853,19 +894,150 @@ class AgentRunner
     }
 
     /**
-     * Keep the offered set small. Local models degrade sharply past roughly
-     * fifteen tools, and the base set is ordered most-useful-first so a cap
-     * drops the least relevant.
+     * Tools that are never subject to the cap.
      *
-     * @param AiTool[] $tools
+     * `ask_user` is the agent's way out of a position it cannot otherwise leave,
+     * so spending cap budget on it defeats the mechanism the budget exists to
+     * serve. `activate_tool_group` needs no entry here: the registry appends it
+     * after the cap has already run, in `toAiTools()`.
      *
-     * @return AiTool[]
+     * Ordering these last and letting `array_slice()` take the tail meant that
+     * on a server turn with a fully-permissioned user the offered set came to
+     * exactly one over the cap, and the tool that was dropped was
+     * `activate_tool_group` — so every grouped tool became unreachable, on the
+     * surface where most of them live. It failed upward, too: a user with fewer
+     * permissions offered fewer tools, came in under the cap, and kept the
+     * meta-tool the owner had lost.
      */
-    protected function capTools(array $tools): array
+    private const UNCAPPED_TOOLS = [
+        SharedTools::ASK_USER,
+    ];
+
+    /**
+     * Keep the offered set small. Local models degrade sharply once too many
+     * tools are in play — a 3B model given twenty schemas tends to call the
+     * first one that parses rather than the one that fits.
+     *
+     * **The base set is reserved; only groups are capped.** Those two halves
+     * fail differently and that asymmetry is the whole design. A missing read is
+     * indistinguishable to the model from a capability the panel does not have,
+     * so it stops and says it cannot help — while a group that only partly
+     * loaded is a fact the model can be *told*, and `activationReport()` tells
+     * it. One failure is silent and terminal, the other is legible and
+     * recoverable, so the budget is spent on the side that can recover.
+     *
+     * The base set overrunning the cap on its own is a real configuration — an
+     * operator who set `max_tools` to 8 for a small model — and there is no good
+     * answer to it, so it truncates and warns rather than quietly exceeding what
+     * the operator asked for.
+     *
+     * @param ToolDefinition[] $definitions
+     *
+     * @return ToolDefinition[]
+     */
+    protected function capDefinitions(AgentContext $context, array $definitions): array
     {
         $max = $this->maxTools();
 
-        return count($tools) <= $max ? $tools : array_slice($tools, 0, $max);
+        $reserved = [];
+        $base = [];
+        $grouped = [];
+
+        foreach ($definitions as $definition) {
+            if (in_array($definition->name, self::UNCAPPED_TOOLS, true)) {
+                $reserved[] = $definition;
+            } elseif ($definition->group === null) {
+                $base[] = $definition;
+            } else {
+                $grouped[] = $definition;
+            }
+        }
+
+        if (count($base) > $max) {
+            $this->warnCap($context, $max, array_slice($base, $max));
+
+            return array_merge(array_slice($base, 0, $max), $reserved);
+        }
+
+        $room = $max - count($base);
+
+        if (count($grouped) > $room) {
+            $this->warnCap($context, $max, array_slice($grouped, $room));
+        }
+
+        return array_merge($base, array_slice($grouped, 0, $room), $reserved);
+    }
+
+    /**
+     * Say once per turn that the cap bit, and on what.
+     *
+     * Latched on the context because `capDefinitions()` runs per step: an
+     * over-cap turn would otherwise write the same warning up to twelve times.
+     * Silence is not an option either — it is how the truncation went unnoticed
+     * in the first place, since the model simply behaves as though a capability
+     * does not exist, which reads exactly like it not being configured.
+     *
+     * @param ToolDefinition[] $dropped
+     */
+    private function warnCap(AgentContext $context, int $max, array $dropped): void
+    {
+        $names = array_map(fn (ToolDefinition $d) => $d->name, $dropped);
+        $signature = implode(',', $names);
+
+        if (in_array($signature, $context->capWarnings, true)) {
+            return;
+        }
+
+        $context->capWarnings[] = $signature;
+
+        Log::warning(sprintf(
+            'AI agent tool cap reached (max_tools=%d): dropped %d tool(s) — %s',
+            $max,
+            count($names),
+            implode(', ', $names)
+        ));
+    }
+
+    /**
+     * What activating a group actually loaded.
+     *
+     * The model is told rather than left to infer, because the alternative is
+     * indistinguishable from the activation having failed: it asks for
+     * "backups", the next step offers no backup tools, and the only conclusion
+     * available to it is that the panel is broken. Naming what did not fit also
+     * gives it something to act on — dropping a group it no longer needs is a
+     * move it can make, and cannot make blind.
+     *
+     * @return array<string, mixed>
+     */
+    protected function activationReport(AgentContext $context, string $group): array
+    {
+        [$definitions] = $this->offerings($context);
+        $capped = $this->capDefinitions($context, $definitions);
+
+        $loaded = [];
+        foreach ($capped as $definition) {
+            if ($definition->group === $group) {
+                $loaded[] = $definition->name;
+            }
+        }
+
+        $missing = [];
+        foreach ($definitions as $definition) {
+            if ($definition->group === $group && !in_array($definition->name, $loaded, true)) {
+                $missing[] = $definition->name;
+            }
+        }
+
+        $report = ['activated' => $group, 'tools' => $loaded];
+
+        if ($missing !== []) {
+            $report['not_loaded'] = $missing;
+            $report['note'] = 'This turn is at its tool limit, so those did not fit. Use what loaded, or '
+                . 'say which one you need and why.';
+        }
+
+        return $report;
     }
 
     /*
@@ -891,7 +1063,7 @@ class AgentRunner
 
     protected function maxTools(): int
     {
-        return max(4, (int) $this->setting('agent:max_tools', config('modules.ai.agent.max_tools', 15)));
+        return max(4, (int) $this->setting('agent:max_tools', config('modules.ai.agent.max_tools', 20)));
     }
 
     /**

@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FieldGrid, FieldRow, SaveBar, SectionCard } from '@/components/ui/editorChrome';
+import { SettingNotice } from '../SettingNotice';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import {
@@ -195,6 +196,12 @@ export default function ProviderPage() {
                             placeholder={DEFAULT_ENDPOINTS[value.provider] || 'https://…'}
                         />
                     </FieldRow>
+
+                    {capabilities.shimmedOllama && (
+                        <SettingNotice title={m['admin.ai.settings.shimWarnTitle']()}>
+                            {m['admin.ai.settings.shimWarnBody']()}
+                        </SettingNotice>
+                    )}
 
                     {capabilities.apiKey ? (
                         <FieldRow label={m['admin.ai.settings.apiKey']()}>

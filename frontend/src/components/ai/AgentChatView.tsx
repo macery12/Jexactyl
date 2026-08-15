@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Bot } from 'lucide-react';
+import { Bot, CircleAlert } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import type { StoreApi, UseBoundStore } from 'zustand';
@@ -140,6 +140,18 @@ export function AgentChatView({
 
                             if (entry.kind === 'reasoning') {
                                 return <ThinkingBlock key={entry.key} entry={entry} />;
+                            }
+
+                            if (entry.kind === 'notice') {
+                                return (
+                                    <div
+                                        key={entry.key}
+                                        className="flex items-start gap-2 border-l-2 border-[var(--color-border-strong)] px-3 py-1.5 text-xs text-[var(--color-ink-muted)]"
+                                    >
+                                        <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-ink-faint)]" />
+                                        <span>{entry.content}</span>
+                                    </div>
+                                );
                             }
 
                             if (entry.kind === 'tool') {

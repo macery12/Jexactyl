@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Spinner } from '@/components/ui/Spinner';
 import { FieldRow, SaveBar, SectionCard } from '@/components/ui/editorChrome';
 import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
+import { SettingNotice } from '../SettingNotice';
 import { SliderRow } from '../SliderRow';
 import { useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
 
@@ -140,6 +141,14 @@ export default function GenerationPage() {
                             onChange={event => patch({ context_tokens: Number(event.target.value) })}
                         />
                     </FieldRow>
+                )}
+
+                {capabilities.unboundedContext && (
+                    <SettingNotice title={m['admin.ai.settings.contextUnboundTitle']()}>
+                        {m['admin.ai.settings.contextUnboundBody']({
+                            tokens: (capabilities.probedContextTokens ?? 0).toLocaleString(),
+                        })}
+                    </SettingNotice>
                 )}
 
                 <IgnoredSettings items={ignored} />

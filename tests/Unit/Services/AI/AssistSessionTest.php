@@ -19,6 +19,7 @@ use Everest\Services\AI\Tools\ConsoleCommandGate;
 use Everest\Services\AI\Agent\SystemPromptBuilder;
 use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
  * An administrator's audited session inside a customer's server.
@@ -260,27 +261,32 @@ class AssistSessionTest extends TestCase
     }
 
     /**
-     * `capTools()` truncates the tail without saying so, and the tail here is
-     * the companion admin tools — so an offering one over the cap does not fail
-     * loudly, it quietly removes the ability to re-read the ticket at the exact
-     * point the session starts changing things.
+     * `capTools()` truncates the tail, and the tail here is the companion admin
+     * tools — so an offering over the cap quietly removes the ability to re-read
+     * the ticket at the exact point the session starts changing things. It now
+     * says so in the log, but a session that only works because someone reads
+     * the log is still a session that does not work.
      */
     public function testASessionFitsInsideTheToolCap(): void
     {
         $registry = $this->registry($this->authorizer([], owner: true));
 
-        // The loop appends `activate_tool_group` whenever any group is still
-        // dormant, and it counts against the same cap.
-        $cap = (int) config('modules.ai.agent.max_tools') - 1;
+        $cap = (int) config('modules.ai.agent.max_tools');
 
         foreach ([false, true] as $writable) {
-            $offered = $this->offerings($registry, $this->binding(writable: $writable));
+            // `ask_user` rides along in the offering but is exempt from the cap,
+            // as is the `activate_tool_group` the loop appends — so neither is
+            // counted here. See AgentRunner::UNCAPPED_TOOLS.
+            $offered = array_values(array_diff(
+                $this->offerings($registry, $this->binding(writable: $writable)),
+                [SharedTools::ASK_USER]
+            ));
 
             $this->assertLessThanOrEqual(
                 $cap,
                 count($offered),
                 sprintf(
-                    '%s assist offers %d tools against a cap of %d; %s would be dropped silently.',
+                    '%s assist offers %d scoped tools against a cap of %d; %s would be dropped.',
                     $writable ? 'A writable' : 'A read-only',
                     count($offered),
                     $cap,

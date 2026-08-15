@@ -15,31 +15,51 @@ use Everest\Services\AI\Tools\ToolDefinition;
  *
  * Tools without a group form the base set that is always offered. The rest sit
  * behind groups the agent activates on demand, because small local models
- * degrade sharply once more than roughly fifteen tools are in play.
+ * degrade sharply once too many tools are in play.
+ *
+ * The split is by *what a tool does to the server*, not by feature area. An
+ * earlier arrangement grouped by area — backups, databases, network, mods — and
+ * the effect was that reading the port list needed an activation step while
+ * deleting a directory did not: nine of the fourteen always-offered tools wrote
+ * to the server, and seven of the twelve read-only ones were gated. Most
+ * questions a user actually asks ("what port am I on", "do I have backups",
+ * "which plugins are installed") are answered by a single cheap read, so a read
+ * is never worth a round trip to unlock. Reads are also the tools whose results
+ * make the following write correct, and an agent that cannot look is left
+ * guessing at exactly the moment it is about to change something.
+ *
+ * So: every read is always offered, along with the writes common enough that
+ * gating them would cost a step on most turns. What is left behind a group is
+ * the rarer, heavier writes — and those already stop for an approval, so the
+ * activation call lands on a turn that was going to pause anyway.
  */
 class ServerTools
 {
     use DefinesToolSchemas;
 
+    public const GROUP_FILES_EDIT = 'files_edit';
     public const GROUP_BACKUPS = 'backups';
-    public const GROUP_ARCHIVES = 'archives';
-    public const GROUP_DATABASES = 'databases';
-    public const GROUP_SCHEDULES = 'schedules';
-    public const GROUP_NETWORK = 'network';
-    public const GROUP_MODS = 'mods';
 
+    /**
+     * Each description says what the group does *not* cover, because the
+     * failure mode is not a model that misses a group — it is one that spends a
+     * step activating "backups" to answer "do I have any", which it could
+     * already do.
+     */
     public const GROUP_DESCRIPTIONS = [
-        self::GROUP_BACKUPS => 'Create, list, restore and delete server backups.',
-        self::GROUP_ARCHIVES => 'Compress and extract archives, including world folders.',
-        self::GROUP_DATABASES => 'List and manage the server\'s databases.',
-        self::GROUP_SCHEDULES => 'Inspect and manage scheduled tasks.',
-        self::GROUP_NETWORK => 'Inspect the server\'s ports and allocations.',
-        self::GROUP_MODS => 'Inspect installed mods and plugins, and the detected loader.',
+        self::GROUP_FILES_EDIT => 'Create, rename, copy, delete, compress and extract files. '
+            . 'Not needed to list, read or edit a file — those tools you already have.',
+        self::GROUP_BACKUPS => 'Create, restore and delete backups. '
+            . 'Not needed to list them — backups_list you already have.',
     ];
 
     private const BASE = '/api/client/servers/{server}';
 
     /**
+     * Ordered most-useful-first: an operator who lowers `max_tools` for a small
+     * model truncates the tail, so the tail is where the least-reached-for tools
+     * belong.
+     *
      * @return ToolDefinition[]
      */
     public static function all(): array
@@ -47,12 +67,9 @@ class ServerTools
         return array_merge(
             self::core(),
             self::files(),
-            self::backups(),
-            self::archives(),
-            self::databases(),
-            self::schedules(),
-            self::network(),
-            self::mods(),
+            self::inspect(),
+            self::fileEdits(),
+            self::backupWrites(),
         );
     }
 
@@ -282,6 +299,161 @@ class ServerTools
                 ],
             ),
 
+        ];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Inspection
+    |--------------------------------------------------------------------------
+    |
+    | Read-only lookups, always offered. Each is one call with a shaped result,
+    | and between them they answer most of what is ever asked without the agent
+    | having to unlock anything first.
+    */
+
+    /**
+     * @return ToolDefinition[]
+     */
+    private static function inspect(): array
+    {
+        return [
+            new ToolDefinition(
+                name: 'minecraft_server_info',
+                description: 'Detect the Minecraft version, mod loader and platform for this server. Use it before giving version-specific advice.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: self::BASE . '/mods/server-config',
+                permissions: [Permission::ACTION_FILE_READ],
+            ),
+
+            new ToolDefinition(
+                name: 'mods_installed',
+                description: 'List the mod and plugin jars installed on this server.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: self::BASE . '/plugins/installed',
+                permissions: [Permission::ACTION_FILE_READ],
+                resultShaper: static fn (mixed $data) => self::mapList(
+                    is_array($data['data'] ?? null) ? $data : ['data' => $data],
+                    static fn (array $a) => [
+                        'name' => $a['name'] ?? ($a['file'] ?? null),
+                        'enabled' => $a['enabled'] ?? null,
+                    ],
+                    120
+                ),
+            ),
+
+            new ToolDefinition(
+                name: 'backups_list',
+                description: 'List the server\'s backups, newest first.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: self::BASE . '/backups',
+                permissions: [Permission::ACTION_BACKUP_READ],
+                resultShaper: static fn (mixed $data) => self::mapList(
+                    $data,
+                    static fn (array $a) => [
+                        'uuid' => $a['uuid'] ?? null,
+                        'name' => $a['name'] ?? null,
+                        'bytes' => $a['bytes'] ?? null,
+                        'successful' => $a['is_successful'] ?? null,
+                        'locked' => $a['is_locked'] ?? null,
+                        'created_at' => $a['created_at'] ?? null,
+                    ],
+                    40
+                ),
+            ),
+
+            new ToolDefinition(
+                name: 'allocations_list',
+                description: 'List the server\'s IP addresses and ports.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: self::BASE . '/network/allocations',
+                permissions: [Permission::ACTION_ALLOCATION_READ],
+                resultShaper: static fn (mixed $data) => self::mapList(
+                    $data,
+                    static fn (array $a) => [
+                        'ip' => $a['ip'] ?? null,
+                        'port' => $a['port'] ?? null,
+                        'primary' => $a['is_default'] ?? null,
+                        'notes' => $a['notes'] ?? null,
+                    ],
+                    25
+                ),
+            ),
+
+            new ToolDefinition(
+                name: 'databases_list',
+                description: 'List the server\'s databases and their connection details.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: self::BASE . '/databases',
+                permissions: [Permission::ACTION_DATABASE_READ],
+                resultShaper: static fn (mixed $data) => self::mapList(
+                    $data,
+                    static fn (array $a) => [
+                        'id' => $a['id'] ?? null,
+                        'name' => $a['name'] ?? null,
+                        'username' => $a['username'] ?? null,
+                        'host' => $a['host']['address'] ?? null,
+                    ],
+                    25
+                ),
+            ),
+
+            new ToolDefinition(
+                name: 'schedules_list',
+                description: 'List the server\'s scheduled tasks and when they next run.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: self::BASE . '/schedules',
+                permissions: [Permission::ACTION_SCHEDULE_READ],
+                resultShaper: static fn (mixed $data) => self::mapList(
+                    $data,
+                    static fn (array $a) => [
+                        'id' => $a['id'] ?? null,
+                        'name' => $a['name'] ?? null,
+                        'active' => $a['is_active'] ?? null,
+                        'next_run_at' => $a['next_run_at'] ?? null,
+                    ],
+                    25
+                ),
+            ),
+
+            new ToolDefinition(
+                name: 'files_download_url',
+                description: 'Get a time-limited download link for a file, to give the user when they asked for something extracted or exported.',
+                parameters: self::object([
+                    'file' => self::string('Absolute path of the file.'),
+                ], ['file']),
+                method: 'GET',
+                uriTemplate: self::BASE . '/files/download',
+                permissions: [Permission::ACTION_FILE_READ_CONTENT],
+                queryFields: ['file'],
+                resultShaper: static fn (mixed $data) => ['url' => $data['attributes']['url'] ?? null],
+            ),
+        ];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Groups
+    |--------------------------------------------------------------------------
+    |
+    | Writes the agent pulls in when it needs them. Everything here either
+    | destroys something or rearranges the filesystem, and every one of them
+    | stops for an approval before it runs — so the activation step costs
+    | nothing on a turn that was already going to pause and ask.
+    */
+
+    /**
+     * @return ToolDefinition[]
+     */
+    private static function fileEdits(): array
+    {
+        return [
             new ToolDefinition(
                 name: 'files_create_folder',
                 description: 'Create a new directory on the server.',
@@ -293,6 +465,7 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/create-folder',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_CREATE],
+                group: self::GROUP_FILES_EDIT,
                 bodyFields: ['root', 'name'],
                 resultShaper: static fn () => ['created' => true],
             ),
@@ -315,6 +488,7 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/rename',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_UPDATE],
+                group: self::GROUP_FILES_EDIT,
                 bodyFields: ['root', 'files'],
                 resultShaper: static fn () => ['renamed' => true],
             ),
@@ -329,6 +503,7 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/copy',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_CREATE],
+                group: self::GROUP_FILES_EDIT,
                 bodyFields: ['location'],
                 resultShaper: static fn () => ['copied' => true],
             ),
@@ -348,46 +523,58 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/delete',
                 risk: ToolDefinition::RISK_DESTRUCTIVE,
                 permissions: [Permission::ACTION_FILE_DELETE],
+                group: self::GROUP_FILES_EDIT,
                 bodyFields: ['root', 'files'],
                 resultShaper: static fn () => ['deleted' => true],
+            ),
+
+            new ToolDefinition(
+                name: 'files_compress',
+                description: 'Compress files or folders into an archive. Use this to package a world folder for download.',
+                parameters: self::object([
+                    'root' => self::string('The directory the names are relative to.'),
+                    'files' => [
+                        'type' => 'array',
+                        'description' => 'Names to include, relative to root.',
+                        'items' => ['type' => 'string'],
+                    ],
+                ], ['root', 'files']),
+                method: 'POST',
+                uriTemplate: self::BASE . '/files/compress',
+                risk: ToolDefinition::RISK_WRITE,
+                permissions: [Permission::ACTION_FILE_ARCHIVE],
+                group: self::GROUP_FILES_EDIT,
+                bodyFields: ['root', 'files'],
+                resultShaper: static fn (mixed $data) => [
+                    'archive' => $data['attributes']['name'] ?? null,
+                    'bytes' => $data['attributes']['size'] ?? null,
+                ],
+            ),
+
+            new ToolDefinition(
+                name: 'files_decompress',
+                description: 'Extract an archive in place. Existing files with the same names are overwritten.',
+                parameters: self::object([
+                    'root' => self::string('The directory to extract into.'),
+                    'file' => self::string('The archive name, relative to root.'),
+                ], ['root', 'file']),
+                method: 'POST',
+                uriTemplate: self::BASE . '/files/decompress',
+                risk: ToolDefinition::RISK_DESTRUCTIVE,
+                permissions: [Permission::ACTION_FILE_CREATE, Permission::ACTION_FILE_UPDATE],
+                group: self::GROUP_FILES_EDIT,
+                bodyFields: ['root', 'file'],
+                resultShaper: static fn () => ['extracted' => true],
             ),
         ];
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Groups
-    |--------------------------------------------------------------------------
-    */
-
     /**
      * @return ToolDefinition[]
      */
-    private static function backups(): array
+    private static function backupWrites(): array
     {
         return [
-            new ToolDefinition(
-                name: 'backups_list',
-                description: 'List the server\'s backups, newest first.',
-                parameters: self::object([]),
-                method: 'GET',
-                uriTemplate: self::BASE . '/backups',
-                permissions: [Permission::ACTION_BACKUP_READ],
-                group: self::GROUP_BACKUPS,
-                resultShaper: static fn (mixed $data) => self::mapList(
-                    $data,
-                    static fn (array $a) => [
-                        'uuid' => $a['uuid'] ?? null,
-                        'name' => $a['name'] ?? null,
-                        'bytes' => $a['bytes'] ?? null,
-                        'successful' => $a['is_successful'] ?? null,
-                        'locked' => $a['is_locked'] ?? null,
-                        'created_at' => $a['created_at'] ?? null,
-                    ],
-                    40
-                ),
-            ),
-
             new ToolDefinition(
                 name: 'backup_create',
                 description: 'Start a new backup. Backups take minutes; this returns as soon as it has started, and progress is reported separately.',
@@ -435,187 +622,6 @@ class ServerTools
                 permissions: [Permission::ACTION_BACKUP_DELETE],
                 group: self::GROUP_BACKUPS,
                 resultShaper: static fn () => ['deleted' => true],
-            ),
-        ];
-    }
-
-    /**
-     * @return ToolDefinition[]
-     */
-    private static function archives(): array
-    {
-        return [
-            new ToolDefinition(
-                name: 'files_compress',
-                description: 'Compress files or folders into an archive. Use this to package a world folder for download.',
-                parameters: self::object([
-                    'root' => self::string('The directory the names are relative to.'),
-                    'files' => [
-                        'type' => 'array',
-                        'description' => 'Names to include, relative to root.',
-                        'items' => ['type' => 'string'],
-                    ],
-                ], ['root', 'files']),
-                method: 'POST',
-                uriTemplate: self::BASE . '/files/compress',
-                risk: ToolDefinition::RISK_WRITE,
-                permissions: [Permission::ACTION_FILE_ARCHIVE],
-                group: self::GROUP_ARCHIVES,
-                bodyFields: ['root', 'files'],
-                resultShaper: static fn (mixed $data) => [
-                    'archive' => $data['attributes']['name'] ?? null,
-                    'bytes' => $data['attributes']['size'] ?? null,
-                ],
-            ),
-
-            new ToolDefinition(
-                name: 'files_decompress',
-                description: 'Extract an archive in place. Existing files with the same names are overwritten.',
-                parameters: self::object([
-                    'root' => self::string('The directory to extract into.'),
-                    'file' => self::string('The archive name, relative to root.'),
-                ], ['root', 'file']),
-                method: 'POST',
-                uriTemplate: self::BASE . '/files/decompress',
-                risk: ToolDefinition::RISK_DESTRUCTIVE,
-                permissions: [Permission::ACTION_FILE_CREATE, Permission::ACTION_FILE_UPDATE],
-                group: self::GROUP_ARCHIVES,
-                bodyFields: ['root', 'file'],
-                resultShaper: static fn () => ['extracted' => true],
-            ),
-
-            new ToolDefinition(
-                name: 'files_download_url',
-                description: 'Get a time-limited download link for a file, to give the user when they asked for something extracted or exported.',
-                parameters: self::object([
-                    'file' => self::string('Absolute path of the file.'),
-                ], ['file']),
-                method: 'GET',
-                uriTemplate: self::BASE . '/files/download',
-                permissions: [Permission::ACTION_FILE_READ_CONTENT],
-                group: self::GROUP_ARCHIVES,
-                queryFields: ['file'],
-                resultShaper: static fn (mixed $data) => ['url' => $data['attributes']['url'] ?? null],
-            ),
-        ];
-    }
-
-    /**
-     * @return ToolDefinition[]
-     */
-    private static function databases(): array
-    {
-        return [
-            new ToolDefinition(
-                name: 'databases_list',
-                description: 'List the server\'s databases and their connection details.',
-                parameters: self::object([]),
-                method: 'GET',
-                uriTemplate: self::BASE . '/databases',
-                permissions: [Permission::ACTION_DATABASE_READ],
-                group: self::GROUP_DATABASES,
-                resultShaper: static fn (mixed $data) => self::mapList(
-                    $data,
-                    static fn (array $a) => [
-                        'id' => $a['id'] ?? null,
-                        'name' => $a['name'] ?? null,
-                        'username' => $a['username'] ?? null,
-                        'host' => $a['host']['address'] ?? null,
-                    ],
-                    25
-                ),
-            ),
-        ];
-    }
-
-    /**
-     * @return ToolDefinition[]
-     */
-    private static function schedules(): array
-    {
-        return [
-            new ToolDefinition(
-                name: 'schedules_list',
-                description: 'List the server\'s scheduled tasks and when they next run.',
-                parameters: self::object([]),
-                method: 'GET',
-                uriTemplate: self::BASE . '/schedules',
-                permissions: [Permission::ACTION_SCHEDULE_READ],
-                group: self::GROUP_SCHEDULES,
-                resultShaper: static fn (mixed $data) => self::mapList(
-                    $data,
-                    static fn (array $a) => [
-                        'id' => $a['id'] ?? null,
-                        'name' => $a['name'] ?? null,
-                        'active' => $a['is_active'] ?? null,
-                        'next_run_at' => $a['next_run_at'] ?? null,
-                    ],
-                    25
-                ),
-            ),
-        ];
-    }
-
-    /**
-     * @return ToolDefinition[]
-     */
-    private static function network(): array
-    {
-        return [
-            new ToolDefinition(
-                name: 'allocations_list',
-                description: 'List the server\'s IP addresses and ports.',
-                parameters: self::object([]),
-                method: 'GET',
-                uriTemplate: self::BASE . '/network/allocations',
-                permissions: [Permission::ACTION_ALLOCATION_READ],
-                group: self::GROUP_NETWORK,
-                resultShaper: static fn (mixed $data) => self::mapList(
-                    $data,
-                    static fn (array $a) => [
-                        'ip' => $a['ip'] ?? null,
-                        'port' => $a['port'] ?? null,
-                        'primary' => $a['is_default'] ?? null,
-                        'notes' => $a['notes'] ?? null,
-                    ],
-                    25
-                ),
-            ),
-        ];
-    }
-
-    /**
-     * @return ToolDefinition[]
-     */
-    private static function mods(): array
-    {
-        return [
-            new ToolDefinition(
-                name: 'minecraft_server_info',
-                description: 'Detect the Minecraft version, mod loader and platform for this server. Use it before giving version-specific advice.',
-                parameters: self::object([]),
-                method: 'GET',
-                uriTemplate: self::BASE . '/mods/server-config',
-                permissions: [Permission::ACTION_FILE_READ],
-                group: self::GROUP_MODS,
-            ),
-
-            new ToolDefinition(
-                name: 'mods_installed',
-                description: 'List the mod and plugin jars installed on this server.',
-                parameters: self::object([]),
-                method: 'GET',
-                uriTemplate: self::BASE . '/plugins/installed',
-                permissions: [Permission::ACTION_FILE_READ],
-                group: self::GROUP_MODS,
-                resultShaper: static fn (mixed $data) => self::mapList(
-                    is_array($data['data'] ?? null) ? $data : ['data' => $data],
-                    static fn (array $a) => [
-                        'name' => $a['name'] ?? ($a['file'] ?? null),
-                        'enabled' => $a['enabled'] ?? null,
-                    ],
-                    120
-                ),
             ),
         ];
     }

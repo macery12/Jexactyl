@@ -23,7 +23,20 @@ const ANTHROPIC_PRESETS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5
 // Tool-capable local models. A model without tool support cannot run the agent
 // at all, so the suggestions here are deliberately limited to ones that report
 // it — the capability probe is what actually decides.
-const OLLAMA_PRESETS = ['qwen3:30b-a3b', 'qwen3:8b', 'qwen2.5:7b', 'llama3.1:8b', 'mistral-nemo', 'llama3.3:70b'];
+//
+// Ordered smallest-first, because these are only shown when live discovery
+// found nothing, which usually means the endpoint is unreachable and the
+// operator is setting up rather than choosing. The first entry runs on a laptop
+// with no GPU; the last wants a 24 GB card. Reviewed 2026-08-15 — this list
+// dates faster than anything else in the module, so check it against
+// ollama.com/search?c=tools rather than trusting it.
+const OLLAMA_PRESETS = [
+    'granite4.1:3b',
+    'granite4.1:8b',
+    'gemma4:12b',
+    'qwen3.6:27b',
+    'qwen3.6:35b',
+];
 
 /**
  * How much of a temperature control is real.
@@ -55,7 +68,37 @@ export interface AiCapabilities {
     selfHosted: boolean;
     /** The probed agent model, for naming it in "rejected by …" copy. */
     probedModel: string | null;
+    /**
+     * An `openai_compatible` endpoint that is really Ollama behind its own
+     * OpenAI shim. Worth naming, because the shim accepts the request and
+     * discards `num_ctx` and `keep_alive` without complaint — so the panel looks
+     * configured, the model answers, and the two settings that decide VRAM cost
+     * and cold-start latency are quietly doing nothing. Selecting the `ollama`
+     * driver instead is the whole fix.
+     */
+    shimmedOllama: boolean;
+    /**
+     * A local model whose context window is left to the model's own default,
+     * where that default is very large.
+     *
+     * `num_ctx` is the most expensive knob on self-hosted hardware — a 256K
+     * window costs more VRAM than the weights do — and the current generation of
+     * tool-capable local models all report one. Left unset the panel asks for
+     * the model's maximum and the operator finds out from the OOM.
+     */
+    unboundedContext: boolean;
+    /** The window the probe reported, for naming a size in the copy above. */
+    probedContextTokens: number | null;
 }
+
+// A window past this is large enough that accepting the model's default is a
+// decision rather than an oversight.
+const LARGE_CONTEXT = 65_536;
+
+// The port Ollama serves on. Matched on the port alone: operators reach it by
+// hostname, container name and address alike, and all of them are the same
+// mistake.
+const OLLAMA_PORT = /:11434(\/|$)/;
 
 export function resolveCapabilities(
     provider: AiProvider,
@@ -90,5 +133,11 @@ export function resolveCapabilities(
         presets: provider === 'anthropic' ? ANTHROPIC_PRESETS : hosted ? OPENAI_PRESETS : OLLAMA_PRESETS,
         selfHosted: !hosted,
         probedModel: probe?.model ?? null,
+        shimmedOllama: provider === 'openai_compatible' && OLLAMA_PORT.test(settings?.endpoint ?? ''),
+        unboundedContext:
+            isOllama
+            && (settings?.context_tokens ?? null) === null
+            && (probe?.max_context_tokens ?? 0) > LARGE_CONTEXT,
+        probedContextTokens: probe?.max_context_tokens ?? null,
     };
 }

@@ -35,6 +35,20 @@ class AgentContext
     public int $repairs = 0;
 
     /**
+     * Tool-cap truncations already reported this turn, keyed by what was
+     * dropped.
+     *
+     * The cap is recomputed every step, so an over-cap turn would otherwise
+     * write the same warning twelve times. Deliberately not carried through
+     * {@see toState()}: a resumed turn is a fresh process with a fresh log, and
+     * a truncation that is still happening after an approval is worth saying
+     * again.
+     *
+     * @var string[]
+     */
+    public array $capWarnings = [];
+
+    /**
      * Questions the model has put to the user this turn. Capped separately from
      * steps: a question costs a whole step plus a full model call, and a model
      * that is unsure will happily spend the turn asking instead of looking.

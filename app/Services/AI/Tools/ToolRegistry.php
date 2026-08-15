@@ -189,6 +189,21 @@ class ToolRegistry
     }
 
     /**
+     * The base set first, then whatever groups are active.
+     *
+     * Ordering here is not a priority scheme — `AgentRunner::capDefinitions()`
+     * reserves the base set outright and spends what is left on grouped tools,
+     * so neither half can silently displace the other. What the ordering does is
+     * keep the two halves contiguous, which is what lets the cap split them
+     * without inspecting every definition twice.
+     *
+     * An earlier attempt put grouped tools first, on the reasoning that a tool
+     * the agent explicitly asked for is better evidence of what the turn needs
+     * than a static declaration order. That is true, and it is why activation is
+     * now reported back rather than assumed — but as an ordering it made the cap
+     * eat reads instead, which is the worse failure: a read that is missing
+     * looks to the model exactly like a capability the panel does not have.
+     *
      * @param string[] $activeGroups
      * @param callable(ToolDefinition): bool $permitted
      *
@@ -197,7 +212,8 @@ class ToolRegistry
     private function offered(string $scope, array $activeGroups, callable $permitted): array
     {
         $disabled = $this->riskGate->disabledTools();
-        $available = [];
+        $base = [];
+        $grouped = [];
 
         foreach ($this->all() as $definition) {
             if (!$definition->inScope($scope)) {
@@ -217,10 +233,16 @@ class ToolRegistry
                 continue;
             }
 
-            $available[] = $definition;
+            if ($definition->group !== null) {
+                $grouped[] = $definition;
+
+                continue;
+            }
+
+            $base[] = $definition;
         }
 
-        return $available;
+        return array_merge($base, $grouped);
     }
 
     /**

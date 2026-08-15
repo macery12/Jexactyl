@@ -151,10 +151,20 @@ return [
         'max_repairs' => env('AI_AGENT_MAX_REPAIRS', 2),
 
         /*
-         * Cap on tools exposed in a single request. Small local models degrade
-         * sharply past roughly fifteen; the rest are reached through tool groups.
+         * Cap on scoped tools exposed in a single request. Small local models
+         * degrade sharply once too many are in play; the rest are reached
+         * through tool groups.
+         *
+         * Twenty rather than fifteen because every read-only tool is now
+         * offered up front — a server turn presents seventeen, and a cap that
+         * cut into them would start dropping the lookups that answer questions
+         * before it ever reached a write. `ask_user` and `activate_tool_group`
+         * are not counted here; see AgentRunner::UNCAPPED_TOOLS.
+         *
+         * Lower it for a 7B or 8B model: the offered set is ordered
+         * most-useful-first, so the tail goes before anything load-bearing does.
          */
-        'max_tools' => env('AI_AGENT_MAX_TOOLS', 15),
+        'max_tools' => env('AI_AGENT_MAX_TOOLS', 20),
 
         /*
          * Ask the model to reason before it acts, where the model supports it.

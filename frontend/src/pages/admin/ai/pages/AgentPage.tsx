@@ -15,7 +15,7 @@ export default function AgentPage() {
             max_steps: settings.agent?.max_steps ?? 12,
             max_wall_seconds: settings.agent?.max_wall_seconds ?? 180,
             tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
-            max_tools: settings.agent?.max_tools ?? 15,
+            max_tools: settings.agent?.max_tools ?? 20,
         }),
         value => ({ agent: value }),
     );

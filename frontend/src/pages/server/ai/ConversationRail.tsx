@@ -7,6 +7,17 @@ import type { AiConversation } from '@/api/ai';
 // ChatGPT-style history rail: new-chat button on top, then the conversation
 // list. Unsaved chats show their expiry; the bookmark toggle keeps a chat
 // forever. Delete + bookmark reveal on hover like the V1 sidebar.
+//
+// The hover-revealed controls carry `pointer-events-none` while hidden, which is
+// not tidying. `opacity-0` alone leaves them fully hit-testable: they hold their
+// layout box at the right edge of every row and call `stopPropagation()`, so a
+// click landing there was swallowed — the row would not open, and the second
+// click, now that hovering had faded them in, could delete the conversation
+// instead. That was the "history needs a double-click" bug, and an invisible
+// delete button fourteen pixels from where people click to open things.
+//
+// `focus-visible` re-enables them for the keyboard, which the opacity rule alone
+// had made unreachable.
 export function ConversationRail({
     conversations,
     loading,
@@ -82,9 +93,10 @@ export function ConversationRail({
                                 title={conv.is_saved ? m['server.ai.unsaveChat']() : m['server.ai.saveChat']()}
                                 className={cn(
                                     'shrink-0 rounded p-0.5 transition-opacity hover:text-[var(--brand)]',
+                                    'focus-visible:opacity-100',
                                     conv.is_saved
                                         ? 'text-[var(--brand)] opacity-100'
-                                        : 'text-[var(--color-ink-faint)] opacity-0 group-hover:opacity-100',
+                                        : 'pointer-events-none text-[var(--color-ink-faint)] opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto',
                                 )}
                             >
                                 <Bookmark className={cn('h-3.5 w-3.5', conv.is_saved && 'fill-current')} />
@@ -96,7 +108,7 @@ export function ConversationRail({
                                     onDelete(conv);
                                 }}
                                 title={m['common.actions.delete']()}
-                                className="shrink-0 rounded p-0.5 text-[var(--color-ink-faint)] opacity-0 transition-opacity hover:text-[var(--color-danger)] group-hover:opacity-100"
+                                className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--color-ink-faint)] opacity-0 transition-opacity hover:text-[var(--color-danger)] focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
                             >
                                 <Trash2 className="h-3.5 w-3.5" />
                             </button>
