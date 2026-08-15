@@ -3,7 +3,8 @@ import { m } from '@/i18n';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { FieldGrid, FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
-import { useAiSettingsForm } from '../useAiSettingsForm';
+import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
+import { useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
 
 // The agent: which assistants exist, and how far a single turn may run.
 export default function AgentPage() {
@@ -21,6 +22,7 @@ export default function AgentPage() {
     );
 
     const { value, patch } = form;
+    const capabilities = useAiCapabilities();
 
     if (form.isLoading || !value) {
         return (
@@ -28,6 +30,15 @@ export default function AgentPage() {
                 <Spinner className="h-6 w-6" />
             </div>
         );
+    }
+
+    const ignored: IgnoredSetting[] = [];
+
+    if (!capabilities.reasoning) {
+        ignored.push({
+            label: m['admin.ai.settings.agentReasoning'](),
+            reason: m['admin.ai.settings.reasoningInert'](),
+        });
     }
 
     return (
@@ -58,9 +69,11 @@ export default function AgentPage() {
                         desc={m['admin.ai.settings.agentReasoningHint']()}
                         checked={value.reasoning}
                         onChange={next => patch({ reasoning: next })}
-                        disabled={!value.enabled}
+                        disabled={!value.enabled || !capabilities.reasoning}
                     />
                 </ToggleGroup>
+
+                <IgnoredSettings items={ignored} />
             </SectionCard>
 
             <SectionCard icon={Timer} title={m['admin.ai.settings.turnLimits']()} desc={m['admin.ai.pages.turnLimitsDesc']()}>

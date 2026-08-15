@@ -543,6 +543,8 @@ class AnthropicProvider extends AbstractProvider
             supportsTools: true,
             supportsStructuredOutput: true,
             supportsSampling: !$this->rejectsSamplingParams($model),
+            // The only driver with a request-side switch for it.
+            supportsReasoning: $this->supportsAdaptiveThinking($model),
             selfHosted: false,
             maxContextTokens: $this->providerConfig->contextTokens,
         );

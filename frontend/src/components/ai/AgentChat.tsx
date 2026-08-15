@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { BotOff } from 'lucide-react';
 import { m } from '@/i18n';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
 import { listPendingActions } from '@/api/ai';
 import { AgentChatView, orphanedPending } from './AgentChatView';
-import { ModeToggle } from './ModeToggle';
 
 // The server assistant: everything server-specific about a conversation, over
 // the shared view. Rendered identically by the full page and the dock drawer;
@@ -19,11 +19,8 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
 
     const entries = useAgentChat(s => s.entries);
     const loading = useAgentChat(s => s.loading);
-    const mode = useAgentChat(s => s.mode);
-    const setMode = useAgentChat(s => s.setMode);
 
     const agentAvailable = Boolean(everest?.ai.feature_agent);
-    const agentMode = mode === 'agent' && agentAvailable;
 
     // An approval the user left unanswered on a previous visit. Polled rather
     // than pushed: it changes at human speed, and the window is 30 minutes.
@@ -42,21 +39,33 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
         }
     }, [loading, queryClient, server.uuid]);
 
+    // Without the agent there is no assistant left to render. This used to fall
+    // back to advisory chat, which is exactly the fallback that was cut: a chat
+    // that cannot read the server answers confidently about a machine it has
+    // never seen. Saying so is the honest end of that decision.
+    if (!agentAvailable) {
+        return (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+                <BotOff className="h-8 w-8 text-[var(--color-ink-faint)]" />
+                <p className="text-sm font-medium text-[var(--color-ink)]">
+                    {m['server.ai.agentDisabledTitle']()}
+                </p>
+                <p className="max-w-sm text-xs text-[var(--color-ink-muted)]">
+                    {m['server.ai.agentDisabledBody']()}
+                </p>
+            </div>
+        );
+    }
+
     return (
         <AgentChatView
             store={useAgentChat}
             compact={compact}
             confirmPhrase={server.name}
-            emptyTitle={agentMode ? m['server.ai.emptyAgentTitle']() : m['server.ai.emptyTitle']()}
-            emptySubtitle={
-                agentMode
-                    ? m['server.ai.emptyAgentSubtitle']({ name: server.name })
-                    : m['server.ai.emptySubtitle']({ name: server.name })
-            }
-            placeholder={
-                agentMode ? m['server.ai.composerAgentPlaceholder']() : m['server.ai.composerPlaceholder']()
-            }
-            disclaimer={agentMode ? m['server.ai.agentDisclaimer']() : m['server.ai.disclaimer']()}
+            emptyTitle={m['server.ai.emptyAgentTitle']()}
+            emptySubtitle={m['server.ai.emptyAgentSubtitle']({ name: server.name })}
+            placeholder={m['server.ai.composerAgentPlaceholder']()}
+            disclaimer={m['server.ai.agentDisclaimer']()}
             suggestions={[
                 m['server.ai.suggestions.crash'](),
                 m['server.ai.suggestions.performance'](),
@@ -64,14 +73,6 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
                 m['server.ai.suggestions.mods'](),
             ]}
             orphaned={orphanedPending(pendingActions, entries)}
-            header={
-                <ModeToggle
-                    mode={mode}
-                    onChange={setMode}
-                    agentAvailable={agentAvailable}
-                    disabled={loading}
-                />
-            }
         />
     );
 }

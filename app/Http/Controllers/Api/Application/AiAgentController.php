@@ -482,14 +482,11 @@ class AiAgentController extends ApplicationApiController
 
             $capabilities = $provider->capabilities($model);
 
-            $payload['capabilities'] = [
-                'model' => $model,
-                'supports_tools' => $capabilities->supportsTools,
-                'supports_sampling' => $capabilities->supportsSampling,
-                'self_hosted' => $capabilities->selfHosted,
-                'max_context_tokens' => $capabilities->maxContextTokens,
-                'warnings' => $capabilities->warnings,
-            ];
+            // Serialised by the DTO rather than picked apart here. Hand-rolling
+            // this array is what left `toArray()` with no callers and four
+            // capability fields reaching nothing, and it made adding a field a
+            // five-place edit that failed silently if this one was missed.
+            $payload['capabilities'] = ['model' => $model] + $capabilities->toArray();
 
             // Which models are actually resident is the difference between a
             // slow first token and a cold thirty-second load; only Ollama

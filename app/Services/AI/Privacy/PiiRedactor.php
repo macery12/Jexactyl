@@ -140,6 +140,15 @@ class PiiRedactor
      * in a generically-named field — a startup variable called `value`, say —
      * is still read as an address. It costs a token where a version was wanted,
      * which is the safe direction to be wrong in.
+     *
+     * **The exemption is from the IP pattern and nothing else.** It used to skip
+     * `sweep()` outright, which meant a field merely *containing* one of these
+     * words — the match is on substrings, so `startup_command` and
+     * `minecraft_version` are both covered by one entry — also escaped the
+     * email, phone and payment patterns. A startup command is user-editable and
+     * routinely holds a webhook URL or an operator's own address, so the one
+     * collision this list exists to solve was buying a much larger hole than it
+     * was worth.
      */
     private const NEVER_SWEPT = ['version', 'image', 'images', 'command', 'rules', 'hash', 'digest', 'checksum', 'tag'];
 
@@ -174,7 +183,15 @@ class PiiRedactor
     /**
      * Put the real values back.
      *
-     * Used for what the administrator reads, never for what the model reads.
+     * No production caller, and that is not an oversight: restoration happens in
+     * the browser at render time, which is the better place for it — one map
+     * serves prose, tool arguments and payloads alike, and a token that arrives
+     * after the text mentioning it still lands.
+     *
+     * Kept because it is the asserted inverse of `redact()`. The round trip is
+     * what proves every minted token is reversible and the map complete, and
+     * that property is much easier to state here than across the SSE seam.
+     * Never run on what the model reads.
      */
     public function restore(string $text, RedactionMap $map): string
     {
@@ -213,9 +230,13 @@ class PiiRedactor
             return $value;
         }
 
-        return $key !== null && $this->neverSwept($key)
-            ? $value
-            : $this->sweep($value, $map, $kinds);
+        return $this->sweep(
+            $value,
+            $map,
+            $key !== null && $this->neverSwept($key)
+                ? array_values(array_diff($kinds, [self::KIND_IP]))
+                : $kinds
+        );
     }
 
     /**
@@ -243,10 +264,13 @@ class PiiRedactor
     }
 
     /**
-     * Whether a field's value is exempt from the free-text patterns.
+     * Whether a field's value is exempt from the IP pattern.
      *
      * Matched as a substring so `docker_image`, `startup_command` and
-     * `minecraft_version` are all covered without naming each one.
+     * `minecraft_version` are all covered without naming each one. That breadth
+     * is exactly why the exemption is per-kind: a substring rule wide enough to
+     * catch every version-shaped field is far too wide to hand a blanket pass
+     * from every other pattern.
      */
     private function neverSwept(string $key): bool
     {

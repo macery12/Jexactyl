@@ -1,12 +1,12 @@
 import { readCsrfToken } from '@/lib/globals';
 
-// SSE client for the panel's AI endpoints.
+// SSE client for the panel's agent endpoint.
 //
-// Two shapes travel over the same transport. The advisory chat emits
-// `data: {"content": "..."}` and the agent emits a tagged union — but the agent
-// deliberately keeps `content` on its text event, so a reader that only
-// understands the old shape still renders a readable answer. That overlap is
-// what lets one parser serve both.
+// It once served two shapes: the advisory chat's `data: {"content": "..."}` and
+// the agent's tagged union. The chat reader is gone with chat mode, but the
+// agent still keeps `content` on its text event — that was never only about
+// back-compatibility, it is also what lets a panel running slightly behind its
+// backend render a readable answer instead of nothing.
 //
 // axios cannot consume incremental bodies, so this uses fetch + a reader.
 
@@ -73,12 +73,6 @@ export type AgentEvent =
     | { type: 'step'; step: number; max_steps: number }
     | { type: 'done'; reason: string }
     | { type: 'error'; error: string; retryable?: boolean };
-
-export interface AiStreamCallbacks {
-    onChunk: (chunk: string) => void;
-    onComplete: () => void;
-    onError: (error: Error) => void;
-}
 
 export interface AgentStreamCallbacks {
     onEvent: (event: AgentEvent) => void;
@@ -147,47 +141,6 @@ async function readEventStream(
             if (onFrame(line.slice(6))) return;
         }
     }
-}
-
-/**
- * Plain advisory chat: text deltas only.
- */
-export function streamAiRequest(
-    url: string,
-    body: Record<string, unknown>,
-    { onChunk, onComplete, onError }: AiStreamCallbacks,
-    signal?: AbortSignal,
-): void {
-    let finished = false;
-
-    readEventStream(url, body, signal, payload => {
-        if (payload === '[DONE]') {
-            finished = true;
-            onComplete();
-            return true;
-        }
-
-        try {
-            const data = JSON.parse(payload);
-            if (typeof data.error === 'string') {
-                finished = true;
-                onError(new Error(data.error));
-                return true;
-            }
-            if (typeof data.content === 'string') onChunk(data.content);
-        } catch {
-            /* ignore malformed frames */
-        }
-
-        return false;
-    })
-        .then(() => {
-            if (!finished) onComplete();
-        })
-        .catch((err: unknown) => {
-            if (err instanceof DOMException && err.name === 'AbortError') return;
-            onError(err instanceof Error ? err : new Error(String(err)));
-        });
 }
 
 /**

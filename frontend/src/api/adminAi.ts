@@ -138,8 +138,22 @@ export interface AiInferenceState {
          * duplicated here, which would drift from the driver's own.
          */
         supports_sampling: boolean;
+        /**
+         * Whether the driver can *ask* the model to reason, which is narrower
+         * than whether the model does. Only Anthropic has a request-side switch;
+         * elsewhere thinking is read off the response if it appears, so the
+         * panel's reasoning toggle changes nothing in either direction.
+         */
+        supports_reasoning: boolean;
         self_hosted: boolean;
         max_context_tokens: number | null;
+        /** Whole-response streaming. Every current driver does it. */
+        supports_streaming: boolean;
+        /** A JSON-schema-constrained response, used by the tool-call repair. */
+        supports_structured_output: boolean;
+        supports_parallel_tool_calls: boolean;
+        /** On-disk size of a local model, where the endpoint reports one. */
+        model_size_bytes: number | null;
         warnings: string[];
     } | null;
     error?: string;

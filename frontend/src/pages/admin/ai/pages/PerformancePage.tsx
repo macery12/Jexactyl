@@ -6,6 +6,7 @@ import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
 import { FieldGrid, FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { getAiInference } from '@/api/adminAi';
+import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
 import { AI_INFERENCE_KEY, useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
 
 function formatVram(bytes: number | undefined): string | null {
@@ -75,6 +76,19 @@ export default function PerformancePage() {
 
     const queue = inference?.queue;
     const resident = inference?.resident_models ?? [];
+
+    // Self-hosted but not Ollama — an OpenAI-compatible server in front of
+    // llama.cpp, vLLM or Ollama's own shim. Residency is a real thing there, we
+    // just have no way to ask for it: `keep_alive` is an Ollama request field
+    // and anything else accepts it and drops it. The queue controls below still
+    // apply, so the page renders; these two do not, so they are declared rather
+    // than silently missing.
+    const ignored: IgnoredSetting[] = capabilities.keepAlive
+        ? []
+        : [
+              { label: m['admin.ai.settings.keepAlive'](), reason: m['admin.ai.settings.selfHostedNotOllama']() },
+              { label: m['admin.ai.settings.warm'](), reason: m['admin.ai.settings.selfHostedNotOllama']() },
+          ];
 
     return (
         <form
@@ -199,6 +213,8 @@ export default function PerformancePage() {
                     </FieldGrid>
                 </SectionCard>
             )}
+
+            <IgnoredSettings items={ignored} />
 
             <SaveBar dirty={form.dirty} saving={form.saving} onDiscard={form.discard} />
         </form>

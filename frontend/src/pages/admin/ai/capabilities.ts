@@ -89,6 +89,15 @@ export interface AiCapabilities {
     unboundedContext: boolean;
     /** The window the probe reported, for naming a size in the copy above. */
     probedContextTokens: number | null;
+    /**
+     * Whether the reasoning toggle does anything.
+     *
+     * False does not mean "this model cannot reason" — it means the driver has
+     * no way to ask, so the setting is inert in both directions. A reasoning
+     * model on Ollama will still think with the toggle off, and the panel will
+     * still render it, because the thinking arrives on the response either way.
+     */
+    reasoning: boolean;
 }
 
 // A window past this is large enough that accepting the model's default is a
@@ -139,5 +148,9 @@ export function resolveCapabilities(
             && (settings?.context_tokens ?? null) === null
             && (probe?.max_context_tokens ?? 0) > LARGE_CONTEXT,
         probedContextTokens: probe?.max_context_tokens ?? null,
+        // Unprobed reads as capable, for the same reason temperature does: mid-
+        // edit, "we do not know it is inert" keeps the control visible rather
+        // than making it vanish as someone types.
+        reasoning: probe === null || probe.supports_reasoning,
     };
 }

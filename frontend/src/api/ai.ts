@@ -1,23 +1,22 @@
 import http from '@/lib/http';
 import {
     streamAgentRequest,
-    streamAiRequest,
     type AgentStreamCallbacks,
     type AiDiffPreview,
     type AiRisk,
-    type AiStreamCallbacks,
 } from '@/lib/aiStream';
 
-// Client-side AI surface for a server. Two endpoints sit behind this:
-// POST /ai for advisory chat, and POST /ai/agent for the tool-calling agent,
-// which can suspend mid-turn and be resumed by /ai/agent/decide.
+// Client-side AI surface for a server: POST /ai/agent for the tool-calling
+// agent, which can suspend mid-turn and be resumed by /ai/agent/decide, plus the
+// conversation store behind the history rail.
+//
+// `POST /ai` — the advisory-chat endpoint — no longer has a client. Chat mode
+// was cut from the assistant, and its other query type, `log_analysis`, has
+// never had a V2 caller despite the crash-analysis toggle on /admin/ai/limits
+// still being wired to the setting. The endpoint is left in place; retiring it
+// is a decision about the crash-analysis feature, not about this module.
 
 export type ChatRole = 'user' | 'assistant' | 'tool';
-
-export interface ChatHistoryMessage {
-    role: 'user' | 'assistant';
-    content: string;
-}
 
 /** A stored message, including the tool steps an agent turn produced. */
 export interface StoredMessage {
@@ -47,32 +46,6 @@ export interface PendingAction {
     preview: AiDiffPreview | null;
     created_at: string | null;
     expires_at: string | null;
-}
-
-export type AiQueryType = 'freeform' | 'log_analysis';
-
-export function streamServerAiQuery(
-    uuid: string,
-    opts: {
-        query: string;
-        queryType: AiQueryType;
-        conversationId?: number | null;
-        history?: ChatHistoryMessage[];
-    },
-    callbacks: AiStreamCallbacks,
-    signal?: AbortSignal,
-): void {
-    streamAiRequest(
-        `/api/client/servers/${uuid}/ai`,
-        {
-            query: opts.query,
-            query_type: opts.queryType,
-            conversation_id: opts.conversationId ?? undefined,
-            messages: opts.history ?? [],
-        },
-        callbacks,
-        signal,
-    );
 }
 
 /**
@@ -134,11 +107,6 @@ export async function listConversations(uuid: string): Promise<AiConversation[]>
     return data.data as AiConversation[];
 }
 
-export async function createConversation(uuid: string, title?: string): Promise<AiConversation> {
-    const { data } = await http.post(`/api/client/servers/${uuid}/ai/conversations`, { title });
-    return data.data as AiConversation;
-}
-
 export async function loadConversation(
     uuid: string,
     id: number,
@@ -166,8 +134,4 @@ export async function toggleSaveConversation(
 ): Promise<Pick<AiConversation, 'id' | 'is_saved' | 'expires_at'>> {
     const { data } = await http.patch(`/api/client/servers/${uuid}/ai/conversations/${id}/save`);
     return data.data;
-}
-
-export async function appendMessages(uuid: string, id: number, messages: ChatHistoryMessage[]): Promise<void> {
-    await http.post(`/api/client/servers/${uuid}/ai/conversations/${id}/messages`, { messages });
 }

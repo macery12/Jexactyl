@@ -1,14 +1,7 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { m } from '@/i18n';
 import type { AgentEvent, AgentStreamCallbacks, AiDiffPreview, AiRisk } from '@/lib/aiStream';
-import {
-    appendMessages,
-    createConversation,
-    streamAgentDecision,
-    streamAgentTurn,
-    streamServerAiQuery,
-    type StoredMessage,
-} from '@/api/ai';
+import { streamAgentDecision, streamAgentTurn, type StoredMessage } from '@/api/ai';
 import { streamAdminAgentDecision, streamAdminAgentTurn } from '@/api/adminAi';
 
 // One conversation per surface, shared by every component that renders it.
@@ -24,8 +17,6 @@ import { streamAdminAgentDecision, streamAdminAgentTurn } from '@/api/adminAi';
 // incidental tidying — as module state they would be shared between the two
 // stores, so opening the admin assistant would silently abort a running server
 // turn in the dock drawer.
-
-export type ChatMode = 'chat' | 'agent';
 
 export interface QuestionOption {
     label: string;
@@ -161,27 +152,10 @@ export interface AgentChatAdapter {
         callbacks: AgentStreamCallbacks,
         signal: AbortSignal,
     ) => void;
-    /** Plain advisory chat. Absent on surfaces that only offer the agent. */
-    chat?: (
-        target: string,
-        body: { query: string; conversationId: number | null; history: StoredChatTurn[] },
-        callbacks: { onChunk: (chunk: string) => void; onComplete: () => void; onError: (error: Error) => void },
-        signal: AbortSignal,
-    ) => void;
-    /** Persist an advisory exchange, for surfaces whose chat has no server-side store. */
-    persistChat?: (target: string, conversationId: number, question: string, answer: string) => Promise<void>;
-    /** Open a conversation for advisory chat, returning its id. */
-    openConversation?: (target: string, title: string) => Promise<number>;
-}
-
-export interface StoredChatTurn {
-    role: 'user' | 'assistant';
-    content: string;
 }
 
 export interface AgentChatState {
     target: string | null;
-    mode: ChatMode;
     conversationId: number | null;
     entries: ChatEntry[];
     loading: boolean;
@@ -198,11 +172,8 @@ export interface AgentChatState {
      */
     redactions: Record<string, string>;
     assist: AssistSession | null;
-    /** Whether this surface offers a plain-chat mode alongside the agent. */
-    readonly supportsChat: boolean;
 
     bind: (target: string) => void;
-    setMode: (mode: ChatMode) => void;
     setDrawer: (open: boolean) => void;
     toggleDrawer: () => void;
 
@@ -619,7 +590,6 @@ export function createAgentChatStore(
 
         return {
             target: initialTarget,
-            mode: 'agent',
             conversationId: null,
             entries: [],
             loading: false,
@@ -630,7 +600,6 @@ export function createAgentChatStore(
             drawerOpen: false,
             redactions: {},
             assist: null,
-            supportsChat: typeof adapter.chat === 'function',
 
             bind: target => {
                 if (get().target === target) return;
@@ -656,7 +625,6 @@ export function createAgentChatStore(
                 });
             },
 
-            setMode: mode => set({ mode }),
             setDrawer: open => set({ drawerOpen: open }),
             toggleDrawer: () => set(state => ({ drawerOpen: !state.drawerOpen })),
 
@@ -703,58 +671,17 @@ export function createAgentChatStore(
             },
 
             send: (query, consoleBuffer) => {
-                const { target, mode, loading, conversationId } = get();
+                const { target, loading, conversationId } = get();
                 const trimmed = query.trim();
                 if (!trimmed || loading || !target) return;
 
                 set(state => ({ entries: [...state.entries, { kind: 'user', key: nextKey(), content: trimmed }] }));
 
-                const signal = beginTurn();
-
-                if (mode === 'agent' || !adapter.chat) {
-                    adapter.startTurn(
-                        target,
-                        { query: trimmed, conversationId, console: consoleBuffer },
-                        streamCallbacks(),
-                        signal,
-                    );
-                    return;
-                }
-
-                // Advisory chat has no server-side persistence of its own, so the
-                // exchange is stored from here once it completes, and prior turns
-                // are replayed from what is on screen.
-                let answer = '';
-                const history: StoredChatTurn[] = [];
-
-                for (const entry of get().entries) {
-                    if (entry.kind === 'user') history.push({ role: 'user', content: entry.content });
-                    else if (entry.kind === 'assistant' && !entry.error) {
-                        history.push({ role: 'assistant', content: entry.content });
-                    }
-                }
-
-                adapter.chat(
+                adapter.startTurn(
                     target,
-                    {
-                        query: trimmed,
-                        conversationId,
-                        // The message just pushed is the query itself; sending it
-                        // twice would have the model answer it as context.
-                        history: history.slice(-11, -1),
-                    },
-                    {
-                        onChunk: chunk => {
-                            answer += chunk;
-                            appendText(chunk);
-                        },
-                        onComplete: () => {
-                            settle();
-                            if (answer.trim() !== '') void persistChat(adapter, target, get, set, trimmed, answer);
-                        },
-                        onError: error => fail(error.message),
-                    },
-                    signal,
+                    { query: trimmed, conversationId, console: consoleBuffer },
+                    streamCallbacks(),
+                    beginTurn(),
                 );
             },
 
@@ -854,34 +781,6 @@ export function restoreRedactionsDeep(value: unknown, map: Record<string, string
 }
 
 /**
- * Store an advisory-chat exchange, opening a conversation if this was the first
- * message. Agent turns do not come through here — the backend records those.
- */
-async function persistChat(
-    adapter: AgentChatAdapter,
-    target: string,
-    get: () => AgentChatState,
-    set: (partial: Partial<AgentChatState>) => void,
-    question: string,
-    answer: string,
-): Promise<void> {
-    if (!adapter.persistChat || !adapter.openConversation) return;
-
-    try {
-        let id = get().conversationId;
-
-        if (id === null) {
-            id = await adapter.openConversation(target, question.slice(0, 80));
-            set({ conversationId: id });
-        }
-
-        await adapter.persistChat(target, id, question, answer);
-    } catch {
-        /* a lost transcript is not worth surfacing over the answer itself */
-    }
-}
-
-/**
  * Rebuild a transcript from stored messages.
  *
  * Tool rows carry their arguments on the assistant message that requested them
@@ -941,22 +840,19 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
 }
 
 /**
- * The server assistant: bound to one server, and the only surface with a plain
- * advisory chat mode alongside the agent.
+ * The server assistant: bound to one server.
+ *
+ * It used to carry a plain advisory chat mode alongside the agent, chosen from a
+ * toggle above the composer. That mode is gone. The argument that retired the
+ * admin Playground applies here unchanged — a chat that cannot look anything up
+ * is a worse version of an agent that can, and it is worse in the way that costs
+ * most, by answering confidently about a server it never read. Keeping it also
+ * meant a second persistence path, a second history reconstruction assembled
+ * from what happened to be on screen, and a branch through every turn.
  */
 export const useAgentChat = createAgentChatStore({
-    startTurn: (uuid, body, callbacks, signal) =>
-        streamAgentTurn(uuid, body, callbacks, signal),
+    startTurn: (uuid, body, callbacks, signal) => streamAgentTurn(uuid, body, callbacks, signal),
     decide: (uuid, body, callbacks, signal) => streamAgentDecision(uuid, body, callbacks, signal),
-    chat: (uuid, body, callbacks, signal) =>
-        streamServerAiQuery(uuid, { ...body, queryType: 'freeform' }, callbacks, signal),
-    openConversation: async (uuid, title) => (await createConversation(uuid, title)).id,
-    persistChat: async (uuid, conversationId, question, answer) => {
-        await appendMessages(uuid, conversationId, [
-            { role: 'user', content: question },
-            { role: 'assistant', content: answer },
-        ]);
-    },
 });
 
 /**

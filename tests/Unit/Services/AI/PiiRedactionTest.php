@@ -176,6 +176,36 @@ class PiiRedactionTest extends TestCase
         $this->assertTrue($map->isEmpty());
     }
 
+    /**
+     * The version exemption buys an address through, and nothing else.
+     *
+     * It used to skip the free-text sweep outright, which is a much larger grant
+     * than the collision it exists for needs. The match is on substrings — one
+     * entry has to cover `startup_command`, `docker_image` and
+     * `minecraft_version` alike — so "exempt from every pattern" reached a great
+     * many fields, and a startup command is user-editable and routinely carries
+     * a webhook URL or the operator's own address.
+     */
+    public function testTheVersionExemptionDoesNotAlsoLetPersonalDataThrough(): void
+    {
+        $map = new RedactionMap();
+
+        $out = $this->redactor->redact([
+            'startup_command' => 'java -jar paper-1.20.4.1.jar --contact ops@example.com',
+        ], $map);
+
+        $this->assertStringContainsString(
+            '1.20.4.1',
+            $out['startup_command'],
+            'The version is what the exemption is for and must survive it.'
+        );
+        $this->assertStringNotContainsString(
+            'ops@example.com',
+            $out['startup_command'],
+            'An address in an exempted field is still an address.'
+        );
+    }
+
     public function testLeavesVersionSuffixesInFreeTextAlone(): void
     {
         $map = new RedactionMap();
