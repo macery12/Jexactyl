@@ -75,18 +75,31 @@ class AgentContext
     /**
      * When this turn's wall clock runs out, as a `microtime(true)` stamp.
      *
-     * The loop keeps its own copy and checks it between steps, which is enough
-     * for a step that is one tool call. A batch is not: it is one step holding
-     * up to `max_batch_calls` dispatches, each with its own `max_tool_seconds`,
-     * and multiplying those together comfortably exceeds any turn limit an
-     * operator thinks they have set. So the deadline is published here for the
-     * batch runner to check between calls.
+     * Established once at request-phase entry and shared by queueing, provider
+     * calls, ordinary tools, batch children, and the loop that follows an
+     * approved action. A batch can hold many dispatches inside one model step,
+     * so checking only between steps would not enforce the configured limit.
      *
      * Null until a turn starts, and deliberately absent from {@see toState()} —
-     * a resumed turn is a fresh request with a fresh clock, and inheriting an
-     * expired deadline would abandon the work the user just approved.
+     * a resumed turn is a fresh request phase with a fresh clock. Time spent
+     * waiting for a human decision is not execution time and must not consume
+     * the allowance for the approved work.
      */
     public ?float $deadline = null;
+
+    /**
+     * Durable key of the pending action being resumed. Each dispatched child
+     * derives its own key from this value, so retries can be recognized without
+     * making two calls in the same batch look identical.
+     */
+    public ?string $executionKey = null;
+
+    public function idempotencyKeyFor(string $callId): ?string
+    {
+        return $this->executionKey === null
+            ? null
+            : hash('sha256', $this->executionKey . ':' . $callId);
+    }
 
     /**
      * The administrator's audited session on a customer's server, once one has

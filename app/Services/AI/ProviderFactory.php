@@ -49,9 +49,13 @@ class ProviderFactory
      *
      * @throws AIServiceException
      */
-    public function make(?string $task = null): AiProvider
+    public function make(?string $task = null, ?int $timeoutSeconds = null): AiProvider
     {
-        return $this->fromConfig($this->config($task));
+        $config = $this->config($task);
+
+        return $this->fromConfig(
+            $timeoutSeconds === null ? $config : $config->withTimeout($timeoutSeconds)
+        );
     }
 
     /**

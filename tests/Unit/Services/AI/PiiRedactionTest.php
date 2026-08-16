@@ -155,6 +155,48 @@ class PiiRedactionTest extends TestCase
         $this->assertSame('jobloggs', $out['username']);
     }
 
+    public function testStructuredNameAndAddressFieldsAreMaskedAcrossCustomerControlledSources(): void
+    {
+        $map = new RedactionMap();
+        $sources = [
+            'ticket' => ['first_name' => 'Alice', 'address_1' => '12 High Street'],
+            'file' => ['full_name' => 'Alice Smith', 'postal_code' => 'SW1A 1AA'],
+            'console' => ['billing_name' => 'Alice Smith', 'city' => 'London'],
+        ];
+
+        $out = $this->redactor->redact($sources, $map);
+
+        foreach ($out as $source) {
+            foreach ($source as $value) {
+                $this->assertMatchesRegularExpression('/^\[(?:name|address)_[0-9a-f]{6,}]$/', $value);
+            }
+        }
+    }
+
+    public function testNameAndAddressCategoriesDoNotPretendToDeidentifyFreeText(): void
+    {
+        Setting::set('settings::modules:ai:privacy:categories', json_encode(['name', 'address']));
+        $redactor = app(PiiRedactor::class);
+
+        $fixtures = [
+            'ticket' => 'My name is Alice Smith; send it to 12 High Street, London.',
+            'file' => 'owner: Alice Smith\npostal address: 12 High Street, London',
+            'console' => '[INFO] Alice Smith connected from High Street',
+            'server_name' => 'Alice Smith at 12 High Street',
+            // Game prose is a key false-positive case for regex name/address
+            // guesses and must remain operationally useful.
+            'game_content' => 'Steve visited Highgarden and traded on LondonCraft SMP.',
+        ];
+
+        foreach ($fixtures as $source => $text) {
+            $this->assertSame(
+                $text,
+                $redactor->redactText($text, new RedactionMap()),
+                $source . ' must follow the documented structural-only limitation.'
+            );
+        }
+    }
+
     /*
     |--------------------------------------------------------------------------
     | What must not get caught

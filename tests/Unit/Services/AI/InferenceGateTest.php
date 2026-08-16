@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Inference\InferenceGate;
+use Everest\Services\AI\Inference\TurnLease;
 use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
@@ -128,6 +129,17 @@ class InferenceGateTest extends TestCase
         }
     }
 
+    public function testQueueDepthIsClampedToSpareDeploymentWorkers(): void
+    {
+        $gate = $this->gate(config: [
+            'concurrency.slots' => 3,
+            'concurrency.queue_depth' => 50,
+            'concurrency.worker_capacity' => 5,
+        ]);
+
+        $this->assertSame(2, $gate->maxQueueDepth());
+    }
+
     public function testOneUserCannotOccupyEverySlot(): void
     {
         $gate = $this->gate(config: ['concurrency.slots' => 4, 'concurrency.per_user' => 1]);
@@ -149,6 +161,62 @@ class InferenceGateTest extends TestCase
         $other->release();
 
         $this->assertSame(0, $gate->activeForUser('user-1'));
+    }
+
+    public function testAQueuedReservationCountsAgainstThePerUserLimit(): void
+    {
+        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 1]);
+        $reserve = new \ReflectionMethod(InferenceGate::class, 'reserveUser');
+        $release = new \ReflectionMethod(InferenceGate::class, 'releaseUser');
+
+        // reserveUser runs before slot polling, so this has the same ownership
+        // shape as a request waiting behind a busy slot.
+        $queued = $reserve->invoke($gate, 'user-queued');
+        $this->assertSame(1, $gate->activeForUser('user-queued'));
+
+        try {
+            $gate->acquire('user-queued');
+            $this->fail('A second request from a user with queued work must be refused.');
+        } catch (AIServiceException $e) {
+            $this->assertStringContainsString('running or queued', $e->getMessage());
+        } finally {
+            $release->invoke($gate, $queued);
+        }
+
+        $this->assertSame(0, $gate->activeForUser('user-queued'));
+    }
+
+    public function testAnExpiredOwnersCleanupCannotReleaseAReplacementReservation(): void
+    {
+        $gate = $this->gate(config: ['concurrency.per_user' => 1]);
+        $reserve = new \ReflectionMethod(InferenceGate::class, 'reserveUser');
+        $release = new \ReflectionMethod(InferenceGate::class, 'releaseUser');
+        $old = $reserve->invoke($gate, 'user-replaced');
+
+        // Simulate expiry/recovery followed by a new owner. The late finally
+        // from the old worker must not decrement the replacement's count.
+        Cache::forget('ai:reservation:user:' . $old['token']);
+        Cache::put('ai:active:user:user-replaced', 1, 60);
+        $release->invoke($gate, $old);
+
+        $this->assertSame(1, $gate->activeForUser('user-replaced'));
+    }
+
+    public function testAnExpiredSlotOwnerCannotReleaseItsReplacement(): void
+    {
+        $oldLock = Cache::lock('ai:test:owned-slot', 1);
+        $this->assertTrue($oldLock->get());
+        $oldLease = TurnLease::held(0, $oldLock, fn () => null);
+
+        $this->travel(2)->seconds();
+        $replacement = Cache::lock('ai:test:owned-slot', 30);
+        $this->assertTrue($replacement->get());
+
+        $oldLease->release();
+
+        $contender = Cache::lock('ai:test:owned-slot', 30);
+        $this->assertFalse($contender->get(), 'The old owner must not release the replacement lock.');
+        $replacement->release();
     }
 
     public function testReleasingIsIdempotent(): void
@@ -220,6 +288,39 @@ class InferenceGateTest extends TestCase
         $this->assertNotEmpty($frames, 'The gate should report queue position to a streaming caller.');
         $this->assertSame(1, $frames[0]['position']);
         $this->assertGreaterThan(0, $frames[0]['eta']);
+        $this->assertSame(0, $gate->waiting(InferenceGate::LANE_NEW));
+        $this->assertSame(0, $gate->activeForUser('user-2'));
+    }
+
+    public function testDisconnectPromptlyCleansQueueAndUserReservations(): void
+    {
+        config()->set('modules.ai.provider', ProviderConfig::PROVIDER_OLLAMA);
+        config()->set('modules.ai.concurrency.slots', 1);
+        config()->set('modules.ai.concurrency.per_user', 1);
+
+        $gate = new class (new ProviderFactory()) extends InferenceGate {
+            public bool $disconnected = false;
+
+            protected function clientDisconnected(): bool
+            {
+                return $this->disconnected;
+            }
+        };
+
+        $held = $gate->acquire('user-held');
+        $gate->disconnected = true;
+
+        try {
+            $gate->acquire('user-gone');
+            $this->fail('A disconnected waiter must be cancelled.');
+        } catch (AIServiceException $e) {
+            $this->assertStringContainsString('client disconnected', $e->getMessage());
+        } finally {
+            $held->release();
+        }
+
+        $this->assertSame(0, $gate->waiting(InferenceGate::LANE_NEW));
+        $this->assertSame(0, $gate->activeForUser('user-gone'));
     }
 
     public function testEtaTracksRecentTurnDurationsAndScalesWithSlots(): void

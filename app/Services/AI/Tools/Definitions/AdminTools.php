@@ -179,7 +179,7 @@ class AdminTools
 
             new ToolDefinition(
                 name: 'admin_server_view',
-                description: 'Full detail for one server, by numeric id — limits, node, owner and '
+                description: 'Operational detail for one server, by numeric id — limits, node, owner and '
                     . 'install state. This is the panel\'s own record; it cannot read the server\'s '
                     . 'files or console. Point the customer at that server\'s own assistant for those.',
                 parameters: self::object([
@@ -189,6 +189,32 @@ class AdminTools
                 uriTemplate: self::BASE . '/servers/{server}',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SERVERS_READ],
+                // The Application API representation also contains the full
+                // container environment. It is useful to administrators in
+                // the UI, but it includes hidden and dynamically configured
+                // secrets and must never enter a provider payload. This is an
+                // allowlist rather than a recursive blacklist so new response
+                // fields remain excluded by default.
+                resultShaper: fn (mixed $data) => self::mapItem($data, fn (array $s) => [
+                    'id' => $s['id'] ?? null,
+                    'uuid' => $s['uuid'] ?? null,
+                    'identifier' => $s['identifier'] ?? null,
+                    'name' => $s['name'] ?? null,
+                    'description' => $s['description'] ?? null,
+                    'status' => $s['status'] ?? null,
+                    'limits' => $s['limits'] ?? null,
+                    'feature_limits' => $s['feature_limits'] ?? null,
+                    'owner_id' => $s['owner_id'] ?? null,
+                    'node_id' => $s['node_id'] ?? null,
+                    'allocation_id' => $s['allocation_id'] ?? null,
+                    'nest_id' => $s['nest_id'] ?? null,
+                    'egg_id' => $s['egg_id'] ?? null,
+                    'billing_product_id' => $s['billing_product_id'] ?? null,
+                    'renewal_date' => $s['renewal_date'] ?? null,
+                    'is_deletion_scheduled' => $s['is_deletion_scheduled'] ?? false,
+                    'created_at' => $s['created_at'] ?? null,
+                    'updated_at' => $s['updated_at'] ?? null,
+                ]),
             ),
 
             new ToolDefinition(
@@ -361,7 +387,14 @@ class AdminTools
                     'category' => self::string('The numeric category id.'),
                     'product' => self::string('The numeric product id.'),
                     'name' => self::string('New product name.'),
-                    'description' => self::string('New description.'),
+                    'description' => [
+                        'type' => ['string', 'null'],
+                        'description' => 'New description, or null to clear it.',
+                    ],
+                    'icon' => [
+                        'type' => ['string', 'null'],
+                        'description' => 'New icon, or null to clear it.',
+                    ],
                     'price' => self::number('New monthly price.'),
                     'visible' => self::boolean('Whether it appears on the storefront.'),
                     'cpu_limit' => self::integer('CPU limit as a percentage. 100 is one core.'),
@@ -370,7 +403,10 @@ class AdminTools
                     'backup_limit' => self::integer('Backup allowance.'),
                     'database_limit' => self::integer('Database allowance.'),
                     'allocation_limit' => self::integer('Port allowance.'),
-                    'subdomain_limit' => self::integer('Subdomain allowance.'),
+                    'subdomain_limit' => [
+                        'type' => ['integer', 'null'],
+                        'description' => 'Subdomain allowance, or null to inherit the category default.',
+                    ],
                 ], ['category', 'product']),
                 method: 'PATCH',
                 uriTemplate: self::BASE . '/billing/categories/{category}/products/{product}',

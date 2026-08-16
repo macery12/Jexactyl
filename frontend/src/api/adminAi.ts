@@ -361,7 +361,12 @@ export function streamAdminAgentTurn(
 }
 
 export function streamAdminAgentDecision(
-    opts: { turnId: string; decision: 'approve' | 'reject' | 'answer'; answer?: string },
+    opts: {
+        turnId: string;
+        decision: 'approve' | 'reject' | 'answer';
+        confirmation?: string;
+        answer?: string;
+    },
     callbacks: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
@@ -370,6 +375,7 @@ export function streamAdminAgentDecision(
         {
             turn_id: opts.turnId,
             decision: opts.decision,
+            confirmation: opts.confirmation ?? undefined,
             answer: opts.answer ?? undefined,
         },
         callbacks,

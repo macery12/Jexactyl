@@ -8,6 +8,7 @@ use Everest\Models\AiUsageLog;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\ProviderFactory;
@@ -37,6 +38,9 @@ use Everest\Services\AI\Data\AiToolCall as ToolCallData;
  */
 trait HandlesAgentTurns
 {
+    /** A crashed claimant is failed closed after this lease. It is never replayed. */
+    protected const PENDING_CLAIM_MINUTES = 10;
+
     abstract protected function agentRunner(): AgentRunner;
 
     abstract protected function toolRegistry(): ToolRegistry;
@@ -64,11 +68,6 @@ trait HandlesAgentTurns
         $model = $this->providerFactory()->model(ProviderFactory::TASK_AGENT);
 
         return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model) {
-            // A turn legitimately runs for minutes; the client disconnecting
-            // must not abort a tool call halfway through.
-            set_time_limit(0);
-            ignore_user_abort(true);
-
             // Flush a comment immediately so proxies do not 504 while the model
             // is still thinking or the turn is queued.
             $this->write(': keep-alive');
@@ -97,6 +96,12 @@ trait HandlesAgentTurns
             $toolCalls = 0;
 
             try {
+                // Approval execution, any following queue wait and the resumed
+                // loop share one allowance. This must happen before the
+                // approved tool; otherwise a batch and its follow-up inference
+                // each receive a full clock.
+                $runner->beginDeadline($context);
+
                 if ($resuming !== null) {
                     $this->resumeSuspendedCall($runner, $context, $resuming);
                 }
@@ -108,9 +113,28 @@ trait HandlesAgentTurns
 
                     $this->write('data: ' . json_encode($event->toArray()));
                 });
+
+                if ($resuming !== null) {
+                    AiPendingAction::whereKey($resuming->id)
+                        ->where('status', AiPendingAction::STATUS_EXECUTING)
+                        ->update([
+                            'status' => AiPendingAction::STATUS_COMPLETED,
+                            'resolved_at' => now(),
+                        ]);
+                }
             } catch (\Throwable $e) {
                 $status = 'error';
                 $error = $e->getMessage();
+
+                if ($resuming !== null) {
+                    AiPendingAction::whereKey($resuming->id)
+                        ->where('status', AiPendingAction::STATUS_EXECUTING)
+                        ->update([
+                            'status' => AiPendingAction::STATUS_FAILED,
+                            'resolved_at' => now(),
+                            'failure_reason' => 'Execution stopped before completion.',
+                        ]);
+                }
                 Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
                 $this->write('data: ' . json_encode(AgentEvent::error('The AI ran into a problem. Please try again.')->toArray()));
             }
@@ -238,7 +262,10 @@ trait HandlesAgentTurns
             abort(422, 'Choose one of the answers offered.');
         }
 
-        $pending->update(['status' => AiPendingAction::STATUS_APPROVED]);
+        $pending->update([
+            'status' => AiPendingAction::STATUS_COMPLETED,
+            'resolved_at' => now(),
+        ]);
 
         $context->push(
             AiMessage::tool(
@@ -257,7 +284,7 @@ trait HandlesAgentTurns
      */
     protected function resumeSuspendedCall(AgentRunner $runner, AgentContext $context, AiPendingAction $pending): void
     {
-        if ($pending->status !== AiPendingAction::STATUS_APPROVED) {
+        if ($pending->status !== AiPendingAction::STATUS_EXECUTING) {
             return;
         }
 
@@ -269,6 +296,10 @@ trait HandlesAgentTurns
 
         $definition = $this->toolRegistry()->find($pending->tool_name);
         $callId = $this->resolveToolCallId($pending, $context);
+        $audit = AiToolCall::where('turn_id', $pending->turn_id)
+            ->where('tool_name', $pending->tool_name)
+            ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
+            ->first();
 
         if ($definition === null || !$this->stillUsable($context, $definition)) {
             $context->push(
@@ -282,25 +313,63 @@ trait HandlesAgentTurns
             );
             $this->closeUnresolvedCalls($context);
 
+            $audit?->update([
+                'status' => AiToolCall::STATUS_FAILED,
+                'result_summary' => 'No longer available',
+                'resolved_at' => now(),
+            ]);
+
             return;
         }
 
         // Re-resolve the tier rather than trusting the stored one: an operator
         // may have hardened the tool while the approval was outstanding.
         $risk = $this->toolRiskGate()->resolve($definition, $pending->arguments);
+        $approvedRisk = (string) $pending->risk;
+
+        if (
+            !in_array($approvedRisk, \Everest\Services\AI\Tools\ToolDefinition::RISKS, true)
+            || $this->toolRiskGate()->max($approvedRisk, $risk) !== $approvedRisk
+        ) {
+            $message = sprintf(
+                'That action now requires "%s" approval, so the earlier approval was not used. Ask for it again.',
+                $risk,
+            );
+            $context->push(
+                AiMessage::tool(
+                    $callId,
+                    $pending->tool_name,
+                    json_encode(['ok' => false, 'error' => 'risk_changed', 'message' => $message]),
+                    true,
+                ),
+                TurnRecorder::toolDisplay(false, 'Approval policy changed'),
+            );
+            $this->closeUnresolvedCalls($context);
+            $audit?->update([
+                'status' => AiToolCall::STATUS_FAILED,
+                'result_summary' => 'Approval policy changed',
+                'resolved_at' => now(),
+            ]);
+
+            return;
+        }
 
         $call = new ToolCallData($callId, $definition->name, $pending->arguments);
         $emit = fn (AgentEvent $event) => $this->write('data: ' . json_encode($event->toArray()));
 
         $startedAt = microtime(true);
+        if ($definition->hostHandled && $audit !== null) {
+            $audit->update(['status' => AiToolCall::STATUS_RUNNING, 'resolved_at' => null]);
+        }
+
         $result = $definition->hostHandled
             // The *stored* tier, not the freshly resolved one. For a batch this
             // is the ceiling none of its calls may exceed, and the only record of
             // what the user actually agreed to — re-resolving it would ask the
             // wrong question, since `batch` declares SAFE and is priced by what
             // is inside it.
-            ? $runner->runHostTool($context, $call, $definition, $pending->arguments, $emit, (string) $pending->risk)
-            : $runner->runTool($context, $call, $definition, $pending->arguments, $risk);
+            ? $runner->runHostTool($context, $call, $definition, $pending->arguments, $emit, $approvedRisk)
+            : $runner->runTool($context, $call, $definition, $pending->arguments, $risk, $audit);
 
         $fresh = $context->redactions->drainFresh();
         if ($fresh !== []) {
@@ -323,9 +392,13 @@ trait HandlesAgentTurns
 
         $this->closeUnresolvedCalls($context);
 
-        AiToolCall::where('turn_id', $pending->turn_id)
-            ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
-            ->update(['status' => AiToolCall::STATUS_APPROVED, 'resolved_at' => now()]);
+        if ($definition->hostHandled && $audit !== null) {
+            $audit->update([
+                'status' => $result->ok ? AiToolCall::STATUS_SUCCEEDED : AiToolCall::STATUS_FAILED,
+                'result_summary' => $result->summary(),
+                'resolved_at' => now(),
+            ]);
+        }
     }
 
     /**
@@ -347,7 +420,10 @@ trait HandlesAgentTurns
      */
     protected function applyRejection(AiPendingAction $pending, AgentContext $context): void
     {
-        $pending->update(['status' => AiPendingAction::STATUS_REJECTED]);
+        $pending->update([
+            'status' => AiPendingAction::STATUS_REJECTED,
+            'resolved_at' => now(),
+        ]);
 
         AiToolCall::where('turn_id', $pending->turn_id)
             ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
@@ -368,6 +444,94 @@ trait HandlesAgentTurns
         );
 
         $this->closeUnresolvedCalls($context);
+    }
+
+    /**
+     * Atomically reserve a pending mutation. Only the request that changes the
+     * row from pending to executing receives the execution key.
+     */
+    protected function claimPending(AiPendingAction $pending): bool
+    {
+        $key = (string) Str::uuid();
+        $claimed = AiPendingAction::whereKey($pending->id)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->where('expires_at', '>', now())
+            ->update([
+                'status' => AiPendingAction::STATUS_EXECUTING,
+                'execution_key' => $key,
+                'claimed_at' => now(),
+                'failure_reason' => null,
+            ]);
+
+        $pending->refresh();
+
+        return $claimed === 1;
+    }
+
+    /** Atomically reserve a non-executing decision such as reject. */
+    protected function claimRejection(AiPendingAction $pending): bool
+    {
+        $claimed = AiPendingAction::whereKey($pending->id)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->where('expires_at', '>', now())
+            ->update([
+                'status' => AiPendingAction::STATUS_REJECTED,
+                'resolved_at' => now(),
+            ]);
+
+        $pending->refresh();
+
+        return $claimed === 1;
+    }
+
+    /**
+     * Turn an abandoned claim into a durable terminal failure. Retrying a
+     * mutation after an unknown crash point could execute it twice, so stale
+     * claims fail closed and are visible as such instead of being replayed.
+     */
+    protected function recoverStaleClaim(AiPendingAction $pending): void
+    {
+        if (
+            $pending->status !== AiPendingAction::STATUS_EXECUTING
+            || $pending->claimed_at === null
+            || $pending->claimed_at->isAfter(now()->subMinutes(self::PENDING_CLAIM_MINUTES))
+        ) {
+            return;
+        }
+
+        AiPendingAction::whereKey($pending->id)
+            ->where('status', AiPendingAction::STATUS_EXECUTING)
+            ->where('claimed_at', '<=', now()->subMinutes(self::PENDING_CLAIM_MINUTES))
+            ->update([
+                'status' => AiPendingAction::STATUS_FAILED,
+                'resolved_at' => now(),
+                'failure_reason' => 'The approval worker stopped before completion; the action was not replayed.',
+            ]);
+
+        $pending->refresh();
+    }
+
+    /** Return a stable response for retries without running the effect again. */
+    protected function existingDecisionResponse(AiPendingAction $pending): StreamedResponse
+    {
+        if ($pending->status === AiPendingAction::STATUS_EXECUTING) {
+            abort(409, 'That action is already executing.');
+        }
+
+        if ($pending->status === AiPendingAction::STATUS_PENDING) {
+            abort(409, 'Another decision reached this action first.');
+        }
+
+        $status = $pending->status;
+
+        return response()->stream(function () use ($status): void {
+            $this->write('data: ' . json_encode(AgentEvent::done('existing_' . $status)->toArray()));
+            $this->write('data: [DONE]');
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+        ]);
     }
 
     /**

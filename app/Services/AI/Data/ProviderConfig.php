@@ -94,6 +94,29 @@ class ProviderConfig
     }
 
     /**
+     * Return a connection config whose blocking bounds cannot outlive the
+     * caller's remaining wall-clock allowance.
+     */
+    public function withTimeout(int $seconds): self
+    {
+        $timeout = max(1, min($this->timeout, $seconds));
+
+        return new self(
+            $this->provider,
+            $this->endpoint,
+            $this->apiKey,
+            $this->model,
+            $this->maxTokens,
+            $this->temperature,
+            $this->systemPrompt,
+            $this->keepAlive,
+            $timeout,
+            min($this->connectTimeout, $timeout),
+            $this->contextTokens,
+        );
+    }
+
+    /**
      * A stable fingerprint of everything that identifies this endpoint+model,
      * used to key health, capability, and model-listing caches.
      */

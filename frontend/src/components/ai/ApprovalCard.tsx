@@ -72,7 +72,9 @@ export function ApprovalCard({
         );
     }
 
-    const confirmMatches = typed.trim().toLowerCase() === confirmPhrase.toLowerCase();
+    const requiredConfirmation =
+        entry.preview?.kind === 'confirmation' ? entry.preview.name : confirmPhrase;
+    const confirmMatches = typed.trim() === requiredConfirmation;
 
     return (
         <>
@@ -132,6 +134,20 @@ export function ApprovalCard({
                                     {m['server.ai.approval.ownedBy']({ owner: entry.preview.owner })}
                                 </span>
                             )}
+                            <span className="ml-auto shrink-0 font-mono text-[11px] text-[var(--color-ink-faint)]">
+                                {entry.preview.identifier}
+                            </span>
+                        </div>
+                    </div>
+                )}
+
+                {entry.preview?.kind === 'confirmation' && (
+                    <div className="px-3 pb-2">
+                        <div className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2">
+                            <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-[var(--color-danger)]" />
+                            <span className="truncate text-xs font-medium text-[var(--color-ink)]">
+                                {entry.preview.name}
+                            </span>
                             <span className="ml-auto shrink-0 font-mono text-[11px] text-[var(--color-ink-faint)]">
                                 {entry.preview.identifier}
                             </span>
@@ -201,7 +217,7 @@ export function ApprovalCard({
                         <p className="text-sm text-[var(--color-ink)]">
                             {m['server.ai.approval.confirmBody']({
                                 tool: toolLabel(entry.tool),
-                                server: confirmPhrase,
+                                server: requiredConfirmation,
                             })}
                         </p>
                     </div>
@@ -212,11 +228,11 @@ export function ApprovalCard({
                         </pre>
                     )}
 
-                    <Field label={m['server.ai.approval.confirmLabel']({ server: confirmPhrase })}>
+                    <Field label={m['server.ai.approval.confirmLabel']({ server: requiredConfirmation })}>
                         <Input
                             value={typed}
                             onChange={e => setTyped(e.target.value)}
-                            placeholder={confirmPhrase}
+                            placeholder={requiredConfirmation}
                             autoFocus
                         />
                     </Field>

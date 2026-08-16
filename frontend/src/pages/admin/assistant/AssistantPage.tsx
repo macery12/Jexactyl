@@ -193,10 +193,9 @@ export default function AssistantPage() {
 
                 <AgentChatView
                     store={useAdminAgentChat}
-                    // No admin tool is registered at destructive tier, so the
-                    // typed-confirmation path is unreachable here. The phrase is
-                    // still supplied so the shared card never renders an empty
-                    // prompt if that ever changes.
+                    // Destructive assist cards carry their live server name in
+                    // the approval preview. This fallback is used only for a
+                    // future destructive admin action without a server target.
                     confirmPhrase={m['admin.ai.agent.confirmPhrase']()}
                     emptyTitle={m['admin.ai.agent.emptyTitle']()}
                     emptySubtitle={m['admin.ai.agent.emptySubtitle']()}

@@ -247,8 +247,10 @@ return [
      * typed into a support ticket, and an agent that can read the user table
      * will send all of it to whatever inference endpoint is configured unless
      * something stops it. On by default: an operator who has not thought about
-     * this yet is better served by the cautious answer, and the cost of being
-     * wrong in that direction is a token instead of an address.
+     * this yet is better served by the cautious answer. This is pattern and
+     * field-name masking, not de-identification: in particular arbitrary names
+     * and postal addresses in prose require external DLP/NER if they must not
+     * reach a hosted provider.
      *
      * Applies to tool results and to context the panel attaches by itself —
      * never to what the administrator types, which would break lookup by email
@@ -273,6 +275,13 @@ return [
      * spend rather than VRAM.
      */
     'concurrency' => [
+        /*
+         * PHP workers available to serve streamed agent requests. Queue depth
+         * is clamped to this value minus active inference slots, preventing
+         * synchronous waiters from consuming the entire deployment pool.
+         */
+        'worker_capacity' => env('AI_WORKER_CAPACITY', 32),
+
         /*
          * Concurrent inference slots. Should match the server's own parallelism
          * (Ollama's OLLAMA_NUM_PARALLEL). Null derives it from the model probe.

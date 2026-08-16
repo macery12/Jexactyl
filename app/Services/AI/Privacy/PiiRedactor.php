@@ -9,10 +9,9 @@ use Everest\Models\Setting;
  *
  * The panel knows a great deal about its customers, and an agent that can read
  * the user table and a ticket thread will put all of it into a request to an
- * inference provider unless something stops it. For an operator running against
- * a hosted API that is a data-protection question with a real answer, so this is
- * the answer: nothing personal crosses the wire, and what does cross is a token
- * the panel can put back.
+ * inference provider unless something stops it. This filter reduces that
+ * exposure with exact structural masking and conservative patterns; it is not
+ * de-identification or a general named-entity detector.
  *
  * **What this covers, and what it deliberately does not.** It runs on tool
  * results and on context the panel attaches by itself — a console buffer, a file
@@ -28,7 +27,9 @@ use Everest\Models\Setting;
  * patterns are written conservatively: a false positive costs the model a fact
  * it needed, which is a worse failure than it sounds, so `payment` is Luhn-
  * checked and `phone` insists on an international prefix rather than matching
- * every run of digits.
+ * every run of digits. Names and postal addresses are structural-only: prose
+ * can still contain them and must be covered by the operator's provider terms
+ * or a separate DLP/NER system.
  */
 class PiiRedactor
 {
@@ -93,7 +94,8 @@ class PiiRedactor
      * `name` and `address` have none on purpose: there is no expression that
      * recognises a person's name in prose without also eating every proper noun
      * in the paragraph, and a redactor that mangles "the Paper plugin on the
-     * London node" has cost more than it saved.
+     * London node" has cost more than it saved. Enabling either category means
+     * exact field masking only, never that free text has been de-identified.
      *
      * @var array<string, string>
      */

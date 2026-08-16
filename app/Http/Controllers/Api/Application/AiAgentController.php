@@ -3,6 +3,7 @@
 namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Models\Setting;
+use Everest\Models\Server;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Facades\Activity;
@@ -162,6 +163,11 @@ class AiAgentController extends ApplicationApiController
                 'tool' => $action->tool_name,
                 'arguments' => $action->arguments,
                 'risk' => $action->risk,
+                'preview' => \Everest\Services\AI\Agent\ApprovalPreview::for(
+                    $action->tool_name,
+                    (array) $action->arguments,
+                    $action->server_uuid ? Server::where('uuid', $action->server_uuid)->first() : null,
+                ),
                 'created_at' => $action->created_at?->toIso8601String(),
                 'expires_at' => $action->expires_at?->toIso8601String(),
             ])->values(),
@@ -171,9 +177,8 @@ class AiAgentController extends ApplicationApiController
     /**
      * Approve, reject or answer a suspended turn, then resume it.
      *
-     * There is no typed-confirmation branch because no admin tool is registered
-     * at DESTRUCTIVE tier — deletions, suspensions and reinstalls are simply not
-     * reachable from here.
+     * Destructive server commands can be reached only inside a writable assist
+     * session, and are confirmed against the live server name below.
      */
     public function decide(AgentDecisionRequest $request): StreamedResponse
     {
@@ -182,7 +187,7 @@ class AiAgentController extends ApplicationApiController
         $user = $request->user();
 
         /** @var AiPendingAction|null $pending */
-        $pending = AiPendingAction::actionable()
+        $pending = AiPendingAction::query()
             ->where('turn_id', $request->input('turn_id'))
             ->where('user_id', $user->id)
             // Scoped to the admin surface, so a server chat's pending action
@@ -192,13 +197,27 @@ class AiAgentController extends ApplicationApiController
             ->first();
 
         if ($pending === null) {
-            abort(404, 'That pending action no longer exists, or has expired.');
+            abort(404, 'That pending action no longer exists.');
+        }
+
+        $this->recoverStaleClaim($pending);
+
+        if ($pending->status === AiPendingAction::STATUS_PENDING && !$pending->isActionable()) {
+            $pending->update(['status' => AiPendingAction::STATUS_EXPIRED, 'resolved_at' => now()]);
+            abort(404, 'That pending action has expired.');
+        }
+
+        if ($pending->status !== AiPendingAction::STATUS_PENDING) {
+            return $this->existingDecisionResponse($pending);
         }
 
         $decision = (string) $request->input('decision');
         $context = $this->restoreTurn($pending, $user, null);
 
         if ($decision === 'reject') {
+            if (!$this->claimRejection($pending)) {
+                return $this->existingDecisionResponse($pending);
+            }
             $this->applyRejection($pending, $context);
 
             return $this->streamTurn($context, $pending);
@@ -211,14 +230,44 @@ class AiAgentController extends ApplicationApiController
                 abort(422, 'That pending action is waiting for approval, not an answer.');
             }
 
+            if (!$this->claimPending($pending)) {
+                return $this->existingDecisionResponse($pending);
+            }
+            $context->executionKey = $pending->execution_key;
             $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
 
             return $this->streamTurn($context, $pending);
         }
 
-        $pending->update(['status' => AiPendingAction::STATUS_APPROVED]);
+        $this->assertConfirmed($request, $pending, $context);
+
+        if (!$this->claimPending($pending)) {
+            return $this->existingDecisionResponse($pending);
+        }
+        $context->executionKey = $pending->execution_key;
 
         return $this->streamTurn($context, $pending);
+    }
+
+    /** Destructive assist actions are confirmed against the live target row. */
+    protected function assertConfirmed(
+        AgentDecisionRequest $request,
+        AiPendingAction $pending,
+        AgentContext $context,
+    ): void {
+        if ($pending->risk !== ToolDefinition::RISK_DESTRUCTIVE) {
+            return;
+        }
+
+        $target = $context->targetServer();
+        if ($target === null) {
+            abort(409, 'The server for this destructive action is no longer available.');
+        }
+
+        $typed = trim((string) $request->input('confirmation'));
+        if (!hash_equals((string) $target->name, $typed)) {
+            abort(422, 'Type the current server name exactly to confirm this action.');
+        }
     }
 
     /*

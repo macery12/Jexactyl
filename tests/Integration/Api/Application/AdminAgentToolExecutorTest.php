@@ -2,9 +2,12 @@
 
 namespace Everest\Tests\Integration\Api\Application;
 
+use Everest\Models\Egg;
 use Everest\Models\User;
 use Illuminate\Http\Request;
 use Everest\Models\AdminRole;
+use Everest\Models\Billing\Product;
+use Everest\Models\Billing\Category;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\Tools\ToolExecutor;
 use Everest\Services\AI\Tools\ToolRegistry;
@@ -43,6 +46,12 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
 
     private ToolRegistry $registry;
 
+    /** @var int[] */
+    private array $createdProductIds = [];
+
+    /** @var int[] */
+    private array $createdCategoryIds = [];
+
     public function setUp(): void
     {
         parent::setUp();
@@ -62,6 +71,12 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
      */
     protected function tearDown(): void
     {
+        if ($this->createdProductIds !== []) {
+            Product::query()->whereKey($this->createdProductIds)->forceDelete();
+        }
+        if ($this->createdCategoryIds !== []) {
+            Category::query()->whereKey($this->createdCategoryIds)->forceDelete();
+        }
         User::query()->forceDelete();
         AdminRole::query()->where('is_owner', false)->where('is_system', false)->forceDelete();
 
@@ -118,6 +133,57 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
         return $this->executor->execute(new ToolInvocation($tool, $method, $uri, [], $body));
     }
 
+    private function populatedProduct(): Product
+    {
+        $egg = Egg::query()->firstOrFail();
+        $category = Category::query()->create([
+            'uuid' => \Ramsey\Uuid\Uuid::uuid4()->toString(),
+            'name' => 'Agent remediation fixture ' . uniqid(),
+            'visible' => true,
+            'nest_id' => $egg->nest_id,
+            'egg_id' => $egg->id,
+            'allowed_eggs' => [$egg->id],
+            'allow_egg_changes' => false,
+            'allow_plan_changes' => false,
+        ]);
+        $this->createdCategoryIds[] = $category->id;
+
+        $product = new Product();
+        $product->forceFill([
+            'uuid' => \Ramsey\Uuid\Uuid::uuid4()->toString(),
+            'category_uuid' => $category->uuid,
+            'name' => 'Original plan',
+            'icon' => 'box',
+            'price' => 12.75,
+            'description' => 'Original description',
+            'visible' => false,
+            'cpu_limit' => 250,
+            'memory_limit' => 4096,
+            'disk_limit' => 8192,
+            'backup_limit' => 4,
+            'database_limit' => 5,
+            'allocation_limit' => 6,
+            'subdomain_limit' => 7,
+        ])->save();
+        $this->createdProductIds[] = $product->id;
+
+        return $product->fresh();
+    }
+
+    private function invokeDefinition(string $name, array $arguments): \Everest\Services\AI\Tools\ToolResult
+    {
+        $definition = $this->registry->find($name);
+        $this->assertNotNull($definition);
+
+        $validated = $this->registry->validate($definition, $arguments);
+        $this->assertTrue($validated['valid'], implode(' ', $validated['errors']));
+
+        return $this->executor->execute($definition->invoke(
+            $validated['value'],
+            $this->registry->contextForTool($definition, null, $validated['value']),
+        ));
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Capabilities
@@ -171,6 +237,55 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
 
         $this->assertFalse($created->ok);
         $this->assertSame(403, $created->status);
+    }
+
+    public function testProductToolNameOnlyPatchPreservesEveryOmittedColumn(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $product = $this->populatedProduct();
+        $before = $product->getRawOriginal();
+
+        $result = $this->invokeDefinition('admin_product_update', [
+            'category' => (string) $product->category->id,
+            'product' => (string) $product->id,
+            'name' => 'Renamed plan',
+        ]);
+
+        $this->assertTrue($result->ok, $result->summary());
+        $after = $product->refresh()->getRawOriginal();
+        $this->assertSame('Renamed plan', $after['name']);
+
+        foreach ($before as $column => $value) {
+            if (in_array($column, ['name', 'updated_at'], true)) {
+                continue;
+            }
+            $this->assertSame($value, $after[$column], "Omitted column {$column} changed.");
+        }
+    }
+
+    public function testProductToolPreservesExplicitNullAndZeroMeanings(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $product = $this->populatedProduct();
+
+        $result = $this->invokeDefinition('admin_product_update', [
+            'category' => (string) $product->category->id,
+            'product' => (string) $product->id,
+            'description' => null,
+            'icon' => null,
+            'price' => 0,
+            'backup_limit' => 0,
+            'subdomain_limit' => null,
+        ]);
+
+        $this->assertTrue($result->ok, $result->summary());
+        $product->refresh();
+        $this->assertNull($product->description);
+        $this->assertNull($product->icon);
+        $this->assertSame(0.0, $product->price);
+        $this->assertSame(0, $product->backup_limit);
+        $this->assertNull($product->subdomain_limit);
+        $this->assertSame(4096, $product->memory_limit);
     }
 
     /*

@@ -61,11 +61,24 @@ class WriteFileWithDiffRequestTest extends TestCase
         $validator = Validator::make([
             'file' => '/server.properties',
             'content' => $content,
-            'original_content' => null,
+            'original_content' => '',
         ], $request->rules());
         $request->withValidator($validator);
 
         $this->assertTrue($validator->passes());
+    }
+
+    public function testOriginalContentIsMandatoryForCompareAndSwap(): void
+    {
+        $request = new WriteFileWithDiffRequest();
+
+        $validator = Validator::make([
+            'file' => '/server.properties',
+            'content' => 'after',
+        ], $request->rules());
+
+        $this->assertTrue($validator->fails());
+        $this->assertArrayHasKey('original_content', $validator->errors()->toArray());
     }
 
     public function testRawJsonBodyHasASeparateHardCap(): void

@@ -24,6 +24,7 @@ class AgentDecisionRequest extends ApplicationApiRequest
         return [
             'turn_id' => 'required|uuid',
             'decision' => 'required|string|in:approve,reject,answer',
+            'confirmation' => 'nullable|string|max:255',
             'answer' => 'nullable|string|max:500',
         ];
     }

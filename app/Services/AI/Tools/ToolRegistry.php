@@ -78,6 +78,11 @@ class ToolRegistry
         return $this->all()[$name] ?? null;
     }
 
+    public function isDisabled(string $name): bool
+    {
+        return in_array($name, $this->riskGate->disabledTools(), true);
+    }
+
     /**
      * The tools offered for one turn on one server.
      *
@@ -284,6 +289,15 @@ class ToolRegistry
      */
     public function canUse(User $user, ?Server $server, ToolDefinition $definition): bool
     {
+        if ($this->isDisabled($definition->name)) {
+            return false;
+        }
+
+        $scope = $server === null ? ToolDefinition::SCOPE_ADMIN : ToolDefinition::SCOPE_SERVER;
+        if (!$definition->inScope($scope)) {
+            return false;
+        }
+
         return $server === null
             ? $this->adminCanUse($user, $definition)
             : $this->userCanUse($user, $server, $definition);

@@ -77,6 +77,30 @@ class ProductAttributesTest extends TestCase
         $this->assertArrayNotHasKey('visible', $attributes);
     }
 
+    public function testAnUpdateContainsOnlyFieldsThatWerePresent(): void
+    {
+        $this->assertSame(['name' => 'Renamed'], $this->attributes([
+            'name' => 'Renamed',
+        ], null));
+    }
+
+    public function testUpdatePreservesExplicitNullAndZero(): void
+    {
+        $attributes = $this->attributes([
+            'description' => null,
+            'price' => 0,
+            'subdomain_limit' => null,
+            'backup_limit' => 0,
+        ], null);
+
+        $this->assertSame([
+            'description' => null,
+            'price' => 0.0,
+            'backup_limit' => 0,
+            'subdomain_limit' => null,
+        ], $attributes);
+    }
+
     /**
      * Products now carry a single price. base_price was collapsed into it
      * (2026_07_21_000001) because the two columns disagreed about which one

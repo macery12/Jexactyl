@@ -4,6 +4,7 @@ namespace Everest\Tests\Unit\Services\AI;
 
 use Everest\Models\User;
 use Everest\Models\Server;
+use Everest\Models\Setting;
 use Everest\Tests\TestCase;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\Tools\ToolResult;
@@ -36,6 +37,13 @@ use Everest\Services\AI\Data\AiToolCall as ToolCallData;
  */
 class BatchToolTest extends TestCase
 {
+    public function setUp(): void
+    {
+        parent::setUp();
+        Setting::forget('settings::modules:ai:risk_overrides');
+        Setting::forget('settings::modules:ai:disabled_tools');
+    }
+
     private function registry(): ToolRegistry
     {
         $authorizer = \Mockery::mock(AdminAuthorizer::class);
@@ -159,7 +167,7 @@ class BatchToolTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function testAValidBatchIsPlannedAtTheHighestTierItContains(): void
+    public function testFileWritesCannotBypassExactDiffReviewThroughABatch(): void
     {
         $plan = $this->plan([
             'summary' => 'Fix the two config files',
@@ -176,15 +184,10 @@ class BatchToolTest extends TestCase
             ],
         ]);
 
-        $this->assertIsArray($plan, 'A valid batch should plan rather than refuse.');
-
-        [$arguments, $risk] = $plan;
-
-        // One read and one write is a write: the tier a batch runs at is the
-        // most severe thing inside it, never the wrapper's own declaration.
-        $this->assertSame(ToolDefinition::RISK_WRITE, $risk);
-        $this->assertCount(2, $arguments['calls']);
-        $this->assertSame('stop', $arguments['on_error']);
+        $this->assertInstanceOf(ToolResult::class, $plan);
+        $this->assertFalse($plan->ok);
+        $this->assertSame('not_batchable', $plan->code);
+        $this->assertStringContainsString('exact live diff', (string) $plan->detail);
     }
 
     public function testABatchOfReadsStaysSafeAndSoRunsWithoutACard(): void
@@ -427,6 +430,86 @@ class BatchToolTest extends TestCase
         // Even under `continue`: the pre-flight is about the batch being what it
         // said it was, and `continue` only governs a call that genuinely failed.
         $this->assertStringContainsString('none of this batch was run', (string) $result->detail);
+    }
+
+    public function testDisablingAChildWhileTheCardIsOpenAbortsTheWholeBatch(): void
+    {
+        [$arguments] = $this->plan($this->reads(2));
+        Setting::set('settings::modules:ai:disabled_tools', json_encode(['files_read']));
+
+        $result = $this->execute($this->context(), $arguments, ToolDefinition::RISK_SAFE);
+
+        $this->assertFalse($result->ok);
+        $this->assertSame('forbidden', $result->code);
+    }
+
+    public function testLoweringTheLiveBatchLimitAbortsAnApprovedLargerBatch(): void
+    {
+        config()->set('modules.ai.agent.max_batch_calls', 4);
+        [$arguments] = $this->plan($this->reads(3));
+        config()->set('modules.ai.agent.max_batch_calls', 2);
+
+        $result = $this->execute($this->context(), $arguments, ToolDefinition::RISK_SAFE);
+
+        $this->assertFalse($result->ok);
+        $this->assertSame('batch_policy_changed', $result->code);
+    }
+
+    public function testDisablingDestructiveBatchesWhileTheCardIsOpenAbortsExecution(): void
+    {
+        config()->set('modules.ai.agent.allow_destructive_batches', true);
+        [$arguments, $risk] = $this->plan([
+            'summary' => 'Remove old worlds',
+            'calls' => [
+                ['tool' => 'files_delete', 'arguments' => ['root' => '/', 'files' => ['old-a']]],
+                ['tool' => 'files_delete', 'arguments' => ['root' => '/', 'files' => ['old-b']]],
+            ],
+        ]);
+        config()->set('modules.ai.agent.allow_destructive_batches', false);
+
+        $result = $this->execute($this->context(), $arguments, $risk);
+
+        $this->assertFalse($result->ok);
+        $this->assertSame('batch_policy_changed', $result->code);
+    }
+
+    public function testTheWrapperOverrideIsIncludedWhenTheBatchIsPlanned(): void
+    {
+        Setting::set('settings::modules:ai:risk_overrides', json_encode([
+            SharedTools::BATCH => ToolDefinition::RISK_DESTRUCTIVE,
+        ]));
+
+        [$arguments, $risk] = $this->plan($this->reads(2));
+
+        $this->assertCount(2, $arguments['calls']);
+        $this->assertSame(ToolDefinition::RISK_DESTRUCTIVE, $risk);
+    }
+
+    public function testAWrapperRiskIncreaseBeforeDispatchAbortsTheBatch(): void
+    {
+        [$arguments, $risk] = $this->plan($this->reads(2));
+        Setting::set('settings::modules:ai:risk_overrides', json_encode([
+            SharedTools::BATCH => ToolDefinition::RISK_DESTRUCTIVE,
+        ]));
+
+        $result = $this->execute($this->context(), $arguments, $risk);
+
+        $this->assertFalse($result->ok);
+        $this->assertSame('risk_changed', $result->code);
+    }
+
+    public function testAnExpiredSharedDeadlinePreventsEveryBatchChildFromStarting(): void
+    {
+        [$arguments] = $this->plan($this->reads(2));
+        $context = $this->context();
+        $context->deadline = microtime(true) - 1;
+
+        $result = $this->execute($context, $arguments, ToolDefinition::RISK_SAFE);
+
+        $this->assertTrue($result->ok);
+        $this->assertSame(0, $result->data['succeeded']);
+        $this->assertSame(2, $result->data['not_run']);
+        $this->assertSame('out_of_time', $result->data['calls'][0]['not_run']);
     }
 
     /*

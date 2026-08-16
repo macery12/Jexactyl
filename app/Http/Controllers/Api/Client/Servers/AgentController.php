@@ -174,7 +174,7 @@ class AgentController extends ClientApiController
         $user = $request->user();
 
         /** @var AiPendingAction|null $pending */
-        $pending = AiPendingAction::actionable()
+        $pending = AiPendingAction::query()
             ->where('turn_id', $request->input('turn_id'))
             ->where('user_id', $user->id)
             // Scoped to the server on the route, so a pending action cannot be
@@ -183,13 +183,27 @@ class AgentController extends ClientApiController
             ->first();
 
         if ($pending === null) {
-            abort(404, 'That pending action no longer exists, or has expired.');
+            abort(404, 'That pending action no longer exists.');
+        }
+
+        $this->recoverStaleClaim($pending);
+
+        if ($pending->status === AiPendingAction::STATUS_PENDING && !$pending->isActionable()) {
+            $pending->update(['status' => AiPendingAction::STATUS_EXPIRED, 'resolved_at' => now()]);
+            abort(404, 'That pending action has expired.');
+        }
+
+        if ($pending->status !== AiPendingAction::STATUS_PENDING) {
+            return $this->existingDecisionResponse($pending);
         }
 
         $decision = (string) $request->input('decision');
         $context = $this->restoreTurn($pending, $user, $server);
 
         if ($decision === 'reject') {
+            if (!$this->claimRejection($pending)) {
+                return $this->existingDecisionResponse($pending);
+            }
             $this->applyRejection($pending, $context);
 
             return $this->streamTurn($context, $pending);
@@ -198,6 +212,10 @@ class AgentController extends ClientApiController
         if ($decision === 'answer') {
             $this->assertAnswerable($pending);
             $this->budget->assertWithinBudget($user);
+            if (!$this->claimPending($pending)) {
+                return $this->existingDecisionResponse($pending);
+            }
+            $context->executionKey = $pending->execution_key;
             $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
 
             return $this->streamTurn($context, $pending);
@@ -206,7 +224,10 @@ class AgentController extends ClientApiController
         $this->assertConfirmed($request, $pending, $server);
         $this->budget->assertWithinBudget($user);
 
-        $pending->update(['status' => AiPendingAction::STATUS_APPROVED]);
+        if (!$this->claimPending($pending)) {
+            return $this->existingDecisionResponse($pending);
+        }
+        $context->executionKey = $pending->execution_key;
 
         return $this->streamTurn($context, $pending);
     }
@@ -223,7 +244,7 @@ class AgentController extends ClientApiController
 
         $typed = trim((string) $request->input('confirmation'));
 
-        if (strcasecmp($typed, $server->name) !== 0) {
+        if (!hash_equals((string) $server->name, $typed)) {
             abort(422, 'Type the server name exactly to confirm this action.');
         }
     }

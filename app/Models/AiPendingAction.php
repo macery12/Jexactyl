@@ -20,6 +20,9 @@ class AiPendingAction extends Model
     protected $table = 'ai_pending_actions';
 
     public const STATUS_PENDING = 'pending';
+    public const STATUS_EXECUTING = 'executing';
+    public const STATUS_COMPLETED = 'completed';
+    public const STATUS_FAILED = 'failed';
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
     public const STATUS_EXPIRED = 'expired';
@@ -43,6 +46,10 @@ class AiPendingAction extends Model
         'state',
         'step',
         'status',
+        'execution_key',
+        'claimed_at',
+        'resolved_at',
+        'failure_reason',
         'expires_at',
     ];
 
@@ -51,6 +58,8 @@ class AiPendingAction extends Model
         'state' => 'array',
         'step' => 'integer',
         'expires_at' => 'datetime',
+        'claimed_at' => 'datetime',
+        'resolved_at' => 'datetime',
     ];
 
     public function scopeActionable(Builder $query): Builder

@@ -19,7 +19,13 @@ class ToolInvocation
         public readonly string $uri,
         public readonly array $query = [],
         public readonly array $body = [],
+        public readonly ?string $idempotencyKey = null,
     ) {
+    }
+
+    public function withIdempotencyKey(?string $key): self
+    {
+        return new self($this->tool, $this->method, $this->uri, $this->query, $this->body, $key);
     }
 
     public function isRead(): bool

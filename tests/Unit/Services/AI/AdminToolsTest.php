@@ -4,6 +4,7 @@ namespace Everest\Tests\Unit\Services\AI;
 
 use Everest\Tests\TestCase;
 use Illuminate\Support\Facades\Route;
+use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\ServerTools;
@@ -114,6 +115,49 @@ class AdminToolsTest extends TestCase
                 $definition->resultShaper,
                 $definition->name . ' returns a collection but declares no resultShaper.'
             );
+        }
+    }
+
+    public function testServerViewAllowlistExcludesEveryEnvironmentSecret(): void
+    {
+        $definition = collect(AdminTools::all())->firstWhere('name', 'admin_server_view');
+        $this->assertNotNull($definition);
+
+        // Redaction is deliberately disabled: structural exclusion, rather
+        // than optional PII matching, is the security boundary here.
+        config()->set('modules.ai.privacy.enabled', false);
+
+        $result = $definition->shape(ToolResult::ok([
+            'object' => 'server',
+            'attributes' => [
+                'id' => 42,
+                'uuid' => 'server-uuid',
+                'name' => 'Survival',
+                'status' => 'running',
+                'owner_id' => 7,
+                'node_id' => 3,
+                'limits' => ['memory' => 2048],
+                'container' => [
+                    'startup' => 'java -jar server.jar',
+                    'image' => 'runtime:latest',
+                    'environment' => [
+                        'MYSQL_PASSWORD' => 'password-sentinel',
+                        'SERVICE_TOKEN' => 'token-sentinel',
+                        'API_KEY' => 'api-key-sentinel',
+                        'CONFIGURED_SECRET' => 'configured-sentinel',
+                        'DYNAMIC_PLUGIN_VALUE' => 'dynamic-sentinel',
+                    ],
+                ],
+                'future_sensitive_field' => 'future-sentinel',
+            ],
+        ]));
+
+        $payload = $result->toModelPayload();
+        $this->assertTrue($result->ok);
+        $this->assertSame(42, $result->data['id']);
+        $this->assertSame(['memory' => 2048], $result->data['limits']);
+        foreach (['container', 'environment', 'password-sentinel', 'token-sentinel', 'api-key-sentinel', 'configured-sentinel', 'dynamic-sentinel', 'future-sentinel'] as $secret) {
+            $this->assertStringNotContainsString($secret, $payload);
         }
     }
 

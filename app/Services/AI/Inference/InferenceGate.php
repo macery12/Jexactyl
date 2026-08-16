@@ -3,6 +3,7 @@
 namespace Everest\Services\AI\Inference;
 
 use Everest\Models\Setting;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Data\ProviderConfig;
@@ -51,6 +52,9 @@ class InferenceGate
     protected const SLOT_KEY = 'ai:slot:';
     protected const WAITING_KEY = 'ai:waiting:';
     protected const USER_KEY = 'ai:active:user:';
+    protected const USER_RESERVATION_KEY = 'ai:reservation:user:';
+    protected const ADMISSION_LOCK_KEY = 'ai:admission';
+    protected const USER_LOCK_KEY = 'ai:admission:user:';
     protected const EWMA_KEY = 'ai:ewma_ms';
 
     /**
@@ -87,14 +91,25 @@ class InferenceGate
             return TurnLease::passthrough();
         }
 
-        $this->assertUserHasCapacity($ownerKey);
+        // Reserve before either taking a slot or joining the queue. Queued work
+        // consumes request workers just as surely as active inference does, so
+        // excluding it made the per-user limit ineffective under contention.
+        // The small per-user lock makes the check plus increment one admission
+        // decision rather than two racing cache operations.
+        $reservation = $this->reserveUser($ownerKey);
 
-        // Fast path: a free slot with nobody queued ahead.
-        if (!$this->shouldStandDown($lane) && ($lease = $this->tryGrabSlot($ownerKey)) !== null) {
-            return $lease;
+        try {
+            // Fast path: a free slot with nobody queued ahead.
+            if (!$this->shouldStandDown($lane) && ($lease = $this->tryGrabSlot($reservation)) !== null) {
+                return $lease;
+            }
+
+            return $this->waitForSlot($reservation, $lane, $onWait);
+        } catch (\Throwable $e) {
+            $this->releaseUser($reservation);
+
+            throw $e;
         }
-
-        return $this->waitForSlot($ownerKey, $lane, $onWait);
     }
 
     /**
@@ -109,23 +124,16 @@ class InferenceGate
     /**
      * @throws AIServiceException
      */
-    protected function waitForSlot(string $ownerKey, string $lane, ?callable $onWait): TurnLease
+    protected function waitForSlot(array $reservation, string $lane, ?callable $onWait): TurnLease
     {
-        $depth = $this->queueDepth();
-        if ($depth >= $this->maxQueueDepth()) {
-            // Refuse fast rather than growing a queue nobody reaches the front
-            // of. The caller must not charge a token budget for this.
-            throw new AIServiceException('The AI is at capacity right now and the queue is full. Please try again in a minute.');
-        }
-
-        $this->enterQueue($lane);
+        $this->reserveQueuePlace($lane);
         $deadline = microtime(true) + $this->maxWaitSeconds();
         $reported = null;
 
         try {
             while (true) {
                 if (!$this->shouldStandDown($lane)) {
-                    $lease = $this->tryGrabSlot($ownerKey);
+                    $lease = $this->tryGrabSlot($reservation);
                     if ($lease !== null) {
                         return $lease;
                     }
@@ -133,6 +141,14 @@ class InferenceGate
 
                 if (microtime(true) >= $deadline) {
                     throw new AIServiceException('The AI is busy and did not free up in time. Please try again in a moment.');
+                }
+
+                // PHP can keep running after the browser has gone away. Once
+                // the web server reports the disconnect there is no consumer
+                // for this turn, so promptly unwind both queue and user
+                // reservations instead of occupying a worker until timeout.
+                if ($this->clientDisconnected()) {
+                    throw new AIServiceException('The AI request was cancelled because the client disconnected.');
                 }
 
                 if ($onWait !== null) {
@@ -155,7 +171,7 @@ class InferenceGate
     /**
      * Try each slot once. The first uncontended lock wins.
      */
-    protected function tryGrabSlot(string $ownerKey): ?TurnLease
+    protected function tryGrabSlot(array $reservation): ?TurnLease
     {
         $ttl = $this->leaseTtlSeconds();
 
@@ -163,10 +179,8 @@ class InferenceGate
             $lock = Cache::lock(self::SLOT_KEY . $slot, $ttl);
 
             if ($lock->get()) {
-                $this->incrementUser($ownerKey);
-
-                return TurnLease::held($slot, $lock, function () use ($ownerKey) {
-                    $this->decrementUser($ownerKey);
+                return TurnLease::held($slot, $lock, function () use ($reservation) {
+                    $this->releaseUser($reservation);
                 });
             }
         }
@@ -204,13 +218,28 @@ class InferenceGate
     /**
      * @throws AIServiceException
      */
-    protected function assertUserHasCapacity(string $ownerKey): void
+    protected function reserveUser(string $ownerKey): array
     {
-        $limit = $this->perUserLimit();
+        $lock = Cache::lock(self::USER_LOCK_KEY . sha1($ownerKey), 5);
 
-        if ($limit > 0 && $this->activeForUser($ownerKey) >= $limit) {
-            throw new AIServiceException('You already have an AI request running. Wait for it to finish before starting another.');
-        }
+        return $lock->block(5, function () use ($ownerKey) {
+            $limit = $this->perUserLimit();
+
+            if ($limit > 0 && $this->activeForUser($ownerKey) >= $limit) {
+                throw new AIServiceException('You already have an AI request running or queued. Wait for it to finish before starting another.');
+            }
+
+            $token = (string) Str::uuid();
+            $ttl = $this->reservationTtlSeconds();
+            Cache::put(self::USER_RESERVATION_KEY . $token, $ownerKey, $ttl);
+
+            $key = self::USER_KEY . $ownerKey;
+            if (!Cache::add($key, 1, $ttl)) {
+                Cache::increment($key);
+            }
+
+            return compact('ownerKey', 'token');
+        });
     }
 
     public function activeForUser(string $ownerKey): int
@@ -218,26 +247,28 @@ class InferenceGate
         return max(0, (int) Cache::get(self::USER_KEY . $ownerKey, 0));
     }
 
-    protected function incrementUser(string $ownerKey): void
+    protected function releaseUser(array $reservation): void
     {
-        $key = self::USER_KEY . $ownerKey;
+        $ownerKey = (string) ($reservation['ownerKey'] ?? '');
+        $token = (string) ($reservation['token'] ?? '');
 
-        // Seeded with a TTL so an abandoned counter cannot lock a user out
-        // permanently — it expires on the same horizon as the slot lock.
-        if (Cache::add($key, 1, $this->leaseTtlSeconds())) {
+        if ($ownerKey === '' || $token === '') {
             return;
         }
 
-        Cache::increment($key);
-    }
+        $lock = Cache::lock(self::USER_LOCK_KEY . sha1($ownerKey), 5);
+        $lock->block(5, function () use ($ownerKey, $token) {
+            // A token-specific key means a late release from an expired lease
+            // cannot decrement a newer owner's counter.
+            if (Cache::pull(self::USER_RESERVATION_KEY . $token) !== $ownerKey) {
+                return;
+            }
 
-    protected function decrementUser(string $ownerKey): void
-    {
-        $key = self::USER_KEY . $ownerKey;
-
-        if (Cache::decrement($key) <= 0) {
-            Cache::forget($key);
-        }
+            $key = self::USER_KEY . $ownerKey;
+            if (Cache::decrement($key) <= 0) {
+                Cache::forget($key);
+            }
+        });
     }
 
     /*
@@ -246,22 +277,33 @@ class InferenceGate
     |--------------------------------------------------------------------------
     */
 
-    protected function enterQueue(string $lane): void
+    protected function reserveQueuePlace(string $lane): void
     {
-        $key = self::WAITING_KEY . $lane;
+        $lock = Cache::lock(self::ADMISSION_LOCK_KEY, 5);
 
-        if (!Cache::add($key, 1, $this->maxWaitSeconds() + 60)) {
-            Cache::increment($key);
-        }
+        $lock->block(5, function () use ($lane) {
+            if ($this->queueDepth() >= $this->maxQueueDepth()) {
+                throw new AIServiceException('The AI is at capacity right now and the queue is full. Please try again in a minute.');
+            }
+
+            $key = self::WAITING_KEY . $lane;
+            if (!Cache::add($key, 1, $this->maxWaitSeconds() + 60)) {
+                Cache::increment($key);
+            }
+        });
     }
 
     protected function leaveQueue(string $lane): void
     {
-        $key = self::WAITING_KEY . $lane;
+        $lock = Cache::lock(self::ADMISSION_LOCK_KEY, 5);
 
-        if (Cache::decrement($key) <= 0) {
-            Cache::forget($key);
-        }
+        $lock->block(5, function () use ($lane) {
+            $key = self::WAITING_KEY . $lane;
+
+            if (Cache::decrement($key) <= 0) {
+                Cache::forget($key);
+            }
+        });
     }
 
     public function waiting(string $lane): int
@@ -398,7 +440,23 @@ class InferenceGate
 
     public function maxQueueDepth(): int
     {
-        return max(1, (int) $this->setting('concurrency:queue_depth', config('modules.ai.concurrency.queue_depth', 20)));
+        $configured = max(0, (int) $this->setting(
+            'concurrency:queue_depth',
+            config('modules.ai.concurrency.queue_depth', 20)
+        ));
+
+        // Every synchronous waiter occupies one PHP worker. Leave enough room
+        // for the active inference streams and refuse excess configuration
+        // rather than allowing the queue to exhaust the deployment pool.
+        return min($configured, max(0, $this->workerCapacity() - $this->slots()));
+    }
+
+    public function workerCapacity(): int
+    {
+        return max(
+            $this->slots(),
+            (int) config('modules.ai.concurrency.worker_capacity', 32),
+        );
     }
 
     public function maxWaitSeconds(): int
@@ -421,6 +479,19 @@ class InferenceGate
         $wall = (int) $this->setting('agent:max_wall_seconds', config('modules.ai.agent.max_wall_seconds', 180));
 
         return max(60, $wall) + 60;
+    }
+
+    /**
+     * A reservation covers queueing plus the bounded turn and a crash margin.
+     */
+    protected function reservationTtlSeconds(): int
+    {
+        return $this->maxWaitSeconds() + $this->leaseTtlSeconds();
+    }
+
+    protected function clientDisconnected(): bool
+    {
+        return connection_aborted() !== 0;
     }
 
     protected function setting(string $key, mixed $default = null): mixed

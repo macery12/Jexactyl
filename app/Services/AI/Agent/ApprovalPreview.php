@@ -2,6 +2,7 @@
 
 namespace Everest\Services\AI\Agent;
 
+use Everest\Models\Server;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
@@ -22,14 +23,28 @@ class ApprovalPreview
     /**
      * @return array<string, mixed>|null
      */
-    public static function for(string $toolName, array $arguments): ?array
+    public static function for(string $toolName, array $arguments, ?Server $target = null): ?array
     {
+        if ($target !== null && $toolName === 'console_send') {
+            return self::confirmationTarget($target);
+        }
+
         return match ($toolName) {
             'files_write' => self::diff($arguments),
             AdminTools::ASSIST_SERVER => self::assistTarget($arguments),
             SharedTools::BATCH => self::batch($arguments),
             default => null,
         };
+    }
+
+    /** @return array{kind: string, name: string, identifier: string} */
+    private static function confirmationTarget(Server $server): array
+    {
+        return [
+            'kind' => 'confirmation',
+            'name' => (string) $server->name,
+            'identifier' => (string) $server->uuidShort,
+        ];
     }
 
     /**

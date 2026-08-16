@@ -21,6 +21,7 @@ use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Tools\ToolInvocation;
 use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\ToolCallSalvager;
+use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
@@ -46,6 +47,7 @@ class AgentRunner
         private SystemPromptBuilder $promptBuilder,
         private PiiRedactor $redactor,
         private AssistAuthorizer $assist,
+        private DaemonFileRepository $files,
     ) {
     }
 
@@ -56,7 +58,8 @@ class AgentRunner
      */
     public function run(AgentContext $context, callable $emit): void
     {
-        $startedAt = microtime(true);
+        $startedAt = $this->now();
+        $this->beginDeadline($context, $startedAt);
         $lease = null;
 
         try {
@@ -80,9 +83,18 @@ class AgentRunner
             LogBatch::end();
             $lease?->release();
 
-            $elapsed = (int) round((microtime(true) - $startedAt) * 1000);
+            $elapsed = (int) round(($this->now() - $startedAt) * 1000);
             $this->gate->recordTurnDuration($elapsed);
         }
+    }
+
+    /**
+     * Establish the one deadline shared by approved execution, queueing and
+     * every subsequent model/tool operation in this request phase.
+     */
+    public function beginDeadline(AgentContext $context, ?float $startedAt = null): float
+    {
+        return $context->deadline ??= ($startedAt ?? $this->now()) + $this->maxWallSeconds();
     }
 
     /**
@@ -91,14 +103,10 @@ class AgentRunner
     protected function loop(AgentContext $context, callable $emit, float $startedAt): void
     {
         $maxSteps = $this->maxSteps();
-        $deadline = $startedAt + $this->maxWallSeconds();
-
-        // Published so a batch can check it between its own calls. See
-        // AgentContext::$deadline for why one step is no longer one call.
-        $context->deadline = $deadline;
+        $deadline = $this->beginDeadline($context, $startedAt);
 
         while ($context->step < $maxSteps) {
-            if (microtime(true) >= $deadline) {
+            if ($this->now() >= $deadline) {
                 $emit(AgentEvent::done('time_limit'));
 
                 return;
@@ -115,11 +123,26 @@ class AgentRunner
             $definitions = $this->capDefinitions($context, $definitions);
             $tools = $this->registry->toAiTools($definitions, $groups);
 
+            if (!$this->hasTime($context)) {
+                $emit(AgentEvent::done('time_limit'));
+
+                return;
+            }
+
             $response = $this->callModel($context, $tools, $emit);
 
             $calls = $response['calls'];
             $text = $response['text'];
             $reasoning = $response['reasoning'];
+
+            if (count($calls) > $this->maxCallsPerResponse()) {
+                Log::warning('AI agent response exceeded the per-response tool-call cap.', [
+                    'turn' => $context->turnId,
+                    'received' => count($calls),
+                    'cap' => $this->maxCallsPerResponse(),
+                ]);
+                $calls = array_slice($calls, 0, $this->maxCallsPerResponse());
+            }
 
             // Nothing structured came back. If the text looks like a botched
             // call, spend a repair round under a schema-constrained grammar
@@ -304,6 +327,16 @@ class AgentRunner
                 [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES]
             );
 
+        // A binding opened without a ticket has no ticket subject. Keeping the
+        // panel-wide ticket readers in that phase would leave any model-chosen
+        // ticket id looking like an ordinary automatic read.
+        if ($binding->ticketId === null) {
+            $companions = array_values(array_diff($companions, [
+                'admin_ticket_view',
+                'admin_ticket_messages',
+            ]));
+        }
+
         $offered = array_filter(
             $this->registry->forAdmin($context->user, $context->activeGroups),
             fn (ToolDefinition $d) => in_array($d->name, $companions, true)
@@ -329,7 +362,7 @@ class AgentRunner
      */
     protected function callModel(AgentContext $context, array $tools, callable $emit): array
     {
-        $provider = $this->factory->make(ProviderFactory::TASK_AGENT);
+        $provider = $this->factory->make(ProviderFactory::TASK_AGENT, $this->remainingSeconds($context));
 
         $request = (new AiRequest(
             messages: $context->messages,
@@ -412,7 +445,11 @@ class AgentRunner
         }
 
         try {
-            $provider = $this->factory->make(ProviderFactory::TASK_AGENT);
+            if (!$this->hasTime($context)) {
+                return [];
+            }
+
+            $provider = $this->factory->make(ProviderFactory::TASK_AGENT, $this->remainingSeconds($context));
 
             $request = (new AiRequest(
                 messages: array_merge($context->messages, [
@@ -461,6 +498,15 @@ class AgentRunner
      */
     protected function handleCall(AgentContext $context, ToolCallData $call, array $definitions, callable $emit): string
     {
+        if (!$this->hasTime($context)) {
+            $this->pushToolResult($context, $call, ToolResult::error(
+                'time_limit',
+                'The turn deadline was reached before this tool could start.'
+            ));
+
+            return 'continued';
+        }
+
         // The group meta-tool is handled in-process: it changes what the next
         // step is offered rather than touching the panel at all.
         if ($call->name === ToolRegistry::META_ACTIVATE_GROUP) {
@@ -532,8 +578,18 @@ class AgentRunner
             }
 
             [$arguments, $risk] = $plan;
+
+            foreach ($arguments['calls'] as $child) {
+                $childDefinition = $this->registry->find($child['tool']);
+                if ($childDefinition !== null) {
+                    $risk = $this->riskGate->max(
+                        $risk,
+                        $this->riskForContext($context, $childDefinition, $child['arguments']),
+                    );
+                }
+            }
         } else {
-            $risk = $this->riskGate->resolve($definition, $arguments);
+            $risk = $this->riskForContext($context, $definition, $arguments);
         }
 
         $emit(AgentEvent::toolCall($call->id, $definition->name, $arguments, $risk));
@@ -651,6 +707,10 @@ class AgentRunner
         callable $emit,
         string $approvedRisk = ToolDefinition::RISK_SAFE,
     ): ToolResult {
+        if (!$this->hasTime($context)) {
+            return ToolResult::error('time_limit', 'The turn deadline was reached before this action could start.');
+        }
+
         return match ($definition->name) {
             AdminTools::ASSIST_SERVER => $this->openAssist($context, $arguments, $emit),
             AdminTools::ASSIST_ALLOW_WRITES => $this->escalateAssist($context, $arguments, $emit),
@@ -831,7 +891,10 @@ class AgentRunner
             $available[$definition->name] = true;
         }
 
-        $risk = ToolDefinition::RISK_SAFE;
+        $wrapper = $this->registry->find(SharedTools::BATCH);
+        $risk = $wrapper === null
+            ? ToolDefinition::RISK_SAFE
+            : $this->riskGate->resolve($wrapper, $arguments);
         $planned = [];
 
         foreach ($calls as $index => $child) {
@@ -860,6 +923,17 @@ class AgentRunner
                         . 'Take it out and call it on its own.',
                     $position,
                     $definition->name
+                ), retryable: true);
+            }
+
+            // A file write needs a server-attested diff for every individual
+            // target. Generic batches have no per-child attestation phase, so
+            // accepting one here would reduce an exact diff to model-supplied
+            // JSON in the batch card.
+            if ($definition->name === 'files_write') {
+                return ToolResult::error('not_batchable', sprintf(
+                    'Call %d (files_write) cannot go in a batch. Request each file write separately so its exact live diff can be reviewed.',
+                    $position
                 ), retryable: true);
             }
 
@@ -931,6 +1005,24 @@ class AgentRunner
             return ToolResult::error('invalid_arguments', 'That batch had nothing in it.');
         }
 
+        $wrapper = $this->registry->find($call->name);
+        $wrapperRisk = $wrapper === null
+            ? ToolDefinition::RISK_DESTRUCTIVE
+            : $this->riskGate->resolve($wrapper, $arguments);
+        if ($this->riskGate->max($approvedRisk, $wrapperRisk) !== $approvedRisk) {
+            return ToolResult::error(
+                'risk_changed',
+                sprintf('The batch wrapper now requires "%s" approval, so none of this batch was run. Ask for it again.', $wrapperRisk)
+            );
+        }
+
+        if (count($calls) < SharedTools::MIN_BATCH_CALLS || count($calls) > $this->maxBatchCalls()) {
+            return ToolResult::error(
+                'batch_policy_changed',
+                sprintf('The live batch limit is %d calls, so none of this batch was run. Ask for it again.', $this->maxBatchCalls())
+            );
+        }
+
         /** @var array<int, array{0: ToolDefinition, 1: string}> $resolved */
         $resolved = [];
 
@@ -955,7 +1047,24 @@ class AgentRunner
                 ));
             }
 
-            $childRisk = $this->riskGate->resolve($definition, $child['arguments']);
+            $validation = $this->registry->validate($definition, $child['arguments']);
+            if (!$validation['valid']) {
+                return ToolResult::error('invalid_arguments', sprintf(
+                    'Call %d (%s) no longer passes the live tool contract, so none of this batch was run.',
+                    $position,
+                    $definition->name,
+                ));
+            }
+
+            $childRisk = $this->riskForContext($context, $definition, $validation['value']);
+
+            if ($childRisk === ToolDefinition::RISK_DESTRUCTIVE && !$this->allowDestructiveBatches()) {
+                return ToolResult::error('batch_policy_changed', sprintf(
+                    'Call %d (%s) is destructive and destructive batches are now disabled, so none was run.',
+                    $position,
+                    $definition->name,
+                ));
+            }
 
             // Approval is a ceiling, not a token. An operator who hardened a tool
             // while the card was open must not be bypassed by a click that
@@ -973,9 +1082,7 @@ class AgentRunner
             $resolved[$index] = [$definition, $childRisk];
         }
 
-        // A resumed batch is a fresh request with no loop around it, so it starts
-        // its own clock rather than inheriting an expired one.
-        $deadline = $context->deadline ?? (microtime(true) + $this->maxWallSeconds());
+        $deadline = $this->beginDeadline($context);
 
         $report = [];
         $succeeded = 0;
@@ -985,7 +1092,7 @@ class AgentRunner
         foreach ($calls as $index => $child) {
             [$definition, $childRisk] = $resolved[$index];
 
-            if ($halted === null && microtime(true) >= $deadline) {
+            if ($halted === null && $this->now() >= $deadline) {
                 $halted = 'out_of_time';
             }
 
@@ -1058,6 +1165,10 @@ class AgentRunner
      */
     public function usable(AgentContext $context, ToolDefinition $definition): bool
     {
+        if ($this->registry->isDisabled($definition->name)) {
+            return false;
+        }
+
         if (
             $context->assist !== null
             && $context->server === null
@@ -1083,6 +1194,7 @@ class AgentRunner
         ToolDefinition $definition,
         array $arguments,
         string $risk,
+        ?AiToolCall $record = null,
     ): ToolResult {
         // A server-scoped tool records the server it actually touched, which
         // during an assist session is the customer's rather than none at all —
@@ -1090,7 +1202,7 @@ class AgentRunner
         $target = $context->targetServer();
         $subject = $definition->scope === ToolDefinition::SCOPE_SERVER ? $target : $context->server;
 
-        $record = AiToolCall::create([
+        $attributes = [
             'turn_id' => $context->turnId,
             'conversation_id' => $context->conversationId,
             'user_id' => $context->user->id,
@@ -1101,14 +1213,37 @@ class AgentRunner
             'step' => $context->step,
             'arguments' => $arguments,
             'status' => AiToolCall::STATUS_RUNNING,
-        ]);
+        ];
 
-        $startedAt = microtime(true);
+        if ($record === null) {
+            $record = AiToolCall::create($attributes);
+        } else {
+            $record->update([
+                'risk' => $risk,
+                'arguments' => $arguments,
+                'status' => AiToolCall::STATUS_RUNNING,
+                'resolved_at' => null,
+            ]);
+        }
+
+        if (!$this->hasTime($context)) {
+            $result = ToolResult::error('time_limit', 'The turn deadline was reached before this tool could start.');
+            $record->update([
+                'status' => AiToolCall::STATUS_FAILED,
+                'result_summary' => $result->summary(),
+                'duration_ms' => 0,
+                'resolved_at' => now(),
+            ]);
+
+            return $result;
+        }
+
+        $startedAt = $this->now();
 
         $invocation = $definition->invoke(
             $arguments,
             $this->registry->contextForTool($definition, $target, $arguments)
-        );
+        )->withIdempotencyKey($context->idempotencyKeyFor($call->id));
 
         $result = $definition->shape($this->dispatch($context, $definition, $invocation));
         $result = $this->redact($context, $result);
@@ -1117,11 +1252,66 @@ class AgentRunner
             'status' => $result->ok ? AiToolCall::STATUS_SUCCEEDED : AiToolCall::STATUS_FAILED,
             'http_status' => $result->status,
             'result_summary' => $result->summary(),
-            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            'duration_ms' => (int) round(($this->now() - $startedAt) * 1000),
             'resolved_at' => now(),
         ]);
 
         return $result;
+    }
+
+    /**
+     * Bind automatic admin companion reads to the subject whose assist card was
+     * approved. Customer-controlled ticket, file, and console text is model
+     * input, so an identifier copied from it must not become authority to read
+     * another customer's panel record.
+     */
+    protected function assistSubjectAllows(
+        AgentContext $context,
+        ToolDefinition $definition,
+        array $arguments,
+    ): bool {
+        if ($context->assist === null || $context->server !== null) {
+            return true;
+        }
+
+        $server = $context->targetServer();
+        if ($server === null) {
+            return false;
+        }
+
+        $expected = match ($definition->name) {
+            'admin_server_view' => ['server', $server->getKey()],
+            'admin_user_view' => ['user', $server->owner_id],
+            'admin_ticket_view', 'admin_ticket_messages' => ['ticket', $context->assist->ticketId],
+            default => null,
+        };
+
+        if ($expected === null) {
+            return true;
+        }
+
+        [$field, $subjectId] = $expected;
+
+        return $subjectId !== null
+            && array_key_exists($field, $arguments)
+            && hash_equals((string) $subjectId, (string) $arguments[$field]);
+    }
+
+    /**
+     * Cross-subject reads remain possible for an administrator, but never as
+     * an invisible side effect of untrusted content. Raising them to WRITE
+     * makes the target arguments visible on a dedicated approval card.
+     */
+    protected function riskForContext(
+        AgentContext $context,
+        ToolDefinition $definition,
+        array $arguments,
+    ): string {
+        $risk = $this->riskGate->resolve($definition, $arguments);
+
+        return $this->assistSubjectAllows($context, $definition, $arguments)
+            ? $risk
+            : $this->riskGate->max($risk, ToolDefinition::RISK_WRITE);
     }
 
     /**
@@ -1136,7 +1326,11 @@ class AgentRunner
      */
     protected function dispatch(AgentContext $context, ToolDefinition $definition, ToolInvocation $invocation): ToolResult
     {
-        $run = fn () => $this->executor->execute($invocation, $this->toolResultBytes());
+        $run = fn () => $this->executor->execute(
+            $invocation,
+            $this->toolResultBytes(),
+            $this->remainingSeconds($context),
+        );
 
         $needsSession = $context->assist !== null
             && $context->server === null
@@ -1181,18 +1375,16 @@ class AgentRunner
         string $risk,
         callable $emit,
     ): void {
+        $arguments = $this->attestApprovalArguments($context, $definition, $arguments);
+
         $this->persistPending($context, $call, $definition->name, $arguments, $risk);
 
         AiToolCall::create([
             'turn_id' => $context->turnId,
             'conversation_id' => $context->conversationId,
             'user_id' => $context->user->id,
-            // The server this call will actually touch, which during an assist
-            // session is the customer's rather than none at all. Reading
-            // `$context->server` here recorded null on exactly the calls that
-            // most need attributing: an admin turn has no bound server by
-            // construction, so every approval-gated write on somebody else's
-            // machine was audited against nothing.
+            // Attribute assisted writes to the customer's server, not to the
+            // admin surface whose own server binding is null.
             'server_uuid' => $context->targetServer()?->uuid,
             'scope' => $context->scope(),
             'tool_name' => $definition->name,
@@ -1207,8 +1399,33 @@ class AgentRunner
             $definition->name,
             $arguments,
             $risk,
-            ApprovalPreview::for($definition->name, $arguments),
+            ApprovalPreview::for($definition->name, $arguments, $context->targetServer()),
         ));
+    }
+
+    /** Replace security-sensitive preview inputs with live server evidence. */
+    protected function attestApprovalArguments(
+        AgentContext $context,
+        ToolDefinition $definition,
+        array $arguments,
+    ): array {
+        if ($definition->name === 'files_write') {
+            $target = $context->targetServer();
+            $file = (string) ($arguments['file'] ?? '');
+
+            if ($target === null || $file === '') {
+                throw new \RuntimeException('A file write cannot be attested without its target server and path.');
+            }
+
+            // The model's original_content is never evidence. Replace it with
+            // content read directly from Wings before persisting or rendering
+            // the approval, bounded to the endpoint's accepted file size.
+            $arguments['original_content'] = $this->files
+                ->setServer($target)
+                ->getContent($file, \Everest\Http\Requests\Api\Client\Servers\Files\WriteFileWithDiffRequest::MAX_CONTENT_BYTES);
+        }
+
+        return $arguments;
     }
 
     /**
@@ -1488,6 +1705,32 @@ class AgentRunner
             'agent:allow_destructive_batches',
             config('modules.ai.agent.allow_destructive_batches', false)
         );
+    }
+
+    /**
+     * Sibling calls consume one model step, so bound their fan-out separately.
+     */
+    protected function maxCallsPerResponse(): int
+    {
+        return max(1, min(8, $this->maxBatchCalls()));
+    }
+
+    protected function hasTime(AgentContext $context): bool
+    {
+        return $this->now() < $this->beginDeadline($context);
+    }
+
+    protected function remainingSeconds(AgentContext $context): int
+    {
+        return max(1, (int) ceil($this->beginDeadline($context) - $this->now()));
+    }
+
+    /**
+     * Isolated for deterministic deadline tests.
+     */
+    protected function now(): float
+    {
+        return microtime(true);
     }
 
     protected function maxTools(): int

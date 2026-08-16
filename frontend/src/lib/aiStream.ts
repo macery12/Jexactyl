@@ -33,6 +33,13 @@ export interface AiServerPreview {
     identifier: string;
 }
 
+/** Live server row a destructive assist action must be confirmed against. */
+export interface AiConfirmationPreview {
+    kind: 'confirmation';
+    name: string;
+    identifier: string;
+}
+
 /**
  * The calls a batch will make, once approved.
  *
@@ -48,7 +55,7 @@ export interface AiBatchPreview {
     calls: { tool: string; arguments: Record<string, unknown> }[];
 }
 
-export type AiApprovalPreview = AiDiffPreview | AiServerPreview | AiBatchPreview;
+export type AiApprovalPreview = AiDiffPreview | AiServerPreview | AiConfirmationPreview | AiBatchPreview;
 
 export type AgentEvent =
     | { type: 'conversation'; id: number; title: string }

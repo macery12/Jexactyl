@@ -3,6 +3,7 @@
 namespace Everest\Services\AI\Tools;
 
 use Everest\Models\Setting;
+use Everest\Services\AI\Tools\Definitions\AdminTools;
 
 /**
  * Resolves the tier a tool call actually runs at.
@@ -28,6 +29,13 @@ class RiskGate
     public function resolve(ToolDefinition $definition, array $arguments = []): string
     {
         $risk = $this->override($definition->name) ?? $definition->risk;
+
+        // These calls create or widen authority over somebody else's server.
+        // An operator may harden them, but an override must never make that
+        // trust-boundary decision automatic.
+        if (in_array($definition->name, [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES], true)) {
+            $risk = $this->max(ToolDefinition::RISK_WRITE, $risk);
+        }
 
         // console_send carries one declared tier but many real ones: sending
         // "list" is not the same act as sending "stop".

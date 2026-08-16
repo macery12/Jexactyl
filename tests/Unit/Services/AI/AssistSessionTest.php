@@ -4,6 +4,7 @@ namespace Everest\Tests\Unit\Services\AI;
 
 use Everest\Models\User;
 use Everest\Models\Server;
+use Everest\Models\Setting;
 use Everest\Tests\TestCase;
 use Everest\Models\AdminRole;
 use Everest\Models\Permission;
@@ -54,8 +55,10 @@ class AssistSessionTest extends TestCase
     private function server(): Server
     {
         $server = new Server();
+        $server->id = 14;
         $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
         $server->name = 'Survival SMP';
+        $server->owner_id = 27;
 
         return $server;
     }
@@ -308,6 +311,65 @@ class AssistSessionTest extends TestCase
         $this->assertContains('ask_user', $this->offerings($registry, $this->binding(writable: true)));
     }
 
+    public function testInjectedCompanionReadsCannotEscapeTheActiveSubject(): void
+    {
+        $registry = $this->registry($this->authorizer([], owner: true));
+        $context = new AgentContext(User::factory()->make(['id' => 3]), null, 'turn-1');
+        $context->bindAssist($this->binding(), $this->server());
+
+        $runner = (new \ReflectionClass(AgentRunner::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(AgentRunner::class, 'assistSubjectAllows');
+        $method->setAccessible(true);
+
+        $allows = fn (string $tool, array $arguments): bool => $method->invoke(
+            $runner,
+            $context,
+            $registry->find($tool),
+            $arguments,
+        );
+
+        // These represent identifiers copied from hostile ticket, file, and
+        // console text respectively. None is part of the active subject.
+        $this->assertFalse($allows('admin_user_view', ['user' => '999']));
+        $this->assertFalse($allows('admin_server_view', ['server' => '999']));
+        $this->assertFalse($allows('admin_ticket_messages', ['ticket' => '999']));
+
+        $this->assertTrue($allows('admin_user_view', ['user' => '27']));
+        $this->assertTrue($allows('admin_server_view', ['server' => '14']));
+        $this->assertTrue($allows('admin_ticket_view', ['ticket' => '2']));
+
+        $riskGate = new RiskGate(new ConsoleCommandGate());
+        (new \ReflectionProperty(AgentRunner::class, 'riskGate'))->setValue($runner, $riskGate);
+        $riskForContext = new \ReflectionMethod(AgentRunner::class, 'riskForContext');
+        $riskForContext->setAccessible(true);
+
+        $this->assertSame(
+            ToolDefinition::RISK_WRITE,
+            $riskForContext->invoke($runner, $context, $registry->find('admin_user_view'), ['user' => '999']),
+            'A cross-subject read must stop for a visible, separate approval.',
+        );
+        $this->assertSame(
+            ToolDefinition::RISK_SAFE,
+            $riskForContext->invoke($runner, $context, $registry->find('admin_user_view'), ['user' => '27']),
+            'The active server owner remains an automatic companion read.',
+        );
+    }
+
+    public function testAssistWithoutATicketDoesNotOfferPanelWideTicketReaders(): void
+    {
+        $registry = $this->registry($this->authorizer([], owner: true));
+        $binding = new AssistBinding(
+            serverUuid: $this->server()->uuid,
+            serverName: 'Survival SMP',
+            reason: 'Server will not start',
+        );
+
+        $offered = $this->offerings($registry, $binding);
+
+        $this->assertNotContains('admin_ticket_view', $offered);
+        $this->assertNotContains('admin_ticket_messages', $offered);
+    }
+
     /**
      * There is no wider grant left to ask for, and no reason to open a session
      * on a second server while holding writes on the first.
@@ -393,6 +455,23 @@ class AssistSessionTest extends TestCase
         $this->assertSame(ToolDefinition::RISK_WRITE, $definition->risk);
         $this->assertTrue($definition->hostHandled);
         $this->assertFalse($definition->isAutomatic($definition->risk));
+    }
+
+    public function testAssistBoundaryOverridesCannotLowerEitherGrantToSafe(): void
+    {
+        Setting::set('settings::modules:ai:risk_overrides', json_encode([
+            AdminTools::ASSIST_SERVER => ToolDefinition::RISK_SAFE,
+            AdminTools::ASSIST_ALLOW_WRITES => ToolDefinition::RISK_SAFE,
+        ]));
+
+        $gate = app(RiskGate::class);
+        $registry = $this->registry($this->authorizer([], owner: true));
+
+        foreach ([AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES] as $name) {
+            $this->assertSame(ToolDefinition::RISK_WRITE, $gate->resolve($registry->find($name)));
+        }
+
+        Setting::forget('settings::modules:ai:risk_overrides');
     }
 
     public function testTheCapabilityIsRegisteredAndNotAnOrphan(): void

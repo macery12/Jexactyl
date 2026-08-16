@@ -133,6 +133,14 @@ class FileControllerSecurityTest extends TestCase
 
                 return $repository;
             });
+        $repository->shouldReceive('getContent')
+            ->once()
+            ->with('/server.properties', WriteFileWithDiffRequest::MAX_CONTENT_BYTES)
+            ->andReturnUsing(function () use (&$calls): string {
+                $calls[] = 'get-content';
+
+                return 'before';
+            });
         $repository->shouldReceive('putContent')
             ->once()
             ->with('/server.properties', 'after')
@@ -151,13 +159,37 @@ class FileControllerSecurityTest extends TestCase
         ]);
 
         $response->assertNoContent();
-        $this->assertSame(['is-text', 'calculate', 'set-server', 'put-content'], $calls);
+        $this->assertSame(['set-server', 'get-content', 'is-text', 'calculate', 'put-content'], $calls);
+    }
+
+    public function testStaleOriginalReturnsConflictWithoutMutationOrDiffWork(): void
+    {
+        $repository = $this->mock(DaemonFileRepository::class);
+        $repository->shouldReceive('setServer')->once()->with($this->server)->andReturnSelf();
+        $repository->shouldReceive('getContent')
+            ->once()
+            ->with('/server.properties', WriteFileWithDiffRequest::MAX_CONTENT_BYTES)
+            ->andReturn('changed after preview');
+        $repository->shouldNotReceive('putContent');
+
+        $diff = $this->mock(FileDiffService::class);
+        $diff->shouldNotReceive('isTextFile');
+        $diff->shouldNotReceive('calculateDiff');
+
+        $response = $this->actingAs($this->owner)->postJson(self::ENDPOINT, [
+            'file' => '/server.properties',
+            'content' => 'after',
+            'original_content' => 'model supplied false original',
+        ]);
+
+        $response->assertConflict()->assertJsonPath('errors.0.code', 'FileContentConflict');
     }
 
     public function testDiffFailureLeavesTheDaemonUntouched(): void
     {
         $repository = $this->mock(DaemonFileRepository::class);
-        $repository->shouldNotReceive('setServer');
+        $repository->shouldReceive('setServer')->once()->with($this->server)->andReturnSelf();
+        $repository->shouldReceive('getContent')->once()->andReturn('before');
         $repository->shouldNotReceive('putContent');
 
         $diff = $this->mock(FileDiffService::class);

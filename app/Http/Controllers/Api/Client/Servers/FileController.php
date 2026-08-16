@@ -233,16 +233,32 @@ class FileController extends ClientApiController
     {
         $file = (string) $request->input('file');
         $content = (string) $request->input('content');
-        $originalContent = $request->input('original_content', '');
+        $originalContent = (string) $request->input('original_content');
 
         $this->guardArchiveWritePath($file);
+
+        // Compare immediately before mutation against content read from Wings.
+        // The submitted original is only a CAS token; it is never trusted as
+        // the source for the audit diff.
+        $repository = $this->fileRepository->setServer($server);
+        $liveContent = $repository->getContent($file, WriteFileWithDiffRequest::MAX_CONTENT_BYTES);
+
+        if (!hash_equals(hash('sha256', $liveContent), hash('sha256', $originalContent))) {
+            return new JsonResponse([
+                'errors' => [[
+                    'code' => 'FileContentConflict',
+                    'status' => '409',
+                    'detail' => 'The file changed after it was reviewed. Read it again and approve a fresh diff.',
+                ]],
+            ], Response::HTTP_CONFLICT);
+        }
 
         // Calculate and bound optional audit metadata before mutating the daemon.
         // If diff calculation fails, the remote file remains untouched.
         $diffProperty = null;
 
         if ($this->diffService->isTextFile($file) && is_string($originalContent)) {
-            $diff = $this->diffService->calculateDiff($originalContent, $content, $file);
+            $diff = $this->diffService->calculateDiff($liveContent, $content, $file);
             $diffProperty = [
                 'additions' => $diff['additions'],
                 'deletions' => $diff['deletions'],
@@ -258,7 +274,7 @@ class FileController extends ClientApiController
             $activity->property('diff', $diffProperty);
         }
 
-        $this->fileRepository->setServer($server)->putContent($file, $content);
+        $repository->putContent($file, $content);
 
         $activity->log();
 

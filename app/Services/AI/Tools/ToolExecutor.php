@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Database\DatabaseManager;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Contracts\Foundation\Application;
+use Everest\Exceptions\Service\AI\AIServiceException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Facades\Request as RequestFacade;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -70,8 +71,11 @@ class ToolExecutor
     ) {
     }
 
-    public function execute(ToolInvocation $invocation, int $maxBytes = self::MAX_BODY_BYTES): ToolResult
-    {
+    public function execute(
+        ToolInvocation $invocation,
+        int $maxBytes = self::MAX_BODY_BYTES,
+        ?int $maxSeconds = null,
+    ): ToolResult {
         // The exception handler calls rollBack(0) when it renders, so a failure
         // inside the sub-request would silently discard the caller's work.
         if ($this->db->transactionLevel() > 0) {
@@ -85,10 +89,10 @@ class ToolExecutor
         $target = $this->app->make(ActivityLogTargetableService::class);
         $snapshot = [$target->actor(), $target->subject(), $target->apiKeyId(), $target->isAdmin()];
 
-        $timeouts = $this->clampNodeTimeouts();
-
+        $timeouts = $this->clampNodeTimeouts($maxSeconds);
         $sub = $this->buildSubRequest($invocation, $parentRequest);
         $matched = null;
+        $alarm = $this->startDeadlineAlarm($maxSeconds);
 
         try {
             Activity::reset();
@@ -97,6 +101,14 @@ class ToolExecutor
             $matched = $sub->route();
 
             return $this->toResult($response, $maxBytes);
+        } catch (AIServiceException $e) {
+            if ($e->getMessage() === 'The internal tool deadline elapsed.') {
+                return ToolResult::error('time_limit', 'The tool call exceeded the remaining turn time.');
+            }
+
+            report($e);
+
+            return ToolResult::internalError('The tool call could not be completed.');
         } catch (\Throwable $e) {
             // Kernel::handle already renders most throwables; anything reaching
             // here is unexpected, so report it and give the model something
@@ -105,6 +117,8 @@ class ToolExecutor
 
             return ToolResult::internalError('The tool call could not be completed.');
         } finally {
+            $this->restoreDeadlineAlarm($alarm);
+
             if ($matched instanceof Route) {
                 $matched->controller = null;
             }
@@ -150,12 +164,15 @@ class ToolExecutor
      *
      * @return array<string, int> the previous values, shaped for `config()`
      */
-    protected function clampNodeTimeouts(): array
+    protected function clampNodeTimeouts(?int $remainingSeconds = null): array
     {
         $ceiling = max(5, (int) Setting::get(
             'settings::modules:ai:agent:max_tool_seconds',
             config('modules.ai.agent.max_tool_seconds', 90)
         ));
+        if ($remainingSeconds !== null) {
+            $ceiling = max(1, min($ceiling, $remainingSeconds));
+        }
 
         $previous = [
             'everest.guzzle.timeout' => (int) config('everest.guzzle.timeout'),
@@ -168,6 +185,51 @@ class ToolExecutor
         ]);
 
         return $previous;
+    }
+
+    /**
+     * Bound local controller and database work as well as node HTTP calls.
+     * PCNTL alarms interrupt the synchronous kernel dispatch; deployments
+     * without PCNTL retain their configured PHP execution limit because the
+     * stream no longer disables it.
+     *
+     * @return array{handler: mixed, async: bool}|null
+     */
+    protected function startDeadlineAlarm(?int $seconds): ?array
+    {
+        if (
+            $seconds === null
+            || $seconds < 1
+            || !function_exists('pcntl_alarm')
+            || !function_exists('pcntl_signal_get_handler')
+            || !function_exists('pcntl_async_signals')
+        ) {
+            return null;
+        }
+
+        $state = [
+            'handler' => pcntl_signal_get_handler(SIGALRM),
+            'async' => pcntl_async_signals(true),
+        ];
+
+        pcntl_signal(SIGALRM, static function (): void {
+            throw new AIServiceException('The internal tool deadline elapsed.');
+        });
+        pcntl_alarm($seconds);
+
+        return $state;
+    }
+
+    /** @param array{handler: mixed, async: bool}|null $state */
+    protected function restoreDeadlineAlarm(?array $state): void
+    {
+        if ($state === null) {
+            return;
+        }
+
+        pcntl_alarm(0);
+        pcntl_signal(SIGALRM, $state['handler']);
+        pcntl_async_signals($state['async']);
     }
 
     /**
@@ -200,6 +262,10 @@ class ToolExecutor
         // envelope instead of a redirect or an HTML error page.
         $sub->headers->set('Accept', 'application/json');
         $sub->headers->set('X-Requested-With', 'XMLHttpRequest');
+
+        if ($invocation->idempotencyKey !== null) {
+            $sub->headers->set('Idempotency-Key', $invocation->idempotencyKey);
+        }
 
         if (!$isRead) {
             $sub->headers->set('Content-Type', 'application/json');
