@@ -37,9 +37,18 @@ class TurnRecorder
      * that nothing replays; the card only ever shows the outcome and a line of
      * summary, so that is all that is worth keeping.
      */
-    public static function toolDisplay(bool $ok, string $summary): string
-    {
-        return json_encode(['ok' => $ok, 'summary' => $summary]) ?: '{"ok":false}';
+    public static function toolDisplay(
+        bool $ok,
+        string $summary,
+        ?string $outcome = null,
+        mixed $result = null,
+    ): string {
+        return json_encode(array_filter([
+            'ok' => $ok,
+            'outcome' => $outcome,
+            'summary' => $summary,
+            'result' => $result,
+        ], fn ($value) => $value !== null)) ?: '{"ok":false}';
     }
 
     /**
@@ -177,10 +186,10 @@ class TurnRecorder
      * from a suspension carries only what its own state held, and overwriting
      * would lose every token minted before the pause.
      */
-    public function touch(?AiConversation $conversation, ?AgentContext $context = null): void
+    public function touch(?AiConversation $conversation, ?AgentContext $context = null): bool
     {
         if ($conversation === null) {
-            return;
+            return true;
         }
 
         try {
@@ -204,8 +213,12 @@ class TurnRecorder
             }
 
             $conversation->save();
+
+            return true;
         } catch (\Throwable $e) {
             Log::warning('Failed to touch an AI conversation: ' . $e->getMessage());
+
+            return false;
         }
     }
 

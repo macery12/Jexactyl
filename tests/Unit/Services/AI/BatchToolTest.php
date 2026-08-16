@@ -7,9 +7,11 @@ use Everest\Models\Server;
 use Everest\Models\Setting;
 use Everest\Tests\TestCase;
 use Everest\Services\AI\Tools\RiskGate;
+use Everest\Services\AI\Agent\AgentEvent;
 use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
+use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Agent\ApprovalPreview;
@@ -506,7 +508,8 @@ class BatchToolTest extends TestCase
 
         $result = $this->execute($context, $arguments, ToolDefinition::RISK_SAFE);
 
-        $this->assertTrue($result->ok);
+        $this->assertFalse($result->ok);
+        $this->assertSame(ToolResult::OUTCOME_FAILED, $result->outcome);
         $this->assertSame(0, $result->data['succeeded']);
         $this->assertSame(2, $result->data['not_run']);
         $this->assertSame('out_of_time', $result->data['calls'][0]['not_run']);
@@ -548,10 +551,52 @@ class BatchToolTest extends TestCase
      */
     public function testTheSummaryReportsTheTally(): void
     {
-        $whole = ToolResult::ok(['batch' => true, 'succeeded' => 20, 'failed' => 0, 'not_run' => 0]);
-        $partial = ToolResult::ok(['batch' => true, 'succeeded' => 17, 'failed' => 1, 'not_run' => 2]);
+        $whole = ToolResult::batch(['batch' => true, 'succeeded' => 20, 'failed' => 0, 'not_run' => 0]);
+        $partial = ToolResult::batch(['batch' => true, 'succeeded' => 17, 'failed' => 1, 'not_run' => 2]);
 
         $this->assertSame('20 of 20 done', $whole->summary());
-        $this->assertSame('17 of 20 done, 1 failed', $partial->summary());
+        $this->assertSame('17 of 20 done; 1 failed, 2 not run', $partial->summary());
+        $this->assertTrue($whole->ok);
+        $this->assertFalse($partial->ok);
+        $this->assertSame(ToolResult::OUTCOME_PARTIAL, $partial->outcome);
+        $this->assertSame('partial', json_decode($partial->toModelPayload(), true)['status']);
+    }
+
+    public function testPartialBatchLedgerSurvivesWireAndStoredTranscriptPayloads(): void
+    {
+        $result = ToolResult::batch([
+            'batch' => true,
+            'succeeded' => 1,
+            'failed' => 1,
+            'not_run' => 1,
+            'calls' => [
+                ['tool' => 'files_read', 'ok' => true],
+                ['tool' => 'files_read', 'ok' => false],
+                ['tool' => 'files_read', 'not_run' => 'earlier_failure'],
+            ],
+        ]);
+
+        $event = AgentEvent::toolResult(
+            'batch-1',
+            'batch',
+            $result->ok,
+            $result->summary(),
+            $result->data,
+            10,
+            $result->outcome,
+        )->toArray();
+        $stored = json_decode(TurnRecorder::toolDisplay(
+            $result->ok,
+            $result->summary(),
+            $result->outcome,
+            $result->data,
+        ), true);
+
+        $this->assertFalse($event['ok']);
+        $this->assertSame('partial', $event['outcome']);
+        $this->assertCount(3, $event['result']['calls']);
+        $this->assertFalse($stored['ok']);
+        $this->assertSame('partial', $stored['outcome']);
+        $this->assertCount(3, $stored['result']['calls']);
     }
 }

@@ -25,6 +25,7 @@ export function QuestionCard({
     onDismiss: () => void;
 }) {
     const [other, setOther] = useState('');
+    const submitting = entry.submission === 'submitting';
 
     if (entry.answer) {
         return (
@@ -55,7 +56,7 @@ export function QuestionCard({
                     <button
                         key={option.label}
                         type="button"
-                        disabled={disabled}
+                        disabled={disabled || submitting}
                         onClick={() => onAnswer(option.label)}
                         className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-left transition-colors hover:border-[var(--brand)]/50 hover:bg-[var(--brand-soft)] disabled:opacity-50"
                     >
@@ -81,12 +82,12 @@ export function QuestionCard({
                             }
                         }}
                         placeholder={m['server.ai.question.otherPlaceholder']()}
-                        disabled={disabled}
+                        disabled={disabled || submitting}
                     />
                     <Button
                         size="sm"
                         variant="outline"
-                        disabled={disabled || other.trim() === ''}
+                        disabled={disabled || submitting || other.trim() === ''}
                         onClick={() => onAnswer(other.trim())}
                     >
                         {m['server.ai.question.send']()}
@@ -94,8 +95,14 @@ export function QuestionCard({
                 </div>
             )}
 
+            {entry.submission === 'failed' && (
+                <p className="px-3 pb-2 text-xs text-[var(--color-danger)]">
+                    {m['server.ai.decision.retry']()}
+                </p>
+            )}
+
             <div className="flex justify-end border-t border-[var(--color-border)] px-3 py-1.5">
-                <Button size="sm" variant="ghost" disabled={disabled} onClick={onDismiss}>
+                <Button size="sm" variant="ghost" disabled={disabled || submitting} onClick={onDismiss}>
                     {m['server.ai.question.dismiss']()}
                 </Button>
             </div>

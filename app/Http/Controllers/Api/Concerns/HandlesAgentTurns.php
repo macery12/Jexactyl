@@ -3,21 +3,28 @@
 namespace Everest\Http\Controllers\Api\Concerns;
 
 use Everest\Models\Server;
+use Illuminate\Support\Str;
 use Everest\Models\AiToolCall;
 use Everest\Models\AiUsageLog;
+use Illuminate\Http\JsonResponse;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\AgentEvent;
 use Everest\Services\AI\Agent\AgentRunner;
+use Everest\Services\AI\Agent\AssistGrant;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Privacy\RedactionMap;
+use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Agent\AssistAuthorizer;
+use Everest\Services\AI\Support\AiBudgetReservation;
+use Everest\Services\AI\Support\AiTurnUsageRecorder;
+use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
@@ -58,6 +65,7 @@ trait HandlesAgentTurns
         AgentContext $context,
         ?AiPendingAction $resuming = null,
         ?AiConversation $conversation = null,
+        ?AiBudgetReservation $budgetReservation = null,
     ): StreamedResponse {
         $runner = $this->agentRunner();
         $recorder = $this->turnRecorder();
@@ -66,116 +74,301 @@ trait HandlesAgentTurns
         $turnId = $context->turnId;
         $conversationId = $context->conversationId;
         $model = $this->providerFactory()->model(ProviderFactory::TASK_AGENT);
+        $idleSeconds = $runner->streamIdleSeconds();
 
-        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model) {
-            // Flush a comment immediately so proxies do not 504 while the model
-            // is still thinking or the turn is queued.
-            $this->write(': keep-alive');
-
-            if ($conversation !== null) {
-                $this->write('data: ' . json_encode(
-                    AgentEvent::conversation($conversation->id, (string) $conversation->title)->toArray()
-                ));
-            }
-
-            // Re-announced at the top of every turn that carries one, so the
-            // banner naming the customer's server is on screen before the first
-            // token arrives rather than only on the turn that opened it.
-            if ($context->assist !== null && $context->targetServer() !== null) {
-                $this->write('data: ' . json_encode(AgentEvent::assist(
-                    $context->assist->serverUuid,
-                    $context->assist->serverName,
-                    $context->assist->writable,
-                    $context->assist->reason,
-                )->toArray()));
-            }
-
-            $startedAt = microtime(true);
-            $status = 'success';
-            $error = null;
-            $toolCalls = 0;
+        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model, $budgetReservation) {
+            $usageReconciled = $budgetReservation?->passthrough ?? true;
 
             try {
-                // Approval execution, any following queue wait and the resumed
-                // loop share one allowance. This must happen before the
-                // approved tool; otherwise a batch and its follow-up inference
-                // each receive a full clock.
-                $runner->beginDeadline($context);
-
-                if ($resuming !== null) {
-                    $this->resumeSuspendedCall($runner, $context, $resuming);
-                }
-
-                $runner->run($context, function (AgentEvent $event) use (&$toolCalls) {
-                    if ($event->type === AgentEvent::TYPE_TOOL_CALL) {
-                        ++$toolCalls;
-                    }
-
-                    $this->write('data: ' . json_encode($event->toArray()));
-                });
-
-                if ($resuming !== null) {
-                    AiPendingAction::whereKey($resuming->id)
-                        ->where('status', AiPendingAction::STATUS_EXECUTING)
-                        ->update([
-                            'status' => AiPendingAction::STATUS_COMPLETED,
-                            'resolved_at' => now(),
-                        ]);
-                }
-            } catch (\Throwable $e) {
-                $status = 'error';
-                $error = $e->getMessage();
-
-                if ($resuming !== null) {
-                    AiPendingAction::whereKey($resuming->id)
-                        ->where('status', AiPendingAction::STATUS_EXECUTING)
-                        ->update([
-                            'status' => AiPendingAction::STATUS_FAILED,
-                            'resolved_at' => now(),
-                            'failure_reason' => 'Execution stopped before completion.',
-                        ]);
-                }
-                Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
-                $this->write('data: ' . json_encode(AgentEvent::error('The AI ran into a problem. Please try again.')->toArray()));
-            }
-
-            $this->write('data: [DONE]');
-
-            // Rolls the conversation's expiry forward the same way a manual
-            // append does, so an active chat is not reaped mid-use, and banks
-            // the turn's redaction tokens and assist session against the
-            // conversation so neither has to be re-established on the next turn.
-            $recorder->touch($conversation, $context);
-
-            try {
-                AiUsageLog::create([
+                $startedAt = microtime(true);
+                $deadlineAt = now()->setTimestamp((int) ceil($runner->beginDeadline($context)));
+                app(AiTurnUsageRecorder::class)->record($turnId, [
                     'user_id' => $userId,
                     'server_uuid' => $serverUuid,
                     'conversation_id' => $conversationId,
-                    'turn_id' => $turnId,
                     'step' => $context->step,
-                    'tool_calls_count' => $toolCalls,
+                    'tool_calls_count' => $context->toolCalls,
                     'model' => $model ?: 'unknown',
                     'source' => $serverUuid === null ? 'admin-agent' : 'agent',
-                    // Summed across every model call the turn made, not just
-                    // the last one. Without these the monthly token budget has
-                    // nothing to count on precisely the workload that spends
-                    // the most — an agent turn is many calls, a chat is one.
                     'prompt_tokens' => $context->usage['prompt_tokens'],
                     'completion_tokens' => $context->usage['completion_tokens'],
                     'total_tokens' => $context->usage['total_tokens'],
-                    'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-                    'status' => $status,
-                    'error_message' => $error,
+                    'latency_ms' => 0,
+                    'status' => 'running',
+                    'error_message' => null,
+                    'heartbeat_at' => now(),
+                    'deadline_at' => $deadlineAt,
                 ]);
-            } catch (\Throwable $e) {
-                Log::warning('Failed to write AI usage log: ' . $e->getMessage());
+
+                // Flush a comment immediately so proxies do not 504 while the model
+                // is still thinking or the turn is queued.
+                $this->write(': keep-alive');
+
+                if ($conversation !== null) {
+                    $this->write('data: ' . json_encode(
+                        AgentEvent::conversation($conversation->id, (string) $conversation->title)->toArray()
+                    ));
+                }
+
+                // Re-announced at the top of every turn that carries one, so the
+                // banner naming the customer's server is on screen before the first
+                // token arrives rather than only on the turn that opened it.
+                if ($context->assist !== null && $context->targetServer() !== null) {
+                    $this->write('data: ' . json_encode(AgentEvent::assist(
+                        $context->assist->serverUuid,
+                        $context->assist->serverName,
+                        $context->assist->writable,
+                        $context->assist->reason,
+                    )->toArray()));
+                }
+
+                $status = 'success';
+                $error = null;
+                $lastHeartbeat = microtime(true);
+                $emit = function (AgentEvent $event) use ($context, $turnId, &$lastHeartbeat): void {
+                    if ($event->type === AgentEvent::TYPE_TOOL_CALL) {
+                        ++$context->toolCalls;
+                    }
+
+                    if (microtime(true) - $lastHeartbeat >= 15) {
+                        AiUsageLog::where('turn_id', $turnId)
+                            ->where('status', 'running')
+                            ->update(['heartbeat_at' => now()]);
+                        $lastHeartbeat = microtime(true);
+                    }
+
+                    $this->write('data: ' . json_encode($event->toArray()));
+                };
+
+                try {
+                    // Approval execution, any following queue wait and the resumed
+                    // loop share one allowance. This must happen before the
+                    // approved tool; otherwise a batch and its follow-up inference
+                    // each receive a full clock.
+                    $runner->beginDeadline($context);
+
+                    if ($resuming !== null) {
+                        $this->resumeSuspendedCall($runner, $context, $resuming, $emit);
+                    }
+
+                    $runner->run($context, $emit);
+                    $status = $context->suspended ? 'suspended' : 'success';
+
+                    if ($resuming !== null) {
+                        AiPendingAction::whereKey($resuming->id)
+                            ->where('status', AiPendingAction::STATUS_EXECUTING)
+                            ->update([
+                                'status' => AiPendingAction::STATUS_COMPLETED,
+                                'resolved_at' => now(),
+                            ]);
+                    }
+                } catch (\Throwable $e) {
+                    $status = 'error';
+                    $error = $e->getMessage();
+
+                    if ($resuming !== null) {
+                        AiPendingAction::whereKey($resuming->id)
+                            ->where('status', AiPendingAction::STATUS_EXECUTING)
+                            ->update([
+                                'status' => AiPendingAction::STATUS_FAILED,
+                                'resolved_at' => now(),
+                                'failure_reason' => 'Execution stopped before completion.',
+                            ]);
+                    }
+                    Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
+                    $message = $e instanceof \Everest\Exceptions\Service\AI\AIServiceException
+                        ? $e->getMessage()
+                        : 'The AI ran into a problem. Please try again.';
+                    $this->write('data: ' . json_encode(AgentEvent::error($message)->toArray()));
+                }
+
+                // Rolls the conversation's expiry forward the same way a manual
+                // append does, so an active chat is not reaped mid-use, and banks
+                // the turn's redaction tokens and assist session against the
+                // conversation so neither has to be re-established on the next turn.
+                $persistenceFailed = !$recorder->touch($conversation, $context);
+                if ($persistenceFailed) {
+                    $status = 'error';
+                    $error = 'The turn finished, but its conversation state could not be persisted.';
+                }
+
+                try {
+                    app(AiTurnUsageRecorder::class)->record($turnId, [
+                        'user_id' => $userId,
+                        'server_uuid' => $serverUuid,
+                        'conversation_id' => $conversationId,
+                        'step' => $context->step,
+                        'tool_calls_count' => $context->toolCalls,
+                        'model' => $model ?: 'unknown',
+                        'source' => $serverUuid === null ? 'admin-agent' : 'agent',
+                        // Summed across every model call the turn made, not just
+                        // the last one. Without these the monthly token budget has
+                        // nothing to count on precisely the workload that spends
+                        // the most — an agent turn is many calls, a chat is one.
+                        'prompt_tokens' => $context->usage['prompt_tokens'],
+                        'completion_tokens' => $context->usage['completion_tokens'],
+                        'total_tokens' => $context->usage['total_tokens'],
+                        'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                        'status' => $status,
+                        'error_message' => $error,
+                        'heartbeat_at' => now(),
+                        'deadline_at' => $deadlineAt,
+                    ]);
+                    $usageReconciled = true;
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to write AI usage log: ' . $e->getMessage());
+                    $this->write('data: ' . json_encode(AgentEvent::error(
+                        'The turn ended, but its terminal state could not be persisted. Reload before retrying.'
+                    )->toArray()));
+
+                    return;
+                }
+
+                if ($persistenceFailed) {
+                    $this->write('data: ' . json_encode(AgentEvent::error(
+                        'The turn ended, but its conversation state could not be persisted. Reload before retrying.'
+                    )->toArray()));
+
+                    return;
+                }
+
+                // The sentinel acknowledges both execution and terminal
+                // persistence. EOF before it is therefore always uncertain and
+                // triggers the client's authoritative status reconciliation.
+                $this->write('data: [DONE]');
+            } finally {
+                // Admission remains held until the cumulative row above has
+                // replaced the previous suspension leg. The next request can
+                // therefore never observe stale spend at the boundary.
+                if ($usageReconciled) {
+                    $budgetReservation?->release();
+                }
             }
         }, 200, [
             'Content-Type' => 'text/event-stream',
             'Cache-Control' => 'no-cache',
             'X-Accel-Buffering' => 'no',
+            'X-Agent-Turn-Id' => $turnId,
+            'X-Agent-Idle-Seconds' => (string) $idleSeconds,
         ]);
+    }
+
+    /**
+     * Return the persisted truth after a browser loses an accepted stream.
+     * A running row cannot live forever: once its server-owned deadline plus a
+     * transport grace period passes, it is atomically failed and cannot be
+     * mistaken for work that is still safe to retry.
+     */
+    protected function agentTurnStatus(
+        $user,
+        string $turnId,
+        ?Server $server,
+        string $scope,
+    ): JsonResponse {
+        if (!Str::isUuid($turnId)) {
+            abort(404);
+        }
+
+        $query = AiUsageLog::query()
+            ->where('turn_id', $turnId)
+            ->where('user_id', $user->id);
+
+        if ($server !== null) {
+            $query->where('server_uuid', $server->uuid)->where('source', 'agent');
+        } else {
+            $query->whereNull('server_uuid')->where('source', 'admin-agent');
+        }
+
+        $usage = $query->firstOrFail();
+        if (
+            $usage->status === 'running'
+            && $usage->deadline_at !== null
+            && $usage->deadline_at->copy()->addSeconds(30)->isPast()
+        ) {
+            AiUsageLog::whereKey($usage->id)
+                ->where('status', 'running')
+                ->update([
+                    'status' => 'error',
+                    'error_message' => 'The agent worker did not finalize before its persisted deadline.',
+                    'heartbeat_at' => now(),
+                ]);
+            $usage->refresh();
+        }
+
+        $terminal = $usage->status !== 'running';
+        $conversation = null;
+        if ($terminal && $usage->conversation_id !== null) {
+            $conversation = AiConversation::query()
+                ->whereKey($usage->conversation_id)
+                ->where('user_id', $user->id)
+                ->where('scope', $scope)
+                ->where('server_uuid', $server?->uuid)
+                ->first();
+        }
+
+        $pending = null;
+        if ($usage->status === 'suspended') {
+            $pendingQuery = AiPendingAction::query()
+                ->where('turn_id', $turnId)
+                ->where('user_id', $user->id)
+                ->where('scope', $scope)
+                ->where('status', AiPendingAction::STATUS_PENDING);
+
+            if ($server !== null) {
+                $pendingQuery->where('server_uuid', $server->uuid);
+            }
+
+            $action = $pendingQuery->first();
+            if ($action !== null) {
+                $arguments = (array) $action->arguments;
+                $pending = $action->tool_name === SharedTools::ASK_USER
+                    ? [
+                        'kind' => 'question',
+                        'turn_id' => $action->turn_id,
+                        'tool' => $action->tool_name,
+                        'question' => (string) ($arguments['question'] ?? ''),
+                        'options' => SharedTools::normaliseOptions($arguments['options'] ?? []),
+                        'allow_other' => (bool) ($arguments['allow_other'] ?? false),
+                    ]
+                    : [
+                        'kind' => 'approval',
+                        'turn_id' => $action->turn_id,
+                        'tool' => $action->tool_name,
+                        'arguments' => $arguments,
+                        'risk' => $action->risk,
+                        'preview' => ApprovalPreview::for(
+                            $action->tool_name,
+                            $arguments,
+                            $action->server_uuid
+                                ? Server::where('uuid', $action->server_uuid)->first()
+                                : null,
+                        ),
+                    ];
+            }
+        }
+
+        return response()->json(['data' => array_filter([
+            'turn_id' => $turnId,
+            'status' => $usage->status,
+            'terminal' => $terminal,
+            'error' => $usage->error_message,
+            'conversation_id' => $conversation?->id,
+            'heartbeat_at' => $usage->heartbeat_at?->toIso8601String(),
+            'deadline_at' => $usage->deadline_at?->toIso8601String(),
+            'redactions' => $conversation === null
+                ? null
+                : RedactionMap::fromArray($conversation->redactions)->all(),
+            'assist' => $conversation?->assist,
+            'pending' => $pending,
+            'messages' => $conversation?->messages->map(fn ($message) => [
+                'role' => $message->role,
+                'content' => $message->content,
+                'tool_calls' => $message->tool_calls,
+                'tool_call_id' => $message->tool_call_id,
+                'tool_name' => $message->tool_name,
+                'step' => $message->step,
+            ])->values(),
+        ], fn ($value) => $value !== null)]);
     }
 
     /**
@@ -195,7 +388,7 @@ trait HandlesAgentTurns
             $pending->state,
         )->withRecorder($this->turnRecorder());
 
-        $this->restoreAssist($context);
+        $this->restoreAssist($context, $pending);
 
         return $context;
     }
@@ -214,8 +407,86 @@ trait HandlesAgentTurns
      * the admin surface with no access to the customer's server, which is what
      * an administrator without the capability should have had all along.
      */
-    protected function restoreAssist(AgentContext $context): void
+    protected function restoreAssist(AgentContext $context, ?AiPendingAction $pending = null): void
     {
+        if ($pending !== null && $context->scope() === \Everest\Services\AI\Tools\ToolDefinition::SCOPE_ADMIN) {
+            $state = is_array($pending->state) ? $pending->state : [];
+            $rawBinding = $state['assist'] ?? null;
+            // Every admin pending action is authenticated, including the
+            // explicit no-assist phase. Otherwise an attacker could bypass an
+            // assist signature simply by removing the grant columns and
+            // retargeting the rest of the pending row.
+            $expectsGrant = true;
+
+            if ($expectsGrant) {
+                $grant = AssistGrant::verify(
+                    $pending->assist_grant,
+                    $pending->assist_grant_mac,
+                    (string) $pending->turn_id,
+                    (int) $pending->user_id,
+                    (string) $pending->tool_name,
+                    (array) $pending->arguments,
+                );
+
+                $phaseMatchesTool = $grant !== null && match ($grant->phase) {
+                    AssistGrant::PHASE_NONE => !in_array(
+                        $pending->tool_name,
+                        [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES],
+                        true,
+                    ),
+                    AssistGrant::PHASE_OPEN => $pending->tool_name === AdminTools::ASSIST_SERVER,
+                    AssistGrant::PHASE_ESCALATE => $pending->tool_name === AdminTools::ASSIST_ALLOW_WRITES,
+                    AssistGrant::PHASE_ACTIVE => !in_array(
+                        $pending->tool_name,
+                        [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES],
+                        true,
+                    ),
+                    default => false,
+                };
+
+                if (
+                    $grant === null
+                    || !$phaseMatchesTool
+                    || !$grant->matchesState($rawBinding)
+                    || ($grant->after === null
+                        ? $pending->server_uuid !== null
+                        : !hash_equals($grant->after->serverUuid, (string) $pending->server_uuid))
+                ) {
+                    $context->assist = null;
+                    $context->pendingAssistAuthorityInvalid = true;
+
+                    return;
+                }
+
+                if ($grant->phase === AssistGrant::PHASE_NONE) {
+                    $context->assist = null;
+                    $context->pendingAssistGrant = $grant;
+
+                    return;
+                }
+
+                // Re-authorize against the approved target even for an opening
+                // grant, but do not activate it until the audit row is durable.
+                $authorizer = app(AssistAuthorizer::class);
+                $server = $authorizer->reauthorize($context->user, $grant->after);
+                if ($server === null) {
+                    $context->assist = null;
+                    $context->pendingAssistAuthorityInvalid = true;
+
+                    return;
+                }
+
+                $context->pendingAssistGrant = $grant;
+                if ($grant->before !== null) {
+                    $context->bindAssist($grant->before, $server);
+                } else {
+                    $context->assist = null;
+                }
+
+                return;
+            }
+        }
+
         $binding = $context->assist;
 
         if ($binding === null || $context->pendingAssistUuid() === null) {
@@ -282,8 +553,12 @@ trait HandlesAgentTurns
     /**
      * Run the call the user just approved, then let the loop carry on.
      */
-    protected function resumeSuspendedCall(AgentRunner $runner, AgentContext $context, AiPendingAction $pending): void
-    {
+    protected function resumeSuspendedCall(
+        AgentRunner $runner,
+        AgentContext $context,
+        AiPendingAction $pending,
+        ?callable $emit = null,
+    ): void {
         if ($pending->status !== AiPendingAction::STATUS_EXECUTING) {
             return;
         }
@@ -300,6 +575,30 @@ trait HandlesAgentTurns
             ->where('tool_name', $pending->tool_name)
             ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
             ->first();
+
+        if ($context->pendingAssistAuthorityInvalid) {
+            $context->push(
+                AiMessage::tool(
+                    $callId,
+                    $pending->tool_name,
+                    json_encode([
+                        'ok' => false,
+                        'error' => 'invalid_authority',
+                        'message' => 'The approved assist grant no longer matches its authenticated state.',
+                    ]),
+                    true,
+                ),
+                TurnRecorder::toolDisplay(false, 'Assist grant authentication failed'),
+            );
+            $this->closeUnresolvedCalls($context);
+            $audit?->update([
+                'status' => AiToolCall::STATUS_FAILED,
+                'result_summary' => 'Assist grant authentication failed',
+                'resolved_at' => now(),
+            ]);
+
+            return;
+        }
 
         if ($definition === null || !$this->stillUsable($context, $definition)) {
             $context->push(
@@ -355,7 +654,7 @@ trait HandlesAgentTurns
         }
 
         $call = new ToolCallData($callId, $definition->name, $pending->arguments);
-        $emit = fn (AgentEvent $event) => $this->write('data: ' . json_encode($event->toArray()));
+        $emit ??= fn (AgentEvent $event) => $this->write('data: ' . json_encode($event->toArray()));
 
         $startedAt = microtime(true);
         if ($definition->hostHandled && $audit !== null) {
@@ -381,13 +680,19 @@ trait HandlesAgentTurns
             $definition->name,
             $result->ok,
             $result->summary(),
-            $result->ok ? $result->data : null,
+            $result->ok || $result->isBatch() ? $result->data : null,
             (int) round((microtime(true) - $startedAt) * 1000),
+            $result->outcome,
         ));
 
         $context->push(
             AiMessage::tool($callId, $definition->name, $result->toModelPayload(), !$result->ok),
-            TurnRecorder::toolDisplay($result->ok, $result->summary()),
+            TurnRecorder::toolDisplay(
+                $result->ok,
+                $result->summary(),
+                $result->outcome,
+                $result->isBatch() ? $result->data : null,
+            ),
         );
 
         $this->closeUnresolvedCalls($context);

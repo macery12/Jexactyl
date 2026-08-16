@@ -227,6 +227,7 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
         Route::post('/ai/agent', [Client\Servers\AgentController::class, 'start']);
         Route::post('/ai/agent/decide', [Client\Servers\AgentController::class, 'decide']);
         Route::get('/ai/agent/pending', [Client\Servers\AgentController::class, 'pending']);
+        Route::get('/ai/agent/turns/{turnId}', [Client\Servers\AgentController::class, 'turnStatus']);
 
         Route::prefix('/ai/conversations')->group(function () {
             Route::get('/', [Client\Servers\AIConversationController::class, 'index']);

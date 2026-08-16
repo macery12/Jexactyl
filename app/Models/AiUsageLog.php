@@ -36,6 +36,8 @@ class AiUsageLog extends Model
         'status',
         'cached',
         'error_message',
+        'heartbeat_at',
+        'deadline_at',
     ];
 
     protected $casts = [
@@ -45,6 +47,8 @@ class AiUsageLog extends Model
         'completion_tokens' => 'integer',
         'total_tokens' => 'integer',
         'latency_ms' => 'integer',
+        'heartbeat_at' => 'datetime',
+        'deadline_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

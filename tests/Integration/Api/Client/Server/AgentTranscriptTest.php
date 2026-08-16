@@ -4,12 +4,15 @@ namespace Everest\Tests\Integration\Api\Client\Server;
 
 use Everest\Models\AiMessage;
 use Everest\Models\AiConversation;
+use Everest\Models\AiPendingAction;
 use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
+use Everest\Services\AI\Agent\AssistBinding;
 use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Data\AiMessage as MessageData;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
+use Everest\Http\Controllers\Api\Application\AiAgentController;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 /**
@@ -230,6 +233,69 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         $this->assertSame(3, AiMessage::where('conversation_id', $conversation->id)->count());
     }
 
+    public function testApprovedAdminAssistAndRedactionsAreBankedForTheNextTurn(): void
+    {
+        [$admin, $server] = $this->generateTestAccount();
+        $conversation = $this->recorder->ensureConversation($admin, null, null, 'Investigate customer server');
+
+        $opened = new AgentContext($admin, null, 'turn-open', $conversation->id);
+        $binding = new AssistBinding(
+            serverUuid: $server->uuid,
+            serverName: (string) $server->name,
+            reason: 'Ticketed startup failure',
+            ticketId: 42,
+        );
+        $opened->bindAssist($binding, $server);
+        $token = $opened->redactions->tokenFor('email', 'customer@example.test');
+
+        // This is the stream-completion operation used after approval. Passing
+        // the resolved conversation is what was previously missing on admin
+        // resumes.
+        $this->recorder->touch($conversation, $opened);
+
+        $next = new AgentContext($admin, null, 'turn-next', $conversation->id);
+        $next->assist = $this->recorder->loadAssist($conversation->fresh());
+        $next->redactions = $this->recorder->loadRedactions($conversation->fresh());
+
+        $this->assertSame($server->uuid, $next->assist?->serverUuid);
+        $this->assertFalse($next->assist?->writable);
+        $this->assertSame('customer@example.test', $next->redactions->all()[$token]);
+        $this->assertTrue($conversation->fresh()->expires_at->isFuture());
+
+        $escalated = new AgentContext($admin, null, 'turn-escalate', $conversation->id);
+        $escalated->redactions = $next->redactions;
+        $escalated->bindAssist($next->assist->escalated(), $server);
+        $this->recorder->touch($conversation->fresh(), $escalated);
+
+        $following = $this->recorder->loadAssist($conversation->fresh());
+        $this->assertSame($server->uuid, $following?->serverUuid);
+        $this->assertTrue($following?->writable);
+        $this->assertSame(AssistBinding::WRITE_ABILITIES, array_values(array_intersect(
+            AssistBinding::WRITE_ABILITIES,
+            $following?->abilities ?? [],
+        )));
+    }
+
+    public function testAdminResumeConversationIsResolvedByOwnerAndScope(): void
+    {
+        [$admin] = $this->generateTestAccount();
+        [$other] = $this->generateTestAccount();
+        $conversation = $this->recorder->ensureConversation($admin, null, null, 'Admin assist');
+        $pending = new AiPendingAction(['conversation_id' => $conversation->id]);
+
+        $controller = (new \ReflectionClass(AiAgentController::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(AiAgentController::class, 'pendingConversation');
+
+        $this->assertSame($conversation->id, $method->invoke($controller, $pending, $admin->id)->id);
+
+        try {
+            $method->invoke($controller, $pending, $other->id);
+            $this->fail('Another administrator must not bank state into this conversation.');
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(409, $e->getStatusCode());
+        }
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Pending approvals — what the user comes back to
@@ -274,9 +340,9 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
             ->assertNotFound();
     }
 
-    private function pendingAction($user, $server, string $tool, array $overrides = []): \Everest\Models\AiPendingAction
+    private function pendingAction($user, $server, string $tool, array $overrides = []): AiPendingAction
     {
-        return \Everest\Models\AiPendingAction::create(array_merge([
+        return AiPendingAction::create(array_merge([
             'turn_id' => \Illuminate\Support\Str::uuid()->toString(),
             'conversation_id' => $this->recorder->ensureConversation($user, $server, null, $tool)->id,
             'user_id' => $user->id,

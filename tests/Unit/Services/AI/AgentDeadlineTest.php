@@ -2,16 +2,17 @@
 
 namespace Everest\Tests\Unit\Services\AI;
 
-use Everest\Tests\TestCase;
 use Everest\Models\User;
+use Everest\Models\Setting;
+use Everest\Tests\TestCase;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
-use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Tools\ToolExecutor;
+use Everest\Services\AI\Data\ProviderConfig;
 
 class AgentDeadlineTest extends TestCase
 {
-    public function testInitialAndResumedOperationsShareOneFakeClockDeadline(): void
+    public function testApprovedBatchAndResumedLoopShareOneFakeClockDeadline(): void
     {
         config()->set('modules.ai.agent.max_wall_seconds', 30);
 
@@ -26,15 +27,27 @@ class AgentDeadlineTest extends TestCase
             {
                 return $this->clock;
             }
+
+            /** @return array{float, float, float, bool} */
+            public function simulateApprovedBatchThenLoop(AgentContext $context): array
+            {
+                $batchDeadline = $this->beginDeadline($context);
+                $this->clock += 25.0; // approved batch execution
+                $loopDeadline = $this->beginDeadline($context);
+                $remainingAtLoopEntry = $loopDeadline - $this->clock;
+                $this->clock += 6.0; // following model loop tries to continue
+
+                return [$batchDeadline, $loopDeadline, $remainingAtLoopEntry, $this->hasTime($context)];
+            }
         };
 
         $context = new AgentContext(User::factory()->make(), null, 'turn-deadline');
-        $this->assertSame(130.0, $runner->beginDeadline($context));
+        [$batchDeadline, $loopDeadline, $remaining, $canContinue] = $runner->simulateApprovedBatchThenLoop($context);
 
-        // Approval/batch work consumes five seconds. Beginning the following
-        // model loop must retain 130 rather than minting a new deadline at 135.
-        $runner->clock = 105.0;
-        $this->assertSame(130.0, $runner->beginDeadline($context));
+        $this->assertSame(130.0, $batchDeadline);
+        $this->assertSame($batchDeadline, $loopDeadline);
+        $this->assertSame(5.0, $remaining);
+        $this->assertFalse($canContinue, 'The loop must stop at the batch deadline, not receive another 30 seconds.');
     }
 
     public function testProviderTimeoutIsClampedToTheRemainingTurnTime(): void
@@ -67,5 +80,13 @@ class AgentDeadlineTest extends TestCase
         } finally {
             config($previous);
         }
+    }
+
+    public function testNineHundredSecondTurnAdvertisesACompatibleIdleWindow(): void
+    {
+        Setting::forget('settings::modules:ai:agent:max_wall_seconds');
+        config()->set('modules.ai.agent.max_wall_seconds', 900);
+
+        $this->assertSame(930, app(AgentRunner::class)->streamIdleSeconds());
     }
 }

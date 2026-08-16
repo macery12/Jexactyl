@@ -59,12 +59,6 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
  */
 class ToolExecutor
 {
-    /**
-     * Hard ceiling on the response body handed back to the model. Beyond this
-     * a single directory listing would consume the whole context window.
-     */
-    public const MAX_BODY_BYTES = 12288;
-
     public function __construct(
         private Application $app,
         private DatabaseManager $db,
@@ -73,7 +67,6 @@ class ToolExecutor
 
     public function execute(
         ToolInvocation $invocation,
-        int $maxBytes = self::MAX_BODY_BYTES,
         ?int $maxSeconds = null,
     ): ToolResult {
         // The exception handler calls rollBack(0) when it renders, so a failure
@@ -100,7 +93,7 @@ class ToolExecutor
             $response = $this->app->make(HttpKernelContract::class)->handle($sub);
             $matched = $sub->route();
 
-            return $this->toResult($response, $maxBytes);
+            return $this->toResult($response);
         } catch (AIServiceException $e) {
             if ($e->getMessage() === 'The internal tool deadline elapsed.') {
                 return ToolResult::error('time_limit', 'The tool call exceeded the remaining turn time.');
@@ -303,7 +296,7 @@ class ToolExecutor
         }
     }
 
-    protected function toResult(Response $response, int $maxBytes): ToolResult
+    protected function toResult(Response $response): ToolResult
     {
         // getContent() returns false on these; the only way to read the body is
         // to send it, which would write into the caller's live SSE stream.
@@ -320,18 +313,10 @@ class ToolExecutor
         $isJson = json_last_error() === JSON_ERROR_NONE;
 
         if ($status >= 200 && $status < 300) {
-            if (!$isJson) {
-                $truncated = strlen($body) > $maxBytes;
-
-                return ToolResult::ok($truncated ? Str::limit($body, $maxBytes, '') : $body, $truncated);
-            }
-
-            $encoded = json_encode($decoded);
-            if ($encoded !== false && strlen($encoded) > $maxBytes) {
-                return ToolResult::ok(Str::limit($encoded, $maxBytes, ''), true);
-            }
-
-            return ToolResult::ok($decoded);
+            // Do not cap here. A JSON response must remain decoded until its
+            // tool-specific shaper and privacy redactor have run; the runner
+            // applies the final serialized-byte cap after both.
+            return ToolResult::ok($isJson ? $decoded : $body);
         }
 
         return $this->toError($status, $isJson ? $decoded : null);

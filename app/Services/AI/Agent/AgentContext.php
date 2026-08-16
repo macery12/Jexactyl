@@ -55,6 +55,12 @@ class AgentContext
      */
     public int $questions = 0;
 
+    /** The current request phase stopped for a human decision. */
+    public bool $suspended = false;
+
+    /** Tool-call events emitted across every suspension leg of this turn. */
+    public int $toolCalls = 0;
+
     /**
      * What the turn has cost so far, summed across every model call it made.
      *
@@ -107,6 +113,12 @@ class AgentContext
      * needs no such thing, it is already on their server.
      */
     public ?AssistBinding $assist = null;
+
+    /** Verified authority attached to the pending action being resumed. */
+    public ?AssistGrant $pendingAssistGrant = null;
+
+    /** A grant was expected but failed authentication or state comparison. */
+    public bool $pendingAssistAuthorityInvalid = false;
 
     /**
      * Tokens minted for personal data this conversation has seen, so the same
@@ -266,6 +278,7 @@ class AgentContext
             'step' => $this->step,
             'repairs' => $this->repairs,
             'questions' => $this->questions,
+            'tool_calls' => $this->toolCalls,
             'usage' => $this->usage,
             'console_buffer' => $this->consoleBuffer,
             'assist' => $this->assist?->toArray(),
@@ -294,6 +307,7 @@ class AgentContext
         $context->step = (int) ($state['step'] ?? 0);
         $context->repairs = (int) ($state['repairs'] ?? 0);
         $context->questions = (int) ($state['questions'] ?? 0);
+        $context->toolCalls = max(0, (int) ($state['tool_calls'] ?? 0));
         $context->addUsage(is_array($state['usage'] ?? null) ? $state['usage'] : []);
         $context->redactions = RedactionMap::fromArray($state['redactions'] ?? null);
 

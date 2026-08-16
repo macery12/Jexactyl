@@ -186,13 +186,19 @@ class AssistBinding
         ];
     }
 
+    /** Whether two values grant exactly the same target and authority. */
+    public function sameAuthorityAs(self $other): bool
+    {
+        return $this->toArray() === $other->toArray();
+    }
+
     /**
      * Rebuild from persisted turn state.
      *
-     * The abilities are re-intersected against the two declared lists rather
-     * than trusted: the stored blob is the one part of a suspended turn a bug
-     * elsewhere could widen, and an ability that is not in either list has no
-     * business being granted whatever the column says.
+     * The stored form must match one of the two canonical ability sets exactly.
+     * The blob is the one part of a suspended turn a bug elsewhere could widen,
+     * so unknown, missing, or reordered authority is rejected rather than
+     * normalized into something usable.
      */
     public static function fromArray(mixed $stored): ?self
     {
@@ -201,24 +207,43 @@ class AssistBinding
         }
 
         $uuid = $stored['server_uuid'] ?? null;
+        $name = $stored['server_name'] ?? null;
+        $reason = $stored['reason'] ?? null;
+        $writable = $stored['writable'] ?? null;
+        $ticket = $stored['ticket_id'] ?? null;
 
-        if (!is_string($uuid) || $uuid === '') {
+        if (
+            !is_string($uuid) || $uuid === ''
+            || !is_string($name)
+            || !is_string($reason)
+            || !is_bool($writable)
+            || ($ticket !== null && !is_int($ticket))
+        ) {
             return null;
         }
 
-        $known = array_merge(self::READ_ABILITIES, self::WRITE_ABILITIES);
-        $abilities = array_values(array_intersect(
-            $known,
-            array_filter(is_array($stored['abilities'] ?? null) ? $stored['abilities'] : [], 'is_string')
-        ));
+        $abilities = $stored['abilities'] ?? null;
+        $expected = $writable
+            ? array_values(array_unique(array_merge(self::READ_ABILITIES, self::WRITE_ABILITIES)))
+            : self::READ_ABILITIES;
+
+        if (!is_array($abilities) || array_values($abilities) !== $expected) {
+            return null;
+        }
+
+        if (array_key_exists('tools', $stored) && $stored['tools'] !== ($writable
+            ? array_merge(self::READ_TOOLS, self::WRITE_TOOLS)
+            : self::READ_TOOLS)) {
+            return null;
+        }
 
         return new self(
             $uuid,
-            is_string($stored['server_name'] ?? null) ? $stored['server_name'] : $uuid,
-            is_string($stored['reason'] ?? null) ? $stored['reason'] : '',
-            $abilities ?: self::READ_ABILITIES,
-            isset($stored['ticket_id']) && is_numeric($stored['ticket_id']) ? (int) $stored['ticket_id'] : null,
-            (bool) ($stored['writable'] ?? false),
+            $name,
+            $reason,
+            $expected,
+            $ticket,
+            $writable,
         );
     }
 }

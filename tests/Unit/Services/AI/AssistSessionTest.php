@@ -10,11 +10,13 @@ use Everest\Models\AdminRole;
 use Everest\Models\Permission;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\Agent\AgentRunner;
+use Everest\Services\AI\Agent\AssistGrant;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Agent\AssistBinding;
 use Everest\Services\AI\Agent\AssistSession;
 use Everest\Services\AI\Tools\ToolDefinition;
+use Everest\Services\AI\Agent\AssistAuthorizer;
 use Everest\Services\AI\Support\SchemaValidator;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
 use Everest\Services\AI\Agent\SystemPromptBuilder;
@@ -518,11 +520,156 @@ class AssistSessionTest extends TestCase
             'writable' => true,
         ]);
 
-        // The stored blob is the one part of a suspended turn that a bug
-        // elsewhere could widen, so it is re-intersected rather than trusted.
-        $this->assertTrue($tampered->permits(Permission::ACTION_FILE_READ));
-        $this->assertFalse($tampered->permits(Permission::ACTION_FILE_DELETE));
-        $this->assertFalse($tampered->permits('settings.reinstall'));
+        // A grant is authority, not preferences. A non-canonical ability set is
+        // rejected whole rather than repaired into something the user did not
+        // approve.
+        $this->assertNull($tampered);
+    }
+
+    public function testAuthenticatedPendingGrantRejectsEveryStateWideningAndRetarget(): void
+    {
+        $before = $this->binding();
+        $sealed = AssistGrant::seal(
+            AssistGrant::PHASE_ACTIVE,
+            $before,
+            $before,
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            7,
+            'files_read',
+            ['file' => '/server.properties'],
+        );
+        $grant = AssistGrant::verify(
+            $sealed['grant'],
+            $sealed['mac'],
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            7,
+            'files_read',
+            ['file' => '/server.properties'],
+        );
+
+        $this->assertNotNull($grant);
+        $this->assertTrue($grant->matchesState($before->toArray()));
+
+        $server = $before->toArray();
+        $server['server_uuid'] = '11111111-2222-3333-4444-555555555555';
+
+        $writable = $before->toArray();
+        $writable['writable'] = true;
+        $writable['abilities'] = array_values(array_unique(array_merge(
+            AssistBinding::READ_ABILITIES,
+            AssistBinding::WRITE_ABILITIES,
+        )));
+
+        $abilities = $before->toArray();
+        $abilities['abilities'][] = Permission::ACTION_FILE_UPDATE;
+
+        $tools = $before->toArray();
+        $tools['tools'] = array_merge(AssistBinding::READ_TOOLS, AssistBinding::WRITE_TOOLS);
+
+        foreach ([$server, $writable, $abilities, $tools] as $state) {
+            $this->assertFalse($grant->matchesState($state));
+        }
+    }
+
+    public function testAuthenticatedPendingGrantIsBoundToActorToolArgumentsAndPayload(): void
+    {
+        $binding = $this->binding();
+        $turn = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+        $arguments = ['file' => '/server.properties'];
+        $sealed = AssistGrant::seal(AssistGrant::PHASE_ACTIVE, $binding, $binding, $turn, 7, 'files_read', $arguments);
+
+        $this->assertNull(AssistGrant::verify($sealed['grant'], $sealed['mac'], $turn, 8, 'files_read', $arguments));
+        $this->assertNull(AssistGrant::verify($sealed['grant'], $sealed['mac'], $turn, 7, 'files_write', $arguments));
+        $this->assertNull(AssistGrant::verify($sealed['grant'], $sealed['mac'], $turn, 7, 'files_read', ['file' => '/secret']));
+
+        $retargeted = $sealed['grant'];
+        $retargeted['after']['server_uuid'] = '11111111-2222-3333-4444-555555555555';
+        $this->assertNull(AssistGrant::verify($retargeted, $sealed['mac'], $turn, 7, 'files_read', $arguments));
+    }
+
+    public function testOpeningFailsClosedWhenTheCustomerVisibleAuditCannotBeWritten(): void
+    {
+        $admin = User::factory()->make(['id' => 7]);
+        $server = $this->server();
+        $binding = $this->binding();
+        $arguments = ['server' => $server->uuid, 'reason' => $binding->reason, 'ticket' => 2];
+        $sealed = AssistGrant::seal(
+            AssistGrant::PHASE_OPEN,
+            null,
+            $binding,
+            'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            7,
+            AdminTools::ASSIST_SERVER,
+            $arguments,
+        );
+
+        $context = new AgentContext($admin, null, 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee');
+        $context->pendingAssistGrant = AssistGrant::verify(
+            $sealed['grant'],
+            $sealed['mac'],
+            $context->turnId,
+            7,
+            AdminTools::ASSIST_SERVER,
+            $arguments,
+        );
+
+        $authorizer = \Mockery::mock(AssistAuthorizer::class);
+        $authorizer->shouldReceive('permitted')->once()->with($admin)->andReturnTrue();
+        $authorizer->shouldReceive('resolveServer')->once()->with($server->uuid)->andReturn($server);
+        $authorizer->shouldReceive('record')->once()->andThrow(new \RuntimeException('activity unavailable'));
+
+        $runner = (new \ReflectionClass(AgentRunner::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(AgentRunner::class, 'assist'))->setValue($runner, $authorizer);
+
+        try {
+            (new \ReflectionMethod(AgentRunner::class, 'openAssist'))->invoke($runner, $context, $arguments, fn () => null);
+            $this->fail('Opening should fail when its audit record cannot be created.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('activity unavailable', $e->getMessage());
+        }
+
+        $this->assertNull($context->assist);
+        $this->assertNull($context->targetServer());
+    }
+
+    public function testEscalationKeepsReadOnlyAuthorityWhenItsAuditCannotBeWritten(): void
+    {
+        $admin = User::factory()->make(['id' => 7]);
+        $server = $this->server();
+        $before = $this->binding();
+        $after = $before->escalated();
+        $arguments = ['reason' => 'Apply the ticketed fix'];
+        $turn = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+        $sealed = AssistGrant::seal(AssistGrant::PHASE_ESCALATE, $before, $after, $turn, 7, AdminTools::ASSIST_ALLOW_WRITES, $arguments);
+
+        $context = new AgentContext($admin, null, $turn);
+        $context->bindAssist($before, $server);
+        $context->pendingAssistGrant = AssistGrant::verify(
+            $sealed['grant'],
+            $sealed['mac'],
+            $turn,
+            7,
+            AdminTools::ASSIST_ALLOW_WRITES,
+            $arguments,
+        );
+
+        $authorizer = \Mockery::mock(AssistAuthorizer::class);
+        $authorizer->shouldReceive('permitted')->once()->with($admin)->andReturnTrue();
+        $authorizer->shouldReceive('record')->once()->andThrow(new \RuntimeException('activity unavailable'));
+
+        $runner = (new \ReflectionClass(AgentRunner::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(AgentRunner::class, 'assist'))->setValue($runner, $authorizer);
+
+        try {
+            (new \ReflectionMethod(AgentRunner::class, 'escalateAssist'))->invoke($runner, $context, $arguments, fn () => null);
+            $this->fail('Escalation should fail when its audit record cannot be created.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('activity unavailable', $e->getMessage());
+        }
+
+        $this->assertNotNull($context->assist);
+        $this->assertFalse($context->assist->writable);
+        $this->assertFalse($context->assist->permits(Permission::ACTION_FILE_UPDATE));
     }
 
     public function testABindingWithoutAServerUuidIsRejectedOutright(): void

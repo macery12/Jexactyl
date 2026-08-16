@@ -1,8 +1,14 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { m } from '@/i18n';
 import type { AgentEvent, AgentStreamCallbacks, AiApprovalPreview, AiRisk } from '@/lib/aiStream';
-import { streamAgentDecision, streamAgentTurn, type StoredMessage } from '@/api/ai';
-import { streamAdminAgentDecision, streamAdminAgentTurn } from '@/api/adminAi';
+import {
+    getAgentTurnStatus,
+    streamAgentDecision,
+    streamAgentTurn,
+    type AgentTurnStatus,
+    type StoredMessage,
+} from '@/api/ai';
+import { getAdminAgentTurnStatus, streamAdminAgentDecision, streamAdminAgentTurn } from '@/api/adminAi';
 
 // One conversation per surface, shared by every component that renders it.
 //
@@ -53,7 +59,7 @@ export type ChatEntry =
           tool: string;
           args: Record<string, unknown>;
           risk: AiRisk;
-          status: 'pending' | 'running' | 'ok' | 'error';
+          status: 'pending' | 'running' | 'ok' | 'partial' | 'error';
           summary?: string;
           /** The shaped payload the model received. Session-only; a reloaded transcript has none. */
           result?: unknown;
@@ -68,6 +74,8 @@ export type ChatEntry =
           risk: AiRisk;
           preview: AiApprovalPreview | null;
           decision?: 'approved' | 'rejected';
+          submission?: 'submitting' | 'accepted' | 'failed';
+          pendingDecision?: 'approve' | 'reject';
       }
     | {
           kind: 'question';
@@ -78,6 +86,8 @@ export type ChatEntry =
           allowOther: boolean;
           answer?: string;
           dismissed?: boolean;
+          submission?: 'submitting' | 'accepted' | 'failed';
+          pendingAnswer?: string;
       };
 
 export interface QueuePosition {
@@ -152,6 +162,7 @@ export interface AgentChatAdapter {
         callbacks: AgentStreamCallbacks,
         signal: AbortSignal,
     ) => void;
+    reconcileTurn: (target: string, turnId: string) => Promise<AgentTurnStatus>;
 }
 
 export interface AgentChatState {
@@ -227,6 +238,10 @@ export function createAgentChatStore(
     let controller: AbortController | null = null;
     let slowTimer: ReturnType<typeof setTimeout> | null = null;
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let idleLimitMs = STALL_MS;
+    let activeTurnId: string | null = null;
+    let streamAccepted = false;
+    let reconciliationGeneration = 0;
 
     const clearSlowTimer = () => {
         if (slowTimer) clearTimeout(slowTimer);
@@ -395,6 +410,22 @@ export function createAgentChatStore(
             }));
         };
 
+        /** A decision the endpoint never accepted remains actionable. */
+        const failSubmission = (message: string) => {
+            clearSlowTimer();
+            clearStallTimer();
+            controller = null;
+            sealAssistant();
+            set(state => ({
+                loading: false,
+                queue: null,
+                step: null,
+                activity: null,
+                slowHint: false,
+                entries: [...state.entries, { kind: 'assistant', key: nextKey(), content: message, error: true }],
+            }));
+        };
+
         /**
          * A suspension leaves the composer free but the turn alive.
          *
@@ -407,6 +438,110 @@ export function createAgentChatStore(
             clearStallTimer();
             controller = null;
             set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
+        };
+
+        /**
+         * Replace uncertain live state with the backend's persisted terminal
+         * transcript. Polling is bounded by the same server-owned deadline the
+         * status endpoint uses to fail stale workers.
+         */
+        const reconcile = async (turnId: string, generation: number) => {
+            const target = get().target;
+            if (!target) return;
+
+            const stopAt = Date.now() + idleLimitMs + 60_000;
+            for (;;) {
+                if (generation !== reconciliationGeneration) return;
+
+                try {
+                    const state = await adapter.reconcileTurn(target, turnId);
+                    if (generation !== reconciliationGeneration) return;
+
+                    if (state.terminal) {
+                        clearSlowTimer();
+                        clearStallTimer();
+                        activeTurnId = null;
+                        streamAccepted = false;
+
+                        set(current => {
+                            const transcript = state.messages ? fromStored(state.messages) : current.entries;
+                            const entries = [...transcript];
+                            if (state.pending) {
+                                entries.push({
+                                    kind: 'tool',
+                                    key: nextKey(),
+                                    callId: `pending-${state.pending.turn_id}`,
+                                    tool: state.pending.tool,
+                                    args: state.pending.kind === 'approval' ? state.pending.arguments : {},
+                                    risk: state.pending.kind === 'approval' ? state.pending.risk : 'safe',
+                                    status: 'pending',
+                                });
+
+                                entries.push(
+                                    state.pending.kind === 'approval'
+                                        ? {
+                                              kind: 'approval',
+                                              key: nextKey(),
+                                              turnId: state.pending.turn_id,
+                                              tool: state.pending.tool,
+                                              args: state.pending.arguments,
+                                              risk: state.pending.risk,
+                                              preview: state.pending.preview ?? null,
+                                          }
+                                        : {
+                                              kind: 'question',
+                                              key: nextKey(),
+                                              turnId: state.pending.turn_id,
+                                              question: state.pending.question,
+                                              options: state.pending.options,
+                                              allowOther: state.pending.allow_other,
+                                          },
+                                );
+                            }
+                            const withError =
+                                state.status === 'error' && state.error
+                                    ? [
+                                          ...entries,
+                                          { kind: 'assistant' as const, key: nextKey(), content: state.error, error: true },
+                                      ]
+                                    : entries;
+
+                            return {
+                                conversationId: state.conversation_id ?? current.conversationId,
+                                entries: withError,
+                                redactions: state.redactions ?? current.redactions,
+                                loading: false,
+                                queue: null,
+                                step: null,
+                                activity: null,
+                                slowHint: false,
+                            };
+                        });
+
+                        return;
+                    }
+                } catch {
+                    // A temporary status request failure is not evidence that
+                    // the accepted backend turn stopped. Retry until its bound.
+                }
+
+                if (Date.now() >= stopAt) {
+                    set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
+                    return;
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        };
+
+        const reconcileLostStream = (message: string) => {
+            fail(message);
+
+            if (!streamAccepted || activeTurnId === null) return;
+
+            const generation = ++reconciliationGeneration;
+            set({ loading: true, activity: { phase: 'waiting', startedAt: Date.now() } });
+            void reconcile(activeTurnId, generation);
         };
 
         const handleEvent = (event: AgentEvent) => {
@@ -510,7 +645,12 @@ export function createAgentChatStore(
                             (entry.status === 'running' || entry.status === 'pending')
                                 ? {
                                       ...entry,
-                                      status: event.ok ? 'ok' : 'error',
+                                      status:
+                                          event.outcome === 'partial'
+                                              ? 'partial'
+                                              : event.ok
+                                                ? 'ok'
+                                                : 'error',
                                       summary: event.summary,
                                       result: event.result,
                                       durationMs: event.duration_ms,
@@ -617,14 +757,27 @@ export function createAgentChatStore(
             stallTimer = setTimeout(() => {
                 stallTimer = null;
                 controller?.abort();
-                fail(m['server.ai.stalled']());
-            }, STALL_MS);
+                reconcileLostStream(m['server.ai.stalled']());
+            }, idleLimitMs);
         };
 
         /** Shared teardown for both the start and resume streams. */
-        const streamCallbacks = (): AgentStreamCallbacks => ({
+        const streamCallbacks = (
+            overrides: Partial<Pick<AgentStreamCallbacks, 'onAccepted' | 'onError'>> = {},
+        ): AgentStreamCallbacks => ({
             onEvent: handleEvent,
             onActivity: armStall,
+            onIdleLimit: milliseconds => {
+                idleLimitMs = milliseconds;
+                armStall();
+            },
+            onTurnId: turnId => {
+                activeTurnId = turnId;
+            },
+            onAccepted: () => {
+                streamAccepted = true;
+                overrides.onAccepted?.();
+            },
             onComplete: () => {
                 // A suspension closes the stream deliberately; settling then
                 // would wipe the card the user still has to act on.
@@ -635,12 +788,24 @@ export function createAgentChatStore(
                 }
                 settle();
             },
-            onError: (error: Error) => fail(error.message),
+            onError: (error: Error) => {
+                overrides.onError?.(error);
+                if (streamAccepted && activeTurnId !== null) {
+                    reconcileLostStream(error.message);
+                } else if (overrides.onError) {
+                    failSubmission(error.message);
+                } else {
+                    fail(error.message);
+                }
+            },
         });
 
         const beginTurn = () => {
+            ++reconciliationGeneration;
             controller?.abort();
             controller = new AbortController();
+            activeTurnId = null;
+            streamAccepted = false;
 
             clearSlowTimer();
             slowTimer = setTimeout(() => set({ slowHint: true }), SLOW_HINT_MS);
@@ -657,11 +822,15 @@ export function createAgentChatStore(
             return controller.signal;
         };
 
-        const resume = (turnId: string, body: Omit<AgentDecisionBody, 'turnId'>) => {
+        const resume = (
+            turnId: string,
+            body: Omit<AgentDecisionBody, 'turnId'>,
+            callbacks: AgentStreamCallbacks,
+        ) => {
             const { target, loading } = get();
             if (!target || loading) return;
 
-            adapter.decide(target, { turnId, ...body }, streamCallbacks(), beginTurn());
+            adapter.decide(target, { turnId, ...body }, callbacks, beginTurn());
         };
 
         return {
@@ -763,23 +932,52 @@ export function createAgentChatStore(
             },
 
             decide: (turnId, decision, confirmation) => {
-                // Declining resolves the call that suspended the turn, and the
-                // backend answers it into the transcript rather than over the
-                // stream — so its row would otherwise keep spinning behind a
-                // card the user has already dismissed.
-                if (decision === 'reject') sealTools(m['server.ai.tool.declined']());
-
                 set(state => ({
                     entries: state.entries.map(entry =>
                         entry.kind === 'approval' && entry.turnId === turnId
-                            ? { ...entry, decision: decision === 'approve' ? 'approved' : 'rejected' }
+                            ? { ...entry, submission: 'submitting', pendingDecision: decision }
                             : entry.kind === 'question' && entry.turnId === turnId && decision === 'reject'
-                              ? { ...entry, dismissed: true }
+                              ? { ...entry, submission: 'submitting' }
                               : entry,
                     ),
                 }));
 
-                resume(turnId, { decision, confirmation });
+                let accepted = false;
+                resume(
+                    turnId,
+                    { decision, confirmation },
+                    streamCallbacks({
+                        onAccepted: () => {
+                            accepted = true;
+                            if (decision === 'reject') sealTools(m['server.ai.tool.declined']());
+                            set(state => ({
+                                entries: state.entries.map(entry =>
+                                    entry.kind === 'approval' && entry.turnId === turnId
+                                        ? {
+                                              ...entry,
+                                              submission: 'accepted',
+                                              decision: decision === 'approve' ? 'approved' : 'rejected',
+                                          }
+                                        : entry.kind === 'question' && entry.turnId === turnId && decision === 'reject'
+                                          ? { ...entry, submission: 'accepted', dismissed: true }
+                                          : entry,
+                                ),
+                            }));
+                        },
+                        onError: _error => {
+                            if (!accepted) {
+                                set(state => ({
+                                    entries: state.entries.map(entry =>
+                                        (entry.kind === 'approval' || entry.kind === 'question') &&
+                                        entry.turnId === turnId
+                                            ? { ...entry, submission: 'failed' }
+                                            : entry,
+                                    ),
+                                }));
+                            }
+                        },
+                    }),
+                );
             },
 
             answer: (turnId, value) => {
@@ -789,12 +987,39 @@ export function createAgentChatStore(
                 set(state => ({
                     entries: state.entries.map(entry =>
                         entry.kind === 'question' && entry.turnId === turnId
-                            ? { ...entry, answer: trimmed }
+                            ? { ...entry, submission: 'submitting', pendingAnswer: trimmed }
                             : entry,
                     ),
                 }));
 
-                resume(turnId, { decision: 'answer', answer: trimmed });
+                let accepted = false;
+                resume(
+                    turnId,
+                    { decision: 'answer', answer: trimmed },
+                    streamCallbacks({
+                        onAccepted: () => {
+                            accepted = true;
+                            set(state => ({
+                                entries: state.entries.map(entry =>
+                                    entry.kind === 'question' && entry.turnId === turnId
+                                        ? { ...entry, submission: 'accepted', answer: trimmed }
+                                        : entry,
+                                ),
+                            }));
+                        },
+                        onError: _error => {
+                            if (!accepted) {
+                                set(state => ({
+                                    entries: state.entries.map(entry =>
+                                        entry.kind === 'question' && entry.turnId === turnId
+                                            ? { ...entry, submission: 'failed', pendingAnswer: undefined }
+                                            : entry,
+                                    ),
+                                }));
+                            }
+                        },
+                    }),
+                );
             },
 
             cancel: () => {
@@ -811,7 +1036,11 @@ export function createAgentChatStore(
                             ? { ...entry, content: `${entry.content}\n\n*${m['server.ai.cancelled']()}*` }
                             : entry,
                 );
-                set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
+                if (streamAccepted && activeTurnId !== null) {
+                    reconcileLostStream(m['server.ai.stalled']());
+                } else {
+                    set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
+                }
             },
         };
     });
@@ -891,11 +1120,15 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
         const requested = message.tool_call_id ? pendingArgs.get(message.tool_call_id) : undefined;
         let ok = true;
         let summary: string | undefined;
+        let outcome: 'success' | 'partial' | 'failed' | undefined;
+        let result: unknown;
 
         try {
             const parsed = JSON.parse(message.content ?? '{}');
             ok = parsed.ok !== false;
             summary = typeof parsed.summary === 'string' ? parsed.summary : undefined;
+            outcome = ['success', 'partial', 'failed'].includes(parsed.outcome) ? parsed.outcome : undefined;
+            result = parsed.result;
         } catch {
             /* fall back to a bare successful row */
         }
@@ -909,8 +1142,14 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
             // Replayed rows have no live tier; the card falls back to a neutral
             // presentation rather than implying a risk that was not recorded.
             risk: 'safe',
-            status: ok ? 'ok' : 'error',
+            status:
+                outcome === 'partial'
+                    ? 'partial'
+                    : ok
+                      ? 'ok'
+                      : 'error',
             summary,
+            result,
         });
     }
 
@@ -931,6 +1170,7 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
 export const useAgentChat = createAgentChatStore({
     startTurn: (uuid, body, callbacks, signal) => streamAgentTurn(uuid, body, callbacks, signal),
     decide: (uuid, body, callbacks, signal) => streamAgentDecision(uuid, body, callbacks, signal),
+    reconcileTurn: (uuid, turnId) => getAgentTurnStatus(uuid, turnId),
 });
 
 /**
@@ -947,6 +1187,7 @@ export const useAdminAgentChat = createAgentChatStore(
     {
         startTurn: (_target, body, callbacks, signal) => streamAdminAgentTurn(body, callbacks, signal),
         decide: (_target, body, callbacks, signal) => streamAdminAgentDecision(body, callbacks, signal),
+        reconcileTurn: (_target, turnId) => getAdminAgentTurnStatus(turnId),
     },
     ADMIN_AGENT_TARGET,
 );

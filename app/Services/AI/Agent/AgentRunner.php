@@ -74,11 +74,13 @@ class AgentRunner
             LogBatch::start();
 
             $this->loop($context, $emit, $startedAt);
-        } catch (AIServiceException $e) {
-            $emit(AgentEvent::error($e->getMessage()));
         } catch (\Throwable $e) {
             Log::error('AI agent turn failed: ' . $e->getMessage(), ['turn' => $context->turnId]);
-            $emit(AgentEvent::error('The AI ran into a problem. Please try again.'));
+
+            // Finalization belongs to the stream owner. Swallowing here made
+            // the controller mark usage and an approved pending action as
+            // successful even though the only terminal event was an error.
+            throw $e;
         } finally {
             LogBatch::end();
             $lease?->release();
@@ -168,13 +170,7 @@ class AgentRunner
                         'step' => $context->step,
                     ]);
 
-                    $emit(AgentEvent::error(
-                        'The model tried to use a tool but could not write the request correctly. '
-                            . 'This usually means the model is too small for the number of tools it was '
-                            . 'offered — try again, or ask an administrator to lower the tool limit.'
-                    ));
-
-                    return;
+                    throw new AIServiceException('The model tried to use a tool but could not write the request correctly. This usually means the model is too small for the number of tools it was offered — try again, or ask an administrator to lower the tool limit.');
                 }
 
                 $context->push(AiMessage::assistant($text));
@@ -615,8 +611,9 @@ class AgentRunner
             // The shaped payload, exactly as the model received it. Sent live so
             // a claim in the answer can be checked against its evidence; not
             // stored, because the transcript is not an audit of panel state.
-            $result->ok ? $result->data : null,
+            $result->ok || $result->isBatch() ? $result->data : null,
             (int) round((microtime(true) - $startedAt) * 1000),
+            $result->outcome,
         ));
 
         $this->pushToolResult($context, $call, $result);
@@ -711,7 +708,7 @@ class AgentRunner
             return ToolResult::error('time_limit', 'The turn deadline was reached before this action could start.');
         }
 
-        return match ($definition->name) {
+        $result = match ($definition->name) {
             AdminTools::ASSIST_SERVER => $this->openAssist($context, $arguments, $emit),
             AdminTools::ASSIST_ALLOW_WRITES => $this->escalateAssist($context, $arguments, $emit),
             SharedTools::BATCH => $this->runBatch($context, $call, $arguments, $approvedRisk, $emit),
@@ -720,6 +717,8 @@ class AgentRunner
                 sprintf('There is no tool called "%s" available here.', $definition->name),
             ),
         };
+
+        return $this->redact($context, $result)->capped($this->toolResultBytes());
     }
 
     /**
@@ -736,6 +735,11 @@ class AgentRunner
      */
     protected function openAssist(AgentContext $context, array $arguments, callable $emit): ToolResult
     {
+        $grant = $context->pendingAssistGrant;
+        if ($grant === null || $grant->phase !== AssistGrant::PHASE_OPEN) {
+            return ToolResult::error('invalid_authority', 'The approved assist grant could not be authenticated.');
+        }
+
         if (!$this->assist->permitted($context->user)) {
             return ToolResult::error(
                 'forbidden',
@@ -744,7 +748,8 @@ class AgentRunner
             );
         }
 
-        $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
+        $binding = $grant->after;
+        $server = $this->assist->resolveServer($binding->serverUuid);
 
         if ($server === null) {
             return ToolResult::error(
@@ -754,17 +759,10 @@ class AgentRunner
             );
         }
 
-        $binding = new AssistBinding(
-            serverUuid: $server->uuid,
-            serverName: (string) $server->name,
-            reason: trim((string) ($arguments['reason'] ?? '')),
-            ticketId: isset($arguments['ticket']) && is_numeric($arguments['ticket'])
-                ? (int) $arguments['ticket']
-                : null,
-        );
-
-        $context->bindAssist($binding, $server);
+        // The customer-visible audit is part of authorization, not best-effort
+        // telemetry. Do not activate the binding unless this succeeds.
         $this->assist->record($context->user, $server, $binding);
+        $context->bindAssist($binding, $server);
 
         $emit(AgentEvent::assist($server->uuid, (string) $server->name, false, $binding->reason));
 
@@ -784,6 +782,11 @@ class AgentRunner
      */
     protected function escalateAssist(AgentContext $context, array $arguments, callable $emit): ToolResult
     {
+        $grant = $context->pendingAssistGrant;
+        if ($grant === null || $grant->phase !== AssistGrant::PHASE_ESCALATE) {
+            return ToolResult::error('invalid_authority', 'The approved assist escalation could not be authenticated.');
+        }
+
         $server = $context->targetServer();
 
         if ($context->assist === null || $server === null) {
@@ -805,10 +808,12 @@ class AgentRunner
         }
 
         $reason = trim((string) ($arguments['reason'] ?? ''));
-        $binding = $context->assist->escalated();
+        $binding = $grant->after;
 
-        $context->bindAssist($binding, $server);
+        // Keep the read-only binding in force until the escalation is visible
+        // in the customer's activity feed.
         $this->assist->record($context->user, $server, $binding, escalation: true);
+        $context->bindAssist($binding, $server);
 
         $emit(AgentEvent::assist($server->uuid, $binding->serverName, true, $reason ?: $binding->reason));
 
@@ -1135,7 +1140,7 @@ class AgentRunner
             }
         }
 
-        return ToolResult::ok(array_filter([
+        return ToolResult::batch(array_filter([
             'batch' => true,
             'succeeded' => $succeeded,
             'failed' => $failed,
@@ -1246,7 +1251,7 @@ class AgentRunner
         )->withIdempotencyKey($context->idempotencyKeyFor($call->id));
 
         $result = $definition->shape($this->dispatch($context, $definition, $invocation));
-        $result = $this->redact($context, $result);
+        $result = $this->redact($context, $result)->capped($this->toolResultBytes());
 
         $record->update([
             'status' => $result->ok ? AiToolCall::STATUS_SUCCEEDED : AiToolCall::STATUS_FAILED,
@@ -1328,7 +1333,6 @@ class AgentRunner
     {
         $run = fn () => $this->executor->execute(
             $invocation,
-            $this->toolResultBytes(),
             $this->remainingSeconds($context),
         );
 
@@ -1351,7 +1355,7 @@ class AgentRunner
      */
     protected function redact(AgentContext $context, ToolResult $result): ToolResult
     {
-        if (!$result->ok) {
+        if (!$result->ok && !$result->isBatch()) {
             return $result;
         }
 
@@ -1359,7 +1363,7 @@ class AgentRunner
 
         return $redacted === $result->data
             ? $result
-            : ToolResult::ok($redacted, $result->truncated);
+            : $result->replaceData($redacted);
     }
 
     /**
@@ -1409,7 +1413,17 @@ class AgentRunner
         ToolDefinition $definition,
         array $arguments,
     ): array {
-        if ($definition->name === 'files_write') {
+        if ($definition->name === AdminTools::ASSIST_SERVER) {
+            $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
+            if ($server === null) {
+                throw new \RuntimeException('An assist session cannot be approved without a live target server.');
+            }
+
+            // The card and authenticated grant name one immutable target. A
+            // numeric or short reference is useful model input, but is not a
+            // durable authorization identity.
+            $arguments['server'] = $server->uuid;
+        } elseif ($definition->name === 'files_write') {
             $target = $context->targetServer();
             $file = (string) ($arguments['file'] ?? '');
 
@@ -1470,6 +1484,9 @@ class AgentRunner
         array $arguments,
         string $risk,
     ): void {
+        $context->suspended = true;
+        $sealed = $this->sealPendingAssistGrant($context, $toolName, $arguments);
+
         AiPendingAction::updateOrCreate(
             ['turn_id' => $context->turnId],
             [
@@ -1477,7 +1494,7 @@ class AgentRunner
                 'user_id' => $context->user->id,
                 // See `suspend()`: the server the pending call is against, not
                 // the surface's own binding.
-                'server_uuid' => $context->targetServer()?->uuid,
+                'server_uuid' => $sealed['binding']?->serverUuid ?? $context->targetServer()?->uuid,
                 'scope' => $context->scope(),
                 'tool_name' => $toolName,
                 // The model's own id for this call. Resuming has to answer with
@@ -1486,11 +1503,69 @@ class AgentRunner
                 'risk' => $risk,
                 'arguments' => $arguments,
                 'state' => $context->toState(),
+                'assist_grant' => $sealed['grant'],
+                'assist_grant_mac' => $sealed['mac'],
                 'step' => $context->step,
                 'status' => AiPendingAction::STATUS_PENDING,
                 'expires_at' => now()->addMinutes(AiPendingAction::EXPIRY_MINUTES),
             ]
         );
+    }
+
+    /**
+     * Authenticate the exact assist authority a suspended action starts with
+     * and, for an open/escalate card, the authority it is allowed to create.
+     *
+     * @return array{grant: ?array, mac: ?string, binding: ?AssistBinding}
+     */
+    protected function sealPendingAssistGrant(AgentContext $context, string $toolName, array $arguments): array
+    {
+        if ($context->scope() !== ToolDefinition::SCOPE_ADMIN) {
+            return ['grant' => null, 'mac' => null, 'binding' => null];
+        }
+
+        $phase = AssistGrant::PHASE_NONE;
+        $before = $context->assist;
+        $after = $before;
+
+        if ($toolName === AdminTools::ASSIST_SERVER) {
+            $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
+            if ($server === null) {
+                throw new \RuntimeException('The approved assist target no longer exists.');
+            }
+
+            $phase = AssistGrant::PHASE_OPEN;
+            $before = null;
+            $after = new AssistBinding(
+                serverUuid: $server->uuid,
+                serverName: (string) $server->name,
+                reason: trim((string) ($arguments['reason'] ?? '')),
+                ticketId: isset($arguments['ticket']) && is_numeric($arguments['ticket'])
+                    ? (int) $arguments['ticket']
+                    : null,
+            );
+        } elseif ($toolName === AdminTools::ASSIST_ALLOW_WRITES) {
+            if ($before === null || $before->writable) {
+                throw new \RuntimeException('A read-only assist binding is required before approving escalation.');
+            }
+
+            $phase = AssistGrant::PHASE_ESCALATE;
+            $after = $before->escalated();
+        } elseif ($before !== null) {
+            $phase = AssistGrant::PHASE_ACTIVE;
+        }
+
+        $sealed = AssistGrant::seal(
+            $phase,
+            $before,
+            $after,
+            $context->turnId,
+            (int) $context->user->id,
+            $toolName,
+            $arguments,
+        );
+
+        return ['grant' => $sealed['grant'], 'mac' => $sealed['mac'], 'binding' => $after];
     }
 
     protected function pushToolResult(AgentContext $context, ToolCallData $call, ToolResult $result): void
@@ -1502,7 +1577,12 @@ class AgentRunner
                 $result->toModelPayload(),
                 !$result->ok,
             ),
-            TurnRecorder::toolDisplay($result->ok, $result->summary()),
+            TurnRecorder::toolDisplay(
+                $result->ok,
+                $result->summary(),
+                $result->outcome,
+                $result->isBatch() ? $result->data : null,
+            ),
         );
     }
 
@@ -1676,6 +1756,12 @@ class AgentRunner
     public function maxWallSeconds(): int
     {
         return max(30, (int) $this->setting('agent:max_wall_seconds', config('modules.ai.agent.max_wall_seconds', 180)));
+    }
+
+    /** Longest healthy SSE silence, including a small transport margin. */
+    public function streamIdleSeconds(): int
+    {
+        return $this->maxWallSeconds() + 30;
     }
 
     protected function maxRepairs(): int

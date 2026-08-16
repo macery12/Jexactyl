@@ -16,6 +16,7 @@ use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Support\AiBudgetService;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
@@ -89,39 +90,45 @@ class AgentController extends ClientApiController
         ]);
 
         $user = $request->user();
-        $this->budget->assertWithinBudget($user);
+        $reservation = $this->budget->reserve($user);
 
-        $query = (string) $request->input('query');
+        try {
+            $query = (string) $request->input('query');
 
-        // The turn owns its conversation. History comes from what the panel
-        // stored rather than from what the client sends back, so a client
-        // cannot rewrite the past to steer the model.
-        $conversation = $this->recorder->ensureConversation(
-            $user,
-            $server,
-            $this->resolveConversationId($request, $user->id, $server->uuid),
-            $query,
-        );
+            // The turn owns its conversation. History comes from what the panel
+            // stored rather than from what the client sends back, so a client
+            // cannot rewrite the past to steer the model.
+            $conversation = $this->recorder->ensureConversation(
+                $user,
+                $server,
+                $this->resolveConversationId($request, $user->id, $server->uuid),
+                $query,
+            );
 
-        $context = new AgentContext(
-            user: $user,
-            server: $server,
-            turnId: (string) Str::uuid(),
-            conversationId: $conversation?->id,
-            consoleBuffer: $request->input('console'),
-        );
+            $context = new AgentContext(
+                user: $user,
+                server: $server,
+                turnId: (string) Str::uuid(),
+                conversationId: $conversation?->id,
+                consoleBuffer: $request->input('console'),
+            );
 
-        $context
-            ->withMessages($this->recorder->loadHistory($conversation?->id))
-            ->withRecorder($this->recorder);
+            $context
+                ->withMessages($this->recorder->loadHistory($conversation?->id))
+                ->withRecorder($this->recorder);
 
-        // Carried forward so a token minted on an earlier turn still stands for
-        // the same value on this one.
-        $context->redactions = $this->recorder->loadRedactions($conversation);
+            // Carried forward so a token minted on an earlier turn still stands for
+            // the same value on this one.
+            $context->redactions = $this->recorder->loadRedactions($conversation);
 
-        $context->push(AiMessage::user($query));
+            $context->push(AiMessage::user($query));
 
-        return $this->streamTurn($context, conversation: $conversation);
+            return $this->streamTurn($context, conversation: $conversation, budgetReservation: $reservation);
+        } catch (\Throwable $e) {
+            $reservation->release();
+
+            throw $e;
+        }
     }
 
     /**
@@ -151,6 +158,12 @@ class AgentController extends ClientApiController
                 'expires_at' => $action->expires_at?->toIso8601String(),
             ])->values(),
         ]);
+    }
+
+    /** Authoritative state used when an accepted SSE connection disappears. */
+    public function turnStatus(Request $request, Server $server, string $turnId): JsonResponse
+    {
+        return $this->agentTurnStatus($request->user(), $turnId, $server, ToolDefinition::SCOPE_SERVER);
     }
 
     /**
@@ -201,35 +214,62 @@ class AgentController extends ClientApiController
         $context = $this->restoreTurn($pending, $user, $server);
 
         if ($decision === 'reject') {
-            if (!$this->claimRejection($pending)) {
-                return $this->existingDecisionResponse($pending);
-            }
-            $this->applyRejection($pending, $context);
+            $reservation = $this->budget->reserve($user);
 
-            return $this->streamTurn($context, $pending);
+            try {
+                if (!$this->claimRejection($pending)) {
+                    $reservation->release();
+
+                    return $this->existingDecisionResponse($pending);
+                }
+                $this->applyRejection($pending, $context);
+
+                return $this->streamTurn($context, $pending, budgetReservation: $reservation);
+            } catch (\Throwable $e) {
+                $reservation->release();
+
+                throw $e;
+            }
         }
 
         if ($decision === 'answer') {
             $this->assertAnswerable($pending);
-            $this->budget->assertWithinBudget($user);
-            if (!$this->claimPending($pending)) {
-                return $this->existingDecisionResponse($pending);
-            }
-            $context->executionKey = $pending->execution_key;
-            $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+            $reservation = $this->budget->reserve($user);
 
-            return $this->streamTurn($context, $pending);
+            try {
+                if (!$this->claimPending($pending)) {
+                    $reservation->release();
+
+                    return $this->existingDecisionResponse($pending);
+                }
+                $context->executionKey = $pending->execution_key;
+                $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+
+                return $this->streamTurn($context, $pending, budgetReservation: $reservation);
+            } catch (\Throwable $e) {
+                $reservation->release();
+
+                throw $e;
+            }
         }
 
         $this->assertConfirmed($request, $pending, $server);
-        $this->budget->assertWithinBudget($user);
+        $reservation = $this->budget->reserve($user);
 
-        if (!$this->claimPending($pending)) {
-            return $this->existingDecisionResponse($pending);
+        try {
+            if (!$this->claimPending($pending)) {
+                $reservation->release();
+
+                return $this->existingDecisionResponse($pending);
+            }
+            $context->executionKey = $pending->execution_key;
+
+            return $this->streamTurn($context, $pending, budgetReservation: $reservation);
+        } catch (\Throwable $e) {
+            $reservation->release();
+
+            throw $e;
         }
-        $context->executionKey = $pending->execution_key;
-
-        return $this->streamTurn($context, $pending);
     }
 
     /**
@@ -238,7 +278,7 @@ class AgentController extends ClientApiController
      */
     protected function assertConfirmed(Request $request, AiPendingAction $pending, Server $server): void
     {
-        if ($pending->risk !== \Everest\Services\AI\Tools\ToolDefinition::RISK_DESTRUCTIVE) {
+        if ($pending->risk !== ToolDefinition::RISK_DESTRUCTIVE) {
             return;
         }
 

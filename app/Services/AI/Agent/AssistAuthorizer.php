@@ -107,26 +107,21 @@ class AssistAuthorizer
      * server, when, and why. Support access nobody can audit is not support
      * access.
      *
-     * Failure is logged and swallowed: an activity row that cannot be written
-     * is not a reason to strand a turn that has already been approved.
+     * Failure is authorization failure. The binding is not activated until the
+     * customer-visible record exists, so callers deliberately let exceptions
+     * escape and mark the pending execution terminally failed.
      */
     public function record(User $admin, Server $server, AssistBinding $binding, bool $escalation = false): void
     {
-        try {
-            Activity::event($escalation ? 'server:ai.assist.escalate' : 'server:ai.assist.start')
-                ->actor($admin)
-                ->subject($server)
-                ->property([
-                    'administrator' => $admin->username,
-                    'reason' => $binding->reason,
-                    'ticket_id' => $binding->ticketId,
-                    'abilities' => $binding->abilities,
-                ])
-                ->log();
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning(
-                'Failed to log an AI assist session on server ' . $server->uuid . ': ' . $e->getMessage()
-            );
-        }
+        Activity::event($escalation ? 'server:ai.assist.escalate' : 'server:ai.assist.start')
+            ->actor($admin)
+            ->subject($server)
+            ->property([
+                'administrator' => $admin->username,
+                'reason' => $binding->reason,
+                'ticket_id' => $binding->ticketId,
+                'abilities' => $binding->abilities,
+            ])
+            ->log();
     }
 }

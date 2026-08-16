@@ -69,6 +69,7 @@ export type AgentEvent =
           id: string;
           tool: string;
           ok: boolean;
+          outcome?: 'success' | 'partial' | 'failed';
           summary: string;
           /** The shaped payload the model was given. Live only — never replayed from storage. */
           result?: unknown;
@@ -116,6 +117,12 @@ export interface AgentStreamCallbacks {
     onEvent: (event: AgentEvent) => void;
     onComplete: () => void;
     onError: (error: Error) => void;
+    /** The endpoint accepted the request and opened its event stream. */
+    onAccepted?: () => void;
+    /** Effective maximum healthy silence advertised by the backend. */
+    onIdleLimit?: (milliseconds: number) => void;
+    /** Stable server turn id used to reconcile an accepted lost stream. */
+    onTurnId?: (turnId: string) => void;
     /**
      * Anything at all arrived on the wire — an event, or one of the keep-alive
      * comments the backend sends to hold proxies open.
@@ -140,6 +147,9 @@ async function readEventStream(
     signal: AbortSignal | undefined,
     onFrame: (payload: string) => boolean,
     onActivity?: () => void,
+    onAccepted?: () => void,
+    onIdleLimit?: (milliseconds: number) => void,
+    onTurnId?: (turnId: string) => void,
 ): Promise<void> {
     const response = await fetch(url, {
         method: 'POST',
@@ -167,6 +177,14 @@ async function readEventStream(
         }
         throw new Error(message);
     }
+
+    const idleSeconds = Number(response.headers.get('X-Agent-Idle-Seconds'));
+    if (Number.isFinite(idleSeconds) && idleSeconds > 0) {
+        onIdleLimit?.(idleSeconds * 1000);
+    }
+    const turnId = response.headers.get('X-Agent-Turn-Id');
+    if (turnId) onTurnId?.(turnId);
+    onAccepted?.();
 
     if (!response.body) throw new Error('Streaming is not supported by this browser.');
 
@@ -206,7 +224,7 @@ async function readEventStream(
 export function streamAgentRequest(
     url: string,
     body: Record<string, unknown>,
-    { onEvent, onComplete, onError, onActivity }: AgentStreamCallbacks,
+    { onEvent, onComplete, onError, onActivity, onAccepted, onIdleLimit, onTurnId }: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
     let finished = false;
@@ -232,15 +250,20 @@ export function streamAgentRequest(
                     onEvent({ type: 'error', error: data.error });
                 }
             } catch {
-                /* ignore malformed frames */
+                throw new Error('The assistant sent malformed stream data.');
             }
 
             return false;
         },
         onActivity,
+        onAccepted,
+        onIdleLimit,
+        onTurnId,
     )
         .then(() => {
-            if (!finished) onComplete();
+            if (!finished) {
+                onError(new Error('The assistant connection closed before the turn completed.'));
+            }
         })
         .catch((err: unknown) => {
             if (err instanceof DOMException && err.name === 'AbortError') return;

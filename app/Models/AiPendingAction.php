@@ -44,6 +44,8 @@ class AiPendingAction extends Model
         'risk',
         'arguments',
         'state',
+        'assist_grant',
+        'assist_grant_mac',
         'step',
         'status',
         'execution_key',
@@ -56,6 +58,7 @@ class AiPendingAction extends Model
     protected $casts = [
         'arguments' => 'array',
         'state' => 'array',
+        'assist_grant' => 'array',
         'step' => 'integer',
         'expires_at' => 'datetime',
         'claimed_at' => 'datetime',

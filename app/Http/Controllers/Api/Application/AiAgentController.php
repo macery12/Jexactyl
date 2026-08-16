@@ -2,8 +2,8 @@
 
 namespace Everest\Http\Controllers\Api\Application;
 
-use Everest\Models\Setting;
 use Everest\Models\Server;
+use Everest\Models\Setting;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Facades\Activity;
@@ -104,44 +104,50 @@ class AiAgentController extends ApplicationApiController
         $this->assertAgentAvailable();
 
         $user = $request->user();
-        $this->budget->assertWithinBudget($user);
+        $reservation = $this->budget->reserve($user);
 
-        $query = (string) $request->input('query');
+        try {
+            $query = (string) $request->input('query');
 
-        $conversation = $this->recorder->ensureConversation(
-            $user,
-            null,
-            $this->resolveConversationId($request, $user->id),
-            $query,
-        );
+            $conversation = $this->recorder->ensureConversation(
+                $user,
+                null,
+                $this->resolveConversationId($request, $user->id),
+                $query,
+            );
 
-        $context = new AgentContext(
-            user: $user,
-            server: null,
-            turnId: (string) Str::uuid(),
-            conversationId: $conversation?->id,
-        );
+            $context = new AgentContext(
+                user: $user,
+                server: null,
+                turnId: (string) Str::uuid(),
+                conversationId: $conversation?->id,
+            );
 
-        $context
-            ->withMessages($this->recorder->loadHistory($conversation?->id))
-            ->withRecorder($this->recorder);
+            $context
+                ->withMessages($this->recorder->loadHistory($conversation?->id))
+                ->withRecorder($this->recorder);
 
-        // Carried forward so a token minted three turns ago still means the same
-        // person, and so the transcript on screen does not acquire a second name
-        // for somebody it has already been talking about.
-        $context->redactions = $this->recorder->loadRedactions($conversation);
+            // Carried forward so a token minted three turns ago still means the same
+            // person, and so the transcript on screen does not acquire a second name
+            // for somebody it has already been talking about.
+            $context->redactions = $this->recorder->loadRedactions($conversation);
 
-        // A session opened on an earlier turn carries over, but only as far as
-        // the capability check lets it: restoreAssist re-reads the server and
-        // re-asks whether this administrator may still reach it, so a profile
-        // narrowed since the approval closes the session rather than honouring
-        // it.
-        $context->assist = $this->recorder->loadAssist($conversation);
-        $this->restoreAssist($context);
+            // A session opened on an earlier turn carries over, but only as far as
+            // the capability check lets it: restoreAssist re-reads the server and
+            // re-asks whether this administrator may still reach it, so a profile
+            // narrowed since the approval closes the session rather than honouring
+            // it.
+            $context->assist = $this->recorder->loadAssist($conversation);
+            $this->restoreAssist($context);
 
-        $context->push(AiMessage::user($query));
+            $context->push(AiMessage::user($query));
 
-        return $this->streamTurn($context, conversation: $conversation);
+            return $this->streamTurn($context, conversation: $conversation, budgetReservation: $reservation);
+        } catch (\Throwable $e) {
+            $reservation->release();
+
+            throw $e;
+        }
     }
 
     /**
@@ -172,6 +178,12 @@ class AiAgentController extends ApplicationApiController
                 'expires_at' => $action->expires_at?->toIso8601String(),
             ])->values(),
         ]);
+    }
+
+    /** Authoritative state used when an accepted SSE connection disappears. */
+    public function turnStatus(GetIntelligenceRequest $request, string $turnId): JsonResponse
+    {
+        return $this->agentTurnStatus($request->user(), $turnId, null, ToolDefinition::SCOPE_ADMIN);
     }
 
     /**
@@ -211,42 +223,102 @@ class AiAgentController extends ApplicationApiController
             return $this->existingDecisionResponse($pending);
         }
 
+        $conversation = $this->pendingConversation($pending, (int) $user->id);
         $decision = (string) $request->input('decision');
         $context = $this->restoreTurn($pending, $user, null);
 
         if ($decision === 'reject') {
-            if (!$this->claimRejection($pending)) {
-                return $this->existingDecisionResponse($pending);
+            $reservation = $this->budget->reserve($user);
+
+            try {
+                if (!$this->claimRejection($pending)) {
+                    $reservation->release();
+
+                    return $this->existingDecisionResponse($pending);
+                }
+                $this->applyRejection($pending, $context);
+
+                return $this->streamTurn(
+                    $context,
+                    $pending,
+                    conversation: $conversation,
+                    budgetReservation: $reservation,
+                );
+            } catch (\Throwable $e) {
+                $reservation->release();
+
+                throw $e;
             }
-            $this->applyRejection($pending, $context);
-
-            return $this->streamTurn($context, $pending);
         }
-
-        $this->budget->assertWithinBudget($user);
 
         if ($decision === 'answer') {
             if ($pending->tool_name !== SharedTools::ASK_USER) {
                 abort(422, 'That pending action is waiting for approval, not an answer.');
             }
 
-            if (!$this->claimPending($pending)) {
-                return $this->existingDecisionResponse($pending);
-            }
-            $context->executionKey = $pending->execution_key;
-            $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+            $reservation = $this->budget->reserve($user);
 
-            return $this->streamTurn($context, $pending);
+            try {
+                if (!$this->claimPending($pending)) {
+                    $reservation->release();
+
+                    return $this->existingDecisionResponse($pending);
+                }
+                $context->executionKey = $pending->execution_key;
+                $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+
+                return $this->streamTurn(
+                    $context,
+                    $pending,
+                    conversation: $conversation,
+                    budgetReservation: $reservation,
+                );
+            } catch (\Throwable $e) {
+                $reservation->release();
+
+                throw $e;
+            }
         }
 
         $this->assertConfirmed($request, $pending, $context);
+        $reservation = $this->budget->reserve($user);
 
-        if (!$this->claimPending($pending)) {
-            return $this->existingDecisionResponse($pending);
+        try {
+            if (!$this->claimPending($pending)) {
+                $reservation->release();
+
+                return $this->existingDecisionResponse($pending);
+            }
+            $context->executionKey = $pending->execution_key;
+
+            return $this->streamTurn(
+                $context,
+                $pending,
+                conversation: $conversation,
+                budgetReservation: $reservation,
+            );
+        } catch (\Throwable $e) {
+            $reservation->release();
+
+            throw $e;
         }
-        $context->executionKey = $pending->execution_key;
+    }
 
-        return $this->streamTurn($context, $pending);
+    /** Resolve the owned admin conversation whose state this resume may bank. */
+    protected function pendingConversation(AiPendingAction $pending, int $userId): AiConversation
+    {
+        $conversation = AiConversation::query()
+            ->whereKey($pending->conversation_id)
+            ->where('user_id', $userId)
+            ->where('scope', AiConversation::SCOPE_ADMIN)
+            ->whereNull('server_uuid')
+            ->first();
+
+        if ($conversation === null) {
+            abort(409, 'The conversation for this pending action is no longer available.');
+        }
+
+        return $conversation;
     }
 
     /** Destructive assist actions are confirmed against the live target row. */

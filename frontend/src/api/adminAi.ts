@@ -1,5 +1,6 @@
 import http from '@/lib/http';
 import { streamAgentRequest, type AgentStreamCallbacks } from '@/lib/aiStream';
+import type { AgentTurnStatus, StoredMessage } from '@/api/ai';
 
 // Admin AI (M12Labs-AI) module — settings, health, model discovery, usage
 // analytics and the admin assistant. Mirrors V1's `api/routes/admin/ai/*`
@@ -381,6 +382,16 @@ export function streamAdminAgentDecision(
         callbacks,
         signal,
     );
+}
+
+export async function getAdminAgentTurnStatus(turnId: string): Promise<AgentTurnStatus> {
+    const { data } = await http.get(`/api/application/ai/agent/turns/${turnId}`);
+    const result = data.data as AgentTurnStatus;
+
+    return {
+        ...result,
+        messages: result.messages?.map(message => message as StoredMessage),
+    };
 }
 
 export async function listAdminAgentConversations(): Promise<AdminAgentConversation[]> {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Check, ChevronRight, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, CircleAlert, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
@@ -79,7 +79,11 @@ export function ToolCallRow({
                     <span
                         className={cn(
                             'flex shrink-0 items-center gap-1 text-[11px]',
-                            entry.status === 'ok' ? 'text-[var(--color-ink-faint)]' : 'text-[var(--color-danger)]',
+                            entry.status === 'ok'
+                                ? 'text-[var(--color-ink-faint)]'
+                                : entry.status === 'partial'
+                                  ? 'text-[var(--color-warning)]'
+                                  : 'text-[var(--color-danger)]',
                         )}
                     >
                         {/* Only calls slow enough to be worth noticing are
@@ -92,6 +96,8 @@ export function ToolCallRow({
                         {entry.summary && <span className="max-w-[16rem] truncate">{entry.summary}</span>}
                         {entry.status === 'ok' ? (
                             <Check className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+                        ) : entry.status === 'partial' ? (
+                            <CircleAlert className="h-3.5 w-3.5" />
                         ) : (
                             <X className="h-3.5 w-3.5" />
                         )}

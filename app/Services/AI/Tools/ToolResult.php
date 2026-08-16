@@ -13,6 +13,10 @@ namespace Everest\Services\AI\Tools;
  */
 class ToolResult
 {
+    public const OUTCOME_SUCCESS = 'success';
+    public const OUTCOME_PARTIAL = 'partial';
+    public const OUTCOME_FAILED = 'failed';
+
     private function __construct(
         public readonly bool $ok,
         public readonly mixed $data = null,
@@ -22,6 +26,7 @@ class ToolResult
         public readonly bool $retryable = false,
         public readonly ?array $fields = null,
         public readonly bool $truncated = false,
+        public readonly string $outcome = self::OUTCOME_SUCCESS,
     ) {
     }
 
@@ -37,7 +42,30 @@ class ToolResult
         bool $retryable = false,
         ?array $fields = null,
     ): self {
-        return new self(false, null, $code, $detail, $status, $retryable, $fields);
+        return new self(false, null, $code, $detail, $status, $retryable, $fields, outcome: self::OUTCOME_FAILED);
+    }
+
+    /**
+     * Build the truthful outer result for a batch while retaining its child
+     * ledger. `ok` means every child ran successfully; a partial result is not
+     * silently promoted merely because at least one child worked.
+     */
+    public static function batch(array $data): self
+    {
+        $succeeded = (int) ($data['succeeded'] ?? 0);
+        $failed = (int) ($data['failed'] ?? 0);
+        $notRun = (int) ($data['not_run'] ?? 0);
+
+        $outcome = $failed === 0 && $notRun === 0 && $succeeded > 0
+            ? self::OUTCOME_SUCCESS
+            : ($succeeded > 0 ? self::OUTCOME_PARTIAL : self::OUTCOME_FAILED);
+
+        return new self(
+            $outcome === self::OUTCOME_SUCCESS,
+            $data,
+            $outcome === self::OUTCOME_SUCCESS ? null : 'batch_' . $outcome,
+            outcome: $outcome,
+        );
     }
 
     /**
@@ -46,7 +74,7 @@ class ToolResult
      */
     public static function internalError(string $detail): self
     {
-        return new self(false, null, 'internal_error', $detail);
+        return new self(false, null, 'internal_error', $detail, outcome: self::OUTCOME_FAILED);
     }
 
     /**
@@ -55,7 +83,17 @@ class ToolResult
      */
     public function toModelPayload(): string
     {
-        if ($this->ok) {
+        if ($this->isBatch()) {
+            $payload = [
+                'ok' => $this->ok,
+                'status' => $this->outcome,
+                'result' => $this->data,
+            ];
+
+            if (!$this->ok) {
+                $payload['error'] = $this->code;
+            }
+        } elseif ($this->ok) {
             $payload = ['ok' => true, 'result' => $this->data];
 
             if ($this->truncated) {
@@ -72,7 +110,135 @@ class ToolResult
             ], fn ($v) => $v !== null);
         }
 
-        return json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '{"ok":false,"error":"encoding_failed"}';
+        return json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
+        ) ?: '{"ok":false,"error":"encoding_failed"}';
+    }
+
+    /**
+     * Cap the final, shaped and redacted model payload by encoded bytes.
+     *
+     * The value stays structured: lists retain a representative prefix and
+     * objects retain their keys. Reducing the decoded value before encoding is
+     * what keeps the JSON valid, while `mb_strcut()` prevents a byte boundary
+     * from splitting a UTF-8 code point.
+     */
+    public function capped(int $maxBytes): self
+    {
+        if (strlen($this->toModelPayload()) <= $maxBytes) {
+            return $this;
+        }
+
+        $data = $this->data;
+        $candidate = $this->withData($data, true);
+
+        while (strlen($candidate->toModelPayload()) > $maxBytes && self::reduce($data)) {
+            $candidate = $this->withData($data, true);
+        }
+
+        if (strlen($candidate->toModelPayload()) <= $maxBytes) {
+            return $candidate;
+        }
+
+        // Configuration validation floors this at 1 KiB. This last envelope is
+        // nevertheless useful for direct callers with an unusually tiny cap.
+        $candidate = $this->withData(['omitted' => true], true);
+
+        return strlen($candidate->toModelPayload()) <= $maxBytes
+            ? $candidate
+            : ToolResult::error('result_too_large', 'The tool result exceeded the configured byte limit.');
+    }
+
+    public function isBatch(): bool
+    {
+        return is_array($this->data) && !empty($this->data['batch']);
+    }
+
+    protected function withData(mixed $data, bool $truncated): self
+    {
+        return new self(
+            $this->ok,
+            $data,
+            $this->code,
+            $this->detail,
+            $this->status,
+            $this->retryable,
+            $this->fields,
+            $truncated,
+            $this->outcome,
+        );
+    }
+
+    /** Preserve outcome/error metadata while replacing structured result data. */
+    public function replaceData(mixed $data): self
+    {
+        return $this->withData($data, $this->truncated);
+    }
+
+    /** Reduce the largest useful part of a value, keeping its JSON shape. */
+    protected static function reduce(mixed &$value): bool
+    {
+        if (is_string($value)) {
+            $bytes = strlen($value);
+            if ($bytes === 0) {
+                return false;
+            }
+
+            $value = mb_strcut($value, 0, intdiv($bytes, 2), 'UTF-8');
+
+            return true;
+        }
+
+        if (!is_array($value) || $value === []) {
+            return false;
+        }
+
+        if (array_is_list($value) && count($value) > 1) {
+            $value = array_slice($value, 0, (int) ceil(count($value) / 2));
+
+            return true;
+        }
+
+        $largestKey = null;
+        $largestBytes = -1;
+        foreach ($value as $key => $child) {
+            if (!self::reducible($child)) {
+                continue;
+            }
+
+            $encoded = json_encode($child, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            $bytes = $encoded === false ? 0 : strlen($encoded);
+            if ($bytes > $largestBytes) {
+                $largestBytes = $bytes;
+                $largestKey = $key;
+            }
+        }
+
+        return $largestKey !== null && self::reduce($value[$largestKey]);
+    }
+
+    protected static function reducible(mixed $value): bool
+    {
+        if (is_string($value)) {
+            return $value !== '';
+        }
+
+        if (!is_array($value) || $value === []) {
+            return false;
+        }
+
+        if (array_is_list($value) && count($value) > 1) {
+            return true;
+        }
+
+        foreach ($value as $child) {
+            if (self::reducible($child)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -84,24 +250,31 @@ class ToolResult
      */
     public function summary(): string
     {
+        if ($this->isBatch()) {
+            $succeeded = (int) ($this->data['succeeded'] ?? 0);
+            $failed = (int) ($this->data['failed'] ?? 0);
+            $notRun = (int) ($this->data['not_run'] ?? 0);
+            $total = $succeeded + $failed + $notRun;
+
+            if ($this->outcome === self::OUTCOME_SUCCESS) {
+                return sprintf('%d of %d done', $succeeded, $total);
+            }
+
+            return sprintf(
+                '%d of %d done; %d failed, %d not run',
+                $succeeded,
+                $total,
+                $failed,
+                $notRun,
+            );
+        }
+
         if (!$this->ok) {
             return sprintf('%s: %s', $this->code ?? 'error', $this->detail ?? 'Unknown error');
         }
 
         if (!is_array($this->data)) {
             return $this->truncated ? 'Read (truncated)' : 'Done';
-        }
-
-        // A batch reports its tally rather than its shape. It is the one result
-        // whose row stands for many actions, and "Done" over a batch that half
-        // ran is the most misleading thing this method could say.
-        if (!empty($this->data['batch'])) {
-            $succeeded = (int) ($this->data['succeeded'] ?? 0);
-            $total = $succeeded + (int) ($this->data['failed'] ?? 0) + (int) ($this->data['not_run'] ?? 0);
-
-            return $succeeded === $total
-                ? sprintf('%d of %d done', $succeeded, $total)
-                : sprintf('%d of %d done, %d failed', $succeeded, $total, (int) ($this->data['failed'] ?? 0));
         }
 
         // Anything built by the list shaper reports how much it found, which is

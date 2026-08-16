@@ -1,5 +1,5 @@
 import http from '@/lib/http';
-import { streamAgentRequest, type AgentStreamCallbacks } from '@/lib/aiStream';
+import { streamAgentRequest, type AgentStreamCallbacks, type AiApprovalPreview, type AiRisk } from '@/lib/aiStream';
 
 // Client-side AI surface for a server: POST /ai/agent for the tool-calling
 // agent, which can suspend mid-turn and be resumed by /ai/agent/decide, plus the
@@ -32,6 +32,38 @@ export interface AiConversation {
     expires_at: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface AgentTurnStatus {
+    turn_id: string;
+    status: 'running' | 'success' | 'error' | 'suspended';
+    terminal: boolean;
+    error?: string;
+    conversation_id?: number;
+    redactions?: Record<string, string>;
+    messages?: StoredMessage[];
+    pending?:
+        | {
+              kind: 'approval';
+              turn_id: string;
+              tool: string;
+              arguments: Record<string, unknown>;
+              risk: AiRisk;
+              preview?: AiApprovalPreview;
+          }
+        | {
+              kind: 'question';
+              turn_id: string;
+              tool: string;
+              question: string;
+              options: { label: string; description?: string }[];
+              allow_other: boolean;
+          };
+}
+
+export async function getAgentTurnStatus(uuid: string, turnId: string): Promise<AgentTurnStatus> {
+    const { data } = await http.get(`/api/client/servers/${uuid}/ai/agent/turns/${turnId}`);
+    return data.data as AgentTurnStatus;
 }
 
 /**

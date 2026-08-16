@@ -72,6 +72,8 @@ export function ApprovalCard({
         );
     }
 
+    const submitting = entry.submission === 'submitting';
+
     const requiredConfirmation =
         entry.preview?.kind === 'confirmation' ? entry.preview.name : confirmPhrase;
     const confirmMatches = typed.trim() === requiredConfirmation;
@@ -161,14 +163,20 @@ export function ApprovalCard({
 
                 <ToolArgs args={remaining} redactions={redactions} className="px-3 pb-2" />
 
+                {entry.submission === 'failed' && (
+                    <p className="px-3 pb-2 text-xs text-[var(--color-danger)]">
+                        {m['server.ai.decision.retry']()}
+                    </p>
+                )}
+
                 <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-3 py-2">
-                    <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onDecide('reject')}>
+                    <Button size="sm" variant="ghost" disabled={disabled || submitting} onClick={() => onDecide('reject')}>
                         {m['server.ai.approval.decline']()}
                     </Button>
                     <Button
                         size="sm"
                         variant={destructive ? 'danger' : 'primary'}
-                        disabled={disabled}
+                        disabled={disabled || submitting}
                         onClick={() => (destructive ? setConfirmOpen(true) : onDecide('approve'))}
                     >
                         {destructive ? m['server.ai.approval.reviewAndRun']() : m['server.ai.approval.approve']()}
@@ -199,7 +207,7 @@ export function ApprovalCard({
                         <Button
                             variant="danger"
                             size="sm"
-                            disabled={!confirmMatches || disabled}
+                            disabled={!confirmMatches || disabled || submitting}
                             onClick={() => {
                                 setConfirmOpen(false);
                                 onDecide('approve', typed.trim());

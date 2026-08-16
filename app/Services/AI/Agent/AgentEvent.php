@@ -107,6 +107,7 @@ class AgentEvent
         string $summary,
         mixed $result = null,
         ?int $durationMs = null,
+        ?string $outcome = null,
     ): self {
         return new self(self::TYPE_TOOL_RESULT, array_filter([
             'id' => $id,
@@ -115,6 +116,7 @@ class AgentEvent
             'summary' => $summary,
             'result' => $result,
             'duration_ms' => $durationMs,
+            'outcome' => $outcome,
         ], fn ($v) => $v !== null));
     }
 
