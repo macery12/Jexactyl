@@ -4,6 +4,7 @@ import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { restoreRedactionsDeep, type ChatEntry } from '@/state/agentChat';
+import { ToolArgs } from './ToolArgs';
 import { ToolIcon, toolLabel, toolTarget } from './toolMeta';
 
 type ToolEntry = Extract<ChatEntry, { kind: 'tool' }>;
@@ -101,10 +102,17 @@ export function ToolCallRow({
             {open && (
                 <div className="space-y-2 border-t border-[var(--color-border)] px-2.5 py-2">
                     {hasArgs && (
-                        <Payload
-                            label={m['server.ai.tool.arguments']()}
-                            value={restoreRedactionsDeep(entry.args, redactions)}
-                        />
+                        <div>
+                            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
+                                {m['server.ai.tool.arguments']()}
+                            </p>
+                            {/* Laid out rather than dumped as JSON: what was
+                                asked for is a question about intent, and reads
+                                as one. The result below stays raw, because that
+                                panel exists to show exactly what the model was
+                                given. */}
+                            <ToolArgs args={entry.args} redactions={redactions} />
+                        </div>
                     )}
                     {hasResult && (
                         <Payload

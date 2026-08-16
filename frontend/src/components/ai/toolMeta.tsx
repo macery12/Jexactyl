@@ -16,6 +16,7 @@ import {
     HardDriveDownload,
     HelpCircle,
     Info,
+    Layers,
     LifeBuoy,
     Network,
     Package,
@@ -84,6 +85,9 @@ const META: Record<string, ToolMeta> = {
 
     activate_tool_group: { icon: Wrench, primary: 'group' },
     ask_user: { icon: HelpCircle, primary: 'question' },
+    // No primary: the summary is rendered by the batch preview itself, above the
+    // list, where it introduces the set rather than labelling one row of it.
+    batch: { icon: Layers },
 
     // Admin scope. Every name is prefixed so it cannot collide with a
     // server-scoped tool in the registry's flat name map.

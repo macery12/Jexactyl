@@ -16,7 +16,6 @@ use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
-use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Agent\AssistAuthorizer;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -295,7 +294,12 @@ trait HandlesAgentTurns
 
         $startedAt = microtime(true);
         $result = $definition->hostHandled
-            ? $runner->runHostTool($context, $call, $definition, $pending->arguments, $emit)
+            // The *stored* tier, not the freshly resolved one. For a batch this
+            // is the ceiling none of its calls may exceed, and the only record of
+            // what the user actually agreed to — re-resolving it would ask the
+            // wrong question, since `batch` declares SAFE and is priced by what
+            // is inside it.
+            ? $runner->runHostTool($context, $call, $definition, $pending->arguments, $emit, (string) $pending->risk)
             : $runner->runTool($context, $call, $definition, $pending->arguments, $risk);
 
         $fresh = $context->redactions->drainFresh();
@@ -327,30 +331,14 @@ trait HandlesAgentTurns
     /**
      * Whether an approved call may still run.
      *
-     * Asked again on resume rather than trusted from the moment it was offered,
-     * because an approval can sit on screen for minutes and an operator may have
-     * changed something in between.
-     *
-     * A server-scoped tool reached through an assist session is judged against
-     * the *binding* rather than the acting user's own access to that server —
-     * which they do not have, and which is the entire point of the binding.
-     * `restoreAssist()` has already re-checked the capability behind it, so a
-     * binding present here is one that has just been re-authorized.
+     * Delegated to the runner, which asks the same question of every call inside
+     * an approved batch. `restoreAssist()` has already re-checked the capability
+     * behind any binding by the time this is reached, so a binding present here
+     * is one that has just been re-authorized.
      */
     protected function stillUsable(AgentContext $context, $definition): bool
     {
-        $registry = $this->toolRegistry();
-
-        if (
-            $context->assist !== null
-            && $context->server === null
-            && $definition->scope === ToolDefinition::SCOPE_SERVER
-        ) {
-            return $context->targetServer() !== null
-                && $registry->assistPermits($definition, $context->assist->tools(), $context->assist->abilities);
-        }
-
-        return $registry->canUse($context->user, $context->server, $definition);
+        return $this->agentRunner()->usable($context, $definition);
     }
 
     /**

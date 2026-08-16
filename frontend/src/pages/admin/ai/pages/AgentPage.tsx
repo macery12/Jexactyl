@@ -1,4 +1,4 @@
-import { Bot, Timer } from 'lucide-react';
+import { Bot, Layers, Timer } from 'lucide-react';
 import { m } from '@/i18n';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
@@ -15,8 +15,11 @@ export default function AgentPage() {
             reasoning: settings.agent?.reasoning ?? true,
             max_steps: settings.agent?.max_steps ?? 12,
             max_wall_seconds: settings.agent?.max_wall_seconds ?? 180,
+            max_tool_seconds: settings.agent?.max_tool_seconds ?? 90,
             tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
-            max_tools: settings.agent?.max_tools ?? 20,
+            max_tools: settings.agent?.max_tools ?? 32,
+            max_batch_calls: settings.agent?.max_batch_calls ?? 25,
+            allow_destructive_batches: settings.agent?.allow_destructive_batches ?? false,
         }),
         value => ({ agent: value }),
     );
@@ -96,6 +99,18 @@ export default function AgentPage() {
                             onChange={event => patch({ max_wall_seconds: Number(event.target.value) })}
                         />
                     </FieldRow>
+                    <FieldRow
+                        label={m['admin.ai.settings.maxToolSeconds']()}
+                        desc={m['admin.ai.settings.maxToolSecondsHint']()}
+                    >
+                        <Input
+                            type="number"
+                            min={5}
+                            max={900}
+                            value={value.max_tool_seconds}
+                            onChange={event => patch({ max_tool_seconds: Number(event.target.value) })}
+                        />
+                    </FieldRow>
                     <FieldRow label={m['admin.ai.settings.maxTools']()} desc={m['admin.ai.settings.maxToolsHint']()}>
                         <Input
                             type="number"
@@ -119,6 +134,37 @@ export default function AgentPage() {
                         />
                     </FieldRow>
                 </FieldGrid>
+            </SectionCard>
+
+            <SectionCard
+                icon={Layers}
+                title={m['admin.ai.settings.batching']()}
+                desc={m['admin.ai.settings.batchingDesc']()}
+            >
+                <FieldGrid>
+                    <FieldRow
+                        label={m['admin.ai.settings.maxBatchCalls']()}
+                        desc={m['admin.ai.settings.maxBatchCallsHint']()}
+                    >
+                        <Input
+                            type="number"
+                            min={2}
+                            max={100}
+                            value={value.max_batch_calls}
+                            onChange={event => patch({ max_batch_calls: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                </FieldGrid>
+
+                <ToggleGroup>
+                    <ToggleRow
+                        label={m['admin.ai.settings.allowDestructiveBatches']()}
+                        desc={m['admin.ai.settings.allowDestructiveBatchesHint']()}
+                        checked={value.allow_destructive_batches}
+                        onChange={next => patch({ allow_destructive_batches: next })}
+                        disabled={!value.enabled}
+                    />
+                </ToggleGroup>
             </SectionCard>
 
             <SaveBar dirty={form.dirty} saving={form.saving} onDiscard={form.discard} />

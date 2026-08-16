@@ -5,7 +5,7 @@ import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { AgentChatView, orphanedPending } from '@/components/ai/AgentChatView';
+import { AgentChatView } from '@/components/ai/AgentChatView';
 import { useAdminAgentChat } from '@/state/agentChat';
 import type { ChatRole } from '@/api/ai';
 import {
@@ -14,7 +14,6 @@ import {
     getAdminAgentConversation,
     getAiSettings,
     listAdminAgentConversations,
-    listAdminPendingActions,
     type AdminAgentConversation,
 } from '@/api/adminAi';
 
@@ -32,7 +31,6 @@ import {
 export default function AssistantPage() {
     const queryClient = useQueryClient();
 
-    const entries = useAdminAgentChat(s => s.entries);
     const loading = useAdminAgentChat(s => s.loading);
     const conversationId = useAdminAgentChat(s => s.conversationId);
     const newChat = useAdminAgentChat(s => s.newChat);
@@ -50,13 +48,6 @@ export default function AssistantPage() {
 
     const enabled = Boolean(settings?.agent.enabled && settings?.agent.admin_enabled);
 
-    const { data: pending = [] } = useQuery({
-        queryKey: ['admin', 'ai', 'agent-pending'],
-        queryFn: listAdminPendingActions,
-        enabled,
-        refetchInterval: 60_000,
-    });
-
     const { data: conversations = [] } = useQuery({
         queryKey: ['admin', 'ai', 'agent-conversations'],
         queryFn: listAdminAgentConversations,
@@ -65,7 +56,6 @@ export default function AssistantPage() {
 
     useEffect(() => {
         if (!loading) {
-            void queryClient.invalidateQueries({ queryKey: ['admin', 'ai', 'agent-pending'] });
             void queryClient.invalidateQueries({ queryKey: ['admin', 'ai', 'agent-conversations'] });
         }
     }, [loading, queryClient]);
@@ -218,10 +208,6 @@ export default function AssistantPage() {
                         m['admin.ai.agent.suggestUsers'](),
                         m['admin.ai.agent.suggestTickets'](),
                     ]}
-                    orphaned={orphanedPending(pending, entries).map(action => ({
-                        ...action,
-                        preview: null,
-                    }))}
                     onEndAssist={() => void endAssist()}
                 />
             </div>

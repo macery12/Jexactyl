@@ -1,5 +1,5 @@
 import http from '@/lib/http';
-import { streamAgentRequest, type AgentStreamCallbacks, type AiRisk } from '@/lib/aiStream';
+import { streamAgentRequest, type AgentStreamCallbacks } from '@/lib/aiStream';
 
 // Admin AI (M12Labs-AI) module — settings, health, model discovery, usage
 // analytics and the admin assistant. Mirrors V1's `api/routes/admin/ai/*`
@@ -18,9 +18,14 @@ export interface AiAgentSettings {
     reasoning: boolean;
     max_steps: number;
     max_wall_seconds: number;
+    /** Ceiling on one tool call — the bound the wall clock above cannot enforce. */
+    max_tool_seconds: number;
     tool_result_bytes: number;
     max_repairs: number;
     max_tools: number;
+    /** How many calls one approval may cover. */
+    max_batch_calls: number;
+    allow_destructive_batches: boolean;
 }
 
 export interface AiConcurrencySettings {
@@ -300,16 +305,6 @@ export async function getAiInference(): Promise<AiInferenceState> {
 | differs is only the endpoint and the absence of a server.
 */
 
-export interface AdminPendingAction {
-    turn_id: string;
-    conversation_id: number | null;
-    tool: string;
-    arguments: Record<string, unknown>;
-    risk: AiRisk;
-    created_at: string | null;
-    expires_at: string | null;
-}
-
 export interface AdminAgentConversation {
     id: number;
     title: string;
@@ -380,11 +375,6 @@ export function streamAdminAgentDecision(
         callbacks,
         signal,
     );
-}
-
-export async function listAdminPendingActions(): Promise<AdminPendingAction[]> {
-    const { data } = await http.get('/api/application/ai/agent/pending');
-    return data.data as AdminPendingAction[];
 }
 
 export async function listAdminAgentConversations(): Promise<AdminAgentConversation[]> {

@@ -118,6 +118,37 @@ class ToolOfferingTest extends TestCase
     }
 
     /**
+     * What `AgentRunner::offerings()` decides for a server turn at a given cap —
+     * the step above `capDefinitions()`, and the one that chooses between
+     * offering everything by name and hiding the extras behind groups.
+     *
+     * @param string[] $active
+     *
+     * @return array{0: ToolDefinition[], 1: array<string, string>}
+     */
+    private function offerings(int $max, array $active = []): array
+    {
+        config()->set('modules.ai.agent.max_tools', $max);
+
+        $context = new AgentContext($this->user(), $this->server(), 'turn-offerings-test');
+        $context->activeGroups = $active;
+
+        $method = new \ReflectionMethod(AgentRunner::class, 'offerings');
+
+        return $method->invoke(app(AgentRunner::class), $context);
+    }
+
+    /**
+     * @param ToolDefinition[] $definitions
+     *
+     * @return string[]
+     */
+    private function definitionNames(array $definitions): array
+    {
+        return array_map(static fn (ToolDefinition $d) => $d->name, $definitions);
+    }
+
+    /**
      * @return AiTool[]
      */
     private function serverOffering(): array
@@ -160,20 +191,38 @@ class ToolOfferingTest extends TestCase
     }
 
     /**
+     * Every tool the cap does not count, so a change to the exemption list shows
+     * up here as one edit rather than as arithmetic scattered through the file.
+     *
+     * `activate_tool_group` belongs with them despite not being in
+     * `UNCAPPED_TOOLS`: it is appended by `toAiTools()` after the cap has already
+     * run, which comes to the same thing from the model's side.
+     *
+     * @return string[]
+     */
+    private function exempt(): array
+    {
+        return [ToolRegistry::META_ACTIVATE_GROUP, SharedTools::ASK_USER, SharedTools::BATCH];
+    }
+
+    /**
      * Squeezed as far as the setting goes, the exempt tools are still there.
      *
      * `maxTools()` floors at four however low the setting is set, so the
-     * smallest possible offering is those four plus the two exemptions — an
-     * agent with almost nothing to work with can still ask for a tool or ask a
-     * person, which are the two ways out of having nothing to work with.
+     * smallest possible offering is those four plus the exemptions — an agent
+     * with almost nothing to work with can still load a tool, ask a person, or
+     * make its changes as one reviewable set, which are the three ways out of
+     * having nothing to work with.
      */
     public function testTheExemptToolsSurviveEvenTheSmallestCap(): void
     {
         $kept = $this->offeredToModel([], 1);
 
-        $this->assertCount(6, $kept);
-        $this->assertContains(ToolRegistry::META_ACTIVATE_GROUP, $kept);
-        $this->assertContains(SharedTools::ASK_USER, $kept);
+        $this->assertCount(4 + count($this->exempt()), $kept);
+
+        foreach ($this->exempt() as $tool) {
+            $this->assertContains($tool, $kept);
+        }
     }
 
     /**
@@ -184,10 +233,10 @@ class ToolOfferingTest extends TestCase
     {
         $kept = $this->offeredToModel([], 6);
 
-        $scoped = array_diff($kept, [ToolRegistry::META_ACTIVATE_GROUP, SharedTools::ASK_USER]);
+        $scoped = array_diff($kept, $this->exempt());
 
         $this->assertCount(6, $scoped);
-        $this->assertCount(8, $kept);
+        $this->assertCount(6 + count($this->exempt()), $kept);
     }
 
     /**
@@ -199,6 +248,87 @@ class ToolOfferingTest extends TestCase
         $this->assertSame(
             $this->names($this->serverOffering()),
             $this->offeredToModel([], 999),
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Flat versus grouped
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * When the catalogue fits, groups do not exist.
+     *
+     * Not "the meta-tool is offered but unnecessary" — there is nothing left to
+     * activate, so the registry stops appending it and the system prompt drops
+     * its paragraph about it. That total absence is the point: a model told about
+     * a loading mechanism will use it, spending a step and a guess to reach a
+     * tool it was already holding.
+     */
+    public function testACapThatFitsOffersEveryToolByName(): void
+    {
+        [$definitions, $groups] = $this->offerings(999);
+
+        $this->assertSame(
+            [],
+            $groups,
+            'With every group already in play there is nothing left to activate.'
+        );
+
+        $names = $this->definitionNames($definitions);
+
+        foreach (ServerTools::all() as $definition) {
+            $this->assertContains(
+                $definition->name,
+                $names,
+                sprintf('%s fits inside this cap, so it should be offered outright.', $definition->name)
+            );
+        }
+
+        $this->assertNotContains(
+            ToolRegistry::META_ACTIVATE_GROUP,
+            $this->names($this->registry()->toAiTools($definitions, $groups)),
+        );
+    }
+
+    /**
+     * Below the catalogue size, grouping comes back — which is the case it was
+     * built for, and the only one it is still paid for.
+     */
+    public function testACapThatDoesNotFitFallsBackToGroups(): void
+    {
+        [$definitions, $groups] = $this->offerings(12);
+
+        $this->assertNotEmpty($groups, 'A cap this low has to hold something back.');
+
+        $names = $this->definitionNames($definitions);
+
+        $this->assertContains('files_read', $names, 'Reads are never the thing withheld.');
+        $this->assertNotContains('files_delete', $names);
+
+        $this->assertContains(
+            ToolRegistry::META_ACTIVATE_GROUP,
+            $this->names($this->registry()->toAiTools($definitions, $groups)),
+        );
+    }
+
+    /**
+     * The default install is the flat one.
+     *
+     * Asserted against the shipped config rather than a literal, so adding tools
+     * until the catalogue outgrows the default cap fails here — loudly, and at
+     * the moment it happens — rather than silently reintroducing an activation
+     * step on every turn that needs to edit a file.
+     */
+    public function testTheShippedCapFitsTheWholeServerCatalogue(): void
+    {
+        [, $groups] = $this->offerings((int) config('modules.ai.agent.max_tools'));
+
+        $this->assertSame(
+            [],
+            $groups,
+            'The default max_tools no longer fits the server catalogue; raise it or the agent regains a step of indirection.'
         );
     }
 

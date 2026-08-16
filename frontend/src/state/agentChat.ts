@@ -1,6 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { m } from '@/i18n';
-import type { AgentEvent, AgentStreamCallbacks, AiDiffPreview, AiRisk } from '@/lib/aiStream';
+import type { AgentEvent, AgentStreamCallbacks, AiApprovalPreview, AiRisk } from '@/lib/aiStream';
 import { streamAgentDecision, streamAgentTurn, type StoredMessage } from '@/api/ai';
 import { streamAdminAgentDecision, streamAdminAgentTurn } from '@/api/adminAi';
 
@@ -66,7 +66,7 @@ export type ChatEntry =
           tool: string;
           args: Record<string, unknown>;
           risk: AiRisk;
-          preview: AiDiffPreview | null;
+          preview: AiApprovalPreview | null;
           decision?: 'approved' | 'rejected';
       }
     | {
@@ -194,12 +194,26 @@ export interface AgentChatState {
     decide: (turnId: string, decision: 'approve' | 'reject', confirmation?: string) => void;
     answer: (turnId: string, value: string) => void;
     cancel: () => void;
-    /** Re-open an approval the user left unanswered on a previous visit. */
-    restorePending: (entry: Omit<Extract<ChatEntry, { kind: 'approval' }>, 'key' | 'kind'>) => void;
 }
 
 // No token arriving within this window means a cold model load, not a hang.
 const SLOW_HINT_MS = 5000;
+
+/**
+ * How long the stream may go completely silent before the turn is abandoned.
+ *
+ * Not a turn timeout — the backend owns those, and it has three (steps, wall
+ * clock, and a ceiling on any single tool call). This catches the case those
+ * cannot see: a connection that died without telling anyone. A slept laptop, a
+ * proxy that dropped an idle stream, a worker killed mid-turn. `fetch` does not
+ * reject for any of them; the reader simply never yields again, and the composer
+ * stays locked behind a spinner for as long as the tab is open.
+ *
+ * Sized well above any legitimate gap rather than tuned close to one. The
+ * longest silence a healthy turn can produce is one tool call, which the backend
+ * now caps at 90 seconds, so anything approaching this is not slow — it is gone.
+ */
+const STALL_MS = 300_000;
 
 // Entry keys only have to be unique within a store, but a shared counter keeps
 // them unique across both, which makes them safe to log and compare.
@@ -212,10 +226,16 @@ export function createAgentChatStore(
 ): UseBoundStore<StoreApi<AgentChatState>> {
     let controller: AbortController | null = null;
     let slowTimer: ReturnType<typeof setTimeout> | null = null;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
 
     const clearSlowTimer = () => {
         if (slowTimer) clearTimeout(slowTimer);
         slowTimer = null;
+    };
+
+    const clearStallTimer = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = null;
     };
 
     return create<AgentChatState>((set, get) => {
@@ -320,17 +340,51 @@ export function createAgentChatStore(
 
         const appendText = (delta: string) => appendDelta('assistant', delta);
 
+        /**
+         * Close every tool row still spinning.
+         *
+         * A row goes to `running` when the call is announced and leaves it when
+         * its result arrives — so any path that ends a turn without one strands
+         * it, and a stranded row is indistinguishable from work still in
+         * progress. That is the spinner that never stops: not a tool taking a
+         * long time, a tool whose answer is never coming.
+         *
+         * There are more of those paths than there look to be. A stream that
+         * errors mid-call, a cancel, a declined approval, a tool that stopped
+         * being available while the approval sat on screen — none of them emit a
+         * result, and each one used to leave the row turning. Sealing here rather
+         * than at each site means the next path nobody thought of is covered too.
+         */
+        const sealTools = (summary: string) => {
+            set(state => {
+                const open = (entry: ChatEntry) =>
+                    entry.kind === 'tool' && (entry.status === 'running' || entry.status === 'pending');
+
+                if (!state.entries.some(open)) return state;
+
+                return {
+                    entries: state.entries.map(entry =>
+                        open(entry) ? { ...entry, status: 'error' as const, summary } : entry,
+                    ),
+                };
+            });
+        };
+
         const settle = () => {
             clearSlowTimer();
+            clearStallTimer();
             controller = null;
             sealAssistant();
+            sealTools(m['server.ai.tool.noResult']());
             set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
         };
 
         const fail = (message: string) => {
             clearSlowTimer();
+            clearStallTimer();
             controller = null;
             sealAssistant();
+            sealTools(m['server.ai.tool.noResult']());
             set(state => ({
                 loading: false,
                 queue: null,
@@ -341,9 +395,16 @@ export function createAgentChatStore(
             }));
         };
 
-        /** A suspension leaves the composer free but the turn alive. */
+        /**
+         * A suspension leaves the composer free but the turn alive.
+         *
+         * Tool rows are deliberately left spinning: the call this suspended on
+         * has not failed, it is waiting on the card directly below it, and the
+         * result still arrives on the resume stream under the same id.
+         */
         const suspend = () => {
             clearSlowTimer();
+            clearStallTimer();
             controller = null;
             set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
         };
@@ -547,9 +608,23 @@ export function createAgentChatStore(
             }
         };
 
+        /**
+         * Restart the stall clock. Called on every byte the stream produces, so
+         * the countdown only ever runs against genuine silence.
+         */
+        const armStall = () => {
+            clearStallTimer();
+            stallTimer = setTimeout(() => {
+                stallTimer = null;
+                controller?.abort();
+                fail(m['server.ai.stalled']());
+            }, STALL_MS);
+        };
+
         /** Shared teardown for both the start and resume streams. */
         const streamCallbacks = (): AgentStreamCallbacks => ({
             onEvent: handleEvent,
+            onActivity: armStall,
             onComplete: () => {
                 // A suspension closes the stream deliberately; settling then
                 // would wipe the card the user still has to act on.
@@ -569,6 +644,7 @@ export function createAgentChatStore(
 
             clearSlowTimer();
             slowTimer = setTimeout(() => set({ slowHint: true }), SLOW_HINT_MS);
+            armStall();
 
             set({
                 loading: true,
@@ -609,6 +685,7 @@ export function createAgentChatStore(
                 controller?.abort();
                 controller = null;
                 clearSlowTimer();
+                clearStallTimer();
 
                 set({
                     target,
@@ -686,6 +763,12 @@ export function createAgentChatStore(
             },
 
             decide: (turnId, decision, confirmation) => {
+                // Declining resolves the call that suspended the turn, and the
+                // backend answers it into the transcript rather than over the
+                // stream — so its row would otherwise keep spinning behind a
+                // card the user has already dismissed.
+                if (decision === 'reject') sealTools(m['server.ai.tool.declined']());
+
                 set(state => ({
                     entries: state.entries.map(entry =>
                         entry.kind === 'approval' && entry.turnId === turnId
@@ -718,7 +801,9 @@ export function createAgentChatStore(
                 controller?.abort();
                 controller = null;
                 clearSlowTimer();
+                clearStallTimer();
                 sealAssistant();
+                sealTools(m['server.ai.tool.cancelled']());
                 patchLast(
                     entry => entry.kind === 'assistant',
                     entry =>
@@ -727,13 +812,6 @@ export function createAgentChatStore(
                             : entry,
                 );
                 set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
-            },
-
-            restorePending: pending => {
-                const { entries } = get();
-                if (entries.some(entry => entry.kind === 'approval' && entry.turnId === pending.turnId)) return;
-
-                set({ entries: [...entries, { kind: 'approval', key: nextKey(), ...pending }] });
             },
         };
     });

@@ -43,12 +43,18 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'agent.admin_enabled' => 'nullable|bool',
             'agent.reasoning' => 'nullable|bool',
             // A turn is bounded three ways because any one of them alone can be
-            // escaped: a model can loop cheaply, stall expensively, or both.
+            // escaped: a model can loop cheaply, stall expensively, or both. The
+            // fourth bounds a single tool call, which the other three cannot see
+            // — the wall clock is only read between steps, so a step that never
+            // returns runs past all of them.
             'agent.max_steps' => 'nullable|integer|min:1|max:50',
             'agent.max_wall_seconds' => 'nullable|integer|min:15|max:900',
+            'agent.max_tool_seconds' => 'nullable|integer|min:5|max:900',
             'agent.tool_result_bytes' => 'nullable|integer|min:1024|max:131072',
             'agent.max_repairs' => 'nullable|integer|min:0|max:5',
             'agent.max_tools' => 'nullable|integer|min:4|max:64',
+            'agent.max_batch_calls' => 'nullable|integer|min:2|max:100',
+            'agent.allow_destructive_batches' => 'nullable|boolean',
 
             // The category list is validated against the redactor's own constants
             // rather than a literal, so adding a category in one place cannot

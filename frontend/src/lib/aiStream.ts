@@ -12,12 +12,43 @@ import { readCsrfToken } from '@/lib/globals';
 
 export type AiRisk = 'safe' | 'write' | 'destructive';
 
+/**
+ * What the approval card shows in place of the raw arguments, for the tools
+ * whose arguments do not read as themselves. Built by `ApprovalPreview`, and
+ * rebuildable from the stored call, so an approval reopened later renders the
+ * same thing it did live.
+ */
 export interface AiDiffPreview {
     kind: 'diff';
     file: string | null;
     original: string;
     updated: string;
 }
+
+/** The customer's server an admin is being asked to open a session on. */
+export interface AiServerPreview {
+    kind: 'server';
+    name: string;
+    owner: string | null;
+    identifier: string;
+}
+
+/**
+ * The calls a batch will make, once approved.
+ *
+ * The one preview that is not optional in spirit: a batch's arguments *are* tool
+ * calls, and rendered as arguments they come out as nested JSON — which is the
+ * card nobody reads, and giving that back would undo the point of approving
+ * twenty changes once instead of twenty times.
+ */
+export interface AiBatchPreview {
+    kind: 'batch';
+    summary: string;
+    count: number;
+    calls: { tool: string; arguments: Record<string, unknown> }[];
+}
+
+export type AiApprovalPreview = AiDiffPreview | AiServerPreview | AiBatchPreview;
 
 export type AgentEvent =
     | { type: 'conversation'; id: number; title: string }
@@ -42,7 +73,7 @@ export type AgentEvent =
           tool: string;
           arguments: Record<string, unknown>;
           risk: AiRisk;
-          preview?: AiDiffPreview;
+          preview?: AiApprovalPreview;
       }
     | {
           type: 'question_required';
@@ -78,6 +109,17 @@ export interface AgentStreamCallbacks {
     onEvent: (event: AgentEvent) => void;
     onComplete: () => void;
     onError: (error: Error) => void;
+    /**
+     * Anything at all arrived on the wire — an event, or one of the keep-alive
+     * comments the backend sends to hold proxies open.
+     *
+     * Separate from `onEvent` because the question it answers is different: not
+     * "what happened" but "is this connection still there". A stream can be
+     * legitimately silent of events for as long as a tool takes to run, and
+     * cannot be told apart from a dead socket without something that ticks
+     * whether or not there is news.
+     */
+    onActivity?: () => void;
 }
 
 /**
@@ -90,6 +132,7 @@ async function readEventStream(
     body: Record<string, unknown>,
     signal: AbortSignal | undefined,
     onFrame: (payload: string) => boolean,
+    onActivity?: () => void,
 ): Promise<void> {
     const response = await fetch(url, {
         method: 'POST',
@@ -135,6 +178,10 @@ async function readEventStream(
             buffer = buffer.slice(newlineAt + 1);
             newlineAt = buffer.indexOf('\n');
 
+            // Counts as proof of life whatever it turns out to be, including
+            // the frame separators and the keep-alive comments below.
+            onActivity?.();
+
             // `:` lines are keep-alive comments the backend sends so proxies
             // don't time out while the model is still thinking.
             if (!line.startsWith('data: ')) continue;
@@ -152,33 +199,39 @@ async function readEventStream(
 export function streamAgentRequest(
     url: string,
     body: Record<string, unknown>,
-    { onEvent, onComplete, onError }: AgentStreamCallbacks,
+    { onEvent, onComplete, onError, onActivity }: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
     let finished = false;
 
-    readEventStream(url, body, signal, payload => {
-        if (payload === '[DONE]') {
-            finished = true;
-            onComplete();
-            return true;
-        }
-
-        try {
-            const data = JSON.parse(payload);
-            if (typeof data?.type === 'string') {
-                onEvent(data as AgentEvent);
-            } else if (typeof data?.error === 'string') {
-                // A pre-agent error frame, or an error raised before the turn
-                // had a type to report under.
-                onEvent({ type: 'error', error: data.error });
+    readEventStream(
+        url,
+        body,
+        signal,
+        payload => {
+            if (payload === '[DONE]') {
+                finished = true;
+                onComplete();
+                return true;
             }
-        } catch {
-            /* ignore malformed frames */
-        }
 
-        return false;
-    })
+            try {
+                const data = JSON.parse(payload);
+                if (typeof data?.type === 'string') {
+                    onEvent(data as AgentEvent);
+                } else if (typeof data?.error === 'string') {
+                    // A pre-agent error frame, or an error raised before the
+                    // turn had a type to report under.
+                    onEvent({ type: 'error', error: data.error });
+                }
+            } catch {
+                /* ignore malformed frames */
+            }
+
+            return false;
+        },
+        onActivity,
+    )
         .then(() => {
             if (!finished) onComplete();
         })

@@ -315,6 +315,38 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         $this->assertNull(ApprovalPreview::for('backup_restore', ['backup' => 'abc']));
     }
 
+    /**
+     * The one argument on an assist approval that nobody can weigh.
+     *
+     * An administrator is being asked to enter a paying customer's server, and
+     * the model names it with whatever identifier it happened to read off a
+     * listing — `"2"`, a uuid, a short uuid. None of those are a thing a person
+     * can consent to, so the preview resolves the reference once into the name
+     * and owner the decision is actually about.
+     */
+    public function testTheAssistPreviewNamesTheServerRatherThanItsIdentifier(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+
+        foreach ([(string) $server->id, $server->uuid, $server->uuidShort] as $reference) {
+            $preview = ApprovalPreview::for('admin_assist_server', [
+                'server' => $reference,
+                'reason' => 'The owner reported a crash loop after a mod update.',
+            ]);
+
+            $this->assertSame('server', $preview['kind'], sprintf('%s should resolve.', $reference));
+            $this->assertSame($server->name, $preview['name']);
+            $this->assertSame($user->username, $preview['owner']);
+            $this->assertSame($server->uuidShort, $preview['identifier']);
+        }
+
+        // A reference that resolves to nothing falls back to showing the raw
+        // argument rather than inventing a server, and the call itself still
+        // fails the way it always did.
+        $this->assertNull(ApprovalPreview::for('admin_assist_server', ['server' => '99999999']));
+        $this->assertNull(ApprovalPreview::for('admin_assist_server', ['reason' => 'no server named']));
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Result summaries — the only outcome text the user ever sees

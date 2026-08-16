@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { BotOff } from 'lucide-react';
 import { m } from '@/i18n';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
-import { listPendingActions } from '@/api/ai';
-import { AgentChatView, orphanedPending } from './AgentChatView';
+import { AgentChatView } from './AgentChatView';
 
 // The server assistant: everything server-specific about a conversation, over
 // the shared view. Rendered identically by the full page and the dock drawer;
@@ -17,24 +16,13 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
     const everest = useFlags(s => s.everest);
     const queryClient = useQueryClient();
 
-    const entries = useAgentChat(s => s.entries);
     const loading = useAgentChat(s => s.loading);
 
     const agentAvailable = Boolean(everest?.ai.feature_agent);
 
-    // An approval the user left unanswered on a previous visit. Polled rather
-    // than pushed: it changes at human speed, and the window is 30 minutes.
-    const { data: pendingActions = [] } = useQuery({
-        queryKey: ['server', server.uuid, 'ai-pending'],
-        queryFn: () => listPendingActions(server.uuid),
-        enabled: agentAvailable,
-        refetchInterval: 60_000,
-    });
-
-    // The queue and the pending list both move when a turn settles.
+    // A settled turn may have opened a conversation, or retitled one.
     useEffect(() => {
         if (!loading) {
-            void queryClient.invalidateQueries({ queryKey: ['server', server.uuid, 'ai-pending'] });
             void queryClient.invalidateQueries({ queryKey: ['server', server.uuid, 'ai-conversations'] });
         }
     }, [loading, queryClient, server.uuid]);
@@ -72,7 +60,6 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
                 m['server.ai.suggestions.config'](),
                 m['server.ai.suggestions.mods'](),
             ]}
-            orphaned={orphanedPending(pendingActions, entries)}
         />
     );
 }

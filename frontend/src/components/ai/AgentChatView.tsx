@@ -5,7 +5,6 @@ import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import type { StoreApi, UseBoundStore } from 'zustand';
 import { restoreRedactions, type AgentChatState } from '@/state/agentChat';
-import type { AiDiffPreview, AiRisk } from '@/lib/aiStream';
 import { ChatComposer } from './ChatComposer';
 import { ChatMarkdown } from './ChatMarkdown';
 import { ActivityRow } from './ActivityRow';
@@ -15,7 +14,6 @@ import { ToolCallRow } from './ToolCallRow';
 import { ApprovalCard } from './ApprovalCard';
 import { QuestionCard } from './QuestionCard';
 import { QueueBanner } from './QueueBanner';
-import { PendingBanner, type PendingSummary } from './PendingBanner';
 
 // The conversation itself — transcript, composer, and the cards a turn can
 // produce.
@@ -25,12 +23,25 @@ import { PendingBanner, type PendingSummary } from './PendingBanner';
 // have exactly one implementation. Everything that differs between the two —
 // which store, what the empty state says, what a destructive confirmation is
 // typed against — arrives as props.
+//
+// It used to carry a banner above the composer for an approval left unanswered
+// on a previous visit, rebuilt from a poll of the pending endpoint. It is gone:
+// an approval that is still on screen already has its card, and one that is not
+// belongs to a turn nobody came back to — so the banner spent its life
+// announcing a decision that had already been abandoned. `ask_user` made that
+// plain, since a question is not an approval and the banner said it was.
+// Anything genuinely unresolved expires on its own within the half hour.
 
-export interface OrphanedPending extends PendingSummary {
-    arguments: Record<string, unknown>;
-    risk: AiRisk;
-    preview?: AiDiffPreview | null;
-}
+/**
+ * How far off the bottom still counts as following the conversation.
+ *
+ * Not zero, for two reasons. A streaming answer grows under the reader's
+ * scroll position between the append and the effect that chases it, so an exact
+ * comparison would read its own output as the user having scrolled away. And a
+ * few pixels of drift — a trackpad nudge, a rounded sub-pixel height — is not
+ * someone asking to stop following.
+ */
+const FOLLOW_SLACK = 48;
 
 export function AgentChatView({
     store: useStore,
@@ -41,7 +52,6 @@ export function AgentChatView({
     placeholder,
     disclaimer,
     suggestions = [],
-    orphaned = [],
     header,
     onEndAssist,
 }: {
@@ -54,7 +64,6 @@ export function AgentChatView({
     placeholder: string;
     disclaimer: string;
     suggestions?: string[];
-    orphaned?: OrphanedPending[];
     /** Rendered on the composer's left, above the input. */
     header?: ReactNode;
     /** Close an open assist session. Absent on surfaces that cannot open one. */
@@ -72,27 +81,57 @@ export function AgentChatView({
     const cancel = useStore(s => s.cancel);
     const decide = useStore(s => s.decide);
     const answer = useStore(s => s.answer);
-    const restorePending = useStore(s => s.restorePending);
 
     const [input, setInput] = useState('');
-    const bottomRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
     const composerRef = useRef<HTMLTextAreaElement>(null);
 
+    // Whether the reader is still following the bottom of the transcript. A ref
+    // rather than state: it changes on every scroll event and nothing renders
+    // differently for it, so putting it in state would re-render the whole
+    // transcript on each wheel tick.
+    const following = useRef(true);
+
+    // Distance from the bottom, within a tolerance. Answered on the scroll event
+    // rather than in the effect, so the reader's position is read before the
+    // next append moves it.
+    const atBottom = (el: HTMLDivElement) => el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK;
+
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const el = scrollRef.current;
+
+        // Only when the reader was already at the bottom. Scrolling up is a
+        // deliberate act — usually to re-read a tool result while the answer is
+        // still being written — and yanking them back down mid-sentence makes a
+        // streaming answer impossible to read at all.
+        if (!el || !following.current) return;
+
+        // The container, not `scrollIntoView`. That scrolls *every* scrollable
+        // ancestor to bring the element into view, including the document, so a
+        // chat streaming inside the page dragged the whole window down with it.
+        el.scrollTop = el.scrollHeight;
     }, [entries, queue, activity?.phase]);
 
     // Not wrapped in useCallback: the React Compiler memoizes it, and a manual
     // memo here infers different dependencies than the ones written down, which
     // makes it skip optimizing the component entirely.
     const submit = () => {
+        // Sending is an explicit "I am at the bottom now", whatever was being
+        // read a moment ago — the reply belongs under the question.
+        following.current = true;
         send(input);
         setInput('');
     };
 
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+                ref={scrollRef}
+                onScroll={event => {
+                    following.current = atBottom(event.currentTarget);
+                }}
+                className="min-h-0 flex-1 overflow-y-auto"
+            >
                 {entries.length === 0 ? (
                     <div className="flex h-full flex-col items-center justify-center gap-5 px-6 text-center">
                         <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-[var(--brand-soft)]">
@@ -165,6 +204,7 @@ export function AgentChatView({
                                         entry={entry}
                                         confirmPhrase={confirmPhrase}
                                         disabled={loading}
+                                        redactions={redactions}
                                         onDecide={(decision, confirmation) =>
                                             decide(entry.turnId, decision, confirmation)
                                         }
@@ -216,7 +256,6 @@ export function AgentChatView({
                                 <ActivityRow activity={activity} />
                             )
                         )}
-                        <div ref={bottomRef} />
                     </div>
                 )}
             </div>
@@ -226,26 +265,6 @@ export function AgentChatView({
                     {assist && (
                         <div className="mb-2">
                             <AssistBanner session={assist} onEnd={onEndAssist} />
-                        </div>
-                    )}
-
-                    {orphaned.length > 0 && (
-                        <div className="mb-2 flex flex-col gap-2">
-                            {orphaned.map(action => (
-                                <PendingBanner
-                                    key={action.turn_id}
-                                    action={action}
-                                    onReview={() =>
-                                        restorePending({
-                                            turnId: action.turn_id,
-                                            tool: action.tool,
-                                            args: action.arguments,
-                                            risk: action.risk,
-                                            preview: action.preview ?? null,
-                                        })
-                                    }
-                                />
-                            ))}
                         </div>
                     )}
 
@@ -276,23 +295,4 @@ export function AgentChatView({
             </div>
         </div>
     );
-}
-
-/**
- * Which pending actions have no card on screen already.
- *
- * A turn that suspended in this session still has its card; one from a previous
- * visit does not, and would otherwise expire unseen.
- */
-export function orphanedPending<T extends { turn_id: string }>(
-    pending: T[],
-    entries: AgentChatState['entries'],
-): T[] {
-    const open = new Set(
-        entries
-            .filter(entry => (entry.kind === 'approval' && !entry.decision) || (entry.kind === 'question' && !entry.answer && !entry.dismissed))
-            .map(entry => (entry.kind === 'approval' || entry.kind === 'question' ? entry.turnId : '')),
-    );
-
-    return pending.filter(action => !open.has(action.turn_id));
 }

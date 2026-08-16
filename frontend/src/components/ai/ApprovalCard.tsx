@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { AlertTriangle, Check, ShieldAlert, X } from 'lucide-react';
+import { AlertTriangle, Check, ShieldAlert, User, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Field, Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import type { AiApprovalPreview } from '@/lib/aiStream';
 import type { ChatEntry } from '@/state/agentChat';
+import { BatchPreview } from './BatchPreview';
 import { DiffView } from './DiffView';
+import { ToolArgs } from './ToolArgs';
 import { ToolIcon, toolLabel, toolTarget } from './toolMeta';
 
 type ApprovalEntry = Extract<ChatEntry, { kind: 'approval' }>;
@@ -17,22 +20,40 @@ type ApprovalEntry = Extract<ChatEntry, { kind: 'approval' }>;
 // is approved inline, while anything destructive opens a dialog that demands
 // the server's name typed out — the same bar the panel applies to deleting one
 // by hand, and the same string the backend re-checks.
+//
+// Whatever tier it is, the card has one job: make the decision answerable
+// without reading JSON. A preview handles the arguments that do not read as
+// themselves — a file write as a diff, a customer's server as its name and owner
+// rather than the id the model happened to quote — and `ToolArgs` lays out the
+// rest. Anything the preview has already said is not then repeated underneath
+// it, which is what keeps the reason the eye lands on.
 export function ApprovalCard({
     entry,
     confirmPhrase,
     disabled,
+    redactions = {},
     onDecide,
 }: {
     entry: ApprovalEntry;
     confirmPhrase: string;
     disabled: boolean;
+    redactions?: Record<string, string>;
     onDecide: (decision: 'approve' | 'reject', confirmation?: string) => void;
 }) {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [typed, setTyped] = useState('');
 
     const destructive = entry.risk === 'destructive';
-    const target = toolTarget(entry.tool, entry.args);
+    const spoken = spokenFor(entry.preview);
+    const remaining = Object.fromEntries(
+        Object.entries(entry.args).filter(([key]) => !spoken.has(key)),
+    );
+
+    // The subtitle under the tool name is the call's primary argument, which for
+    // a file write is the path and is worth having — the diff below it shows the
+    // change but not what is being changed. A server preview already names its
+    // subject in full, so repeating the id it was quoted by adds only doubt.
+    const target = entry.preview?.kind === 'server' ? null : toolTarget(entry.tool, entry.args);
 
     if (entry.decision) {
         return (
@@ -73,7 +94,13 @@ export function ApprovalCard({
                     />
                     <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-[var(--color-ink)]">
-                            {m['server.ai.approval.title']({ tool: toolLabel(entry.tool) })}
+                            {/* A batch is titled by how much it does, not by
+                                what it is called. "Approve: Batch" describes the
+                                mechanism; "Approve 20 changes" describes the
+                                decision. */}
+                            {entry.preview?.kind === 'batch'
+                                ? m['server.ai.approval.batchTitle']({ count: entry.preview.count })
+                                : m['server.ai.approval.title']({ tool: toolLabel(entry.tool) })}
                         </p>
                         {target && (
                             <p className="truncate font-mono text-[11px] text-[var(--color-ink-muted)]">{target}</p>
@@ -93,13 +120,30 @@ export function ApprovalCard({
                     </div>
                 )}
 
-                {!entry.preview && Object.keys(entry.args).length > 0 && (
+                {entry.preview?.kind === 'server' && (
                     <div className="px-3 pb-2">
-                        <pre className="max-h-40 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 font-mono text-[11px] leading-relaxed text-[var(--color-ink-muted)]">
-                            {JSON.stringify(entry.args, null, 2)}
-                        </pre>
+                        <div className="flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2">
+                            <User className="h-3.5 w-3.5 shrink-0 text-[var(--color-ink-faint)]" />
+                            <span className="truncate text-xs font-medium text-[var(--color-ink)]">
+                                {entry.preview.name}
+                            </span>
+                            {entry.preview.owner && (
+                                <span className="truncate text-xs text-[var(--color-ink-muted)]">
+                                    {m['server.ai.approval.ownedBy']({ owner: entry.preview.owner })}
+                                </span>
+                            )}
+                            <span className="ml-auto shrink-0 font-mono text-[11px] text-[var(--color-ink-faint)]">
+                                {entry.preview.identifier}
+                            </span>
+                        </div>
                     </div>
                 )}
+
+                {entry.preview?.kind === 'batch' && (
+                    <BatchPreview preview={entry.preview} redactions={redactions} className="px-3 pb-2" />
+                )}
+
+                <ToolArgs args={remaining} redactions={redactions} className="px-3 pb-2" />
 
                 <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-3 py-2">
                     <Button size="sm" variant="ghost" disabled={disabled} onClick={() => onDecide('reject')}>
@@ -180,4 +224,23 @@ export function ApprovalCard({
             </Modal>
         </>
     );
+}
+
+/**
+ * Which arguments the preview has already accounted for.
+ *
+ * Listing them again below it is not merely redundant — it is actively worse
+ * than the JSON block this replaced, because a reader who has just been shown
+ * the file as a diff and then sees `content` spelled out underneath reasonably
+ * wonders whether they are two different things.
+ */
+function spokenFor(preview: AiApprovalPreview | null): Set<string> {
+    if (preview?.kind === 'diff') return new Set(['file', 'content', 'original_content']);
+    if (preview?.kind === 'server') return new Set(['server']);
+    // `on_error` is left out of this set deliberately, so it still renders as a
+    // labelled row underneath: whether a failure stops the rest is part of what
+    // is being agreed to, and the list above cannot show it.
+    if (preview?.kind === 'batch') return new Set(['calls', 'summary']);
+
+    return new Set();
 }

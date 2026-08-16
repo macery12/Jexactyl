@@ -138,6 +138,26 @@ return [
         'max_wall_seconds' => env('AI_AGENT_MAX_WALL_SECONDS', 180),
 
         /*
+         * Ceiling on a single tool call.
+         *
+         * The wall clock above is checked between steps, which is no help at all
+         * when the step itself is what stopped: a tool dispatched into a node
+         * that has stopped answering blocks until whatever timeout that
+         * particular call happens to carry, and some of them are a quarter of an
+         * hour. From the user's side that is a spinner that never resolves and no
+         * way to tell it apart from a hang.
+         *
+         * So every tool call runs under this instead, which is deliberately
+         * shorter than the turn it sits inside — a tool that overruns fails as a
+         * tool, which the model can report or work around, rather than taking the
+         * turn down with it.
+         *
+         * Raise it if a genuinely slow operation (compressing a large world) is
+         * being cut off; the agent is not the right way to run those either way.
+         */
+        'max_tool_seconds' => env('AI_AGENT_MAX_TOOL_SECONDS', 90),
+
+        /*
          * Tool results are truncated to this many bytes before being fed back
          * to the model. Readers support offset/limit so it can page instead of
          * guessing at what was cut.
@@ -151,20 +171,62 @@ return [
         'max_repairs' => env('AI_AGENT_MAX_REPAIRS', 2),
 
         /*
-         * Cap on scoped tools exposed in a single request. Small local models
-         * degrade sharply once too many are in play; the rest are reached
-         * through tool groups.
+         * How many calls one `batch` may carry.
          *
-         * Twenty rather than fifteen because every read-only tool is now
-         * offered up front — a server turn presents seventeen, and a cap that
-         * cut into them would start dropping the lookups that answer questions
-         * before it ever reached a write. `ask_user` and `activate_tool_group`
-         * are not counted here; see AgentRunner::UNCAPPED_TOOLS.
+         * A batch is the answer to twenty changes needing twenty approvals: the
+         * model writes all of them out, the user reads the set once and approves
+         * once, and the whole thing costs a single step. Without it the work is
+         * not merely tedious, it is impossible — `max_steps` above is spent long
+         * before twenty sequential writes are done, and a resumed turn continues
+         * its step count rather than starting over.
          *
-         * Lower it for a 7B or 8B model: the offered set is ordered
-         * most-useful-first, so the tail goes before anything load-bearing does.
+         * The ceiling is really a statement about the model: every call in a
+         * batch is written in one response, so this is how many complete argument
+         * sets it can produce without losing the thread or running into
+         * `max_tokens`. A hosted model manages this comfortably; lower it
+         * alongside `max_tools` for anything small, where the failure shows up as
+         * a malformed call rather than a wrong one.
          */
-        'max_tools' => env('AI_AGENT_MAX_TOOLS', 20),
+        'max_batch_calls' => env('AI_AGENT_MAX_BATCH_CALLS', 25),
+
+        /*
+         * Whether a batch may contain a destructive call.
+         *
+         * Off, which means a batch holding one is refused outright and the model
+         * is told to ask for it on its own. Not because a single typed
+         * confirmation over a listed set is weaker than twenty of them — by the
+         * fourth, typing the server's name is muscle memory rather than consent —
+         * but because the case batching exists for is bulk creation, and one
+         * mistaken click should not be able to take out a dozen things at once.
+         *
+         * Turn it on if you routinely clear up in bulk. The card still names every
+         * target and still demands the typed confirmation once.
+         */
+        'allow_destructive_batches' => env('AI_AGENT_ALLOW_DESTRUCTIVE_BATCHES', false),
+
+        /*
+         * Cap on scoped tools exposed in a single request, and the switch
+         * between the agent's two ways of presenting them.
+         *
+         * Above the size of the catalogue — which is where the default sits, at
+         * 32 against 26 on either surface — every tool is offered by name and
+         * the model simply calls the one it wants. Below it, tools marked with a
+         * group are withheld until the model asks for that group through
+         * `activate_tool_group`, which keeps the offered set inside what a small
+         * model can choose between, at the cost of a step spent loading and a
+         * guess about which group holds what.
+         *
+         * So this is really "how many tools can this model choose between".
+         * Leave it alone on a hosted model or anything from about 24B up. Lower
+         * it to 12-15 for a 7B or 8B, which turns grouping back on: read-only
+         * tools are reserved and only grouped ones are dropped, so the lookups
+         * that answer questions survive ahead of the writes that change things.
+         *
+         * `ask_user` is never counted; see AgentRunner::UNCAPPED_TOOLS.
+         * `activate_tool_group` is not counted either, and does not exist at all
+         * when there is nothing left to load.
+         */
+        'max_tools' => env('AI_AGENT_MAX_TOOLS', 32),
 
         /*
          * Ask the model to reason before it acts, where the model supports it.

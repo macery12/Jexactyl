@@ -75,6 +75,10 @@ class SystemPromptBuilder
             $sections[] = $question;
         }
 
+        if (($batch = $this->batchRule($offered)) !== null) {
+            $sections[] = $batch;
+        }
+
         if (($custom = $this->operatorPrompt()) !== null) {
             $sections[] = $custom;
         }
@@ -349,6 +353,49 @@ class SystemPromptBuilder
             - Do not ask for permission or confirmation. Anything you propose that changes the
               server is already shown to the user to approve before it runs, so asking "shall I?"
               spends a step to arrive back where you started.
+            PROMPT;
+    }
+
+    /**
+     * When to make several changes at once.
+     *
+     * Stated as permission first, for the same reason `questionRule()` is: a
+     * model that has only been told what a tool is will use it for the case the
+     * description happened to name and no other, and the case here — "the user
+     * asked for twenty of something" — is one it will otherwise answer by making
+     * the first one and asking whether to continue.
+     *
+     * The prohibition matters more than usual, though, so it is stated twice,
+     * here and in the tool's own description. A batch is fixed when the card is
+     * drawn; a model that batches a create and then an update against the id
+     * that create returns has written a call whose argument does not exist yet,
+     * and will get a validation error it cannot understand from the inside.
+     *
+     * @param string[] $offered
+     */
+    protected function batchRule(array $offered): ?string
+    {
+        if (!in_array(SharedTools::BATCH, $offered, true)) {
+            return null;
+        }
+
+        return <<<'PROMPT'
+            Making several changes at once:
+
+            - When the work is more than one change of the same kind — a range of products to
+              create, a set of prices to update, several files to write — put them in one batch
+              call rather than making them one at a time. The user reviews the whole set once
+              and approves once, which is the difference between one decision and twenty.
+            - Write every argument of every call out in full, exactly as you would if you were
+              calling the tool on its own. Look up whatever you need first: read an existing
+              record to copy its shape, and get your ids from tool results before you start.
+            - Nothing in a batch can use what another call in it returned. The whole set is
+              fixed at the moment it is shown to the user. If one call needs an id that another
+              produces, make that one on its own first and batch what follows.
+            - Set on_error to "continue" when the calls are independent, so one bad one does not
+              hold up the rest. Leave it alone when they build on each other.
+            - If a batch comes back refused, read why: it names the call and what was wrong with
+              it. Fix that call and send the whole batch again.
             PROMPT;
     }
 

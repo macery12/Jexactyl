@@ -92,6 +92,18 @@ class ToolResult
             return $this->truncated ? 'Read (truncated)' : 'Done';
         }
 
+        // A batch reports its tally rather than its shape. It is the one result
+        // whose row stands for many actions, and "Done" over a batch that half
+        // ran is the most misleading thing this method could say.
+        if (!empty($this->data['batch'])) {
+            $succeeded = (int) ($this->data['succeeded'] ?? 0);
+            $total = $succeeded + (int) ($this->data['failed'] ?? 0) + (int) ($this->data['not_run'] ?? 0);
+
+            return $succeeded === $total
+                ? sprintf('%d of %d done', $succeeded, $total)
+                : sprintf('%d of %d done, %d failed', $succeeded, $total, (int) ($this->data['failed'] ?? 0));
+        }
+
         // Anything built by the list shaper reports how much it found, which is
         // the one fact a collapsed row can usefully show.
         if (isset($this->data['count']) && is_numeric($this->data['count'])) {

@@ -93,6 +93,10 @@ class AgentRunner
         $maxSteps = $this->maxSteps();
         $deadline = $startedAt + $this->maxWallSeconds();
 
+        // Published so a batch can check it between its own calls. See
+        // AgentContext::$deadline for why one step is no longer one call.
+        $context->deadline = $deadline;
+
         while ($context->step < $maxSteps) {
             if (microtime(true) >= $deadline) {
                 $emit(AgentEvent::done('time_limit'));
@@ -182,28 +186,87 @@ class AgentRunner
     protected function offerings(AgentContext $context): array
     {
         if ($context->server !== null) {
+            $groups = $this->groupsInPlay(
+                $context,
+                fn (array $active) => $this->registry->forServer($context->user, $context->server, $active),
+                array_keys($this->registry->availableGroups($context->user, $context->server)),
+            );
+
             return [
-                $this->registry->forServer($context->user, $context->server, $context->activeGroups),
-                $this->registry->availableGroups($context->user, $context->server, $context->activeGroups),
+                $this->registry->forServer($context->user, $context->server, $groups),
+                $this->registry->availableGroups($context->user, $context->server, $groups),
             ];
-        }
-
-        $definitions = $this->registry->forAdmin($context->user, $context->activeGroups);
-        $groups = $this->registry->availableAdminGroups($context->user, $context->activeGroups);
-
-        if ($context->assist !== null && $context->targetServer() !== null) {
-            return [$this->assistOfferings($context), $groups];
         }
 
         // Nothing to widen until a session exists, and a tool the model cannot
         // use is a tool it will try anyway.
-        return [
-            array_values(array_filter(
-                $definitions,
-                fn (ToolDefinition $d) => $d->name !== AdminTools::ASSIST_ALLOW_WRITES
-            )),
-            $groups,
-        ];
+        $offer = fn (array $active) => array_values(array_filter(
+            $this->registry->forAdmin($context->user, $active),
+            fn (ToolDefinition $d) => $d->name !== AdminTools::ASSIST_ALLOW_WRITES
+        ));
+
+        if ($context->assist !== null && $context->targetServer() !== null) {
+            // A session names its tools outright, so there is no group
+            // indirection left to flatten — `assistOfferings()` has already
+            // settled what this session is for.
+            return [
+                $this->assistOfferings($context),
+                $this->registry->availableAdminGroups($context->user, $context->activeGroups),
+            ];
+        }
+
+        $groups = $this->groupsInPlay(
+            $context,
+            $offer,
+            array_keys($this->registry->availableAdminGroups($context->user)),
+        );
+
+        return [$offer($groups), $this->registry->availableAdminGroups($context->user, $groups)];
+    }
+
+    /**
+     * Which groups count as active this step.
+     *
+     * Groups exist because small local models degrade sharply once too many
+     * schemas are in play, and the way out of that is to show fewer. But the
+     * indirection is not free, and it is paid on every turn that needs a grouped
+     * tool: the model has to infer from a one-line description which group holds
+     * what it wants, spend a step loading it, and only then make the call it
+     * meant to make in the first place. It also has to decide it needs a tool it
+     * cannot see, which is the part models are worst at — a tool that is absent
+     * and a tool that does not exist look identical from the inside, and the
+     * usual outcome is the model saying it cannot do something it can.
+     *
+     * So the indirection is now a *fallback* rather than the architecture. When
+     * the whole catalogue fits inside the cap, every group is treated as already
+     * active: the model sees every tool by name and simply calls the one it
+     * wants. `availableGroups()` then returns nothing left to load, so
+     * `toAiTools()` never appends the meta-tool and the system prompt drops its
+     * paragraph about it — nothing anywhere mentions a mechanism this turn does
+     * not use. Only when the catalogue genuinely does not fit — an operator who
+     * lowered `max_tools` for a 7B model — do groups come back, and then they are
+     * doing the job they were designed for rather than taxing turns that never
+     * needed them.
+     *
+     * @param callable(string[]): ToolDefinition[] $offer the tools on offer with a given set of groups active
+     * @param string[] $everyGroup every group this user could reach on this surface
+     *
+     * @return string[]
+     */
+    private function groupsInPlay(AgentContext $context, callable $offer, array $everyGroup): array
+    {
+        if ($everyGroup === []) {
+            return $context->activeGroups;
+        }
+
+        $budget = 0;
+        foreach ($offer($everyGroup) as $definition) {
+            if (!in_array($definition->name, self::UNCAPPED_TOOLS, true)) {
+                ++$budget;
+            }
+        }
+
+        return $budget <= $this->maxTools() ? $everyGroup : $context->activeGroups;
     }
 
     /**
@@ -212,7 +275,7 @@ class AgentRunner
      * Narrower than "admin tools plus server tools", and deliberately so. The
      * offered set is capped because local models degrade past roughly fifteen
      * tools, and the two sets together comfortably exceed it — so rather than
-     * let `capTools()` truncate an arbitrary tail, this states what a diagnostic
+     * let the cap truncate an arbitrary tail, this states what a diagnostic
      * session is actually for. The server's own tools come first because they
      * are the point; the handful of admin tools that survive are the ones that
      * answer a question *about* this server or the person who reported it.
@@ -225,9 +288,8 @@ class AgentRunner
      * noise while one is open on the very server the turn is about — and the
      * panel records go with them, for the reason given on
      * `AssistBinding::WRITABLE_COMPANION_TOOLS`. `AssistSessionTest` fails if
-     * either phase outgrows the cap, because the alternative is `capTools()`
-     * silently dropping the tail at exactly the point a session starts changing
-     * things.
+     * either phase outgrows the cap, because the alternative is the cap silently
+     * dropping the tail at exactly the point a session starts changing things.
      *
      * @return ToolDefinition[]
      */
@@ -458,7 +520,21 @@ class AgentRunner
             return $this->handleQuestion($context, $call, $arguments, $emit);
         }
 
-        $risk = $this->riskGate->resolve($definition, $arguments);
+        if ($definition->name === SharedTools::BATCH) {
+            $plan = $this->planBatch($arguments, $definitions);
+
+            // A batch that cannot run whole never reaches the card. See
+            // `planBatch()` — this is the branch that keeps the card honest.
+            if ($plan instanceof ToolResult) {
+                $this->pushToolResult($context, $call, $plan);
+
+                return 'continued';
+            }
+
+            [$arguments, $risk] = $plan;
+        } else {
+            $risk = $this->riskGate->resolve($definition, $arguments);
+        }
 
         $emit(AgentEvent::toolCall($call->id, $definition->name, $arguments, $risk));
 
@@ -470,7 +546,7 @@ class AgentRunner
 
         $startedAt = microtime(true);
         $result = $definition->hostHandled
-            ? $this->runHostTool($context, $call, $definition, $arguments, $emit)
+            ? $this->runHostTool($context, $call, $definition, $arguments, $emit, $risk)
             : $this->runTool($context, $call, $definition, $arguments, $risk);
 
         $this->emitRedactions($context, $emit);
@@ -559,6 +635,12 @@ class AgentRunner
      * Public because the resume path runs it too: a host tool that suspended for
      * approval has to complete after the click, exactly as a dispatched one does.
      *
+     * @param string $approvedRisk the tier this call was allowed to run at — freshly
+     *                             resolved on the immediate path, and read off the
+     *                             stored pending action on resume, which is the only
+     *                             record of what the user actually agreed to. Only
+     *                             the batch runner reads it, as the ceiling none of
+     *                             its calls may exceed.
      * @param callable(AgentEvent): void $emit
      */
     public function runHostTool(
@@ -567,10 +649,12 @@ class AgentRunner
         ToolDefinition $definition,
         array $arguments,
         callable $emit,
+        string $approvedRisk = ToolDefinition::RISK_SAFE,
     ): ToolResult {
         return match ($definition->name) {
             AdminTools::ASSIST_SERVER => $this->openAssist($context, $arguments, $emit),
             AdminTools::ASSIST_ALLOW_WRITES => $this->escalateAssist($context, $arguments, $emit),
+            SharedTools::BATCH => $this->runBatch($context, $call, $arguments, $approvedRisk, $emit),
             default => ToolResult::error(
                 'unknown_tool',
                 sprintf('There is no tool called "%s" available here.', $definition->name),
@@ -676,6 +760,318 @@ class AgentRunner
                 . 'Read a file before writing it, change the least you can, and say what you changed. '
                 . 'The panel tools you no longer have were for reading records you have already read.',
         ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Batching
+    |--------------------------------------------------------------------------
+    |
+    | One approval over many calls. The problem it solves is not only that
+    | twenty product creations meant twenty cards — it is that nobody reads card
+    | fifteen, and the card is the only thing standing between the model and the
+    | panel. Reviewing less was never an option; reviewing the whole set at once,
+    | before any of it runs, is.
+    |
+    | It also happens to be the only way the work fits at all. A suspension
+    | carries `step` through `toState()`, so twenty sequential writes exhaust
+    | `max_steps` long before they are done, and the one strategy that would fit
+    | — twenty calls in a single response — is exactly what an approval destroys,
+    | since the loop returns on the first suspension and `closeUnresolvedCalls()`
+    | answers every sibling with `not_executed`.
+    */
+
+    /**
+     * Expand a batch into something that can be approved whole, or refuse it.
+     *
+     * Everything is settled here, before `suspend()` is reached: every child is
+     * resolved, checked against what this step actually offered, and validated
+     * against its own schema. A batch that fails any of that is refused as a
+     * single retryable error and no card is drawn at all.
+     *
+     * That all-or-nothing rule is the whole point. A card promising twenty
+     * products that fails on the seventh is worse than twenty cards, because by
+     * then the user has already spent the attention the card exists to collect —
+     * and has been told something happened that did not. So a card exists only
+     * for a batch that will run as shown, and a half-valid batch goes back to the
+     * model to be rewritten.
+     *
+     * @param ToolDefinition[] $offered the tools on offer this step, so a name that
+     *                                  resolves in the registry but was filtered out
+     *                                  for this user cannot reach the card by being
+     *                                  nested inside a batch
+     *
+     * @return ToolResult|array{0: array, 1: string} the refusal, or the normalised
+     *                                               arguments and the tier the set runs at
+     */
+    protected function planBatch(array $arguments, array $offered): ToolResult|array
+    {
+        $calls = SharedTools::normaliseCalls($arguments['calls'] ?? []);
+        $max = $this->maxBatchCalls();
+
+        if (count($calls) < SharedTools::MIN_BATCH_CALLS) {
+            return ToolResult::error('invalid_arguments', sprintf(
+                'A batch needs at least %d calls. For a single change, call the tool directly.',
+                SharedTools::MIN_BATCH_CALLS
+            ), retryable: true);
+        }
+
+        if (count($calls) > $max) {
+            return ToolResult::error('batch_too_large', sprintf(
+                'A batch holds at most %d calls and you asked for %d. Send the first %d now and the rest '
+                    . 'in a second batch afterwards.',
+                $max,
+                count($calls),
+                $max
+            ), retryable: true);
+        }
+
+        $available = [];
+        foreach ($offered as $definition) {
+            $available[$definition->name] = true;
+        }
+
+        $risk = ToolDefinition::RISK_SAFE;
+        $planned = [];
+
+        foreach ($calls as $index => $child) {
+            $position = $index + 1;
+            $definition = $child['tool'] === '' ? null : $this->registry->find($child['tool']);
+
+            if ($definition === null || !isset($available[$child['tool']])) {
+                return ToolResult::error('unknown_tool', sprintf(
+                    'Call %d names "%s", which is not a tool you have here. A batch may only hold tools '
+                        . 'from your own list.',
+                    $position,
+                    $child['tool'] !== '' ? $child['tool'] : '(nothing)'
+                ), retryable: true);
+            }
+
+            // Host-handled tools suspend, bind, or widen a grant — none of which
+            // survives being nested. `ask_user` cannot ask from inside a batch
+            // that is itself waiting to be approved, and the assist tools would
+            // let one click both open a session on a customer's server and change
+            // things on it, where those changes were written before the model had
+            // seen anything on that server. `activate_tool_group` never resolves
+            // here at all, so it is caught above as an unknown name.
+            if ($definition->hostHandled) {
+                return ToolResult::error('not_batchable', sprintf(
+                    'Call %d (%s) cannot go in a batch — it needs the user before it can do anything. '
+                        . 'Take it out and call it on its own.',
+                    $position,
+                    $definition->name
+                ), retryable: true);
+            }
+
+            $validation = $this->registry->validate($definition, $child['arguments']);
+
+            if (!$validation['valid']) {
+                return ToolResult::error('invalid_arguments', sprintf(
+                    'Call %d (%s) is not valid: %s Fix it and send the whole batch again.',
+                    $position,
+                    $definition->name,
+                    implode(' ', $validation['errors'])
+                ), retryable: true);
+            }
+
+            $childRisk = $this->riskGate->resolve($definition, $validation['value']);
+
+            if ($childRisk === ToolDefinition::RISK_DESTRUCTIVE && !$this->allowDestructiveBatches()) {
+                return ToolResult::error('not_batchable', sprintf(
+                    'Call %d (%s) destroys data, and this panel does not allow that inside a batch. '
+                        . 'Take it out and ask for it on its own, where it gets its own confirmation.',
+                    $position,
+                    $definition->name
+                ), retryable: true);
+            }
+
+            $risk = $this->riskGate->max($risk, $childRisk);
+            $planned[] = ['tool' => $definition->name, 'arguments' => $validation['value']];
+        }
+
+        return [
+            [
+                'summary' => trim((string) ($arguments['summary'] ?? '')),
+                'calls' => $planned,
+                'on_error' => ($arguments['on_error'] ?? null) === 'continue' ? 'continue' : 'stop',
+            ],
+            $risk,
+        ];
+    }
+
+    /**
+     * Run a batch the user has approved.
+     *
+     * Two passes. The first re-asks every question that could have changed while
+     * the card sat on screen — the tool still exists, the user may still run it,
+     * and its tier has not been raised above what was approved — and refuses the
+     * whole batch if any of them has. Answering these per call as it went would
+     * mean a batch that half-ran because an operator hardened a tool at the wrong
+     * moment, which is the one outcome worse than not running.
+     *
+     * The second pass dispatches, emitting each call's own `tool_call` and
+     * `tool_result` under an id derived from the batch's. The transcript then
+     * reads as the individual calls it actually made, which is both what the
+     * existing tool rows already render and what an audit of this should show —
+     * `runTool()` writes one `AiToolCall` per child for the same reason.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function runBatch(
+        AgentContext $context,
+        ToolCallData $call,
+        array $arguments,
+        string $approvedRisk,
+        callable $emit,
+    ): ToolResult {
+        $calls = SharedTools::normaliseCalls($arguments['calls'] ?? []);
+        $stopOnError = ($arguments['on_error'] ?? null) !== 'continue';
+
+        if ($calls === []) {
+            return ToolResult::error('invalid_arguments', 'That batch had nothing in it.');
+        }
+
+        /** @var array<int, array{0: ToolDefinition, 1: string}> $resolved */
+        $resolved = [];
+
+        foreach ($calls as $index => $child) {
+            $position = $index + 1;
+            $definition = $child['tool'] === '' ? null : $this->registry->find($child['tool']);
+
+            if ($definition === null || $definition->hostHandled) {
+                return ToolResult::error('unavailable', sprintf(
+                    'Call %d (%s) is no longer available, so none of this batch was run.',
+                    $position,
+                    $child['tool'] !== '' ? $child['tool'] : '(nothing)'
+                ));
+            }
+
+            if (!$this->usable($context, $definition)) {
+                return ToolResult::error('forbidden', sprintf(
+                    'You no longer have permission to run call %d (%s), so none of this batch was run. '
+                        . 'Say which permission is missing and stop.',
+                    $position,
+                    $definition->name
+                ));
+            }
+
+            $childRisk = $this->riskGate->resolve($definition, $child['arguments']);
+
+            // Approval is a ceiling, not a token. An operator who hardened a tool
+            // while the card was open must not be bypassed by a click that
+            // predates the change.
+            if ($this->riskGate->max($approvedRisk, $childRisk) !== $approvedRisk) {
+                return ToolResult::error('risk_changed', sprintf(
+                    'Call %d (%s) now counts as a "%s" action, which is more than this batch was approved '
+                        . 'for, so none of it was run. Ask for it again.',
+                    $position,
+                    $definition->name,
+                    $childRisk
+                ));
+            }
+
+            $resolved[$index] = [$definition, $childRisk];
+        }
+
+        // A resumed batch is a fresh request with no loop around it, so it starts
+        // its own clock rather than inheriting an expired one.
+        $deadline = $context->deadline ?? (microtime(true) + $this->maxWallSeconds());
+
+        $report = [];
+        $succeeded = 0;
+        $failed = 0;
+        $halted = null;
+
+        foreach ($calls as $index => $child) {
+            [$definition, $childRisk] = $resolved[$index];
+
+            if ($halted === null && microtime(true) >= $deadline) {
+                $halted = 'out_of_time';
+            }
+
+            if ($halted !== null) {
+                $report[] = ['tool' => $definition->name, 'not_run' => $halted];
+
+                continue;
+            }
+
+            $childCall = new ToolCallData($call->id . '.' . $index, $definition->name, $child['arguments']);
+
+            $emit(AgentEvent::toolCall($childCall->id, $definition->name, $child['arguments'], $childRisk));
+
+            $startedAt = microtime(true);
+            $result = $this->runTool($context, $childCall, $definition, $child['arguments'], $childRisk);
+
+            $this->emitRedactions($context, $emit);
+
+            $emit(AgentEvent::toolResult(
+                $childCall->id,
+                $definition->name,
+                $result->ok,
+                $result->summary(),
+                $result->ok ? $result->data : null,
+                (int) round((microtime(true) - $startedAt) * 1000),
+            ));
+
+            if ($result->ok) {
+                ++$succeeded;
+                $report[] = ['tool' => $definition->name, 'ok' => true, 'summary' => $result->summary()];
+
+                continue;
+            }
+
+            ++$failed;
+            $report[] = ['tool' => $definition->name, 'ok' => false, 'error' => $result->summary()];
+
+            if ($stopOnError) {
+                $halted = 'earlier_failure';
+            }
+        }
+
+        return ToolResult::ok(array_filter([
+            'batch' => true,
+            'succeeded' => $succeeded,
+            'failed' => $failed,
+            'not_run' => count($calls) - $succeeded - $failed,
+            'calls' => $report,
+            // Summaries rather than the records themselves: twenty shaped results
+            // would cost more context than the rest of the turn put together, and
+            // reading back what was created is one cheap call when it is needed.
+            'note' => $succeeded > 0
+                ? 'Only summaries are returned. If you need what was created, read it back with a list tool.'
+                : null,
+        ], fn ($v) => $v !== null));
+    }
+
+    /**
+     * Whether a tool may still be run in this turn.
+     *
+     * Asked again at the point of running rather than trusted from the moment it
+     * was offered, because an approval can sit on screen for minutes and an
+     * operator may have changed something in between.
+     *
+     * A server-scoped tool reached through an assist session is judged against
+     * the *binding* rather than the acting user's own access to that server —
+     * which they do not have, and which is the entire point of the binding. The
+     * capability behind the binding has already been re-checked by the time a
+     * turn resumes.
+     */
+    public function usable(AgentContext $context, ToolDefinition $definition): bool
+    {
+        if (
+            $context->assist !== null
+            && $context->server === null
+            && $definition->scope === ToolDefinition::SCOPE_SERVER
+        ) {
+            return $context->targetServer() !== null
+                && $this->registry->assistPermits(
+                    $definition,
+                    $context->assist->tools(),
+                    $context->assist->abilities
+                );
+        }
+
+        return $this->registry->canUse($context->user, $context->server, $definition);
     }
 
     /**
@@ -897,9 +1293,11 @@ class AgentRunner
      * Tools that are never subject to the cap.
      *
      * `ask_user` is the agent's way out of a position it cannot otherwise leave,
-     * so spending cap budget on it defeats the mechanism the budget exists to
-     * serve. `activate_tool_group` needs no entry here: the registry appends it
-     * after the cap has already run, in `toAiTools()`.
+     * and `batch` is how it makes more than one change without asking the user
+     * twenty times; neither is a capability, so spending cap budget on them
+     * defeats the mechanism the budget exists to serve. `activate_tool_group`
+     * needs no entry here: the registry appends it after the cap has already
+     * run, in `toAiTools()`.
      *
      * Ordering these last and letting `array_slice()` take the tail meant that
      * on a server turn with a fully-permissioned user the offered set came to
@@ -911,12 +1309,19 @@ class AgentRunner
      */
     private const UNCAPPED_TOOLS = [
         SharedTools::ASK_USER,
+        SharedTools::BATCH,
     ];
 
     /**
      * Keep the offered set small. Local models degrade sharply once too many
      * tools are in play — a 3B model given twenty schemas tends to call the
      * first one that parses rather than the one that fits.
+     *
+     * Inert on a default install, and that is the intent: `groupsInPlay()` only
+     * withholds a group once the catalogue has already overrun the cap, so by
+     * the time anything reaches here under normal settings it fits. What follows
+     * is the behaviour after an operator has lowered `max_tools` far enough that
+     * something genuinely has to go.
      *
      * **The base set is reserved; only groups are capped.** Those two halves
      * fail differently and that asymmetry is the whole design. A missing read is
@@ -1061,9 +1466,33 @@ class AgentRunner
         return max(0, (int) $this->setting('agent:max_repairs', config('modules.ai.agent.max_repairs', 2)));
     }
 
+    /**
+     * How many calls one batch may carry.
+     *
+     * Floored at the minimum a batch is allowed to be rather than at 1: an
+     * operator who sets this to zero means "no batching", and the honest way to
+     * say that is to disable the tool in the catalogue, not to leave a tool
+     * offered that refuses every call it is given.
+     */
+    protected function maxBatchCalls(): int
+    {
+        return max(
+            SharedTools::MIN_BATCH_CALLS,
+            (int) $this->setting('agent:max_batch_calls', config('modules.ai.agent.max_batch_calls', 25))
+        );
+    }
+
+    protected function allowDestructiveBatches(): bool
+    {
+        return (bool) $this->setting(
+            'agent:allow_destructive_batches',
+            config('modules.ai.agent.allow_destructive_batches', false)
+        );
+    }
+
     protected function maxTools(): int
     {
-        return max(4, (int) $this->setting('agent:max_tools', config('modules.ai.agent.max_tools', 20)));
+        return max(4, (int) $this->setting('agent:max_tools', config('modules.ai.agent.max_tools', 32)));
     }
 
     /**

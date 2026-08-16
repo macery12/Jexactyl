@@ -2,6 +2,7 @@
 
 namespace Everest\Services\AI\Tools;
 
+use Everest\Models\Setting;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Facades\Activity;
@@ -28,7 +29,7 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
  * the endpoint's own FormRequest `permission()` gate, and its validation rules.
  * There is deliberately no second code path to get wrong.
  *
- * Five things this has to get right, each a real failure rather than a
+ * Six things this has to get right, each a real failure rather than a
  * theoretical one:
  *
  * 1. **Send no cookies.** They have already been decrypted in place on the
@@ -50,6 +51,10 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
  * 5. **Never dispatch inside a transaction.** The exception handler rolls back
  *    to level 0 when it renders, which would take the caller's transaction
  *    with it.
+ * 6. **Bound how long it may block.** A sub-request inherits the panel's own
+ *    node timeouts, and some of those are a quarter of an hour — fine for a
+ *    person who clicked "compress" and can see a progress bar, useless inside a
+ *    turn whose whole wall-clock budget is three minutes.
  */
 class ToolExecutor
 {
@@ -80,6 +85,8 @@ class ToolExecutor
         $target = $this->app->make(ActivityLogTargetableService::class);
         $snapshot = [$target->actor(), $target->subject(), $target->apiKeyId(), $target->isAdmin()];
 
+        $timeouts = $this->clampNodeTimeouts();
+
         $sub = $this->buildSubRequest($invocation, $parentRequest);
         $matched = null;
 
@@ -102,6 +109,8 @@ class ToolExecutor
                 $matched->controller = null;
             }
 
+            config($timeouts);
+
             Activity::reset();
             $this->restoreLogTarget($target, $snapshot);
 
@@ -121,6 +130,44 @@ class ToolExecutor
                 ob_end_flush();
             }
         }
+    }
+
+    /**
+     * Hold the node timeouts down for the duration of one tool call, returning
+     * what they were so the caller can put them back.
+     *
+     * Lowered rather than replaced: an operator who has already tightened
+     * `GUZZLE_TIMEOUT` meant it, and this has no business relaxing it. What it
+     * does mean is that the archive timeout — fifteen minutes, and correct for a
+     * person watching a progress bar — cannot be inherited by a model that will
+     * simply sit there. A tool that overruns comes back as a failed tool call the
+     * model can report or route around, which is strictly better than a turn that
+     * looks identical to a crash.
+     *
+     * Config rather than a parameter because the value has to reach a repository
+     * several layers down the sub-request, and threading a timeout through the
+     * HTTP kernel is not a thing that can be done.
+     *
+     * @return array<string, int> the previous values, shaped for `config()`
+     */
+    protected function clampNodeTimeouts(): array
+    {
+        $ceiling = max(5, (int) Setting::get(
+            'settings::modules:ai:agent:max_tool_seconds',
+            config('modules.ai.agent.max_tool_seconds', 90)
+        ));
+
+        $previous = [
+            'everest.guzzle.timeout' => (int) config('everest.guzzle.timeout'),
+            'everest.guzzle.archive_timeout' => (int) config('everest.guzzle.archive_timeout'),
+        ];
+
+        config([
+            'everest.guzzle.timeout' => min($previous['everest.guzzle.timeout'], $ceiling),
+            'everest.guzzle.archive_timeout' => min($previous['everest.guzzle.archive_timeout'], $ceiling),
+        ]);
+
+        return $previous;
     }
 
     /**

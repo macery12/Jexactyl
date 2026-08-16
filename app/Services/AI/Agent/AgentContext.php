@@ -73,6 +73,22 @@ class AgentContext
     public array $usage = ['prompt_tokens' => 0, 'completion_tokens' => 0, 'total_tokens' => 0];
 
     /**
+     * When this turn's wall clock runs out, as a `microtime(true)` stamp.
+     *
+     * The loop keeps its own copy and checks it between steps, which is enough
+     * for a step that is one tool call. A batch is not: it is one step holding
+     * up to `max_batch_calls` dispatches, each with its own `max_tool_seconds`,
+     * and multiplying those together comfortably exceeds any turn limit an
+     * operator thinks they have set. So the deadline is published here for the
+     * batch runner to check between calls.
+     *
+     * Null until a turn starts, and deliberately absent from {@see toState()} —
+     * a resumed turn is a fresh request with a fresh clock, and inheriting an
+     * expired deadline would abandon the work the user just approved.
+     */
+    public ?float $deadline = null;
+
+    /**
      * The administrator's audited session on a customer's server, once one has
      * been approved. Null on every server turn — the customer's own assistant
      * needs no such thing, it is already on their server.

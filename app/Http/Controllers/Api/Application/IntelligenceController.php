@@ -67,9 +67,12 @@ class IntelligenceController extends ApplicationApiController
                 'reasoning' => boolval(config('modules.ai.agent.reasoning', true)),
                 'max_steps' => (int) config('modules.ai.agent.max_steps', 12),
                 'max_wall_seconds' => (int) config('modules.ai.agent.max_wall_seconds', 180),
+                'max_tool_seconds' => (int) config('modules.ai.agent.max_tool_seconds', 90),
                 'tool_result_bytes' => (int) config('modules.ai.agent.tool_result_bytes', 12288),
                 'max_repairs' => (int) config('modules.ai.agent.max_repairs', 2),
-                'max_tools' => (int) config('modules.ai.agent.max_tools', 15),
+                'max_tools' => (int) config('modules.ai.agent.max_tools', 32),
+                'max_batch_calls' => (int) config('modules.ai.agent.max_batch_calls', 25),
+                'allow_destructive_batches' => boolval(config('modules.ai.agent.allow_destructive_batches', false)),
             ],
 
             'concurrency' => [

@@ -1,20 +1,17 @@
 import http from '@/lib/http';
-import {
-    streamAgentRequest,
-    type AgentStreamCallbacks,
-    type AiDiffPreview,
-    type AiRisk,
-} from '@/lib/aiStream';
+import { streamAgentRequest, type AgentStreamCallbacks } from '@/lib/aiStream';
 
 // Client-side AI surface for a server: POST /ai/agent for the tool-calling
 // agent, which can suspend mid-turn and be resumed by /ai/agent/decide, plus the
 // conversation store behind the history rail.
 //
-// `POST /ai` — the advisory-chat endpoint — no longer has a client. Chat mode
-// was cut from the assistant, and its other query type, `log_analysis`, has
-// never had a V2 caller despite the crash-analysis toggle on /admin/ai/limits
-// still being wired to the setting. The endpoint is left in place; retiring it
-// is a decision about the crash-analysis feature, not about this module.
+// Two endpoints have no client any more. `POST /ai` — advisory chat — lost its
+// caller when chat mode was cut, and its other query type, `log_analysis`, never
+// had a V2 caller despite the crash-analysis toggle on /admin/ai/limits still
+// being wired to the setting. `GET /ai/agent/pending` lost its caller with the
+// banner that polled it; a suspended turn now either has its card on screen or
+// expires on its own. Both are left in place — retiring them is a decision about
+// those features, not about this module.
 
 export type ChatRole = 'user' | 'assistant' | 'tool';
 
@@ -35,17 +32,6 @@ export interface AiConversation {
     expires_at: string | null;
     created_at: string;
     updated_at: string;
-}
-
-export interface PendingAction {
-    turn_id: string;
-    conversation_id: number | null;
-    tool: string;
-    arguments: Record<string, unknown>;
-    risk: AiRisk;
-    preview: AiDiffPreview | null;
-    created_at: string | null;
-    expires_at: string | null;
 }
 
 /**
@@ -95,11 +81,6 @@ export function streamAgentDecision(
         callbacks,
         signal,
     );
-}
-
-export async function listPendingActions(uuid: string): Promise<PendingAction[]> {
-    const { data } = await http.get(`/api/client/servers/${uuid}/ai/agent/pending`);
-    return data.data as PendingAction[];
 }
 
 export async function listConversations(uuid: string): Promise<AiConversation[]> {
