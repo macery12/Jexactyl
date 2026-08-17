@@ -68,9 +68,22 @@ class RedactionMap
 
     private string $salt;
 
+    /**
+     * Whether the salt was generated here rather than restored.
+     *
+     * A conversation's salt has to settle on one value and stay there. Before
+     * this, an empty stored map minted a *fresh* salt on every load, so the
+     * first turn's tokens were derived under one salt and everything after it
+     * under another — one map, two derivations, and a value's token depending
+     * on which turn happened to see it first. A provisional salt yields to the
+     * first real one it meets in {@see merge()}; a restored one never does.
+     */
+    private bool $provisionalSalt;
+
     public function __construct(?string $salt = null)
     {
-        $this->salt = $salt !== null && $salt !== '' ? $salt : (string) Str::random(24);
+        $this->provisionalSalt = $salt === null || $salt === '';
+        $this->salt = $this->provisionalSalt ? (string) Str::random(24) : $salt;
     }
 
     /**
@@ -85,8 +98,14 @@ class RedactionMap
         // Past the cap, everything of a kind collapses onto one token. Still
         // redacted, no longer correlated — and deliberately not recorded, so a
         // runaway result cannot grow the stored map without bound.
+        //
+        // The shape is deliberate too: no underscore, so it does not match the
+        // pattern the browser restores with. There is nothing behind it to
+        // restore, and rendering `[email]` where several different addresses
+        // stood is the honest outcome — better than showing one of them and
+        // implying the rest were the same person.
         if (count($this->values) >= self::MAX_ENTRIES) {
-            return '[' . $kind . ']';
+            return self::overflowToken($kind);
         }
 
         $token = $this->mint($kind, $value);
@@ -96,6 +115,12 @@ class RedactionMap
         $this->fresh[$token] = $value;
 
         return $token;
+    }
+
+    /** The uncorrelated token a kind collapses onto once the map is full. */
+    public static function overflowToken(string $kind): string
+    {
+        return '[' . $kind . ']';
     }
 
     /**
@@ -158,21 +183,65 @@ class RedactionMap
     /**
      * Fold another map in.
      *
-     * Safe precisely because tokens are derived: a token present in both maps
-     * carries the same value in both, so there is nothing to reconcile. Two maps
-     * with *different* salts produce disjoint tokens and simply union — which is
-     * the right answer too, since neither transcript ever used the other's.
+     * Almost always trivial, because both maps normally share a salt: the same
+     * value derives the same token on both sides and there is nothing to
+     * reconcile. What this cannot do is *assume* that. A token is six hex
+     * characters — twenty-four bits — and two independently-salted maps of a
+     * couple of hundred entries each collide with probability in the fractions
+     * of a percent, which over an install's lifetime is not never. Skipping a
+     * token that is already present, as this used to, resolves such a collision
+     * by silently discarding the incoming value and leaving its token pointing
+     * at somebody else's data. That is the one outcome the whole token scheme
+     * exists to prevent.
+     *
+     * So a collision is detected rather than assumed away, and resolved in the
+     * only direction that is safe: the token that is already here keeps its
+     * meaning — a stored transcript already refers to it — and the incoming
+     * value is reminted into a free token under this map's salt. Deterministic,
+     * so the same merge always lands the same way, and the value stays
+     * addressable for everything minted afterwards.
      */
     public function merge(self $other): void
     {
+        // An empty map with a generated salt has nothing derived under it yet,
+        // so adopting the incoming one costs nothing and stops a conversation
+        // accumulating tokens from two derivations. The other map's salt is the
+        // authoritative one whether it was stored or generated, because it is
+        // the salt its tokens were actually minted under.
+        if ($this->provisionalSalt && $this->values === []) {
+            $this->salt = $other->salt;
+            $this->provisionalSalt = $other->provisionalSalt;
+        }
+
         foreach ($other->values as $token => $value) {
-            if (isset($this->values[$token])) {
-                continue;
+            $existing = $this->values[$token] ?? null;
+
+            if ($existing !== null) {
+                // Same token, same value: nothing to do. Same token, different
+                // value: a real collision, and the incoming one needs a name of
+                // its own.
+                if ($existing === $value || isset($this->tokens[$value])) {
+                    continue;
+                }
+
+                $token = $this->mint($this->kindOf($token), $value);
             }
 
             $this->values[$token] = $value;
             $this->tokens[$value] ??= $token;
         }
+    }
+
+    /**
+     * The kind a token declares, so a reminted one stays legible as the same
+     * sort of thing. Anything unparseable becomes a generic value token rather
+     * than being dropped.
+     */
+    private function kindOf(string $token): string
+    {
+        return preg_match('/^\[([a-z]+)_[0-9a-f]+]$/', $token, $matches) === 1
+            ? $matches[1]
+            : 'value';
     }
 
     /**

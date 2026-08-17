@@ -72,11 +72,38 @@ class ToolErrorMappingTest extends TestCase
 
     public function testTrailingRequestIdNoiseIsStripped(): void
     {
-        [, $detail] = $this->map(502, [
-            'detail' => 'There was an error while communicating with the machine running this server. (code: 502) (request_id: abc123)',
+        [, $detail] = $this->map(409, [
+            'detail' => 'There was an error while communicating with the machine running this server. (code: 409) (request_id: abc123)',
         ]);
 
         $this->assertSame('There was an error while communicating with the machine running this server.', $detail);
+    }
+
+    /**
+     * AI-030. A 5xx detail is never quoted, in any mode.
+     *
+     * With APP_DEBUG on it is the raw exception message; with it off, a
+     * controller that wraps its own failure puts the same thing in the same
+     * field. Neither is actionable to a model — a 5xx means wait and retry —
+     * and both are echoed onto a user's screen over SSE.
+     */
+    public function testFiveHundredLevelDetailIsNeverQuoted(): void
+    {
+        $leaky = [
+            'detail' => 'Failed to update a product: SQLSTATE[42S02]: Base table or view not found: '
+                . "1146 Table 'panel.products' doesn't exist (Connection: mysql) at /var/www/panel/app/Foo.php",
+            'code' => 'QueryException',
+        ];
+
+        foreach ([500, 502, 503, 504] as $status) {
+            [$code, $detail] = $this->map($status, $leaky);
+
+            foreach (['SQLSTATE', 'panel.products', '/var/www/panel', 'QueryException', 'mysql'] as $sentinel) {
+                $this->assertStringNotContainsString($sentinel, $detail, 'status ' . $status);
+            }
+
+            $this->assertStringNotContainsString('QueryException', $code);
+        }
     }
 
     /**

@@ -19,7 +19,6 @@ use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Support\AiBudgetService;
-use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
@@ -141,9 +140,13 @@ class AgentController extends ClientApiController
     {
         $this->assertAgentEnabled($request);
 
-        $pending = AiPendingAction::actionable()
+        $owned = AiPendingAction::query()
             ->where('user_id', $request->user()->id)
-            ->where('server_uuid', $server->uuid)
+            ->where('server_uuid', $server->uuid);
+
+        $this->sweepExpiredPending($owned);
+
+        $pending = (clone $owned)->actionable()
             ->orderByDesc('created_at')
             ->limit(10)
             ->get();
@@ -205,8 +208,7 @@ class AgentController extends ClientApiController
 
         $this->recoverStaleClaim($pending);
 
-        if ($pending->status === AiPendingAction::STATUS_PENDING && !$pending->isActionable()) {
-            $pending->update(['status' => AiPendingAction::STATUS_EXPIRED, 'resolved_at' => now()]);
+        if ($this->expireIfStale($pending)) {
             abort(404, 'That pending action has expired.');
         }
 
@@ -215,6 +217,8 @@ class AgentController extends ClientApiController
         }
 
         $decision = (string) $request->input('decision');
+        $this->assertDecisionMatchesPending($pending, $decision);
+        $conversation = $this->pendingConversation($pending, (int) $user->id, $server);
         $context = $this->restoreTurn($pending, $user, $server);
 
         if ($decision === 'reject') {
@@ -228,7 +232,12 @@ class AgentController extends ClientApiController
                 }
                 $this->applyRejection($pending, $context);
 
-                return $this->streamTurn($context, $pending, budgetReservation: $reservation);
+                return $this->streamTurn(
+                    $context,
+                    $pending,
+                    conversation: $conversation,
+                    budgetReservation: $reservation,
+                );
             } catch (\Throwable $e) {
                 $reservation->release();
 
@@ -237,7 +246,7 @@ class AgentController extends ClientApiController
         }
 
         if ($decision === 'answer') {
-            $this->assertAnswerable($pending);
+            $this->assertAnswerAcceptable($pending, (string) $request->input('answer', ''));
             $reservation = $this->budget->reserve($user);
 
             try {
@@ -249,9 +258,14 @@ class AgentController extends ClientApiController
                 $context->executionKey = $pending->execution_key;
                 $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
 
-                return $this->streamTurn($context, $pending, budgetReservation: $reservation);
+                return $this->streamTurn(
+                    $context,
+                    $pending,
+                    conversation: $conversation,
+                    budgetReservation: $reservation,
+                );
             } catch (\Throwable $e) {
-                $reservation->release();
+                $this->abandonClaim($pending, $reservation);
 
                 throw $e;
             }
@@ -268,12 +282,29 @@ class AgentController extends ClientApiController
             }
             $context->executionKey = $pending->execution_key;
 
-            return $this->streamTurn($context, $pending, budgetReservation: $reservation);
+            return $this->streamTurn(
+                $context,
+                $pending,
+                conversation: $conversation,
+                budgetReservation: $reservation,
+            );
         } catch (\Throwable $e) {
-            $reservation->release();
+            $this->abandonClaim($pending, $reservation);
 
             throw $e;
         }
+    }
+
+    /**
+     * Resolve the owned conversation whose state this resume may bank.
+     *
+     * Without it, `TurnRecorder::touch()` is handed nothing and every token the
+     * resumed leg minted is lost — the next turn re-mints them, and the same
+     * customer acquires a second name halfway down their own transcript.
+     */
+    protected function pendingConversation(AiPendingAction $pending, int $userId, Server $server): ?AiConversation
+    {
+        return $this->ownedPendingConversation($pending, $userId, AiConversation::SCOPE_SERVER, $server->uuid);
     }
 
     /**
@@ -290,18 +321,6 @@ class AgentController extends ClientApiController
 
         if (!hash_equals((string) $server->name, $typed)) {
             abort(422, 'Type the server name exactly to confirm this action.');
-        }
-    }
-
-    /**
-     * Only a question can be answered. Anything else arriving with
-     * `decision: answer` is a client bug, and running the pending tool on the
-     * strength of it would be an approval nobody gave.
-     */
-    protected function assertAnswerable(AiPendingAction $pending): void
-    {
-        if ($pending->tool_name !== SharedTools::ASK_USER) {
-            abort(422, 'That pending action is waiting for approval, not an answer.');
         }
     }
 

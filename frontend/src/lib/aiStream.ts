@@ -50,9 +50,21 @@ export interface AiConfirmationPreview {
  */
 export interface AiBatchPreview {
     kind: 'batch';
+    /**
+     * The model's own description of what it is about to do. Displayed as such
+     * and never as the evidence — a batch approved on the strength of a sentence
+     * its subject wrote is not a reviewed batch.
+     */
     summary: string;
     count: number;
-    calls: { tool: string; arguments: Record<string, unknown> }[];
+    /**
+     * How many children are above SAFE, and therefore how many the card must
+     * see opened before it will enable approval. Resolved server-side against
+     * the live tool policy, so a tool hardened while the card sat on screen
+     * raises the bar rather than being reviewed under the old one.
+     */
+    requires_review: number;
+    calls: { tool: string; arguments: Record<string, unknown>; risk: AiRisk }[];
 }
 
 export type AiApprovalPreview = AiDiffPreview | AiServerPreview | AiConfirmationPreview | AiBatchPreview;

@@ -15,6 +15,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
+use Everest\Services\AI\Tools\InternalToolCall;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -208,7 +209,7 @@ final class Handler extends ExceptionHandler
             $error['detail'] = 'The requested resource could not be found on the server.';
         }
 
-        if (config('app.debug')) {
+        if (config('app.debug') && $this->debugDetailPermitted()) {
             $error = array_merge($error, [
                 'detail' => $e->getMessage(),
                 'source' => [
@@ -228,6 +229,34 @@ final class Handler extends ExceptionHandler
         }
 
         return ['errors' => [array_merge($error, $override)]];
+    }
+
+    /**
+     * Whether this response may carry APP_DEBUG's exception detail.
+     *
+     * It may not when the request is an agent tool call. Debug output is
+     * addressed to a developer reading their own browser; a tool response is
+     * addressed to an inference provider and then echoed onto a user's screen
+     * over SSE, so the message, the source path and the whole trace would leave
+     * the machine. An operator running with APP_DEBUG on — which on this panel
+     * is common enough — should not thereby be exporting their schema.
+     *
+     * The rest of the envelope is unchanged: the tool layer still gets its
+     * status, its stable code and the generic detail, which is everything it can
+     * actually act on. The original exception is reported to the log either way.
+     */
+    private function debugDetailPermitted(): bool
+    {
+        $container = Container::getInstance();
+
+        if (!$container->bound('request')) {
+            return true;
+        }
+
+        $request = $container->make('request');
+
+        return !$request instanceof \Illuminate\Http\Request
+            || !InternalToolCall::matches($request->attributes->get(InternalToolCall::ATTRIBUTE));
     }
 
     /**

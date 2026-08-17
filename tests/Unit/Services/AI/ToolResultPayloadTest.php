@@ -49,6 +49,104 @@ class ToolResultPayloadTest extends TestCase
         $this->assertLessThan(200, count($decoded['result']['items']));
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | AI-031 — a page is not the whole set
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Twenty-six users at a page size of twenty used to shape to `count: 20`
+     * with nothing to say more existed, and the model answered "this panel has
+     * twenty users" — confidently, and wrongly, from a result that had told it
+     * so.
+     */
+    public function testAPaginatedListCarriesTheTotalAndSaysThereIsMore(): void
+    {
+        $shaped = $this->shape($this->page(rows: 20, total: 26, page: 1, perPage: 20, pages: 2));
+
+        $this->assertSame(26, $shaped['pagination']['total']);
+        $this->assertSame(1, $shaped['pagination']['page']);
+        $this->assertSame(20, $shaped['pagination']['per_page']);
+        $this->assertSame(2, $shaped['pagination']['total_pages']);
+        $this->assertCount(20, $shaped['items']);
+        $this->assertStringContainsString('page 1 of 2', $shaped['note']);
+        $this->assertStringContainsString('26 records match', $shaped['note']);
+
+        // And the collapsed tool row reports the set rather than the page.
+        $this->assertSame('26 items (showing 20)', ToolResult::ok($shaped)->summary());
+    }
+
+    public function testASinglePageSaysNothingAboutPagination(): void
+    {
+        $shaped = $this->shape($this->page(rows: 4, total: 4, page: 1, perPage: 20, pages: 1));
+
+        $this->assertSame(4, $shaped['pagination']['total']);
+        $this->assertArrayNotHasKey('note', $shaped);
+        $this->assertSame('4 items', ToolResult::ok($shaped)->summary());
+    }
+
+    /**
+     * The shaper's own limit and the endpoint's page size are different cuts,
+     * and a result that hit both has to say so twice.
+     */
+    public function testTheShaperLimitAndThePageLimitAreReportedSeparately(): void
+    {
+        $shaped = $this->shape($this->page(rows: 20, total: 100, page: 2, perPage: 20, pages: 5), limit: 5);
+
+        $this->assertCount(5, $shaped['items']);
+        $this->assertSame(20, $shaped['count']);
+        $this->assertStringContainsString('first 5 of 20 entries on this page', $shaped['note']);
+        $this->assertStringContainsString('page 2 of 5', $shaped['note']);
+    }
+
+    /**
+     * Not every tool endpoint paginates — several return a plain collection —
+     * and inventing a page count for those would be its own kind of lie.
+     */
+    public function testAnUnpaginatedCollectionIsUnchanged(): void
+    {
+        $shaped = $this->shape(['data' => [['attributes' => ['id' => 1]]]]);
+
+        $this->assertArrayNotHasKey('pagination', $shaped);
+        $this->assertSame(1, $shaped['count']);
+    }
+
+    /** A Fractal JSON-API page, in the shape the Application API really emits. */
+    private function page(int $rows, int $total, int $page, int $perPage, int $pages): array
+    {
+        return [
+            'data' => array_map(
+                static fn (int $id) => ['type' => 'user', 'attributes' => ['id' => $id, 'username' => 'u' . $id]],
+                range(1, $rows),
+            ),
+            'meta' => [
+                'pagination' => [
+                    'total' => $total,
+                    'count' => $rows,
+                    'per_page' => $perPage,
+                    'current_page' => $page,
+                    'total_pages' => $pages,
+                    'links' => ['self' => 'https://panel.test/api/application/users?page=' . $page],
+                ],
+            ],
+        ];
+    }
+
+    private function shape(array $data, int $limit = 25): array
+    {
+        $shaper = new class () {
+            use \Everest\Services\AI\Tools\Definitions\DefinesToolSchemas;
+
+            public function run(array $data, int $limit): array
+            {
+                return self::mapList($data, static fn (array $row) => ['id' => $row['id'] ?? null], $limit);
+            }
+        };
+
+        return $shaper->run($data, $limit);
+    }
+
     public function testEmojiTextRemainsValidUtf8AndWithinTheSerializedByteCap(): void
     {
         $result = ToolResult::ok(['message' => str_repeat('😀', 500)])->capped(700);

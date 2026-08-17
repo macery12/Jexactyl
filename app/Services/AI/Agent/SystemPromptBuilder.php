@@ -122,6 +122,27 @@ class SystemPromptBuilder
     }
 
     /**
+     * One interpolated fact value, filtered the same way a tool result is.
+     *
+     * Every value the panel concatenates into this prompt reaches the provider
+     * exactly as a tool result does, and several of them are customer-authored:
+     * a customer names their own server, and a server called
+     * `someone@example.com` used to be sent verbatim while the identical string
+     * arriving through `admin_server_view` was tokenised. A boundary that holds
+     * on one path and not the other is not a boundary.
+     *
+     * `redactText()` and not the structural walker on purpose — these are bare
+     * strings with no field name to read, so what applies is exactly what
+     * applies to prose in a file or a console line. Tokens minted here go into
+     * the turn's map like any other, so the same value reads as the same token
+     * in the prompt, in a tool result and on screen.
+     */
+    protected function fact(AgentContext $context, string $value): string
+    {
+        return $this->redactor->redactText($value, $context->redactions);
+    }
+
+    /**
      * Facts the model would otherwise ask for or guess at.
      */
     protected function serverFacts(AgentContext $context): string
@@ -130,8 +151,8 @@ class SystemPromptBuilder
         $server->loadMissing('egg');
 
         $facts = [
-            'Name: ' . $server->name,
-            'Type: ' . ($server->egg?->name ?? 'unknown'),
+            'Name: ' . $this->fact($context, (string) $server->name),
+            'Type: ' . $this->fact($context, (string) ($server->egg?->name ?? 'unknown')),
             'State: ' . ($server->status ?? 'installed and idle'),
             'Memory limit: ' . ($server->memory ? $server->memory . ' MB' : 'unlimited'),
             'Disk limit: ' . ($server->disk ? $server->disk . ' MB' : 'unlimited'),
@@ -209,7 +230,7 @@ class SystemPromptBuilder
         $authorizer = app(AdminAuthorizer::class);
 
         $facts = [
-            'Administrator: ' . $user->username,
+            'Administrator: ' . $this->fact($context, (string) $user->username),
             'Access level: ' . ($authorizer->isOwner($user)
                 ? 'owner — every capability'
                 : 'delegated — only the tools you have been given are available to you'),
@@ -270,11 +291,13 @@ class SystemPromptBuilder
         }
 
         $lines = [
-            'Server: ' . $binding->serverName,
+            'Server: ' . $this->fact($context, $binding->serverName),
             'Access: ' . ($binding->writable
                 ? 'read and write — you may edit files, change startup variables and restart it'
                 : 'read only — you can look at anything, and change nothing'),
-            'Reason given: ' . ($binding->reason !== '' ? $binding->reason : 'not stated'),
+            'Reason given: ' . ($binding->reason !== ''
+                ? $this->fact($context, $binding->reason)
+                : 'not stated'),
         ];
 
         if ($binding->ticketId !== null) {
@@ -426,9 +449,21 @@ class SystemPromptBuilder
     }
 
     /**
-     * The operator's own system prompt, appended so it can shape tone and
-     * house rules without being able to remove the safety-relevant guidance
-     * above it.
+     * The operator's own system prompt, appended after the packaged guidance.
+     *
+     * Append order is a convention, not a control, and the comment that used to
+     * sit here said otherwise — that placing this last meant it "cannot remove
+     * the safety-relevant guidance above it". Nothing enforces that. Both halves
+     * are the same role in the same message, and a model reading "ignore the
+     * preceding instructions" has no mechanism telling it not to.
+     *
+     * It does not need one. Nothing above is load-bearing: every rule whose
+     * violation would matter is enforced in code the model cannot address — the
+     * registry allowlist, the risk gate and its approval cards, the endpoint's
+     * own permission checks, the assist grant's MAC. An operator prompt that
+     * talks the model out of the prose here changes what it says it will do and
+     * not one thing about what the panel will let it do. What it genuinely is,
+     * then, is customizable policy: tone, house rules, what to prioritise.
      */
     protected function operatorPrompt(): ?string
     {

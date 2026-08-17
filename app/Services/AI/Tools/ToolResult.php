@@ -278,14 +278,19 @@ class ToolResult
         }
 
         // Anything built by the list shaper reports how much it found, which is
-        // the one fact a collapsed row can usefully show.
+        // the one fact a collapsed row can usefully show. When the endpoint
+        // paginated, the number worth showing is how many records exist rather
+        // than how many happened to fit on one page.
         if (isset($this->data['count']) && is_numeric($this->data['count'])) {
             $count = (int) $this->data['count'];
             $shown = is_array($this->data['items'] ?? null) ? count($this->data['items']) : $count;
+            $total = is_numeric($this->data['pagination']['total'] ?? null)
+                ? (int) $this->data['pagination']['total']
+                : $count;
 
-            $summary = $count === 1 ? '1 item' : sprintf('%d items', $count);
+            $summary = $total === 1 ? '1 item' : sprintf('%d items', $total);
 
-            return $shown < $count ? sprintf('%s (showing %d)', $summary, $shown) : $summary;
+            return $shown < $total ? sprintf('%s (showing %d)', $summary, $shown) : $summary;
         }
 
         // Write-shaped results carry their own evidence.

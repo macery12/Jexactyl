@@ -50,6 +50,14 @@ trait DefinesToolSchemas
 
     /**
      * Map a Fractal collection down to the fields the model needs, capped.
+     *
+     * Two different truncations are in play and the model has to be able to tell
+     * them apart. `count` is what came back in *this response*, which the shaper
+     * may then have cut down to `limit`. But the response is itself one page:
+     * a hundred users arrive twenty at a time, and reporting `count: 20` with no
+     * pagination was read by the model — reasonably — as "this panel has twenty
+     * users", which it then said out loud. So the paginator's own numbers travel
+     * with the result, and the note names whichever limit actually bit.
      */
     private static function mapList(mixed $data, callable $map, int $limit): array
     {
@@ -63,12 +71,59 @@ trait DefinesToolSchemas
         }
 
         $result = ['items' => $items, 'count' => $total];
+        $notes = [];
 
         if ($total > $limit) {
-            $result['note'] = sprintf('Showing the first %d of %d entries.', $limit, $total);
+            $notes[] = sprintf('Showing the first %d of %d entries on this page.', $limit, $total);
+        }
+
+        $pagination = self::paginationOf($data);
+
+        if ($pagination !== null) {
+            $result['pagination'] = $pagination;
+
+            if ($pagination['total_pages'] > 1) {
+                $notes[] = sprintf(
+                    'This is page %d of %d; %d records match in total. Ask for a later page before '
+                        . 'answering anything about the whole set.',
+                    $pagination['page'],
+                    $pagination['total_pages'],
+                    $pagination['total'],
+                );
+            }
+        }
+
+        if ($notes !== []) {
+            $result['note'] = implode(' ', $notes);
         }
 
         return $result;
+    }
+
+    /**
+     * The paginator's own numbers, when the endpoint returned a paginated
+     * collection.
+     *
+     * `links` is deliberately dropped: absolute URLs are unusable to a model
+     * that reaches endpoints only through tool schemas, and they are the
+     * largest part of the block.
+     *
+     * @return array{total: int, page: int, per_page: int, total_pages: int}|null
+     */
+    private static function paginationOf(mixed $data): ?array
+    {
+        $meta = is_array($data['meta']['pagination'] ?? null) ? $data['meta']['pagination'] : null;
+
+        if ($meta === null || !isset($meta['total'], $meta['current_page'], $meta['total_pages'])) {
+            return null;
+        }
+
+        return [
+            'total' => (int) $meta['total'],
+            'page' => (int) $meta['current_page'],
+            'per_page' => (int) ($meta['per_page'] ?? count($data['data'] ?? [])),
+            'total_pages' => (int) $meta['total_pages'],
+        ];
     }
 
     /**

@@ -190,7 +190,30 @@ class ToolRegistry
             }
         }
 
-        return true;
+        return $this->holdsAnyOf($definition, fn (string $ability) => in_array($ability, $abilities, true));
+    }
+
+    /**
+     * The any-of half of a tool's permission declaration.
+     *
+     * Empty means the tool has no such requirement, which is the common case —
+     * only an endpoint that authorises per argument needs one.
+     *
+     * @param callable(string): bool $holds
+     */
+    private function holdsAnyOf(ToolDefinition $definition, callable $holds): bool
+    {
+        if ($definition->anyPermission === []) {
+            return true;
+        }
+
+        foreach ($definition->anyPermission as $permission) {
+            if ($holds($permission)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -261,7 +284,7 @@ class ToolRegistry
             }
         }
 
-        return true;
+        return $this->holdsAnyOf($definition, fn (string $permission) => $user->can($permission, $server));
     }
 
     /**
@@ -279,7 +302,10 @@ class ToolRegistry
             }
         }
 
-        return true;
+        return $this->holdsAnyOf(
+            $definition,
+            fn (string $capability) => $this->authorizer->hasCapability($user, $capability),
+        );
     }
 
     /**
@@ -455,7 +481,7 @@ class ToolRegistry
      * route context to bind them from and no honest way to pretend otherwise.
      * The containment is different in kind rather than absent: the registry is
      * an explicit allowlist, capabilities gate the class of action on every
-     * call, `scopeBindings()` 404s a child that is not under the named parent,
+     * call, a child that is not under the named parent 404s at the endpoint,
      * and no admin tool is registered at DESTRUCTIVE tier.
      */
     public function adminContext(array $arguments = []): array

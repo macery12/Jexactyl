@@ -380,6 +380,13 @@ class BatchToolTest extends TestCase
         $this->assertNotSame('provider.0.0', $child->id);
         $this->assertSame('provider.0', $child->batchParentId);
         $this->assertSame(0, $child->batchIndex);
+
+        // AI-040. The exact collision, end to end: a provider emitting the
+        // top-level id `x.0` alongside a batch whose parent is `x`. Under the
+        // old `parent.index` convention those were the same string.
+        $this->assertTrue(ToolCallData::isDerivedId($child->id));
+        $this->assertFalse(ToolCallData::isDerivedId('provider.0'));
+        $this->assertFalse(ToolCallData::isDerivedId('provider.0.0'));
     }
 
     /**
@@ -565,6 +572,73 @@ class BatchToolTest extends TestCase
     public function testAnEmptyBatchHasNoPreviewToDraw(): void
     {
         $this->assertNull(ApprovalPreview::for(SharedTools::BATCH, ['calls' => []]));
+    }
+
+    /**
+     * AI-041. Every child carries the tier that decides whether it must be read.
+     *
+     * The preview's own docblock claimed the tier travelled "because the card
+     * colours rows by it". It did not travel at all, so the card had nothing to
+     * distinguish a read from a write with, and no basis on which to insist the
+     * writes be opened before the set could be approved.
+     */
+    public function testEveryPreviewedChildCarriesItsLiveRiskAndTheReviewCount(): void
+    {
+        [$arguments] = $this->plan([
+            'summary' => 'Read one file and rewrite a variable',
+            'calls' => [
+                ['tool' => 'files_read', 'arguments' => ['file' => 'server.properties']],
+                ['tool' => 'startup_set', 'arguments' => ['key' => 'MAX_PLAYERS', 'value' => '40']],
+                ['tool' => 'files_read', 'arguments' => ['file' => 'ops.json']],
+            ],
+        ]);
+
+        $preview = ApprovalPreview::for(SharedTools::BATCH, $arguments);
+
+        $this->assertSame(ToolDefinition::RISK_SAFE, $preview['calls'][0]['risk']);
+        $this->assertSame(ToolDefinition::RISK_WRITE, $preview['calls'][1]['risk']);
+        $this->assertSame(ToolDefinition::RISK_SAFE, $preview['calls'][2]['risk']);
+
+        // Only the write has to be read. Demanding ceremony for the reads would
+        // train people to click through the one that matters.
+        $this->assertSame(1, $preview['requires_review']);
+    }
+
+    /**
+     * The tier is resolved when the card is drawn, not when the batch was
+     * planned — a preview is rebuilt from stored arguments when the user comes
+     * back to it, and an operator may have hardened a tool in between.
+     */
+    public function testTheReviewBarRisesWithALiveRiskOverride(): void
+    {
+        [$arguments] = $this->plan($this->reads(3));
+
+        $this->assertSame(0, ApprovalPreview::for(SharedTools::BATCH, $arguments)['requires_review']);
+
+        Setting::set('settings::modules:ai:risk_overrides', json_encode(['files_read' => 'write']));
+
+        $hardened = ApprovalPreview::for(SharedTools::BATCH, $arguments);
+
+        $this->assertSame(3, $hardened['requires_review']);
+        $this->assertSame(ToolDefinition::RISK_WRITE, $hardened['calls'][0]['risk']);
+    }
+
+    /**
+     * A child naming a tool that no longer resolves is previewed at the tier
+     * that demands a look, not at the tier that waves it through.
+     */
+    public function testAnUnresolvableChildIsNeverPreviewedAsSafe(): void
+    {
+        $preview = ApprovalPreview::for(SharedTools::BATCH, [
+            'summary' => 'Something the registry no longer has',
+            'calls' => [
+                ['tool' => 'files_read', 'arguments' => ['file' => 'a']],
+                ['tool' => 'tool_that_was_removed', 'arguments' => []],
+            ],
+        ]);
+
+        $this->assertSame(ToolDefinition::RISK_DESTRUCTIVE, $preview['calls'][1]['risk']);
+        $this->assertSame(1, $preview['requires_review']);
     }
 
     /**

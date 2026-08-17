@@ -406,7 +406,14 @@ abstract class AbstractProvider implements AiProvider
      */
     protected function ensureCallId(string $id, int $index): string
     {
-        return $id !== '' ? $id : sprintf('call_%s_%d', $this->syntheticCallNamespace, $index);
+        // An id landing in the panel's own derived namespace is treated as
+        // absent. A provider has no legitimate reason to emit one, and honouring
+        // it would let a top-level call share an identity with a batch child.
+        if ($id === '' || \Everest\Services\AI\Data\AiToolCall::isDerivedId($id)) {
+            return sprintf('call_%s_%d', $this->syntheticCallNamespace, $index);
+        }
+
+        return $id;
     }
 
     /** Start a fresh identity namespace before parsing one provider response. */

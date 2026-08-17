@@ -339,6 +339,63 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
     */
 
     /**
+     * AI-037. A child is reached through its parent, or not at all.
+     *
+     * The route reads `{category:id}/products/{product:id}` and the group calls
+     * `scopeBindings()`, but these arrive as scalars the controller resolves
+     * itself, so the category was decorative and any product answered under any
+     * category. That matters most here: both identifiers come from model
+     * output, and a mismatched pair is exactly the mistake the URI shape claims
+     * to catch.
+     */
+    public function testAProductIsNotReachableThroughTheWrongCategory(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $product = $this->populatedProduct();
+        $foreign = $this->populatedProduct();
+
+        foreach (['admin_product_view', 'admin_product_update'] as $tool) {
+            $result = $this->invokeDefinition($tool, array_merge([
+                'category' => (string) $foreign->category->id,
+                'product' => (string) $product->id,
+            ], $tool === 'admin_product_update' ? ['name' => 'Should not apply'] : []));
+
+            $this->assertFalse($result->ok, $tool . ' must not resolve across categories.');
+            $this->assertSame(404, $result->status, $tool);
+        }
+
+        // Nothing was written on the way past.
+        $this->assertSame('Original plan', $product->refresh()->name);
+
+        // And the matching pair still works, so containment did not simply
+        // break the tool.
+        $this->assertTrue($this->invokeDefinition('admin_product_view', [
+            'category' => (string) $product->category->id,
+            'product' => (string) $product->id,
+        ])->ok);
+    }
+
+    public function testBillingCyclesAreNotReachableThroughTheWrongCategory(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $product = $this->populatedProduct();
+        $foreign = $this->populatedProduct();
+
+        $mismatched = $this->invokeDefinition('admin_cycles_list', [
+            'category' => (string) $foreign->category->id,
+            'product' => (string) $product->id,
+        ]);
+
+        $this->assertFalse($mismatched->ok);
+        $this->assertSame(404, $mismatched->status);
+
+        $this->assertTrue($this->invokeDefinition('admin_cycles_list', [
+            'category' => (string) $product->category->id,
+            'product' => (string) $product->id,
+        ])->ok);
+    }
+
+    /**
      * The registry is the allowlist. An endpoint that is genuinely reachable by
      * a browser must still be unreachable as a tool unless somebody registered
      * it — this is what keeps role editing, node management and API keys out of

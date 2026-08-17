@@ -7,7 +7,7 @@ import { Field, Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import type { AiApprovalPreview } from '@/lib/aiStream';
 import type { ChatEntry } from '@/state/agentChat';
-import { BatchPreview } from './BatchPreview';
+import { BatchPreview, unreviewedBatchCalls } from './BatchPreview';
 import { DiffView } from './DiffView';
 import { ToolArgs } from './ToolArgs';
 import { ToolIcon, toolLabel, toolTarget } from './toolMeta';
@@ -43,6 +43,11 @@ export function ApprovalCard({
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [typed, setTyped] = useState('');
 
+    // Which children of a batch have had their exact arguments put on screen.
+    // Held here rather than in the preview because it gates the button, and a
+    // gate the control it guards cannot see is not a gate.
+    const [reviewed, setReviewed] = useState<ReadonlySet<number>>(new Set());
+
     const destructive = entry.risk === 'destructive';
     const spoken = spokenFor(entry.preview);
     const remaining = Object.fromEntries(
@@ -77,6 +82,13 @@ export function ApprovalCard({
     const requiredConfirmation =
         entry.preview?.kind === 'confirmation' ? entry.preview.name : confirmPhrase;
     const confirmMatches = typed.trim() === requiredConfirmation;
+
+    // A batch cannot be approved while any of its changes is still folded shut.
+    // The displayed list always matched what would execute, but matching is not
+    // the same as reviewed: with calls seven onward hidden and every call's
+    // arguments collapsed, one click committed a tail nobody had seen.
+    const unreviewed = entry.preview?.kind === 'batch' ? unreviewedBatchCalls(entry.preview, reviewed) : 0;
+    const blocked = unreviewed > 0;
 
     return (
         <>
@@ -160,7 +172,20 @@ export function ApprovalCard({
                 )}
 
                 {entry.preview?.kind === 'batch' && (
-                    <BatchPreview preview={entry.preview} redactions={redactions} className="px-3 pb-2" />
+                    <BatchPreview
+                        preview={entry.preview}
+                        redactions={redactions}
+                        reviewed={reviewed}
+                        onReview={indices =>
+                            setReviewed(current => {
+                                const next = new Set(current);
+                                for (const index of indices) next.add(index);
+
+                                return next;
+                            })
+                        }
+                        className="px-3 pb-2"
+                    />
                 )}
 
                 <ToolArgs args={remaining} redactions={redactions} className="px-3 pb-2" />
@@ -172,13 +197,21 @@ export function ApprovalCard({
                 )}
 
                 <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-3 py-2">
+                    {blocked && (
+                        <p className="mr-auto text-xs text-[var(--color-ink-muted)]">
+                            {m['server.ai.approval.batchUnreviewed']({ count: unreviewed })}
+                        </p>
+                    )}
+                    {/* Declining is never gated. Someone who does not want to
+                        read twenty calls must always be able to say no to them
+                        in one click; it is only yes that has to be earned. */}
                     <Button size="sm" variant="ghost" disabled={disabled || submitting} onClick={() => onDecide('reject')}>
                         {m['server.ai.approval.decline']()}
                     </Button>
                     <Button
                         size="sm"
                         variant={destructive ? 'danger' : 'primary'}
-                        disabled={disabled || submitting}
+                        disabled={disabled || submitting || blocked}
                         onClick={() => (destructive ? setConfirmOpen(true) : onDecide('approve'))}
                     >
                         {destructive ? m['server.ai.approval.reviewAndRun']() : m['server.ai.approval.approve']()}

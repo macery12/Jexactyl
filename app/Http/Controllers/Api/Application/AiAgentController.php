@@ -25,7 +25,6 @@ use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\AiBudgetService;
 use Everest\Services\AI\Providers\OllamaProvider;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
-use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 use Everest\Http\Requests\Api\Application\Intelligence\AgentTurnRequest;
@@ -155,9 +154,13 @@ class AiAgentController extends ApplicationApiController
      */
     public function pending(GetIntelligenceRequest $request): JsonResponse
     {
-        $pending = AiPendingAction::actionable()
+        $owned = AiPendingAction::query()
             ->where('user_id', $request->user()->id)
-            ->where('scope', ToolDefinition::SCOPE_ADMIN)
+            ->where('scope', ToolDefinition::SCOPE_ADMIN);
+
+        $this->sweepExpiredPending($owned);
+
+        $pending = (clone $owned)->actionable()
             ->orderByDesc('created_at')
             ->limit(10)
             ->get();
@@ -214,8 +217,7 @@ class AiAgentController extends ApplicationApiController
 
         $this->recoverStaleClaim($pending);
 
-        if ($pending->status === AiPendingAction::STATUS_PENDING && !$pending->isActionable()) {
-            $pending->update(['status' => AiPendingAction::STATUS_EXPIRED, 'resolved_at' => now()]);
+        if ($this->expireIfStale($pending)) {
             abort(404, 'That pending action has expired.');
         }
 
@@ -223,8 +225,9 @@ class AiAgentController extends ApplicationApiController
             return $this->existingDecisionResponse($pending);
         }
 
-        $conversation = $this->pendingConversation($pending, (int) $user->id);
         $decision = (string) $request->input('decision');
+        $this->assertDecisionMatchesPending($pending, $decision);
+        $conversation = $this->pendingConversation($pending, (int) $user->id);
         $context = $this->restoreTurn($pending, $user, null);
 
         if ($decision === 'reject') {
@@ -252,10 +255,7 @@ class AiAgentController extends ApplicationApiController
         }
 
         if ($decision === 'answer') {
-            if ($pending->tool_name !== SharedTools::ASK_USER) {
-                abort(422, 'That pending action is waiting for approval, not an answer.');
-            }
-
+            $this->assertAnswerAcceptable($pending, (string) $request->input('answer', ''));
             $reservation = $this->budget->reserve($user);
 
             try {
@@ -274,7 +274,7 @@ class AiAgentController extends ApplicationApiController
                     budgetReservation: $reservation,
                 );
             } catch (\Throwable $e) {
-                $reservation->release();
+                $this->abandonClaim($pending, $reservation);
 
                 throw $e;
             }
@@ -298,27 +298,16 @@ class AiAgentController extends ApplicationApiController
                 budgetReservation: $reservation,
             );
         } catch (\Throwable $e) {
-            $reservation->release();
+            $this->abandonClaim($pending, $reservation);
 
             throw $e;
         }
     }
 
     /** Resolve the owned admin conversation whose state this resume may bank. */
-    protected function pendingConversation(AiPendingAction $pending, int $userId): AiConversation
+    protected function pendingConversation(AiPendingAction $pending, int $userId): ?AiConversation
     {
-        $conversation = AiConversation::query()
-            ->whereKey($pending->conversation_id)
-            ->where('user_id', $userId)
-            ->where('scope', AiConversation::SCOPE_ADMIN)
-            ->whereNull('server_uuid')
-            ->first();
-
-        if ($conversation === null) {
-            abort(409, 'The conversation for this pending action is no longer available.');
-        }
-
-        return $conversation;
+        return $this->ownedPendingConversation($pending, $userId, AiConversation::SCOPE_ADMIN, null);
     }
 
     /** Destructive assist actions are confirmed against the live target row. */
@@ -389,9 +378,18 @@ class AiAgentController extends ApplicationApiController
                 // that a browser reads.
                 'redactions' => RedactionMap::fromArray($conversation->redactions)->all(),
                 'assist' => $conversation->assist ?: null,
+                // The same fields the server transcript endpoint returns.
+                // Dropping `tool_calls` and `tool_call_id` here meant a reopened
+                // admin transcript reconstructed every tool row with empty
+                // arguments and a synthetic id, so the record of what the model
+                // asked the panel to do — which is the entire point of the
+                // audit — disappeared on reload. Two parallel calls to the same
+                // tool became indistinguishable at the same moment.
                 'messages' => $conversation->messages->map(fn ($message) => [
                     'role' => $message->role,
                     'content' => $message->content,
+                    'tool_calls' => $message->tool_calls,
+                    'tool_call_id' => $message->tool_call_id,
                     'tool_name' => $message->tool_name,
                     'step' => $message->step,
                 ])->values(),
@@ -522,7 +520,12 @@ class AiAgentController extends ApplicationApiController
                 'risk' => $overrides[$definition->name] ?? $definition->risk,
                 'overridden' => isset($overrides[$definition->name]),
                 'enabled' => !in_array($definition->name, $disabled, true),
-                'permissions' => $definition->permissions,
+                // Both halves, so the catalogue does not read as though a tool
+                // requiring any one of three permissions requires none.
+                'permissions' => array_values(array_unique(array_merge(
+                    $definition->permissions,
+                    $definition->anyPermission,
+                ))),
             ];
         }
 

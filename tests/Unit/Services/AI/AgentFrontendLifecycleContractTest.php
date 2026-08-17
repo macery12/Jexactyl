@@ -117,6 +117,111 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $this->assertStringContainsString('if (applied && conversation.assist)', $adminPage);
     }
 
+    /**
+     * AI-035. One turn limit, four places that have to agree on it.
+     *
+     * The runtime clamped to 30 seconds and validation accepted 15, so an
+     * operator could save a value, be shown it back, and never have the agent
+     * use it. A clamp nobody can see is worse than a validation error anybody
+     * can, so the bounds are one definition now and this is what says the other
+     * three still match it.
+     */
+    public function testTheTurnWallLimitAgreesAcrossRuntimeValidationAndTheForm(): void
+    {
+        $runner = app(\Everest\Services\AI\Agent\AgentRunner::class);
+        $rules = (new \Everest\Http\Requests\Api\Application\Intelligence\UpdateIntelligenceSettingsRequest())->rules();
+        $form = file_get_contents(base_path('frontend/src/pages/admin/ai/pages/AgentPage.tsx'));
+
+        $this->assertSame(30, \Everest\Services\AI\Agent\AgentRunner::MIN_WALL_SECONDS);
+        $this->assertSame(900, \Everest\Services\AI\Agent\AgentRunner::MAX_WALL_SECONDS);
+        $this->assertSame('nullable|integer|min:30|max:900', $rules['agent.max_wall_seconds']);
+
+        // The runtime honours the whole accepted range and nothing outside it.
+        \Everest\Models\Setting::forget('settings::modules:ai:agent:max_wall_seconds');
+
+        foreach ([[15, 30], [30, 30], [180, 180], [900, 900], [5000, 900]] as [$stored, $effective]) {
+            config()->set('modules.ai.agent.max_wall_seconds', $stored);
+            $this->assertSame($effective, $runner->maxWallSeconds(), 'stored ' . $stored);
+        }
+
+        $this->assertStringContainsString('min={30}', $form);
+        $this->assertStringNotContainsString('min={15}', $form);
+    }
+
+    /**
+     * AI-035. `max_repairs` was validated, stored, read at runtime and simply
+     * absent from the form — settable only by an operator who knew the API.
+     */
+    public function testEveryValidatedAgentSettingHasAControl(): void
+    {
+        $form = file_get_contents(base_path('frontend/src/pages/admin/ai/pages/AgentPage.tsx'));
+        $rules = (new \Everest\Http\Requests\Api\Application\Intelligence\UpdateIntelligenceSettingsRequest())->rules();
+
+        foreach (array_keys($rules) as $key) {
+            if (!str_starts_with($key, 'agent.')) {
+                continue;
+            }
+
+            $field = substr($key, strlen('agent.'));
+            $this->assertStringContainsString($field, $form, $key . ' is settable by API but not by the form.');
+        }
+    }
+
+    /**
+     * AI-041. Approval is gated on every security-significant child being read.
+     *
+     * The displayed list always matched what would execute, which is not the
+     * same as reviewed: calls seven onward were folded away, every call's
+     * arguments were folded shut, and the approve button stayed live throughout
+     * — so one click could commit a tail nobody had seen, with a summary the
+     * model wrote about its own work standing in for the evidence.
+     */
+    public function testBatchApprovalIsBlockedUntilEveryUnsafeChildIsOpened(): void
+    {
+        $preview = file_get_contents(base_path('frontend/src/components/ai/BatchPreview.tsx'));
+        $card = file_get_contents(base_path('frontend/src/components/ai/ApprovalCard.tsx'));
+
+        // The gate itself: the button the user presses is disabled while
+        // anything is outstanding, and the count comes from the same function
+        // the list renders from.
+        $this->assertStringContainsString('export function unreviewedBatchCalls', $preview);
+        $this->assertStringContainsString("return risk !== 'safe';", $preview);
+        $this->assertStringContainsString('batchChildNeedsReview(call.risk) && !reviewed.has(index)', $preview);
+        $this->assertStringContainsString('unreviewedBatchCalls(entry.preview, reviewed)', $card);
+        $this->assertStringContainsString('const blocked = unreviewed > 0', $card);
+        $this->assertStringContainsString('disabled={disabled || submitting || blocked}', $card);
+
+        // Reviewing is recorded by the card, not by the list — a gate the
+        // control it guards cannot see is not a gate.
+        $this->assertStringContainsString('reviewed: ReadonlySet<number>', $preview);
+        $this->assertStringContainsString('onReview: (indices: number[]) => void', $preview);
+        $this->assertStringContainsString('const [reviewed, setReviewed] = useState<ReadonlySet<number>>', $card);
+
+        // Declining is never gated: saying no to twenty unread calls must stay
+        // one click.
+        $decline = strpos($card, "onDecide('reject')");
+        $this->assertIsInt($decline);
+        $this->assertStringContainsString(
+            'disabled={disabled || submitting}',
+            substr($card, $decline - 200, 200),
+        );
+
+        // And the model's own sentence is labelled as the model's, rather than
+        // presented as the evidence.
+        $this->assertStringContainsString("m['server.ai.batch.summaryLabel']()", $preview);
+
+        $messages = json_decode(file_get_contents(base_path('frontend/messages/en.json')), true);
+        foreach ([
+            'server.ai.batch.summaryLabel',
+            'server.ai.batch.reviewAll',
+            'server.ai.batch.unreviewed',
+            'server.ai.batch.noArguments',
+            'server.ai.approval.batchUnreviewed',
+        ] as $key) {
+            $this->assertArrayHasKey($key, $messages, $key);
+        }
+    }
+
     public function testReusedCallIdsOnlyUpdateTheLatestUnresolvedRowAndReplayAsAQueue(): void
     {
         $store = file_get_contents(base_path('frontend/src/state/agentChat.ts'));

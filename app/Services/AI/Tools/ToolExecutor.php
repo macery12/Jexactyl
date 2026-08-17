@@ -385,10 +385,20 @@ class ToolExecutor
      * full `meta.trace` when APP_DEBUG is on. None of that may reach the model
      * context — it would be echoed to the user's screen over SSE — so only the
      * detail string is ever read, never the surrounding envelope.
+     *
+     * A 5xx detail is not read either, in any mode. With APP_DEBUG on it is the
+     * raw exception message, which routinely carries SQL, table names and
+     * absolute paths; with it off, controllers that wrap their failures
+     * (`'Failed to update a product: ' . $ex->getMessage()`) put the same thing
+     * through the same door. Nothing in it is actionable to a model anyway: a
+     * 5xx means wait and retry, and the original exception is already in the
+     * server's own log, where it belongs. The 5xx statuses the *node* raises
+     * are answered from the table below for the same reason — Wings has already
+     * flattened those to generic prose before the panel sees them.
      */
     protected function errorDetail(int $status, array $first): string
     {
-        $detail = $first['detail'] ?? null;
+        $detail = $status < 500 ? ($first['detail'] ?? null) : null;
 
         if (is_string($detail) && ($cleaned = $this->unwrapDaemonMessage($detail)) !== '') {
             return Str::limit($cleaned, 500);
@@ -400,6 +410,7 @@ class ToolExecutor
             $status === 409 => 'The server is not in a state that allows this right now.',
             $status === 429 => 'Too many requests. Wait a moment before trying again.',
             in_array($status, [502, 503, 504], true) => 'The machine running this server is not responding right now.',
+            $status >= 500 => 'The panel could not complete that request. It has been logged. Wait a moment and try again, or tell the user it failed.',
             default => 'The request failed with status ' . $status . '.',
         };
     }

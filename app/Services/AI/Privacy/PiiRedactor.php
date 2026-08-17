@@ -101,15 +101,20 @@ class PiiRedactor
      */
     private const PATTERNS = [
         self::KIND_EMAIL => '/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/',
-        // Octets bounded to 0-255, and fenced by lookarounds rather than \b so a
-        // match cannot be a slice of something longer: `1.20.4.1-R0.1` is a jar
-        // version, not an address, and `10.0.0.1.2` is neither. Loopback and the
-        // unspecified address are dropped in the second stage, being facts about
-        // the panel rather than about a person.
-        // The v6 half allows empty groups so a compressed address is matched
-        // whole — without that, `2001:db8::ff00:42:8329` matches only its tail
-        // and the redaction leaks the prefix it was supposed to hide.
-        self::KIND_IP => '/(?<![\w.\-])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?![\w.\-])|(?<![\w:])[A-Fa-f0-9]{1,4}(?::[A-Fa-f0-9]{0,4}){2,7}(?![\w:])/',
+        // Deliberately loose, because this pattern only *finds* candidates —
+        // `parseAddress()` decides what is actually an address. Writing the
+        // whole grammar as one expression is what let `::dead:beef` through:
+        // the old v6 half required a leading hex group, so a leading-compressed
+        // address matched nothing at all and passed through unredacted. A
+        // generous candidate plus a real parser has no such tail to miss.
+        //
+        // The v4 half is fenced by lookarounds rather than \b so a match cannot
+        // be a slice of something longer: `1.20.4.1-R0.1` is a jar version, not
+        // an address, and `10.0.0.1.2` is neither.
+        // The embedded-v4 tail is listed before the hex one because alternation
+        // is ordered: with `[A-Fa-f0-9]{0,4}` first, `::ffff:192.168.1.1` ends
+        // its candidate at `192` and the redaction leaks the rest of the host.
+        self::KIND_IP => '/(?<![\w.\-])(?:\d{1,3}\.){3}\d{1,3}(?![\w.\-])|(?<![\w\-])(?:[A-Fa-f0-9]{0,4}:){1,7}(?:(?:\d{1,3}\.){3}\d{1,3}|[A-Fa-f0-9]{0,4})(?:%[A-Za-z0-9_.\-]{1,32})?/',
         // An international prefix is required. Without it every byte count and
         // millisecond reading in a resources payload matches.
         self::KIND_PHONE => '/\+\d[\d\s().\-]{7,16}\d/',
@@ -119,8 +124,11 @@ class PiiRedactor
 
     /**
      * Addresses that describe the panel's own plumbing rather than a person.
+     *
+     * Compared after `inet_pton()` rather than as strings, so every spelling of
+     * the same address — `::1`, `0:0:0:0:0:0:0:1` — is recognised as one entry.
      */
-    private const PUBLIC_IPS = ['127.0.0.1', '0.0.0.0', '255.255.255.255', '::1'];
+    private const PUBLIC_IPS = ['127.0.0.1', '0.0.0.0', '255.255.255.255', '::1', '::'];
 
     /**
      * Fields whose values are never swept by pattern.
@@ -304,6 +312,13 @@ class PiiRedactor
                 function (array $matches) use ($kind, $map): string {
                     $match = $matches[0];
 
+                    // Addresses are parsed rather than pattern-trusted: the
+                    // candidate is deliberately wider than the grammar, so it
+                    // is the only kind whose match may be partly prose.
+                    if ($kind === self::KIND_IP) {
+                        return $this->maskAddress($match, $map);
+                    }
+
                     if (!$this->isRealMatch($kind, $match)) {
                         return $match;
                     }
@@ -331,24 +346,6 @@ class PiiRedactor
      */
     private function isRealMatch(string $kind, string $match): bool
     {
-        if ($kind === self::KIND_IP) {
-            if (in_array($match, self::PUBLIC_IPS, true)) {
-                return false;
-            }
-
-            // The colon form is the dangerous one: `[12:34:56 INFO]` is a
-            // timestamp, and every console line the panel handles starts with
-            // one. A real address in a log has either a hex letter or a `::`
-            // in it essentially always, and a clock has neither.
-            if (str_contains($match, ':')) {
-                return str_contains($match, '::') || preg_match('/[A-Fa-f]/', $match) === 1;
-            }
-
-            // A leading zero octet is never a routable host, and is how a
-            // padded build number ("0.14.2.3") most often shows up.
-            return !str_starts_with($match, '0.');
-        }
-
         // A run of digits is only a card number if it passes Luhn. This is what
         // keeps timestamps, byte counts and order ids out of the redactor.
         if ($kind === self::KIND_PAYMENT) {
@@ -356,6 +353,88 @@ class PiiRedactor
         }
 
         return true;
+    }
+
+    /**
+     * Replace the address inside a candidate, returning whatever prose the
+     * candidate over-ran unchanged.
+     *
+     * The candidate pattern is wider than the address grammar on purpose, so
+     * that nothing an address can legally look like is missed. Narrowing back
+     * down happens here, where a parser is available and the answer can be
+     * exact.
+     */
+    private function maskAddress(string $candidate, RedactionMap $map): string
+    {
+        [$address, $tail] = $this->parseAddress($candidate);
+
+        if ($address === null || $this->isPanelAddress($address)) {
+            return $candidate;
+        }
+
+        return $map->tokenFor(self::KIND_IP, $address) . $tail;
+    }
+
+    /**
+     * The longest leading run of a candidate that is a real address.
+     *
+     * Trimming from the right is what makes the loose candidate safe. A log line
+     * reading `2001:db8::1: connection refused` produces the candidate
+     * `2001:db8::1:` — one character too long — and a grammar strict enough to
+     * refuse that is also strict enough to miss the address entirely. Here the
+     * trailing colon is simply given back as prose.
+     *
+     * @return array{0: string|null, 1: string} the address as written, and the text after it
+     */
+    private function parseAddress(string $candidate): array
+    {
+        // A leading zero octet is never a routable host, and is how a padded
+        // build number ("0.14.2.3") most often shows up.
+        if (str_starts_with($candidate, '0.')) {
+            return [null, ''];
+        }
+
+        for ($value = $candidate; $value !== ''; $value = substr($value, 0, -1)) {
+            if (filter_var($this->withoutZone($value), FILTER_VALIDATE_IP) !== false) {
+                return [$value, substr($candidate, strlen($value))];
+            }
+        }
+
+        return [null, ''];
+    }
+
+    /**
+     * A zone id (`fe80::1%eth0`) is part of the address as written but not part
+     * of what `filter_var()` accepts, so it is validated without one and
+     * redacted along with the address it qualifies.
+     */
+    private function withoutZone(string $value): string
+    {
+        $cut = strpos($value, '%');
+
+        return $cut === false ? $value : substr($value, 0, $cut);
+    }
+
+    /**
+     * Whether an address describes the panel rather than a person.
+     */
+    private function isPanelAddress(string $value): bool
+    {
+        $packed = @inet_pton($this->withoutZone($value));
+
+        if ($packed === false) {
+            return false;
+        }
+
+        foreach (self::PUBLIC_IPS as $known) {
+            $other = @inet_pton($known);
+
+            if ($other !== false && hash_equals($other, $packed)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function passesLuhn(string $digits): bool

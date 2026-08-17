@@ -17,6 +17,7 @@ export default function AgentPage() {
             max_wall_seconds: settings.agent?.max_wall_seconds ?? 180,
             max_tool_seconds: settings.agent?.max_tool_seconds ?? 90,
             tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
+            max_repairs: settings.agent?.max_repairs ?? 2,
             max_tools: settings.agent?.max_tools ?? 32,
             max_batch_calls: settings.agent?.max_batch_calls ?? 25,
             allow_destructive_batches: settings.agent?.allow_destructive_batches ?? false,
@@ -90,10 +91,13 @@ export default function AgentPage() {
                             onChange={event => patch({ max_steps: Number(event.target.value) })}
                         />
                     </FieldRow>
+                    {/* 30 and 900 are AgentRunner::MIN_WALL_SECONDS / MAX_WALL_SECONDS; the
+                        request validates the same pair. A lower bound here than the runtime
+                        clamps to is a value the operator can save and never get. */}
                     <FieldRow label={m['admin.ai.settings.maxWall']()} desc={m['admin.ai.settings.maxWallHint']()}>
                         <Input
                             type="number"
-                            min={15}
+                            min={30}
                             max={900}
                             value={value.max_wall_seconds}
                             onChange={event => patch({ max_wall_seconds: Number(event.target.value) })}
@@ -131,6 +135,15 @@ export default function AgentPage() {
                             step={1024}
                             value={value.tool_result_bytes}
                             onChange={event => patch({ tool_result_bytes: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                    <FieldRow label={m['admin.ai.settings.maxRepairs']()} desc={m['admin.ai.settings.maxRepairsHint']()}>
+                        <Input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={value.max_repairs}
+                            onChange={event => patch({ max_repairs: Number(event.target.value) })}
                         />
                     </FieldRow>
                 </FieldGrid>

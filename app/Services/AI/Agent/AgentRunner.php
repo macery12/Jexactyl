@@ -373,6 +373,12 @@ class AgentRunner
             temperature: $tools !== [] ? 0.0 : null,
         ))->withReasoning($this->reasoningEnabled());
 
+        // The prompt mints tokens of its own — a server whose name is an email
+        // address, say — and they are minted before a single token of the answer
+        // arrives. Draining here means the browser can already resolve them by
+        // the time the model refers to one.
+        $this->emitRedactions($context, $emit);
+
         $text = '';
         $calls = [];
         $reasoning = [];
@@ -1186,8 +1192,7 @@ class AgentRunner
         array $arguments,
     ): ToolCallData {
         return new ToolCallData(
-            sprintf(
-                'batch_%s_%d',
+            ToolCallData::derivedBatchId(
                 substr(hash('sha256', implode("\0", [
                     $context->turnId,
                     (string) $context->step,
@@ -1300,8 +1305,25 @@ class AgentRunner
             $this->registry->contextForTool($definition, $target, $arguments)
         )->withIdempotencyKey($context->idempotencyKeyFor($call->id));
 
-        $result = $definition->shape($this->dispatch($context, $definition, $invocation));
-        $result = $this->redact($context, $result)->capped($this->toolResultBytes());
+        try {
+            $result = $definition->shape($this->dispatch($context, $definition, $invocation));
+            $result = $this->redact($context, $result)->capped($this->toolResultBytes());
+        } catch (\Throwable $e) {
+            // The executor renders almost everything into a failed result, so
+            // reaching here means the failure was ours — a shaper, the redactor,
+            // the assist window. The row was set running a few lines above and
+            // would otherwise stay that way for good, which is the one thing an
+            // audit trail must not do. Terminal here, then rethrown: the stream
+            // owner decides what the turn does about it.
+            $record->update([
+                'status' => AiToolCall::STATUS_FAILED,
+                'result_summary' => 'The call did not complete.',
+                'duration_ms' => (int) round(($this->now() - $startedAt) * 1000),
+                'resolved_at' => now(),
+            ]);
+
+            throw $e;
+        }
 
         $record->update([
             'status' => $result->ok ? AiToolCall::STATUS_SUCCEEDED : AiToolCall::STATUS_FAILED,
@@ -1803,6 +1825,19 @@ class AgentRunner
     |--------------------------------------------------------------------------
     */
 
+    /**
+     * The bounds a turn's wall clock is settable between.
+     *
+     * Public because they are the single definition three other places have to
+     * agree with: `UpdateIntelligenceSettingsRequest` validates against them,
+     * the admin form's number input uses the same pair, and the client's idle
+     * watchdog is derived from whatever this returns. When validation accepted
+     * 15 and this floored at 30, an operator could save a value the panel
+     * displayed back to them and the agent never used.
+     */
+    public const MIN_WALL_SECONDS = 30;
+    public const MAX_WALL_SECONDS = 900;
+
     public function maxSteps(): int
     {
         return max(1, (int) $this->setting('agent:max_steps', config('modules.ai.agent.max_steps', 12)));
@@ -1810,7 +1845,10 @@ class AgentRunner
 
     public function maxWallSeconds(): int
     {
-        return max(30, (int) $this->setting('agent:max_wall_seconds', config('modules.ai.agent.max_wall_seconds', 180)));
+        return min(self::MAX_WALL_SECONDS, max(
+            self::MIN_WALL_SECONDS,
+            (int) $this->setting('agent:max_wall_seconds', config('modules.ai.agent.max_wall_seconds', 180)),
+        ));
     }
 
     /** Longest healthy SSE silence, including a small transport margin. */

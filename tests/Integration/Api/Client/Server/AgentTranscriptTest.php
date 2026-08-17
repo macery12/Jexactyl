@@ -13,6 +13,7 @@ use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Data\AiMessage as MessageData;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
 use Everest\Http\Controllers\Api\Application\AiAgentController;
+use Everest\Http\Controllers\Api\Client\Servers\AgentController;
 use Everest\Tests\Integration\Api\Client\ClientApiIntegrationTestCase;
 
 /**
@@ -276,6 +277,70 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         )));
     }
 
+    /**
+     * AI-028. The customer surface resumes into its conversation too.
+     *
+     * The admin path was given a conversation and the server path was not, so a
+     * token minted while executing an approved call — a player address in the
+     * file the write returned, say — was dropped on the floor. The next turn
+     * minted a second token for the same person, and the transcript on screen
+     * acquired two names for one customer halfway down.
+     */
+    public function testServerResumeBanksRedactionsDiscoveredAfterTheApproval(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        $conversation = $this->recorder->ensureConversation($user, $server, null, 'Fix the whitelist');
+
+        $pending = new AiPendingAction(['conversation_id' => $conversation->id]);
+        $controller = (new \ReflectionClass(AgentController::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(AgentController::class, 'pendingConversation');
+
+        $resolved = $method->invoke($controller, $pending, $user->id, $server);
+        $this->assertSame($conversation->id, $resolved->id);
+
+        // What the resumed leg discovers is banked against that conversation,
+        // exactly as an unsuspended turn's would be.
+        $resumed = new AgentContext($user, $server, 'turn-resume', $conversation->id);
+        $token = $resumed->redactions->tokenFor('ip', '203.0.113.9');
+        $this->assertTrue($this->recorder->touch($resolved, $resumed));
+
+        $next = $this->recorder->loadRedactions($conversation->fresh());
+        $this->assertSame('203.0.113.9', $next->all()[$token]);
+        $this->assertSame($token, $next->tokenFor('ip', '203.0.113.9'));
+    }
+
+    public function testServerResumeRefusesAConversationFromAnotherOwnerOrServer(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        [$other, $otherServer] = $this->generateTestAccount();
+        $conversation = $this->recorder->ensureConversation($user, $server, null, 'Fix the whitelist');
+
+        $pending = new AiPendingAction(['conversation_id' => $conversation->id]);
+        $controller = (new \ReflectionClass(AgentController::class))->newInstanceWithoutConstructor();
+        $method = new \ReflectionMethod(AgentController::class, 'pendingConversation');
+
+        foreach ([[$other->id, $server], [$user->id, $otherServer]] as [$actorId, $target]) {
+            try {
+                $method->invoke($controller, $pending, $actorId, $target);
+                $this->fail('A resume must not bank state into somebody else\'s conversation.');
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+                $this->assertSame(409, $e->getStatusCode());
+            }
+        }
+
+        // A turn whose conversation never opened — or whose transcript was
+        // reaped while the card sat on screen — still resumes; there is simply
+        // nothing left to bank.
+        foreach ([null, $conversation->id + 9000] as $missing) {
+            $this->assertNull($method->invoke(
+                $controller,
+                new AiPendingAction(['conversation_id' => $missing]),
+                $user->id,
+                $server,
+            ));
+        }
+    }
+
     public function testAdminResumeConversationIsResolvedByOwnerAndScope(): void
     {
         [$admin] = $this->generateTestAccount();
@@ -304,12 +369,16 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
 
     public function testPendingActionsAreScopedToTheUserTheServerAndTheExpiryWindow(): void
     {
+        // The endpoint is behind the agent kill switch, so the fixture has to
+        // turn the module on to reach the query it is about.
+        $this->enableAgent();
+
         [$user, $server] = $this->generateTestAccount();
         [$other, $otherServer] = $this->generateTestAccount();
 
         $mine = $this->pendingAction($user, $server, 'files_write');
         $this->pendingAction($other, $otherServer, 'files_delete');
-        $this->pendingAction($user, $server, 'backup_delete', ['expires_at' => now()->subMinute()]);
+        $lapsed = $this->pendingAction($user, $server, 'backup_delete', ['expires_at' => now()->subMinute()]);
         $this->pendingAction($user, $server, 'server_power', ['status' => 'approved']);
 
         $response = $this->actingAs($user)->getJson("/api/client/servers/{$server->uuid}/ai/agent/pending");
@@ -324,6 +393,20 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         $this->assertSame('files_write', $data[0]['tool']);
         $this->assertSame('diff', $data[0]['preview']['kind']);
         $this->assertNotNull($data[0]['expires_at']);
+
+        // AI-034. The lapsed one is not merely filtered out of the response —
+        // listing settles it, so the audit trail stops reporting a decision as
+        // outstanding when it can no longer be given.
+        $this->assertSame(AiPendingAction::STATUS_EXPIRED, $lapsed->fresh()->status);
+        $this->assertNotNull($lapsed->fresh()->resolved_at);
+    }
+
+    private function enableAgent(): void
+    {
+        config()->set('modules.ai.enabled', true);
+        config()->set('modules.ai.agent.enabled', true);
+        \Everest\Models\Setting::forget('settings::modules:ai:enabled');
+        \Everest\Models\Setting::forget('settings::modules:ai:agent:enabled');
     }
 
     public function testAnotherUsersPendingActionIsNotVisibleOnTheirServerEither(): void

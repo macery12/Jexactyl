@@ -1,6 +1,6 @@
 import http from '@/lib/http';
 import { streamAgentRequest, type AgentStreamCallbacks } from '@/lib/aiStream';
-import type { AgentTurnStatus, StoredMessage } from '@/api/ai';
+import type { AgentTurnStatus, ChatRole, StoredMessage } from '@/api/ai';
 
 // Admin AI (M12Labs-AI) module — settings, health, model discovery, usage
 // analytics and the admin assistant. Mirrors V1's `api/routes/admin/ai/*`
@@ -314,11 +314,17 @@ export interface AdminAgentConversation {
     updated_at: string | null;
 }
 
-export interface AdminAgentMessage {
-    role: 'user' | 'assistant' | 'tool' | 'system';
-    content: string | null;
-    tool_name: string | null;
-    step: number | null;
+/**
+ * A stored admin-transcript message.
+ *
+ * Deliberately the server transcript's own shape: the two endpoints read the
+ * same table and feed the same reconstruction, and the moment this one carried
+ * fewer fields a reopened admin transcript lost every tool argument and call id
+ * it had shown live. `role` is widened only because the column can hold
+ * `system`, which a turn never writes and the page filters out.
+ */
+export interface AdminAgentMessage extends Omit<StoredMessage, 'role'> {
+    role: ChatRole | 'system';
 }
 
 /** An audited session this conversation has open on a customer's server. */

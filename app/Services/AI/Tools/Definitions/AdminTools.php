@@ -24,8 +24,13 @@ use Everest\Services\AI\Tools\ToolDefinition;
  *    — `AuthorizeApplicationUser`, then the endpoint's own
  *    `ApplicationApiRequest::authorize()` — so a capability the administrator
  *    lacks fails closed regardless of what the model asked for.
- * 3. `scopeBindings()` on the route group 404s a child resource that does not
- *    belong to the parent named in the URI.
+ * 3. A child resource that does not belong to the parent named in the URI 404s.
+ *    `scopeBindings()` is declared on the route groups but only governs bound
+ *    models, and the billing routes pass scalars the controller resolves —
+ *    which meant a product was found by id alone and the category in the URI
+ *    was decorative. Those controllers now resolve the child through the parent
+ *    themselves, which is what makes the claim true for the identifiers a model
+ *    supplies.
  * 4. **No tool here is DESTRUCTIVE.** Deletes, suspensions, reinstalls and
  *    transfers are deliberately not registered, so the worst outcome of a
  *    wrong identifier is a recoverable edit that the administrator already read

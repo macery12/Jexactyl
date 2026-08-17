@@ -109,14 +109,24 @@ class ServerTools
 
             new ToolDefinition(
                 name: 'server_power',
-                description: 'Send a power action to the server. Use "restart" after changing a config file so the change takes effect.',
+                description: 'Send a power action to the server. Use "restart" after changing a config file so the change takes effect. You may hold permission for only some of these signals; the panel refuses the rest.',
                 parameters: self::object([
                     'signal' => self::enum(['start', 'stop', 'restart', 'kill'], 'The power action. "kill" force-stops without saving and risks world corruption.'),
                 ], ['signal']),
                 method: 'POST',
                 uriTemplate: self::BASE . '/power',
                 risk: ToolDefinition::RISK_WRITE,
-                permissions: [Permission::ACTION_CONTROL_RESTART],
+                // `SendPowerRequest::permission()` resolves per signal — start,
+                // stop/kill and restart are three separate permissions — so this
+                // is offered to anyone holding any of them and the endpoint
+                // decides each call. Requiring `control.restart` flatly, as it
+                // used to, hid the tool from every start-only or stop-only user
+                // while advertising all four signals to a restart-only one.
+                anyPermission: [
+                    Permission::ACTION_CONTROL_START,
+                    Permission::ACTION_CONTROL_STOP,
+                    Permission::ACTION_CONTROL_RESTART,
+                ],
                 bodyFields: ['signal'],
                 resultShaper: static fn () => ['sent' => true],
             ),

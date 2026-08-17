@@ -169,6 +169,45 @@ class ProviderDriverTest extends TestCase
         $this->assertNotSame($first[0]->id, $second[0]->id);
     }
 
+    /**
+     * AI-040. The two identity namespaces are disjoint by construction.
+     *
+     * Provider ids are unconstrained strings and batch children need ids the
+     * panel derives, so without a reservation the two share one space — and a
+     * collision merges two distinct calls into one visible row, attaching a
+     * result to the wrong one. A provider claiming a derived id is treated as
+     * having supplied none.
+     */
+    public function testAProviderCannotClaimAnIdFromTheDerivedBatchNamespace(): void
+    {
+        $derived = AiToolCall::derivedBatchId(str_repeat('ab', 16), 0);
+
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'message' => [
+                'role' => 'assistant',
+                'content' => '',
+                'tool_calls' => [
+                    ['id' => $derived, 'function' => ['name' => 'files_read', 'arguments' => ['path' => '/a']]],
+                    ['id' => 'call_legitimate', 'function' => ['name' => 'files_read', 'arguments' => ['path' => '/b']]],
+                ],
+            ],
+            'done' => true,
+        ]))]);
+
+        $calls = (new OllamaProvider($this->config(ProviderConfig::PROVIDER_OLLAMA), $stack))
+            ->chat(new AiRequest(messages: [AiMessage::user('read both')], tools: [$this->tool()]))
+            ->toolCalls;
+
+        $this->assertTrue(AiToolCall::isDerivedId($derived));
+        $this->assertNotSame($derived, $calls[0]->id);
+        $this->assertFalse(AiToolCall::isDerivedId($calls[0]->id));
+
+        // An ordinary id is still the provider's to choose — reminting every id
+        // would break the one thing the id exists for, which is answering the
+        // call the model actually made.
+        $this->assertSame('call_legitimate', $calls[1]->id);
+    }
+
     public function testOllamaRepairPathSendsGrammarAndDropsTools(): void
     {
         $stack = $this->stack([new Response(200, [], json_encode([

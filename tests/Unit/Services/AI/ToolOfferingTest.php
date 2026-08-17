@@ -514,6 +514,95 @@ class ToolOfferingTest extends TestCase
         $this->assertArrayHasKey('note', $report);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | AI-032 — a tool that authorises per argument
+    |--------------------------------------------------------------------------
+    |
+    | `SendPowerRequest::permission()` resolves start, stop/kill and restart onto
+    | three separate permissions, so no single required permission describes
+    | `server_power`. Naming `control.restart` flatly got both halves wrong: it
+    | hid the tool from every start-only or stop-only user, and offered all four
+    | signals to a restart-only one.
+    */
+
+    public function testEverySinglePowerPermissionIsOfferedThePowerTool(): void
+    {
+        $registry = $this->registry();
+        $definition = $registry->find('server_power');
+        $server = $this->server();
+
+        foreach ([
+            \Everest\Models\Permission::ACTION_CONTROL_START,
+            \Everest\Models\Permission::ACTION_CONTROL_STOP,
+            \Everest\Models\Permission::ACTION_CONTROL_RESTART,
+        ] as $held) {
+            $this->assertTrue(
+                $registry->userCanUse($this->userHolding([$held]), $server, $definition),
+                $held . ' alone is a valid power permission and must not hide the tool.',
+            );
+        }
+    }
+
+    public function testAUserWithNoPowerPermissionIsNotOfferedThePowerTool(): void
+    {
+        $registry = $this->registry();
+
+        $this->assertFalse($registry->userCanUse(
+            $this->userHolding([\Everest\Models\Permission::ACTION_FILE_READ]),
+            $this->server(),
+            $registry->find('server_power'),
+        ));
+    }
+
+    /**
+     * The any-of rule is opt-in. Every other tool still needs all of what it
+     * declares, which is the property the boundary has always rested on.
+     */
+    public function testAllOfPermissionsAreStillRequiredEverywhereElse(): void
+    {
+        $registry = $this->registry();
+        $write = $registry->find('files_write');
+
+        $this->assertNotEmpty($write->permissions);
+        $this->assertSame([], $write->anyPermission);
+        $this->assertFalse($registry->userCanUse($this->userHolding([]), $this->server(), $write));
+    }
+
+    /**
+     * An assist session is judged against its ability list rather than the
+     * administrator's own access, and the same rule has to apply there —
+     * escalation grants all three power abilities.
+     */
+    public function testAnAssistSessionAppliesTheSameAnyOfRule(): void
+    {
+        $registry = $this->registry();
+        $definition = $registry->find('server_power');
+
+        $this->assertTrue($registry->assistPermits(
+            $definition,
+            ['server_power'],
+            [\Everest\Models\Permission::ACTION_CONTROL_START],
+        ));
+
+        $this->assertFalse($registry->assistPermits(
+            $definition,
+            ['server_power'],
+            [\Everest\Models\Permission::ACTION_FILE_READ],
+        ));
+    }
+
+    /** @param string[] $permissions */
+    private function userHolding(array $permissions): User
+    {
+        $user = \Mockery::mock(User::class)->makePartial();
+        $user->shouldReceive('can')->andReturnUsing(
+            static fn (string $permission) => in_array($permission, $permissions, true)
+        );
+
+        return $user;
+    }
+
     /**
      * Room to spare means nothing to report, so the model is not handed a
      * caveat about a limit it never reached.

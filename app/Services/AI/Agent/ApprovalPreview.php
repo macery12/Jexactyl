@@ -3,6 +3,9 @@
 namespace Everest\Services\AI\Agent;
 
 use Everest\Models\Server;
+use Everest\Services\AI\Tools\RiskGate;
+use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
@@ -56,11 +59,18 @@ class ApprovalPreview
      * would give back exactly the review quality that batching one approval
      * instead of twenty was meant to preserve.
      *
-     * Kept deliberately thin. The risk tier travels because the card colours
-     * rows by it, but each call's arguments are passed through untouched for the
-     * frontend to lay out with the same renderer a single-call card uses.
+     * Each call's arguments are passed through untouched for the frontend to lay
+     * out with the same renderer a single-call card uses, and each carries its
+     * own tier. The tier is not decoration: it is what tells the card which
+     * children must be read before the set can be approved, and it is resolved
+     * live here rather than stored, because the preview is rebuilt when the user
+     * comes back to an approval and an operator may have hardened a tool since.
      *
-     * @return array{kind: string, summary: string, count: int, calls: array<int, array{tool: string, arguments: array}>}|null
+     * `summary` travels but is explicitly the model's own words. The card labels
+     * it as such — a batch approved on the strength of a sentence its subject
+     * wrote is not a reviewed batch.
+     *
+     * @return array{kind: string, summary: string, count: int, requires_review: int, calls: array<int, array{tool: string, arguments: array, risk: string}>}|null
      */
     private static function batch(array $arguments): ?array
     {
@@ -70,11 +80,35 @@ class ApprovalPreview
             return null;
         }
 
+        $registry = app(ToolRegistry::class);
+        $gate = app(RiskGate::class);
+        $requiresReview = 0;
+
+        foreach ($calls as $index => $call) {
+            $definition = $call['tool'] === '' ? null : $registry->find($call['tool']);
+
+            // An unresolvable child cannot be shown as safe. It will be refused
+            // at execution, and until then the honest presentation of "no idea
+            // what this is" is the tier that demands a look.
+            $risk = $definition === null
+                ? ToolDefinition::RISK_DESTRUCTIVE
+                : $gate->resolve($definition, $call['arguments']);
+
+            $calls[$index]['risk'] = $risk;
+
+            if ($risk !== ToolDefinition::RISK_SAFE) {
+                ++$requiresReview;
+            }
+        }
+
         return [
             'kind' => 'batch',
             'summary' => trim((string) ($arguments['summary'] ?? '')),
             'count' => count($calls),
-            'calls' => $calls,
+            // How many children the card must see opened before it will let the
+            // set be approved.
+            'requires_review' => $requiresReview,
+            'calls' => array_values($calls),
         ];
     }
 

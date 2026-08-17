@@ -12,6 +12,31 @@ namespace Everest\Services\AI\Data;
  */
 class AiToolCall
 {
+    /**
+     * The identity namespace the panel mints batch children into.
+     *
+     * Reserved rather than merely unlikely. Batch children need ids the panel
+     * derives, and provider ids are unconstrained strings — so the two would
+     * otherwise share one space and a collision would merge two distinct calls
+     * into one visible row, attaching a result to the wrong one. Providers do
+     * not get to write here: `ensureCallId()` remints anything matching this,
+     * which is what makes "derived" and "provider-supplied" disjoint by
+     * construction rather than by improbability.
+     */
+    private const DERIVED_PATTERN = '/^batch_[0-9a-f]{32}_\d+$/';
+
+    /** A batch child's id: a turn-bound digest and its position. */
+    public static function derivedBatchId(string $digest, int $index): string
+    {
+        return sprintf('batch_%s_%d', $digest, $index);
+    }
+
+    /** Whether an id belongs to the reserved derived namespace. */
+    public static function isDerivedId(string $id): bool
+    {
+        return preg_match(self::DERIVED_PATTERN, $id) === 1;
+    }
+
     public function __construct(
         public readonly string $id,
         public readonly string $name,

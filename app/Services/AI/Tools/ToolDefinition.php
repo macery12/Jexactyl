@@ -51,6 +51,16 @@ class ToolDefinition
      *                              endpoint's own gate remains authoritative. For an
      *                              admin-scoped tool these are AdminRole capabilities
      *                              rather than subuser permissions.
+     * @param string[] $anyPermission holding *one* of these is enough to be offered the
+     *                                tool. For an endpoint that authorises per argument
+     *                                — `server_power` maps start/stop/restart onto three
+     *                                separate permissions — a flat `$permissions` list
+     *                                has to name one of them and gets both halves wrong:
+     *                                a user with only `control.start` is never offered a
+     *                                tool they can legitimately use, and a user with only
+     *                                `control.restart` is offered signals the endpoint
+     *                                will refuse. The endpoint is still the boundary; this
+     *                                only decides what appears in the catalogue.
      * @param string|null $group null means part of the always-available base set
      * @param callable|null $resultShaper trims a raw response down to what the model needs
      * @param bool $sharesHumanThrottle set for endpoints behind a literal `throttle:n,m`,
@@ -69,6 +79,7 @@ class ToolDefinition
         public readonly string $risk = self::RISK_SAFE,
         public readonly string $scope = self::SCOPE_SERVER,
         public readonly array $permissions = [],
+        public readonly array $anyPermission = [],
         public readonly ?string $group = null,
         public readonly mixed $resultShaper = null,
         public readonly bool $sharesHumanThrottle = false,

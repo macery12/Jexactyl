@@ -164,7 +164,6 @@ trait HandlesAgentTurns
                     }
                 } catch (\Throwable $e) {
                     $status = 'error';
-                    $error = $e->getMessage();
 
                     if ($resuming !== null) {
                         AiPendingAction::whereKey($resuming->id)
@@ -175,11 +174,30 @@ trait HandlesAgentTurns
                                 'failure_reason' => 'Execution stopped before completion.',
                             ]);
                     }
+
+                    // A call that was marked running and never resolved is the
+                    // one thing an audit trail must not leave open: it reads as
+                    // work still in flight forever. The transition is
+                    // conditional, so a turn that suspended again on its way
+                    // out keeps its fresh approval row untouched.
+                    AiToolCall::where('turn_id', $turnId)
+                        ->where('status', AiToolCall::STATUS_RUNNING)
+                        ->update([
+                            'status' => AiToolCall::STATUS_FAILED,
+                            'result_summary' => 'The turn ended before this call reported a result.',
+                            'resolved_at' => now(),
+                        ]);
+
                     Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
-                    $message = $e instanceof \Everest\Exceptions\Service\AI\AIServiceException
+
+                    // Only our own messages are quotable. Anything else can
+                    // carry SQL, absolute paths or internal detail — which
+                    // APP_DEBUG makes routine — and both the SSE frame and the
+                    // stored row are read by a browser.
+                    $error = $e instanceof \Everest\Exceptions\Service\AI\AIServiceException
                         ? $e->getMessage()
                         : 'The AI ran into a problem. Please try again.';
-                    $this->write('data: ' . json_encode(AgentEvent::error($message)->toArray()));
+                    $this->write('data: ' . json_encode(AgentEvent::error($error)->toArray()));
                 }
 
                 // Rolls the conversation's expiry forward the same way a manual
@@ -506,32 +524,103 @@ trait HandlesAgentTurns
     }
 
     /**
-     * Feed the user's answer back and let the loop carry on.
+     * The conversation a resume may bank its state into, if there is one.
      *
-     * The answer is validated against the options as they were *persisted*, not
-     * as the client reports them — the client could otherwise write anything
-     * into the transcript the model reads next.
+     * Three outcomes rather than two, because "gone" and "not yours" are
+     * different facts. A conversation is reaped when a user exceeds their
+     * unsaved-chat cap, and an approval outliving its transcript is ordinary —
+     * the turn still runs, it simply has nowhere to write the tokens it mints.
+     * A conversation that is *there* but belongs to another user, another
+     * surface, or another server is a boundary failure, and the resume stops
+     * rather than writing across it.
      */
-    protected function applyAnswer(AiPendingAction $pending, AgentContext $context, string $answer): void
+    protected function ownedPendingConversation(
+        AiPendingAction $pending,
+        int $userId,
+        string $scope,
+        ?string $serverUuid,
+    ): ?AiConversation {
+        if ($pending->conversation_id === null) {
+            return null;
+        }
+
+        $conversation = AiConversation::query()->whereKey($pending->conversation_id)->first();
+
+        if ($conversation === null) {
+            return null;
+        }
+
+        if (
+            (int) $conversation->user_id !== $userId
+            || $conversation->scope !== $scope
+            || $conversation->server_uuid !== $serverUuid
+        ) {
+            abort(409, 'The conversation for this pending action is no longer available.');
+        }
+
+        return $conversation;
+    }
+
+    /**
+     * Which decisions a pending action will accept.
+     *
+     * A question and an approval are not interchangeable, and treating them as
+     * though they were left `ask_user` accepting `decision=approve`: the row was
+     * marked approved and the turn resumed with no tool result for the call the
+     * model actually made, which is a transcript no provider will accept. Both
+     * kinds can still be refused — dismissing a question is a real answer to it.
+     *
+     * Checked before anything is claimed, so an invalid combination costs the
+     * user nothing and leaves the action exactly as it was.
+     */
+    protected function assertDecisionMatchesPending(AiPendingAction $pending, string $decision): void
+    {
+        $isQuestion = $pending->tool_name === SharedTools::ASK_USER;
+
+        if ($decision === 'answer' && !$isQuestion) {
+            abort(422, 'That pending action is waiting for approval, not an answer.');
+        }
+
+        if ($decision === 'approve' && $isQuestion) {
+            abort(422, 'That pending action is a question. Answer it or dismiss it.');
+        }
+    }
+
+    /**
+     * The answer as it will actually be written, or a 422.
+     *
+     * Validated against the options as they were *persisted*, not as the client
+     * reports them — the client could otherwise write anything into the
+     * transcript the model reads next. Separate from `applyAnswer()` so the
+     * refusal happens before the row is claimed: claiming first meant a
+     * mistyped answer left the action stuck in `executing` until its lease
+     * expired, with the user unable to answer it again.
+     */
+    protected function assertAnswerAcceptable(AiPendingAction $pending, string $answer): string
     {
         $arguments = (array) $pending->arguments;
         $options = SharedTools::normaliseOptions($arguments['options'] ?? []);
-        $labels = array_column($options, 'label');
-        $allowOther = (bool) ($arguments['allow_other'] ?? false);
-
         $answer = trim($answer);
-        $matched = null;
 
-        foreach ($labels as $label) {
+        foreach (array_column($options, 'label') as $label) {
             if (strcasecmp($label, $answer) === 0) {
-                $matched = $label;
-                break;
+                return $label;
             }
         }
 
-        if ($matched === null && !$allowOther) {
+        if (!(bool) ($arguments['allow_other'] ?? false)) {
             abort(422, 'Choose one of the answers offered.');
         }
+
+        return $answer;
+    }
+
+    /**
+     * Feed the user's answer back and let the loop carry on.
+     */
+    protected function applyAnswer(AiPendingAction $pending, AgentContext $context, string $answer): void
+    {
+        $accepted = $this->assertAnswerAcceptable($pending, $answer);
 
         $pending->update([
             'status' => AiPendingAction::STATUS_COMPLETED,
@@ -542,9 +631,9 @@ trait HandlesAgentTurns
             AiMessage::tool(
                 $this->resolveToolCallId($pending, $context),
                 SharedTools::ASK_USER,
-                json_encode(['ok' => true, 'answer' => $matched ?? $answer]),
+                json_encode(['ok' => true, 'answer' => $accepted]),
             ),
-            TurnRecorder::toolDisplay(true, $matched ?? $answer),
+            TurnRecorder::toolDisplay(true, $accepted),
         );
 
         $this->closeUnresolvedCalls($context);
@@ -788,6 +877,128 @@ trait HandlesAgentTurns
         $pending->refresh();
 
         return $claimed === 1;
+    }
+
+    /**
+     * Reconcile a claim whose request failed before the stream was handed back.
+     *
+     * The window between `claimPending()` and returning the response is short
+     * but not empty, and anything thrown inside it used to leave the row in
+     * `executing` with no writer — indistinguishable from work in flight, and
+     * unreachable until its ten-minute lease expired. Nothing has run at that
+     * point, so this closes the row and the audit rows it would have driven.
+     *
+     * Conditional on the execution key, so it is idempotent and cannot touch a
+     * claim that has since progressed, completed, or been re-suspended.
+     */
+    protected function abandonClaim(AiPendingAction $pending, ?AiBudgetReservation $reservation = null): void
+    {
+        $reservation?->release();
+
+        if ($pending->execution_key === null) {
+            return;
+        }
+
+        $closed = AiPendingAction::whereKey($pending->id)
+            ->where('status', AiPendingAction::STATUS_EXECUTING)
+            ->where('execution_key', $pending->execution_key)
+            ->update([
+                'status' => AiPendingAction::STATUS_FAILED,
+                'resolved_at' => now(),
+                'failure_reason' => 'The decision could not be started; nothing was run.',
+            ]);
+
+        if ($closed === 1) {
+            AiToolCall::where('turn_id', $pending->turn_id)
+                ->whereIn('status', [AiToolCall::STATUS_PENDING_APPROVAL, AiToolCall::STATUS_RUNNING])
+                ->update([
+                    'status' => AiToolCall::STATUS_FAILED,
+                    'result_summary' => 'The decision could not be started; nothing was run.',
+                    'resolved_at' => now(),
+                ]);
+        }
+
+        $pending->refresh();
+    }
+
+    /**
+     * Move an expired action, and the call waiting behind it, to a terminal
+     * state.
+     *
+     * Expiry used to be enforced only by reading `expires_at`, so the row went
+     * on reporting `pending` forever and its `AiToolCall` went on reporting
+     * `pending_approval` — an audit trail that says a change is still awaiting
+     * a decision that can no longer be given. The transition is a conditional
+     * update rather than a save, so two requests racing an expiry produce one.
+     */
+    protected function expireIfStale(AiPendingAction $pending): bool
+    {
+        if ($pending->status !== AiPendingAction::STATUS_PENDING || $pending->isActionable()) {
+            return false;
+        }
+
+        $expired = AiPendingAction::whereKey($pending->id)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->where('expires_at', '<=', now())
+            ->update(['status' => AiPendingAction::STATUS_EXPIRED, 'resolved_at' => now()]);
+
+        if ($expired === 1) {
+            $this->closeExpiredApprovals([$pending->turn_id]);
+        }
+
+        $pending->refresh();
+
+        return true;
+    }
+
+    /**
+     * Do the same sweep across everything a listing is about to report on.
+     *
+     * Deciding is not the only way an action ends — most lapsed ones are simply
+     * never returned to — so the listing endpoints settle expiry too rather than
+     * filtering lapsed rows out of the response and leaving them `pending` in
+     * the database for good.
+     *
+     * @param \Illuminate\Database\Eloquent\Builder $scope already narrowed to the
+     *                                                     caller's own rows
+     */
+    protected function sweepExpiredPending($scope): void
+    {
+        $stale = (clone $scope)
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->where('expires_at', '<=', now())
+            ->pluck('turn_id', 'id');
+
+        if ($stale->isEmpty()) {
+            return;
+        }
+
+        $claimed = AiPendingAction::whereIn('id', $stale->keys()->all())
+            ->where('status', AiPendingAction::STATUS_PENDING)
+            ->update(['status' => AiPendingAction::STATUS_EXPIRED, 'resolved_at' => now()]);
+
+        if ($claimed > 0) {
+            $this->closeExpiredApprovals($stale->values()->all());
+        }
+    }
+
+    /**
+     * The approval rows an expired action leaves behind.
+     *
+     * Recorded as rejected rather than failed: nothing was attempted, and the
+     * outcome the user is entitled to read is that the change did not happen.
+     *
+     * @param string[] $turnIds
+     */
+    private function closeExpiredApprovals(array $turnIds): void
+    {
+        AiToolCall::whereIn('turn_id', $turnIds)
+            ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
+            ->update([
+                'status' => AiToolCall::STATUS_REJECTED,
+                'result_summary' => 'Expired without a decision',
+                'resolved_at' => now(),
+            ]);
     }
 
     /**

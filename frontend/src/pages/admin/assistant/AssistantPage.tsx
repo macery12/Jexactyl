@@ -76,12 +76,17 @@ export default function AssistantPage() {
                     // one — and a system prompt is not part of the transcript a
                     // person reads back.
                     .filter(message => message.role !== 'system')
+                    // Passed through whole. Nulling the call id and arguments
+                    // here is what made a reopened transcript show every tool
+                    // row with empty arguments and a synthetic id, so two
+                    // parallel calls to the same tool became one indistinct
+                    // pair — on the surface where the audit matters most.
                     .map(message => ({
                         role: message.role as ChatRole,
                         content: message.content,
                         tool_name: message.tool_name,
-                        tool_call_id: null,
-                        tool_calls: null,
+                        tool_call_id: message.tool_call_id,
+                        tool_calls: message.tool_calls,
                         step: message.step,
                     })),
                 conversation.redactions,

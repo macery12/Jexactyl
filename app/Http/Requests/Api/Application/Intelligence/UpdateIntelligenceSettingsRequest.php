@@ -4,6 +4,7 @@ namespace Everest\Http\Requests\Api\Application\Intelligence;
 
 use Everest\Models\AdminRole;
 use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
@@ -47,8 +48,19 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             // fourth bounds a single tool call, which the other three cannot see
             // — the wall clock is only read between steps, so a step that never
             // returns runs past all of them.
+            //
+            // Every bound below matches the floor its runtime reader clamps to.
+            // They did not: 15 was accepted here and silently became 30 in
+            // `AgentRunner::maxWallSeconds()`, so the panel showed a saved value
+            // the agent was not using. Refusing the value is the honest half of
+            // that pair — a clamp the operator cannot see is worse than an error
+            // they can.
             'agent.max_steps' => 'nullable|integer|min:1|max:50',
-            'agent.max_wall_seconds' => 'nullable|integer|min:15|max:900',
+            'agent.max_wall_seconds' => sprintf(
+                'nullable|integer|min:%d|max:%d',
+                AgentRunner::MIN_WALL_SECONDS,
+                AgentRunner::MAX_WALL_SECONDS,
+            ),
             'agent.max_tool_seconds' => 'nullable|integer|min:5|max:900',
             'agent.tool_result_bytes' => 'nullable|integer|min:1024|max:131072',
             'agent.max_repairs' => 'nullable|integer|min:0|max:5',
@@ -63,12 +75,19 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'privacy.categories' => 'nullable|array',
             'privacy.categories.*' => 'string|in:' . implode(',', PiiRedactor::KINDS),
 
+            // Two sentinels, both meaning "off" rather than "one": zero queue
+            // depth refuses every turn that cannot have a slot immediately, and
+            // zero per-user means no per-user cap at all. The runtime readers
+            // agree, and the admin copy says so.
             'concurrency.slots' => 'nullable|integer|min:1|max:64',
             'concurrency.queue_depth' => 'nullable|integer|min:0|max:500',
             'concurrency.max_wait_seconds' => 'nullable|integer|min:5|max:600',
             'concurrency.per_user' => 'nullable|integer|min:0|max:16',
 
             'budget.enforce' => 'nullable|bool',
+            // Zero is an allowance of zero once enforcement is on, not
+            // "unlimited" — see `AiBudgetService::assertWithinBudget()`. The
+            // way to run unenforced is to leave `budget.enforce` off.
             'budget.monthly_tokens' => 'nullable|integer|min:0',
 
             'endpoint' => ['nullable', $this->endpointRule()],

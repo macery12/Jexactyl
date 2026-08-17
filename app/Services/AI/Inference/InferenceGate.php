@@ -438,6 +438,14 @@ class InferenceGate
         return max(1, (int) ($configured ?: 2));
     }
 
+    /**
+     * How many turns may wait for a slot.
+     *
+     * Zero means no queue: a turn that cannot have a slot immediately is
+     * refused rather than made to wait. That is the sentinel the settings form
+     * and its validation both describe, and `reserveQueuePlace()` enforces it
+     * without a special case, since a depth of zero is never under the limit.
+     */
     public function maxQueueDepth(): int
     {
         $configured = max(0, (int) $this->setting(

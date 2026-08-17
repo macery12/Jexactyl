@@ -39,6 +39,31 @@ class ProductController extends ApplicationApiController
     }
 
     /**
+     * The product named in the URI, resolved *through* its category.
+     *
+     * The routes declare `{category:id}/products/{product:id}` and the group
+     * calls `scopeBindings()`, which reads as containment but is not: scoping
+     * only applies to route-model binding, and these parameters arrive as
+     * scalars the controller resolves itself. So `Product::findOrFail($product)`
+     * answered for any product under any category, and a wrong category id in
+     * the URI was simply ignored rather than being a 404.
+     *
+     * That is not a privilege escalation while billing capabilities are global,
+     * but it is the containment control this API claims to have — and the agent
+     * supplies both identifiers from model output, where a mismatched pair is
+     * exactly the mistake worth catching.
+     */
+    private function productIn(string $category, string $product): Product
+    {
+        $categoryModel = Category::findOrFail((int) $category);
+
+        return Product::query()
+            ->where('category_uuid', $categoryModel->uuid)
+            ->whereKey((int) $product)
+            ->firstOrFail();
+    }
+
+    /**
      * Get all categories associated with the panel.
      */
     public function index(GetBillingProductsRequest $request, string $category): array
@@ -173,7 +198,7 @@ class ProductController extends ApplicationApiController
      */
     public function update(UpdateBillingProductRequest $request, string $category, string $product): Response
     {
-        $productModel = Product::findOrFail((int) $product);
+        $productModel = $this->productIn($category, $product);
         $attributes = $this->attributesFrom($request, null);
 
         try {
@@ -243,7 +268,7 @@ class ProductController extends ApplicationApiController
      */
     public function view(GetBillingProductRequest $request, string $category, string $product): array
     {
-        $productModel = Product::findOrFail((int) $product);
+        $productModel = $this->productIn($category, $product);
 
         return $this->fractal->item($productModel)
             ->transformWith(ProductTransformer::class)
@@ -255,10 +280,13 @@ class ProductController extends ApplicationApiController
      */
     public function delete(DeleteBillingProductRequest $request, string $category, string $product): Response
     {
-        [$productModel, $categoryUuid] = DB::transaction(function () use ($product): array {
+        $containingCategory = Category::findOrFail((int) $category)->uuid;
+
+        [$productModel, $categoryUuid] = DB::transaction(function () use ($product, $containingCategory): array {
             $this->deletionGuard->assertDeletable([(int) $product]);
             /** @var Product $productModel */
             $productModel = Product::query()
+                ->where('category_uuid', $containingCategory)
                 ->whereKey((int) $product)
                 ->lockForUpdate()
                 ->firstOrFail();
