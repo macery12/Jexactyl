@@ -154,6 +154,9 @@ export function toolTarget(tool: string, args: Record<string, unknown>): string 
     const value = args[key];
     if (value === undefined || value === null) return null;
 
-    const text = String(value);
-    return text.length > 90 ? `${text.slice(0, 89)}…` : text;
+    // Keep the semantic value exact. Compact tool rows may crop this with CSS,
+    // but approval cards also render the same string in a scrollable block.
+    // Cutting it here made two long paths with the same prefix indistinguishable
+    // everywhere, including to assistive technology.
+    return String(value);
 }

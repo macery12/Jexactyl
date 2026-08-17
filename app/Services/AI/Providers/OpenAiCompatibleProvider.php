@@ -22,6 +22,7 @@ class OpenAiCompatibleProvider extends AbstractProvider
 
     public function chat(AiRequest $request): AiResponse
     {
+        $this->beginToolCallResponse();
         $this->assertConfigured();
 
         if (($cached = $this->cachedText($request)) !== null) {
@@ -50,6 +51,7 @@ class OpenAiCompatibleProvider extends AbstractProvider
 
     public function stream(AiRequest $request): \Generator
     {
+        $this->beginToolCallResponse();
         $this->assertConfigured();
 
         if (($cached = $this->cachedText($request)) !== null) {

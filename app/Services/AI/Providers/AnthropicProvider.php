@@ -85,6 +85,7 @@ class AnthropicProvider extends AbstractProvider
 
     public function chat(AiRequest $request): AiResponse
     {
+        $this->beginToolCallResponse();
         $this->assertConfigured();
 
         if (($cached = $this->cachedText($request)) !== null) {
@@ -96,12 +97,12 @@ class AnthropicProvider extends AbstractProvider
         $text = '';
         $toolCalls = [];
 
-        foreach ($data['content'] ?? [] as $block) {
+        foreach (array_values($data['content'] ?? []) as $index => $block) {
             if (($block['type'] ?? '') === 'text') {
                 $text .= (string) ($block['text'] ?? '');
             } elseif (($block['type'] ?? '') === 'tool_use') {
                 $toolCalls[] = new AiToolCall(
-                    (string) ($block['id'] ?? ''),
+                    $this->ensureCallId((string) ($block['id'] ?? ''), $index),
                     (string) ($block['name'] ?? ''),
                     is_array($block['input'] ?? null) ? $block['input'] : [],
                 );
@@ -135,6 +136,7 @@ class AnthropicProvider extends AbstractProvider
 
     public function stream(AiRequest $request): \Generator
     {
+        $this->beginToolCallResponse();
         $this->assertConfigured();
 
         if (($cached = $this->cachedText($request)) !== null) {
@@ -182,7 +184,7 @@ class AnthropicProvider extends AbstractProvider
 
                     if (($block['type'] ?? '') === 'tool_use') {
                         $blocks[$index] = [
-                            'id' => (string) ($block['id'] ?? ''),
+                            'id' => $this->ensureCallId((string) ($block['id'] ?? ''), $index),
                             'name' => (string) ($block['name'] ?? ''),
                             'json' => '',
                         ];

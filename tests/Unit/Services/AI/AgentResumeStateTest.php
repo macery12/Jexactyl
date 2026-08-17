@@ -107,12 +107,20 @@ class AgentResumeStateTest extends TestCase
     {
         $original = $this->context([
             AiMessage::user('back this up'),
-            AiMessage::assistant(null, [new AiToolCall('toolu_01', 'backups_create', ['name' => 'nightly'])]),
+            AiMessage::assistant(null, [new AiToolCall(
+                'toolu_01',
+                'backups_create',
+                ['name' => 'nightly'],
+                'batch-parent',
+                2,
+            )]),
         ]);
 
         $restored = AgentContext::fromState(new User(), new Server(), 'turn-uuid', 7, $original->toState());
 
         $this->assertSame('toolu_01', $restored->unresolvedToolCalls()[0]->id);
         $this->assertSame(['name' => 'nightly'], $restored->unresolvedToolCalls()[0]->arguments);
+        $this->assertSame('batch-parent', $restored->unresolvedToolCalls()[0]->batchParentId);
+        $this->assertSame(2, $restored->unresolvedToolCalls()[0]->batchIndex);
     }
 }

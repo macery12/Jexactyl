@@ -134,10 +134,39 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('files_read', $response->toolCalls[0]->name);
         // Ollama returns arguments already decoded, unlike the OpenAI shape.
         $this->assertSame(['path' => '/server.properties'], $response->toolCalls[0]->arguments);
+        $this->assertMatchesRegularExpression('/^call_[a-f0-9]{24}_0$/', $response->toolCalls[0]->id);
 
         $payload = $this->sentPayload();
         $this->assertSame('files_read', $payload['tools'][0]['function']['name']);
         $this->assertGreaterThanOrEqual(OllamaProvider::MIN_CONTEXT, $payload['options']['num_ctx']);
+    }
+
+    public function testMissingIdsAreUniqueAcrossParallelCallsAndResponses(): void
+    {
+        $reply = fn (string $path) => new Response(200, [], json_encode([
+            'message' => [
+                'role' => 'assistant',
+                'content' => '',
+                'tool_calls' => [
+                    ['function' => ['name' => 'files_read', 'arguments' => ['path' => $path . '/a']]],
+                    ['function' => ['name' => 'files_read', 'arguments' => ['path' => $path . '/b']]],
+                ],
+            ],
+            'done' => true,
+        ]));
+
+        $stack = $this->stack([$reply('/one'), $reply('/two')]);
+        $provider = new OllamaProvider($this->config(ProviderConfig::PROVIDER_OLLAMA), $stack);
+        $request = new AiRequest(messages: [AiMessage::user('read both')], tools: [$this->tool()]);
+
+        $first = $provider->chat($request)->toolCalls;
+        $second = $provider->chat($request)->toolCalls;
+        $ids = array_map(fn (AiToolCall $call) => $call->id, [...$first, ...$second]);
+
+        $this->assertCount(4, array_unique($ids));
+        $this->assertStringEndsWith('_0', $first[0]->id);
+        $this->assertStringEndsWith('_1', $first[1]->id);
+        $this->assertNotSame($first[0]->id, $second[0]->id);
     }
 
     public function testOllamaRepairPathSendsGrammarAndDropsTools(): void

@@ -95,6 +95,17 @@ class ToolCallSalvagerTest extends TestCase
         $this->assertSame('/b', $calls[1]->arguments['path']);
     }
 
+    public function testRecoveredCallIdsDoNotRepeatAcrossResponses(): void
+    {
+        $text = '<tool_call>{"name":"files_read","arguments":{"path":"/a"}}</tool_call>';
+
+        $first = $this->salvager->salvage($text, $this->tools)[0];
+        $second = $this->salvager->salvage($text, $this->tools)[0];
+
+        $this->assertMatchesRegularExpression('/^salvaged_[a-f0-9]{24}_0$/', $first->id);
+        $this->assertNotSame($first->id, $second->id);
+    }
+
     public function testRejectsToolNamesThatWereNotOffered(): void
     {
         // This is the security-relevant case: prose must never be able to

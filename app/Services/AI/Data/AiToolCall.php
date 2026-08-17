@@ -16,6 +16,8 @@ class AiToolCall
         public readonly string $id,
         public readonly string $name,
         public readonly array $arguments = [],
+        public readonly ?string $batchParentId = null,
+        public readonly ?int $batchIndex = null,
     ) {
     }
 
@@ -40,6 +42,8 @@ class AiToolCall
             'id' => $this->id,
             'name' => $this->name,
             'arguments' => $this->arguments,
+            'batch_parent_id' => $this->batchParentId,
+            'batch_index' => $this->batchIndex,
         ];
     }
 
@@ -49,6 +53,8 @@ class AiToolCall
             (string) ($data['id'] ?? ''),
             (string) ($data['name'] ?? ''),
             is_array($data['arguments'] ?? null) ? $data['arguments'] : [],
+            is_string($data['batch_parent_id'] ?? null) ? $data['batch_parent_id'] : null,
+            isset($data['batch_index']) && is_numeric($data['batch_index']) ? (int) $data['batch_index'] : null,
         );
     }
 }

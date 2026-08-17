@@ -118,6 +118,8 @@ export function ApprovalCard({
                     )}
                 </div>
 
+                {target && <ExactApprovalTarget target={target} />}
+
                 {entry.preview?.kind === 'diff' && (
                     <div className="px-3 pb-2">
                         <DiffView original={entry.preview.original} updated={entry.preview.updated} />
@@ -231,9 +233,7 @@ export function ApprovalCard({
                     </div>
 
                     {target && (
-                        <pre className="overflow-x-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-2 font-mono text-xs text-[var(--color-ink)]">
-                            {target}
-                        </pre>
+                        <ExactApprovalTarget target={target} />
                     )}
 
                     <Field label={m['server.ai.approval.confirmLabel']({ server: requiredConfirmation })}>
@@ -247,6 +247,28 @@ export function ApprovalCard({
                 </div>
             </Modal>
         </>
+    );
+}
+
+/**
+ * The exact subject of the approval, separate from the compact header label.
+ *
+ * Horizontal scrolling keeps every code point available without letting a long
+ * path widen the card. Both the container direction and the bdi boundary are
+ * deliberate: a target containing RLO/LRO or isolate controls must not reorder
+ * the surrounding approval UI. The data attribute gives tests and assistive
+ * integrations an unmodified programmatic value as well as the visible text.
+ */
+function ExactApprovalTarget({ target }: { target: string }) {
+    return (
+        <pre
+            data-ai-approval-target={target}
+            dir="ltr"
+            className="mx-3 mb-2 overflow-x-auto whitespace-pre rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-2 font-mono text-xs text-[var(--color-ink)]"
+            style={{ unicodeBidi: 'isolate' }}
+        >
+            <bdi dir="ltr">{target}</bdi>
+        </pre>
     );
 }
 

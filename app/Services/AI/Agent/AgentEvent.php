@@ -84,14 +84,22 @@ class AgentEvent
         return new self(self::TYPE_TOOL_PENDING, ['id' => $id, 'tool' => $tool]);
     }
 
-    public static function toolCall(string $id, string $tool, array $arguments, string $risk): self
-    {
-        return new self(self::TYPE_TOOL_CALL, [
+    public static function toolCall(
+        string $id,
+        string $tool,
+        array $arguments,
+        string $risk,
+        ?string $batchParentId = null,
+        ?int $batchIndex = null,
+    ): self {
+        return new self(self::TYPE_TOOL_CALL, array_filter([
             'id' => $id,
             'tool' => $tool,
             'arguments' => $arguments,
             'risk' => $risk,
-        ]);
+            'batch_parent_id' => $batchParentId,
+            'batch_index' => $batchIndex,
+        ], fn ($value) => $value !== null));
     }
 
     /**
@@ -108,6 +116,8 @@ class AgentEvent
         mixed $result = null,
         ?int $durationMs = null,
         ?string $outcome = null,
+        ?string $batchParentId = null,
+        ?int $batchIndex = null,
     ): self {
         return new self(self::TYPE_TOOL_RESULT, array_filter([
             'id' => $id,
@@ -117,6 +127,8 @@ class AgentEvent
             'result' => $result,
             'duration_ms' => $durationMs,
             'outcome' => $outcome,
+            'batch_parent_id' => $batchParentId,
+            'batch_index' => $batchIndex,
         ], fn ($v) => $v !== null));
     }
 

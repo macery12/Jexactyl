@@ -5,7 +5,6 @@ import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlags } from '@/state/flags';
-import { useSession } from '@/state/session';
 import { useAgentChat } from '@/state/agentChat';
 import { AgentChat } from './AgentChat';
 
@@ -21,15 +20,13 @@ const HOTKEY = 'k';
 export function AgentDrawer() {
     const server = useServer();
     const everest = useFlags(s => s.everest);
-    const user = useSession(s => s.user);
     const location = useLocation();
 
     const open = useAgentChat(s => s.drawerOpen);
     const setDrawer = useAgentChat(s => s.setDrawer);
     const bind = useAgentChat(s => s.bind);
 
-    const isAdmin = Boolean(user?.admin_role_id);
-    const enabled = Boolean(everest?.ai.enabled) && (isAdmin || Boolean(everest?.ai.feature_server_assistant));
+    const enabled = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
 
     // Rebinding clears state when the server changes; a conversation is bound
     // to one server for the life of a turn.

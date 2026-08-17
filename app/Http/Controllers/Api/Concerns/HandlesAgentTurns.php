@@ -572,6 +572,7 @@ trait HandlesAgentTurns
         $definition = $this->toolRegistry()->find($pending->tool_name);
         $callId = $this->resolveToolCallId($pending, $context);
         $audit = AiToolCall::where('turn_id', $pending->turn_id)
+            ->where('tool_call_id', $callId)
             ->where('tool_name', $pending->tool_name)
             ->where('status', AiToolCall::STATUS_PENDING_APPROVAL)
             ->first();

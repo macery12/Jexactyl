@@ -1107,9 +1107,22 @@ class AgentRunner
                 continue;
             }
 
-            $childCall = new ToolCallData($call->id . '.' . $index, $definition->name, $child['arguments']);
+            $childCall = $this->batchChildCall(
+                $context,
+                $call,
+                $index,
+                $definition->name,
+                $child['arguments'],
+            );
 
-            $emit(AgentEvent::toolCall($childCall->id, $definition->name, $child['arguments'], $childRisk));
+            $emit(AgentEvent::toolCall(
+                $childCall->id,
+                $definition->name,
+                $child['arguments'],
+                $childRisk,
+                $childCall->batchParentId,
+                $childCall->batchIndex,
+            ));
 
             $startedAt = microtime(true);
             $result = $this->runTool($context, $childCall, $definition, $child['arguments'], $childRisk);
@@ -1123,6 +1136,9 @@ class AgentRunner
                 $result->summary(),
                 $result->ok ? $result->data : null,
                 (int) round((microtime(true) - $startedAt) * 1000),
+                $result->outcome,
+                $childCall->batchParentId,
+                $childCall->batchIndex,
             ));
 
             if ($result->ok) {
@@ -1153,6 +1169,37 @@ class AgentRunner
                 ? 'Only summaries are returned. If you need what was created, read it back with a list tool.'
                 : null,
         ], fn ($v) => $v !== null));
+    }
+
+    /**
+     * Give a batch child its own deterministic identity and retain its lineage.
+     *
+     * The old `parent.0` convention collided with a valid provider id of the
+     * same value. This turn-bound digest remains stable for idempotent retries
+     * without occupying the provider-controlled namespace.
+     */
+    protected function batchChildCall(
+        AgentContext $context,
+        ToolCallData $parent,
+        int $index,
+        string $tool,
+        array $arguments,
+    ): ToolCallData {
+        return new ToolCallData(
+            sprintf(
+                'batch_%s_%d',
+                substr(hash('sha256', implode("\0", [
+                    $context->turnId,
+                    (string) $context->step,
+                    $parent->id,
+                ])), 0, 32),
+                $index,
+            ),
+            $tool,
+            $arguments,
+            $parent->id,
+            $index,
+        );
     }
 
     /**
@@ -1213,6 +1260,9 @@ class AgentRunner
             'user_id' => $context->user->id,
             'server_uuid' => $subject?->uuid,
             'scope' => $context->scope(),
+            'tool_call_id' => $call->id,
+            'batch_parent_tool_call_id' => $call->batchParentId,
+            'batch_index' => $call->batchIndex,
             'tool_name' => $definition->name,
             'risk' => $risk,
             'step' => $context->step,
@@ -1391,6 +1441,9 @@ class AgentRunner
             // admin surface whose own server binding is null.
             'server_uuid' => $context->targetServer()?->uuid,
             'scope' => $context->scope(),
+            'tool_call_id' => $call->id,
+            'batch_parent_tool_call_id' => $call->batchParentId,
+            'batch_index' => $call->batchIndex,
             'tool_name' => $definition->name,
             'risk' => $risk,
             'step' => $context->step,
@@ -1582,6 +1635,8 @@ class AgentRunner
                 $result->summary(),
                 $result->outcome,
                 $result->isBatch() ? $result->data : null,
+                $call->batchParentId,
+                $call->batchIndex,
             ),
         );
     }

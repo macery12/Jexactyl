@@ -31,6 +31,9 @@ abstract class AbstractProvider implements AiProvider
 
     private ?Client $client = null;
 
+    /** One opaque namespace for every missing-id call emitted by this response driver. */
+    private string $syntheticCallNamespace;
+
     /**
      * @param callable|null $handler Guzzle handler override. Production leaves this
      *                               null; tests supply a MockHandler stack so the
@@ -41,6 +44,7 @@ abstract class AbstractProvider implements AiProvider
         protected ProviderConfig $providerConfig,
         private $handler = null,
     ) {
+        $this->beginToolCallResponse();
     }
 
     public function config(): ProviderConfig
@@ -396,11 +400,19 @@ abstract class AbstractProvider implements AiProvider
     /**
      * Tool results must reference the call they answer. Providers that omit ids
      * (Ollama's native API has no concept of one) still need a stable handle,
-     * so synthesise it from the call's position in the response.
+     * so synthesise it from both this provider response namespace and the call's
+     * position. Provider instances are request-scoped; the namespace prevents a
+     * later response's first call from reusing the old `call_0` identity.
      */
     protected function ensureCallId(string $id, int $index): string
     {
-        return $id !== '' ? $id : 'call_' . $index;
+        return $id !== '' ? $id : sprintf('call_%s_%d', $this->syntheticCallNamespace, $index);
+    }
+
+    /** Start a fresh identity namespace before parsing one provider response. */
+    protected function beginToolCallResponse(): void
+    {
+        $this->syntheticCallNamespace = bin2hex(random_bytes(12));
     }
 
     /**

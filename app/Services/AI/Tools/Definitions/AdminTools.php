@@ -563,7 +563,7 @@ class AdminTools
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $n) => [
                     'id' => $n['id'] ?? ($n['node_id'] ?? null),
                     'name' => $n['name'] ?? null,
-                    'multiplier' => $n['multiplier'] ?? null,
+                    'price_multiplier' => $n['price_multiplier'] ?? null,
                 ], self::LIST_LIMIT),
             ),
 
@@ -573,15 +573,15 @@ class AdminTools
                     . 'that node, so say what the effect will be before proposing it.',
                 parameters: self::object([
                     'id' => self::string('The numeric node id.'),
-                    'multiplier' => self::number('1.0 is catalogue price; 1.25 is 25% more.'),
-                ], ['id', 'multiplier']),
+                    'price_multiplier' => self::number('1.0 is catalogue price; 1.25 is 25% more.'),
+                ], ['id', 'price_multiplier']),
                 method: 'PATCH',
                 uriTemplate: self::BASE . '/billing/node-pricing/{id}',
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_UPDATE],
                 group: self::GROUP_COMMERCE,
-                bodyFields: ['multiplier'],
+                bodyFields: ['price_multiplier'],
             ),
         ];
     }

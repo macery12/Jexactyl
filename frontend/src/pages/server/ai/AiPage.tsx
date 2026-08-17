@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PanelLeftClose, PanelLeftOpen, ShieldAlert } from 'lucide-react';
 import { m } from '@/i18n';
 import { useServer } from '@/components/server/ServerContext';
-import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
 import { AgentChat } from '@/components/ai/AgentChat';
@@ -26,17 +25,16 @@ const RAIL_KEY = 'v2:ai:rail';
 
 export default function AiPage() {
     const server = useServer();
-    const user = useSession(s => s.user);
     const everest = useFlags(s => s.everest);
 
-    const isAdmin = Boolean(user?.admin_role_id);
-    const canUseAssistant = isAdmin || Boolean(everest?.ai.feature_server_assistant);
+    const canUseAssistant = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
 
     const queryClient = useQueryClient();
     const conversationId = useAgentChat(s => s.conversationId);
     const loading = useAgentChat(s => s.loading);
     const bind = useAgentChat(s => s.bind);
     const newChat = useAgentChat(s => s.newChat);
+    const beginTranscriptLoad = useAgentChat(s => s.beginTranscriptLoad);
     const loadTranscript = useAgentChat(s => s.loadTranscript);
     const loadFailed = useAgentChat(s => s.loadFailed);
     const setDrawer = useAgentChat(s => s.setDrawer);
@@ -70,9 +68,11 @@ export default function AiPage() {
     const openConversation = (conv: AiConversation) => {
         if (loading || conv.id === conversationId) return;
 
+        const target = server.uuid;
+        const generation = beginTranscriptLoad(target, conv.id);
         loadConversation(server.uuid, conv.id)
-            .then(({ messages, redactions }) => loadTranscript(conv.id, messages, redactions))
-            .catch(() => loadFailed());
+            .then(({ messages, redactions }) => loadTranscript(target, conv.id, generation, messages, redactions))
+            .catch(() => loadFailed(target, generation));
     };
 
     const removeConversation = (conv: AiConversation) => {

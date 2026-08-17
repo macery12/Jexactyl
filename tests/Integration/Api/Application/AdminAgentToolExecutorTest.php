@@ -3,6 +3,7 @@
 namespace Everest\Tests\Integration\Api\Application;
 
 use Everest\Models\Egg;
+use Everest\Models\Node;
 use Everest\Models\User;
 use Illuminate\Http\Request;
 use Everest\Models\AdminRole;
@@ -52,6 +53,9 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
     /** @var int[] */
     private array $createdCategoryIds = [];
 
+    /** @var int[] */
+    private array $createdNodeIds = [];
+
     public function setUp(): void
     {
         parent::setUp();
@@ -71,6 +75,9 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
      */
     protected function tearDown(): void
     {
+        if ($this->createdNodeIds !== []) {
+            Node::query()->whereKey($this->createdNodeIds)->delete();
+        }
         if ($this->createdProductIds !== []) {
             Product::query()->whereKey($this->createdProductIds)->forceDelete();
         }
@@ -178,10 +185,18 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
         $validated = $this->registry->validate($definition, $arguments);
         $this->assertTrue($validated['valid'], implode(' ', $validated['errors']));
 
-        return $this->executor->execute($definition->invoke(
+        return $definition->shape($this->executor->execute($definition->invoke(
             $validated['value'],
             $this->registry->contextForTool($definition, null, $validated['value']),
-        ));
+        )));
+    }
+
+    private function pricingNode(array $attributes = []): Node
+    {
+        $node = Node::factory()->create($attributes);
+        $this->createdNodeIds[] = $node->id;
+
+        return $node;
     }
 
     /*
@@ -286,6 +301,35 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
         $this->assertSame(0, $product->backup_limit);
         $this->assertNull($product->subdomain_limit);
         $this->assertSame(4096, $product->memory_limit);
+    }
+
+    public function testNodePricingListToolShowsTheStoredPriceMultiplier(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $node = $this->pricingNode(['price_multiplier' => 1.37]);
+
+        $result = $this->invokeDefinition('admin_node_pricing_list', []);
+
+        $this->assertTrue($result->ok, $result->summary());
+        $listed = collect($result->data['items'])->firstWhere('id', $node->id);
+        $this->assertNotNull($listed);
+        $this->assertSame(1.37, (float) $listed['price_multiplier']);
+        $this->assertArrayNotHasKey('multiplier', $listed);
+    }
+
+    public function testNodePricingUpdateToolSendsTheEndpointFieldAndPersistsIt(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $node = $this->pricingNode(['price_multiplier' => 1.0]);
+
+        $result = $this->invokeDefinition('admin_node_pricing_update', [
+            'id' => (string) $node->id,
+            'price_multiplier' => 1.62,
+        ]);
+
+        $this->assertTrue($result->ok, $result->summary());
+        $this->assertSame(1.62, (float) $node->refresh()->price_multiplier);
+        $this->assertSame(1.62, (float) data_get($result->data, 'data.price_multiplier'));
     }
 
     /*

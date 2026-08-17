@@ -360,6 +360,28 @@ class BatchToolTest extends TestCase
         );
     }
 
+    public function testBatchChildrenUseTurnBoundIdsAndKeepTheirLineage(): void
+    {
+        $method = new \ReflectionMethod(AgentRunner::class, 'batchChildCall');
+        $context = $this->context();
+        $parent = new ToolCallData('provider.0', SharedTools::BATCH, []);
+
+        /** @var ToolCallData $child */
+        $child = $method->invoke(app(AgentRunner::class), $context, $parent, 0, 'files_read', ['file' => 'a']);
+        /** @var ToolCallData $sameRetry */
+        $sameRetry = $method->invoke(app(AgentRunner::class), $context, $parent, 0, 'files_read', ['file' => 'a']);
+        $context->step = 2;
+        /** @var ToolCallData $laterStep */
+        $laterStep = $method->invoke(app(AgentRunner::class), $context, $parent, 0, 'files_read', ['file' => 'a']);
+
+        $this->assertSame($child->id, $sameRetry->id);
+        $this->assertNotSame($child->id, $laterStep->id);
+        $this->assertNotSame('provider.0', $child->id);
+        $this->assertNotSame('provider.0.0', $child->id);
+        $this->assertSame('provider.0', $child->batchParentId);
+        $this->assertSame(0, $child->batchIndex);
+    }
+
     /**
      * An approval is a ceiling, not a token: what the user agreed to is a tier,
      * and nothing inside the batch may exceed it when the time comes to run.

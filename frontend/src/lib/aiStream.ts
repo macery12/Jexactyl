@@ -63,7 +63,15 @@ export type AgentEvent =
     | { type: 'text'; content: string }
     | { type: 'reasoning'; content: string }
     | { type: 'tool_pending'; id: string; tool: string }
-    | { type: 'tool_call'; id: string; tool: string; arguments: Record<string, unknown>; risk: AiRisk }
+    | {
+          type: 'tool_call';
+          id: string;
+          tool: string;
+          arguments: Record<string, unknown>;
+          risk: AiRisk;
+          batch_parent_id?: string;
+          batch_index?: number;
+      }
     | {
           type: 'tool_result';
           id: string;
@@ -74,6 +82,8 @@ export type AgentEvent =
           /** The shaped payload the model was given. Live only — never replayed from storage. */
           result?: unknown;
           duration_ms?: number;
+          batch_parent_id?: string;
+          batch_index?: number;
       }
     | {
           type: 'approval_required';

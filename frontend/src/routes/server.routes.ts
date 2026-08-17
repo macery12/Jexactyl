@@ -39,7 +39,7 @@ const ExtensionsSection = lazy(() => import('@/pages/server/extensions/Extension
 // (console-focal); the rest remain placeholders.
 export const serverRoutes: RouteDef[] = [
     route('', { name: 'Console', icon: Terminal, permission: 'control.console', element: ServerOverviewPage, end: true }),
-    route('ai/*', { name: 'AI Assistant', icon: Bot, condition: f => f.ai.enabled && f.ai.feature_server_assistant, element: AiPage }),
+    route('ai/*', { name: 'AI Assistant', icon: Bot, condition: f => f.ai.enabled && f.ai.feature_agent, element: AiPage }),
 
     route('files/*', { name: 'Files', icon: FolderOpen, permission: 'file.*', category: 'data', element: FilesSection }),
     route('databases/*', { name: 'Databases', icon: Database, permission: 'database.*', category: 'data', element: DatabasesPage }),

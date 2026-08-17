@@ -32,6 +32,9 @@ class AiToolCall extends Model
         'user_id',
         'server_uuid',
         'scope',
+        'tool_call_id',
+        'batch_parent_tool_call_id',
+        'batch_index',
         'tool_name',
         'risk',
         'step',
@@ -48,6 +51,7 @@ class AiToolCall extends Model
         'step' => 'integer',
         'http_status' => 'integer',
         'duration_ms' => 'integer',
+        'batch_index' => 'integer',
         'created_at' => 'datetime',
         'resolved_at' => 'datetime',
     ];

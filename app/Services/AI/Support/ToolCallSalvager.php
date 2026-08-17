@@ -65,8 +65,9 @@ class ToolCallSalvager
         }
 
         $calls = [];
+        $namespace = bin2hex(random_bytes(12));
         foreach ($this->candidates($text) as $index => $candidate) {
-            $call = $this->toToolCall($candidate, $known, count($calls));
+            $call = $this->toToolCall($candidate, $known, count($calls), $namespace);
             if ($call !== null && !$this->alreadySeen($calls, $call)) {
                 $calls[] = $call;
             }
@@ -263,7 +264,7 @@ class ToolCallSalvager
     /**
      * @param array<string, string> $known lowercased name => canonical name
      */
-    protected function toToolCall(array $candidate, array $known, int $index): ?AiToolCall
+    protected function toToolCall(array $candidate, array $known, int $index, string $namespace): ?AiToolCall
     {
         // Unwrap the OpenAI-ish `{"function": {"name": ..., "arguments": ...}}`
         // envelope before looking for a name.
@@ -307,7 +308,7 @@ class ToolCallSalvager
             break;
         }
 
-        return new AiToolCall('salvaged_' . $index, $canonical, $arguments);
+        return new AiToolCall(sprintf('salvaged_%s_%d', $namespace, $index), $canonical, $arguments);
     }
 
     /**

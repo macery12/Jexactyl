@@ -64,6 +64,8 @@ export type ChatEntry =
           /** The shaped payload the model received. Session-only; a reloaded transcript has none. */
           result?: unknown;
           durationMs?: number;
+          batchParentCallId?: string;
+          batchIndex?: number;
       }
     | {
           kind: 'approval';
@@ -189,12 +191,15 @@ export interface AgentChatState {
     toggleDrawer: () => void;
 
     newChat: () => void;
+    beginTranscriptLoad: (target: string, conversationId: number) => number;
     loadTranscript: (
+        target: string,
         conversationId: number,
+        generation: number,
         messages: StoredMessage[],
         redactions?: Record<string, string>,
-    ) => void;
-    loadFailed: () => void;
+    ) => boolean;
+    loadFailed: (target: string, generation: number) => void;
     /**
      * Set or clear the assist banner from outside a turn — restoring one when a
      * transcript is opened, or taking it down when the session is ended.
@@ -231,6 +236,22 @@ const STALL_MS = 300_000;
 let sequence = 0;
 const nextKey = () => `e${++sequence}`;
 
+/** Match results to the newest still-open row, never an older reused provider id. */
+const latestOpenToolIndex = (entries: ChatEntry[], callId: string): number => {
+    for (let index = entries.length - 1; index >= 0; --index) {
+        const entry = entries[index];
+        if (
+            entry?.kind === 'tool' &&
+            entry.callId === callId &&
+            (entry.status === 'pending' || entry.status === 'running')
+        ) {
+            return index;
+        }
+    }
+
+    return -1;
+};
+
 export function createAgentChatStore(
     adapter: AgentChatAdapter,
     initialTarget: string | null = null,
@@ -242,6 +263,8 @@ export function createAgentChatStore(
     let activeTurnId: string | null = null;
     let streamAccepted = false;
     let reconciliationGeneration = 0;
+    let transcriptGeneration = 0;
+    let transcriptRequest: { target: string; conversationId: number; generation: number } | null = null;
 
     const clearSlowTimer = () => {
         if (slowTimer) clearTimeout(slowTimer);
@@ -576,7 +599,7 @@ export function createAgentChatStore(
                     clearSlowTimer();
                     sealAssistant();
                     set(state =>
-                        state.entries.some(e => e.kind === 'tool' && e.callId === event.id)
+                        latestOpenToolIndex(state.entries, event.id) !== -1
                             ? state
                             : {
                                   slowHint: false,
@@ -604,19 +627,21 @@ export function createAgentChatStore(
                         // Usually an upgrade of the row `tool_pending` already
                         // put up. Providers that emit calls whole never send
                         // that event, so the row is created here instead.
-                        const announced = state.entries.some(e => e.kind === 'tool' && e.callId === event.id);
+                        const announced = latestOpenToolIndex(state.entries, event.id);
 
                         return {
                             slowHint: false,
                             activity: { phase: 'running', tool: event.tool, startedAt: Date.now() },
-                            entries: announced
-                                ? state.entries.map(entry =>
-                                      entry.kind === 'tool' && entry.callId === event.id
+                            entries: announced !== -1
+                                ? state.entries.map((entry, index) =>
+                                      index === announced && entry.kind === 'tool'
                                           ? {
                                                 ...entry,
                                                 args: event.arguments,
                                                 risk: event.risk,
                                                 status: 'running',
+                                                batchParentCallId: event.batch_parent_id,
+                                                batchIndex: event.batch_index,
                                             }
                                           : entry,
                                   )
@@ -630,6 +655,8 @@ export function createAgentChatStore(
                                           args: event.arguments,
                                           risk: event.risk,
                                           status: 'running',
+                                          batchParentCallId: event.batch_parent_id,
+                                          batchIndex: event.batch_index,
                                       },
                                   ],
                         };
@@ -637,27 +664,31 @@ export function createAgentChatStore(
                     break;
 
                 case 'tool_result':
-                    set(state => ({
-                        activity: { phase: 'waiting', startedAt: Date.now() },
-                        entries: state.entries.map(entry =>
-                            entry.kind === 'tool' &&
-                            entry.callId === event.id &&
-                            (entry.status === 'running' || entry.status === 'pending')
-                                ? {
-                                      ...entry,
-                                      status:
-                                          event.outcome === 'partial'
-                                              ? 'partial'
-                                              : event.ok
-                                                ? 'ok'
-                                                : 'error',
-                                      summary: event.summary,
-                                      result: event.result,
-                                      durationMs: event.duration_ms,
-                                  }
-                                : entry,
-                        ),
-                    }));
+                    set(state => {
+                        const matching = latestOpenToolIndex(state.entries, event.id);
+
+                        return {
+                            activity: { phase: 'waiting', startedAt: Date.now() },
+                            entries: state.entries.map((entry, index) =>
+                                index === matching && entry.kind === 'tool'
+                                    ? {
+                                          ...entry,
+                                          status:
+                                              event.outcome === 'partial'
+                                                  ? 'partial'
+                                                  : event.ok
+                                                    ? 'ok'
+                                                    : 'error',
+                                          summary: event.summary,
+                                          result: event.result,
+                                          durationMs: event.duration_ms,
+                                          batchParentCallId: event.batch_parent_id ?? entry.batchParentCallId,
+                                          batchIndex: event.batch_index ?? entry.batchIndex,
+                                      }
+                                    : entry,
+                            ),
+                        };
+                    });
                     break;
 
                 case 'approval_required':
@@ -802,6 +833,8 @@ export function createAgentChatStore(
 
         const beginTurn = () => {
             ++reconciliationGeneration;
+            ++transcriptGeneration;
+            transcriptRequest = null;
             controller?.abort();
             controller = new AbortController();
             activeTurnId = null;
@@ -855,6 +888,8 @@ export function createAgentChatStore(
                 controller = null;
                 clearSlowTimer();
                 clearStallTimer();
+                ++transcriptGeneration;
+                transcriptRequest = null;
 
                 set({
                     target,
@@ -876,6 +911,8 @@ export function createAgentChatStore(
 
             newChat: () => {
                 if (get().loading) return;
+                ++transcriptGeneration;
+                transcriptRequest = null;
                 // A new conversation is a new session: whatever server the last
                 // one was inside, this one starts outside it again.
                 set({
@@ -889,7 +926,26 @@ export function createAgentChatStore(
                 });
             },
 
-            loadTranscript: (conversationId, messages, redactions) => {
+            beginTranscriptLoad: (target, conversationId) => {
+                const generation = ++transcriptGeneration;
+                transcriptRequest = { target, conversationId, generation };
+
+                return generation;
+            },
+
+            loadTranscript: (target, conversationId, generation, messages, redactions) => {
+                const request = transcriptRequest;
+                if (
+                    get().target !== target ||
+                    request === null ||
+                    request.target !== target ||
+                    request.conversationId !== conversationId ||
+                    request.generation !== generation
+                ) {
+                    return false;
+                }
+
+                transcriptRequest = null;
                 set({
                     conversationId,
                     entries: fromStored(messages),
@@ -903,11 +959,17 @@ export function createAgentChatStore(
                     redactions: redactions ?? {},
                     assist: null,
                 });
+
+                return true;
             },
 
             setAssist: session => set({ assist: session }),
 
-            loadFailed: () => {
+            loadFailed: (target, generation) => {
+                const request = transcriptRequest;
+                if (get().target !== target || request?.target !== target || request.generation !== generation) return;
+
+                transcriptRequest = null;
                 set(state => ({
                     entries: [
                         ...state.entries,
@@ -1095,7 +1157,10 @@ export function restoreRedactionsDeep(value: unknown, map: Record<string, string
  * back together by call id.
  */
 function fromStored(messages: StoredMessage[]): ChatEntry[] {
-    const pendingArgs = new Map<string, { tool: string; args: Record<string, unknown> }>();
+    const pendingArgs = new Map<
+        string,
+        { tool: string; args: Record<string, unknown>; batchParentCallId?: string; batchIndex?: number }[]
+    >();
     const entries: ChatEntry[] = [];
 
     for (const message of messages) {
@@ -1106,7 +1171,14 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
 
         if (message.role === 'assistant') {
             for (const call of message.tool_calls ?? []) {
-                pendingArgs.set(call.id, { tool: call.name, args: call.arguments ?? {} });
+                const queued = pendingArgs.get(call.id) ?? [];
+                queued.push({
+                    tool: call.name,
+                    args: call.arguments ?? {},
+                    batchParentCallId: call.batch_parent_id ?? undefined,
+                    batchIndex: call.batch_index ?? undefined,
+                });
+                pendingArgs.set(call.id, queued);
             }
 
             if ((message.content ?? '').trim() !== '') {
@@ -1117,11 +1189,13 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
 
         // A tool row. Its stored content is the compact {ok, summary} the card
         // renders — the model's full result is never kept.
-        const requested = message.tool_call_id ? pendingArgs.get(message.tool_call_id) : undefined;
+        const requested = message.tool_call_id ? pendingArgs.get(message.tool_call_id)?.shift() : undefined;
         let ok = true;
         let summary: string | undefined;
         let outcome: 'success' | 'partial' | 'failed' | undefined;
         let result: unknown;
+        let batchParentCallId = requested?.batchParentCallId;
+        let batchIndex = requested?.batchIndex;
 
         try {
             const parsed = JSON.parse(message.content ?? '{}');
@@ -1129,6 +1203,8 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
             summary = typeof parsed.summary === 'string' ? parsed.summary : undefined;
             outcome = ['success', 'partial', 'failed'].includes(parsed.outcome) ? parsed.outcome : undefined;
             result = parsed.result;
+            batchParentCallId = typeof parsed.batch_parent_id === 'string' ? parsed.batch_parent_id : batchParentCallId;
+            batchIndex = typeof parsed.batch_index === 'number' ? parsed.batch_index : batchIndex;
         } catch {
             /* fall back to a bare successful row */
         }
@@ -1150,6 +1226,8 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
                       : 'error',
             summary,
             result,
+            batchParentCallId,
+            batchIndex,
         });
     }
 

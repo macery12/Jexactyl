@@ -19,7 +19,15 @@ export type ChatRole = 'user' | 'assistant' | 'tool';
 export interface StoredMessage {
     role: ChatRole;
     content: string | null;
-    tool_calls: { id: string; name: string; arguments: Record<string, unknown> }[] | null;
+    tool_calls:
+        | {
+              id: string;
+              name: string;
+              arguments: Record<string, unknown>;
+              batch_parent_id?: string | null;
+              batch_index?: number | null;
+          }[]
+        | null;
     tool_call_id: string | null;
     tool_name: string | null;
     step: number | null;

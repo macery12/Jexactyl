@@ -18,7 +18,7 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
 
     const loading = useAgentChat(s => s.loading);
 
-    const agentAvailable = Boolean(everest?.ai.feature_agent);
+    const agentAvailable = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
 
     // A settled turn may have opened a conversation, or retitled one.
     useEffect(() => {

@@ -42,12 +42,16 @@ class TurnRecorder
         string $summary,
         ?string $outcome = null,
         mixed $result = null,
+        ?string $batchParentId = null,
+        ?int $batchIndex = null,
     ): string {
         return json_encode(array_filter([
             'ok' => $ok,
             'outcome' => $outcome,
             'summary' => $summary,
             'result' => $result,
+            'batch_parent_id' => $batchParentId,
+            'batch_index' => $batchIndex,
         ], fn ($value) => $value !== null)) ?: '{"ok":false}';
     }
 
@@ -166,6 +170,8 @@ class TurnRecorder
                         'id' => $call->id,
                         'name' => $call->name,
                         'arguments' => $call->arguments,
+                        'batch_parent_id' => $call->batchParentId,
+                        'batch_index' => $call->batchIndex,
                     ], $message->toolCalls),
                 'tool_call_id' => $message->toolCallId,
                 'tool_name' => $message->toolName,

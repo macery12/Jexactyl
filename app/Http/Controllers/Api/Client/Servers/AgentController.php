@@ -139,6 +139,8 @@ class AgentController extends ClientApiController
      */
     public function pending(Request $request, Server $server): JsonResponse
     {
+        $this->assertAgentEnabled($request);
+
         $pending = AiPendingAction::actionable()
             ->where('user_id', $request->user()->id)
             ->where('server_uuid', $server->uuid)
@@ -163,6 +165,8 @@ class AgentController extends ClientApiController
     /** Authoritative state used when an accepted SSE connection disappears. */
     public function turnStatus(Request $request, Server $server, string $turnId): JsonResponse
     {
+        $this->assertAgentEnabled($request);
+
         return $this->agentTurnStatus($request->user(), $turnId, $server, ToolDefinition::SCOPE_SERVER);
     }
 
@@ -325,6 +329,21 @@ class AgentController extends ClientApiController
      */
     protected function assertAgentAvailable(Request $request): void
     {
+        $this->assertAgentEnabled($request);
+
+        $capabilities = $this->factory
+            ->make(ProviderFactory::TASK_AGENT)
+            ->capabilities($this->factory->model(ProviderFactory::TASK_AGENT));
+
+        if (!$capabilities->supportsTools) {
+            abort(503, $capabilities->warnings[0]
+                ?? 'The configured AI model does not support tool calling, so the agent cannot run.');
+        }
+    }
+
+    /** The customer-agent kill switches apply equally to every account. */
+    protected function assertAgentEnabled(Request $request): void
+    {
         $enabled = filter_var(
             Setting::get('settings::modules:ai:enabled', config('modules.ai.enabled', false)),
             FILTER_VALIDATE_BOOLEAN
@@ -339,17 +358,8 @@ class AgentController extends ClientApiController
             FILTER_VALIDATE_BOOLEAN
         );
 
-        if (!$agentEnabled && !$request->user()->isOwner()) {
+        if (!$agentEnabled) {
             abort(403, 'The AI agent has been disabled by the administrator.');
-        }
-
-        $capabilities = $this->factory
-            ->make(ProviderFactory::TASK_AGENT)
-            ->capabilities($this->factory->model(ProviderFactory::TASK_AGENT));
-
-        if (!$capabilities->supportsTools) {
-            abort(503, $capabilities->warnings[0]
-                ?? 'The configured AI model does not support tool calling, so the agent cannot run.');
         }
     }
 }

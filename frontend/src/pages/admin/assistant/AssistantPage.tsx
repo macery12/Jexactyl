@@ -6,7 +6,7 @@ import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { AgentChatView } from '@/components/ai/AgentChatView';
-import { useAdminAgentChat } from '@/state/agentChat';
+import { ADMIN_AGENT_TARGET, useAdminAgentChat } from '@/state/agentChat';
 import type { ChatRole } from '@/api/ai';
 import {
     deleteAdminAgentConversation,
@@ -34,6 +34,7 @@ export default function AssistantPage() {
     const loading = useAdminAgentChat(s => s.loading);
     const conversationId = useAdminAgentChat(s => s.conversationId);
     const newChat = useAdminAgentChat(s => s.newChat);
+    const beginTranscriptLoad = useAdminAgentChat(s => s.beginTranscriptLoad);
     const loadTranscript = useAdminAgentChat(s => s.loadTranscript);
     const loadFailed = useAdminAgentChat(s => s.loadFailed);
     const setAssist = useAdminAgentChat(s => s.setAssist);
@@ -63,10 +64,13 @@ export default function AssistantPage() {
     const open = async (id: number) => {
         if (loading) return;
 
+        const generation = beginTranscriptLoad(ADMIN_AGENT_TARGET, id);
         try {
             const conversation = await getAdminAgentConversation(id);
-            loadTranscript(
+            const applied = loadTranscript(
+                ADMIN_AGENT_TARGET,
                 conversation.id,
+                generation,
                 conversation.messages
                     // The role column can hold `system`, but a turn never writes
                     // one — and a system prompt is not part of the transcript a
@@ -83,7 +87,7 @@ export default function AssistantPage() {
                 conversation.redactions,
             );
 
-            if (conversation.assist) {
+            if (applied && conversation.assist) {
                 setAssist({
                     serverUuid: conversation.assist.server_uuid,
                     serverName: conversation.assist.server_name,
@@ -92,7 +96,7 @@ export default function AssistantPage() {
                 });
             }
         } catch {
-            loadFailed();
+            loadFailed(ADMIN_AGENT_TARGET, generation);
         }
     };
 
