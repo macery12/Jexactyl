@@ -26,6 +26,7 @@ class AgentTurnRequest extends ApplicationApiRequest
         return [
             'query' => 'required|string|min:1|max:8000',
             'conversation_id' => 'nullable|integer',
+            'ticket' => 'nullable|string|max:64',
         ];
     }
 }

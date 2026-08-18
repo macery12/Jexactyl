@@ -6,8 +6,8 @@ use Everest\Tests\TestCase;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Data\ProviderConfig;
-use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Inference\TurnLease;
+use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 
@@ -15,6 +15,13 @@ use Everest\Contracts\Repository\SettingsRepositoryInterface;
  * Admission control for self-hosted inference. The cache store under test is
  * the array driver, which supports the same atomic lock and counter primitives
  * the Redis store uses in production.
+ *
+ * The property most of this file exists to pin is that **nothing waits**. The
+ * gate used to block in a sleep loop, which meant a queued turn held a PHP
+ * worker for as long as it was queued — so the queue consumed the capacity it
+ * was there to protect, and its depth had to be clamped against the deployment's
+ * worker pool to stop it taking the panel down. A turn that cannot have a slot
+ * now leaves with a ticket, and comes back for it.
  */
 class InferenceGateTest extends TestCase
 {
@@ -44,6 +51,24 @@ class InferenceGateTest extends TestCase
         return new InferenceGate(new ProviderFactory());
     }
 
+    /** A gate whose clock this test drives, for the ages a ticket is measured by. */
+    private function clockedGate(array $config = []): InferenceGate
+    {
+        config()->set('modules.ai.provider', ProviderConfig::PROVIDER_OLLAMA);
+        foreach ($config as $key => $value) {
+            config()->set('modules.ai.' . $key, $value);
+        }
+
+        return new class (new ProviderFactory()) extends InferenceGate {
+            public float $offset = 0.0;
+
+            protected function now(): float
+            {
+                return microtime(true) + $this->offset;
+            }
+        };
+    }
+
     public function testHostedProvidersSkipAdmissionControlEntirely(): void
     {
         $gate = $this->gate(ProviderConfig::PROVIDER_ANTHROPIC);
@@ -51,10 +76,12 @@ class InferenceGateTest extends TestCase
         $this->assertFalse($gate->applies());
 
         // Callers get the same lease shape either way so the turn code has no branch.
-        $lease = $gate->acquire('user-1');
-        $this->assertTrue($lease->passthrough);
-        $this->assertNull($lease->slot);
-        $lease->release();
+        $admission = $gate->admit('user-1');
+        $this->assertTrue($admission->granted());
+        $this->assertTrue($admission->lease->passthrough);
+        $this->assertNull($admission->lease->slot);
+        $this->assertNull($admission->ticket);
+        $admission->lease->release();
     }
 
     public function testSelfHostedProvidersAreGated(): void
@@ -67,38 +94,127 @@ class InferenceGateTest extends TestCase
     {
         $gate = $this->gate(config: ['concurrency.slots' => 2, 'concurrency.per_user' => 0]);
 
-        $first = $gate->acquire('user-1');
-        $second = $gate->acquire('user-2');
+        $first = $gate->admit('user-1');
+        $second = $gate->admit('user-2');
 
-        $this->assertFalse($first->passthrough);
-        $this->assertNotSame($first->slot, $second->slot);
+        $this->assertTrue($first->granted());
+        $this->assertTrue($second->granted());
+        $this->assertNotSame($first->lease->slot, $second->lease->slot);
         $this->assertSame(2, $gate->slotsInUse());
 
-        $first->release();
+        $first->lease->release();
         $this->assertSame(1, $gate->slotsInUse());
 
-        $second->release();
+        $second->lease->release();
         $this->assertSame(0, $gate->slotsInUse());
     }
 
-    public function testRefusesWhenEveryySlotIsBusyAndTheWaitElapses(): void
+    /**
+     * The whole point of the rewrite: a busy gate answers immediately.
+     *
+     * The old gate sat in `usleep()` until either a slot freed or the configured
+     * wait elapsed — up to two minutes of a PHP worker doing nothing. Timing an
+     * assertion is usually a smell, but here the elapsed time *is* the property.
+     */
+    public function testABusyGateReturnsATicketInsteadOfBlocking(): void
     {
         $gate = $this->gate(config: [
             'concurrency.slots' => 1,
             'concurrency.per_user' => 0,
-            'concurrency.max_wait_seconds' => 5,
+            'concurrency.max_wait_seconds' => 120,
         ]);
 
-        $held = $gate->acquire('user-1');
+        $held = $gate->admit('user-1');
+        $startedAt = microtime(true);
 
-        $this->expectException(AIServiceException::class);
-        $this->expectExceptionMessage('did not free up in time');
+        $queued = $gate->admit('user-2');
 
-        try {
-            $gate->acquire('user-2');
-        } finally {
-            $held->release();
-        }
+        $this->assertLessThan(1.0, microtime(true) - $startedAt);
+        $this->assertFalse($queued->granted());
+        $this->assertNull($queued->lease);
+        $this->assertNotNull($queued->ticket);
+        $this->assertSame(1, $queued->position);
+        $this->assertSame(0, $queued->ahead);
+        $this->assertGreaterThan(0, $queued->etaSeconds);
+        $this->assertGreaterThan(0, $queued->retryAfterMs);
+
+        $held->lease->release();
+    }
+
+    public function testPresentingATicketKeepsThePlaceAndIsAdmittedWhenASlotFrees(): void
+    {
+        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 0]);
+
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+        $this->assertFalse($queued->granted());
+
+        // Coming back while the slot is still busy holds the same place rather
+        // than issuing a fresh ticket at the back of the queue.
+        $again = $gate->admit('user-2', InferenceGate::LANE_NEW, $queued->ticket);
+        $this->assertFalse($again->granted());
+        $this->assertSame($queued->ticket, $again->ticket);
+        $this->assertSame(1, $gate->queueDepth());
+
+        $held->lease->release();
+
+        $admitted = $gate->admit('user-2', InferenceGate::LANE_NEW, $queued->ticket);
+        $this->assertTrue($admitted->granted());
+        $this->assertSame(0, $gate->queueDepth(), 'A granted ticket leaves the queue.');
+
+        $admitted->lease->release();
+    }
+
+    public function testANewArrivalDoesNotOvertakeAWaitingTicket(): void
+    {
+        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 0]);
+
+        $held = $gate->admit('user-1');
+        $first = $gate->admit('user-2');
+        $this->assertFalse($first->granted());
+
+        $held->lease->release();
+
+        // The slot is free, but it is not this caller's turn: position has to
+        // mean something, or the user who arrived first watches later ones
+        // overtake them for as long as the panel is busy.
+        $second = $gate->admit('user-3');
+        $this->assertFalse($second->granted());
+        $this->assertSame(1, $second->ahead);
+
+        $admitted = $gate->admit('user-2', InferenceGate::LANE_NEW, $first->ticket);
+        $this->assertTrue($admitted->granted());
+        $admitted->lease->release();
+    }
+
+    public function testResumesOutrankNewTurnsRegardlessOfArrivalOrder(): void
+    {
+        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 0]);
+
+        $held = $gate->admit('user-1');
+        $newcomer = $gate->admit('user-2', InferenceGate::LANE_NEW);
+        $resume = $gate->admit('user-3', InferenceGate::LANE_RESUME);
+
+        $this->assertFalse($newcomer->granted());
+        $this->assertFalse($resume->granted());
+
+        // A half-finished turn a user is actively waiting on takes priority:
+        // finishing it is what returns VRAM to the pool. The resume arrived
+        // second and is still in front.
+        $this->assertSame(0, $resume->ahead);
+
+        $held->lease->release();
+
+        // Position is answered per attempt rather than pushed, so the newcomer
+        // learns it has been overtaken when it next comes back — which is also
+        // the moment the answer could matter to it.
+        $stillWaiting = $gate->admit('user-2', InferenceGate::LANE_NEW, $newcomer->ticket);
+        $this->assertFalse($stillWaiting->granted(), 'The resume is ahead and the only slot is its.');
+        $this->assertSame(1, $stillWaiting->ahead);
+
+        $admitted = $gate->admit('user-3', InferenceGate::LANE_RESUME, $resume->ticket);
+        $this->assertTrue($admitted->granted());
+        $admitted->lease->release();
     }
 
     public function testRefusesImmediatelyWhenTheQueueIsFull(): void
@@ -109,81 +225,170 @@ class InferenceGateTest extends TestCase
             'concurrency.queue_depth' => 1,
         ]);
 
-        $held = $gate->acquire('user-1');
-
-        // Simulate one waiter already queued.
-        Cache::put('ai:waiting:new', 1, 60);
-
-        $started = microtime(true);
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+        $this->assertFalse($queued->granted());
 
         try {
-            $gate->acquire('user-2');
+            $gate->admit('user-3');
             $this->fail('Expected the gate to refuse a full queue.');
         } catch (AIServiceException $e) {
             // Refusing fast is kinder than an unbounded queue nobody reaches
             // the front of — and the caller must not be charged for it.
             $this->assertStringContainsString('queue is full', $e->getMessage());
-            $this->assertLessThan(1.0, microtime(true) - $started);
-        } finally {
-            $held->release();
         }
+
+        // The refused caller keeps nothing: no ticket, and no reservation that
+        // would lock them out of retrying.
+        $this->assertSame(1, $gate->queueDepth());
+        $this->assertSame(0, $gate->activeForUser('user-3'));
+
+        $held->lease->release();
     }
 
-    public function testQueueDepthIsClampedToSpareDeploymentWorkers(): void
+    public function testAQueueDepthOfZeroRefusesRatherThanQueues(): void
     {
         $gate = $this->gate(config: [
-            'concurrency.slots' => 3,
-            'concurrency.queue_depth' => 50,
-            'concurrency.worker_capacity' => 5,
+            'concurrency.slots' => 1,
+            'concurrency.per_user' => 0,
+            'concurrency.queue_depth' => 0,
         ]);
 
-        $this->assertSame(2, $gate->maxQueueDepth());
-    }
+        $held = $gate->admit('user-1');
 
-    public function testOneUserCannotOccupyEverySlot(): void
-    {
-        $gate = $this->gate(config: ['concurrency.slots' => 4, 'concurrency.per_user' => 1]);
-
-        $first = $gate->acquire('user-1');
+        $this->expectException(AIServiceException::class);
+        $this->expectExceptionMessage('queue is full');
 
         try {
-            $gate->acquire('user-1');
-            $this->fail('Expected the per-user limit to reject a second concurrent turn.');
-        } catch (AIServiceException $e) {
-            $this->assertStringContainsString('already have an AI request running', $e->getMessage());
+            $gate->admit('user-2');
+        } finally {
+            $held->lease->release();
         }
-
-        // A different user is unaffected.
-        $other = $gate->acquire('user-2');
-        $this->assertFalse($other->passthrough);
-
-        $first->release();
-        $other->release();
-
-        $this->assertSame(0, $gate->activeForUser('user-1'));
     }
 
-    public function testAQueuedReservationCountsAgainstThePerUserLimit(): void
+    public function testAQueuePlaceCountsAgainstThePerUserLimit(): void
     {
         $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 1]);
-        $reserve = new \ReflectionMethod(InferenceGate::class, 'reserveUser');
-        $release = new \ReflectionMethod(InferenceGate::class, 'releaseUser');
 
-        // reserveUser runs before slot polling, so this has the same ownership
-        // shape as a request waiting behind a busy slot.
-        $queued = $reserve->invoke($gate, 'user-queued');
-        $this->assertSame(1, $gate->activeForUser('user-queued'));
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+
+        $this->assertFalse($queued->granted());
+        $this->assertSame(1, $gate->activeForUser('user-2'));
 
         try {
-            $gate->acquire('user-queued');
-            $this->fail('A second request from a user with queued work must be refused.');
+            $gate->admit('user-2');
+            $this->fail('A second request from a user already queued must be refused.');
         } catch (AIServiceException $e) {
             $this->assertStringContainsString('running or queued', $e->getMessage());
-        } finally {
-            $release->invoke($gate, $queued);
         }
 
-        $this->assertSame(0, $gate->activeForUser('user-queued'));
+        // Presenting the ticket is not a second request, and must not be read
+        // as one — otherwise a queued user could never come back for their slot.
+        $again = $gate->admit('user-2', InferenceGate::LANE_NEW, $queued->ticket);
+        $this->assertFalse($again->granted());
+        $this->assertSame(1, $gate->activeForUser('user-2'));
+
+        $held->lease->release();
+    }
+
+    public function testGivingUpAQueuePlaceFreesItImmediately(): void
+    {
+        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 1]);
+
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+
+        $this->assertTrue($gate->releaseTicket($queued->ticket, 'user-2'));
+        $this->assertSame(0, $gate->queueDepth());
+
+        // The point of releasing rather than waiting for the idle timeout: the
+        // user who pressed Stop can send their next message straight away.
+        $this->assertSame(0, $gate->activeForUser('user-2'));
+
+        $this->assertFalse($gate->releaseTicket($queued->ticket, 'user-2'), 'Releasing twice is a no-op.');
+
+        $held->lease->release();
+    }
+
+    public function testATicketBelongingToSomebodyElseIsNotHonoured(): void
+    {
+        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 0]);
+
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+
+        $this->assertFalse($gate->releaseTicket($queued->ticket, 'user-3'));
+        $this->assertSame(1, $gate->queueDepth(), 'Another user must not be able to drop this place.');
+
+        try {
+            $gate->admit('user-3', InferenceGate::LANE_NEW, $queued->ticket);
+            $this->fail('A ticket must only be presentable by the owner it was issued to.');
+        } catch (AIServiceException $e) {
+            $this->assertStringContainsString('did not free up in time', $e->getMessage());
+        }
+
+        $held->lease->release();
+    }
+
+    public function testATicketNobodyComesBackForLapsesAndFreesItsReservation(): void
+    {
+        $gate = $this->clockedGate(['concurrency.slots' => 1, 'concurrency.per_user' => 1]);
+
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+        $this->assertSame(1, $gate->activeForUser('user-2'));
+
+        // A closed tab, a lost connection and a browser that navigated away are
+        // the same event from here, and none of them will say so.
+        $gate->offset = 60.0;
+
+        $this->assertSame(0, $gate->queueDepth());
+
+        try {
+            $gate->admit('user-2', InferenceGate::LANE_NEW, $queued->ticket);
+            $this->fail('A lapsed ticket must not be honoured.');
+        } catch (AIServiceException $e) {
+            $this->assertStringContainsString('did not free up in time', $e->getMessage());
+        }
+
+        $this->assertSame(0, $gate->activeForUser('user-2'), 'A lapsed place releases its reservation.');
+
+        $held->lease->release();
+    }
+
+    public function testATicketHeldPastTheConfiguredWaitIsGivenUp(): void
+    {
+        $gate = $this->clockedGate([
+            'concurrency.slots' => 1,
+            'concurrency.per_user' => 0,
+            'concurrency.max_wait_seconds' => 30,
+        ]);
+
+        $held = $gate->admit('user-1');
+        $queued = $gate->admit('user-2');
+
+        // Presented steadily, so it never goes idle — but the total wait is
+        // still bounded, because at some point being told "not yet" forever is
+        // worse than being told no.
+        for ($tick = 1; $tick <= 3; ++$tick) {
+            $gate->offset = $tick * 10.0;
+            if ($tick < 3) {
+                $again = $gate->admit('user-2', InferenceGate::LANE_NEW, $queued->ticket);
+                $this->assertFalse($again->granted());
+
+                continue;
+            }
+
+            try {
+                $gate->admit('user-2', InferenceGate::LANE_NEW, $queued->ticket);
+                $this->fail('A ticket older than the configured wait must be refused.');
+            } catch (AIServiceException $e) {
+                $this->assertStringContainsString('did not free up in time', $e->getMessage());
+            }
+        }
+
+        $held->lease->release();
     }
 
     public function testAnExpiredOwnersCleanupCannotReleaseAReplacementReservation(): void
@@ -223,104 +428,16 @@ class InferenceGateTest extends TestCase
     {
         $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 1]);
 
-        $lease = $gate->acquire('user-1');
-        $lease->release();
-        $lease->release();
+        $admission = $gate->admit('user-1');
+        $admission->lease->release();
+        $admission->lease->release();
 
         // A double release must not drive the per-user counter negative and
         // lock the user out of their next turn.
         $this->assertSame(0, $gate->activeForUser('user-1'));
         $this->assertSame(0, $gate->slotsInUse());
 
-        $gate->acquire('user-1')->release();
-    }
-
-    public function testNewTurnsStandDownWhileAResumeIsWaiting(): void
-    {
-        $gate = $this->gate(config: [
-            'concurrency.slots' => 1,
-            'concurrency.per_user' => 0,
-            'concurrency.max_wait_seconds' => 5,
-        ]);
-
-        // A resume is queued; the only slot is free.
-        Cache::put('ai:waiting:' . InferenceGate::LANE_RESUME, 1, 60);
-
-        $this->expectException(AIServiceException::class);
-
-        // A half-finished turn the user is actively waiting on takes priority:
-        // finishing it is what returns VRAM to the pool.
-        $gate->acquire('user-2', InferenceGate::LANE_NEW);
-    }
-
-    public function testResumeLaneTakesAFreeSlotImmediately(): void
-    {
-        $gate = $this->gate(config: ['concurrency.slots' => 1, 'concurrency.per_user' => 0]);
-
-        Cache::put('ai:waiting:' . InferenceGate::LANE_RESUME, 1, 60);
-
-        $lease = $gate->acquire('user-1', InferenceGate::LANE_RESUME);
-        $this->assertFalse($lease->passthrough);
-        $lease->release();
-    }
-
-    public function testReportsQueuePositionWhileWaiting(): void
-    {
-        $gate = $this->gate(config: [
-            'concurrency.slots' => 1,
-            'concurrency.per_user' => 0,
-            'concurrency.max_wait_seconds' => 2,
-        ]);
-
-        $held = $gate->acquire('user-1');
-        $frames = [];
-
-        try {
-            $gate->acquire('user-2', InferenceGate::LANE_NEW, function (int $position, int $ahead, int $eta) use (&$frames) {
-                $frames[] = compact('position', 'ahead', 'eta');
-            });
-        } catch (AIServiceException $e) {
-            // expected once the wait elapses
-        } finally {
-            $held->release();
-        }
-
-        $this->assertNotEmpty($frames, 'The gate should report queue position to a streaming caller.');
-        $this->assertSame(1, $frames[0]['position']);
-        $this->assertGreaterThan(0, $frames[0]['eta']);
-        $this->assertSame(0, $gate->waiting(InferenceGate::LANE_NEW));
-        $this->assertSame(0, $gate->activeForUser('user-2'));
-    }
-
-    public function testDisconnectPromptlyCleansQueueAndUserReservations(): void
-    {
-        config()->set('modules.ai.provider', ProviderConfig::PROVIDER_OLLAMA);
-        config()->set('modules.ai.concurrency.slots', 1);
-        config()->set('modules.ai.concurrency.per_user', 1);
-
-        $gate = new class (new ProviderFactory()) extends InferenceGate {
-            public bool $disconnected = false;
-
-            protected function clientDisconnected(): bool
-            {
-                return $this->disconnected;
-            }
-        };
-
-        $held = $gate->acquire('user-held');
-        $gate->disconnected = true;
-
-        try {
-            $gate->acquire('user-gone');
-            $this->fail('A disconnected waiter must be cancelled.');
-        } catch (AIServiceException $e) {
-            $this->assertStringContainsString('client disconnected', $e->getMessage());
-        } finally {
-            $held->release();
-        }
-
-        $this->assertSame(0, $gate->waiting(InferenceGate::LANE_NEW));
-        $this->assertSame(0, $gate->activeForUser('user-gone'));
+        $gate->admit('user-1')->lease->release();
     }
 
     public function testEtaTracksRecentTurnDurationsAndScalesWithSlots(): void
@@ -340,19 +457,26 @@ class InferenceGateTest extends TestCase
         $this->assertGreaterThan($gate->estimatedWaitSeconds(1), $gate->estimatedWaitSeconds(2));
     }
 
-    public function testStatsSnapshotReflectsLiveSlotUsage(): void
+    public function testStatsSnapshotReflectsLiveSlotAndQueueUsage(): void
     {
         $gate = $this->gate(config: ['concurrency.slots' => 2, 'concurrency.per_user' => 0]);
 
-        $lease = $gate->acquire('user-1');
+        $first = $gate->admit('user-1');
+        $second = $gate->admit('user-2');
+        $queued = $gate->admit('user-3', InferenceGate::LANE_RESUME);
+        $this->assertFalse($queued->granted());
+
         $stats = $gate->stats();
 
         $this->assertTrue($stats['applies']);
         $this->assertSame(2, $stats['slots']);
-        $this->assertSame(1, $stats['slots_in_use']);
-        $this->assertSame(0, $stats['queue_depth']);
+        $this->assertSame(2, $stats['slots_in_use']);
+        $this->assertSame(1, $stats['queue_depth']);
+        $this->assertSame(0, $stats['waiting_new']);
+        $this->assertSame(1, $stats['waiting_resume']);
 
-        $lease->release();
+        $first->lease->release();
+        $second->lease->release();
 
         $this->assertFalse($this->gate(ProviderConfig::PROVIDER_ANTHROPIC)->stats()['applies']);
     }

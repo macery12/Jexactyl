@@ -2,13 +2,21 @@ import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { m } from '@/i18n';
 import type { AgentEvent, AgentStreamCallbacks, AiApprovalPreview, AiRisk } from '@/lib/aiStream';
 import {
+    cancelAgentTurn,
     getAgentTurnStatus,
+    releaseAgentQueue,
     streamAgentDecision,
     streamAgentTurn,
     type AgentTurnStatus,
     type StoredMessage,
 } from '@/api/ai';
-import { getAdminAgentTurnStatus, streamAdminAgentDecision, streamAdminAgentTurn } from '@/api/adminAi';
+import {
+    cancelAdminAgentTurn,
+    getAdminAgentTurnStatus,
+    releaseAdminAgentQueue,
+    streamAdminAgentDecision,
+    streamAdminAgentTurn,
+} from '@/api/adminAi';
 import { restoreRedactions, restoreRedactionsDeep } from '@/lib/redaction';
 
 // One conversation per surface, shared by every component that renders it.
@@ -136,6 +144,8 @@ export interface AgentTurnBody {
     query: string;
     conversationId: number | null;
     console?: string | null;
+    /** The queue place a previous attempt was given, if it was turned away. */
+    ticket?: string;
 }
 
 export interface AgentDecisionBody {
@@ -143,6 +153,7 @@ export interface AgentDecisionBody {
     decision: AgentDecision;
     confirmation?: string;
     answer?: string;
+    ticket?: string;
 }
 
 /**
@@ -166,6 +177,10 @@ export interface AgentChatAdapter {
         signal: AbortSignal,
     ) => void;
     reconcileTurn: (target: string, turnId: string) => Promise<AgentTurnStatus>;
+    /** Ask the backend to stop a turn that is still running. */
+    cancelTurn: (target: string, turnId: string) => Promise<void>;
+    /** Hand back a queue place instead of letting it lapse. */
+    releaseQueue: (target: string, ticket: string) => Promise<void>;
 }
 
 export interface AgentChatState {
@@ -263,6 +278,16 @@ export function createAgentChatStore(
     let idleLimitMs = STALL_MS;
     let activeTurnId: string | null = null;
     let streamAccepted = false;
+    // The queue place this conversation holds, and the attempt that will
+    // present it. The panel no longer holds a request open while a turn waits
+    // for an inference slot — that cost one PHP worker per waiter — so coming
+    // back is the client's job, and these three are the whole of that job:
+    // what to re-send, when, and with which place in line.
+    let queueTicket: string | null = null;
+    let retryAttempt: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAfterMs = 1000;
+    let awaitingSlot = false;
     let reconciliationGeneration = 0;
     let transcriptGeneration = 0;
     let transcriptRequest: { target: string; conversationId: number; generation: number } | null = null;
@@ -275,6 +300,24 @@ export function createAgentChatStore(
     const clearStallTimer = () => {
         if (stallTimer) clearTimeout(stallTimer);
         stallTimer = null;
+    };
+
+    /**
+     * Forget the queue place and stop trying to come back for it.
+     *
+     * Returns the ticket, so the one caller who should hand it back to the
+     * server can do so; every other path simply drops it and lets it lapse.
+     */
+    const clearQueueRetry = (): string | null => {
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = null;
+        retryAttempt = null;
+        awaitingSlot = false;
+
+        const ticket = queueTicket;
+        queueTicket = null;
+
+        return ticket;
     };
 
     return create<AgentChatState>((set, get) => {
@@ -412,6 +455,7 @@ export function createAgentChatStore(
         const settle = () => {
             clearSlowTimer();
             clearStallTimer();
+            clearQueueRetry();
             controller = null;
             sealAssistant();
             sealTools(m['server.ai.tool.noResult']());
@@ -421,6 +465,7 @@ export function createAgentChatStore(
         const fail = (message: string) => {
             clearSlowTimer();
             clearStallTimer();
+            clearQueueRetry();
             controller = null;
             sealAssistant();
             sealTools(m['server.ai.tool.noResult']());
@@ -438,6 +483,7 @@ export function createAgentChatStore(
         const failSubmission = (message: string) => {
             clearSlowTimer();
             clearStallTimer();
+            clearQueueRetry();
             controller = null;
             sealAssistant();
             set(state => ({
@@ -460,6 +506,7 @@ export function createAgentChatStore(
         const suspend = () => {
             clearSlowTimer();
             clearStallTimer();
+            clearQueueRetry();
             controller = null;
             set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
         };
@@ -528,7 +575,21 @@ export function createAgentChatStore(
                                           ...entries,
                                           { kind: 'assistant' as const, key: nextKey(), content: state.error, error: true },
                                       ]
-                                    : entries;
+                                    : // A stop the user asked for is a boundary
+                                      // working, not a fault, so it reads as a
+                                      // notice. Styling it as a failure would
+                                      // teach people to distrust their own
+                                      // Stop button.
+                                      state.status === 'cancelled'
+                                      ? [
+                                            ...entries,
+                                            {
+                                                kind: 'notice' as const,
+                                                key: nextKey(),
+                                                content: m['server.ai.stopped'](),
+                                            },
+                                        ]
+                                      : entries;
 
                             return {
                                 conversationId: state.conversation_id ?? current.conversationId,
@@ -575,6 +636,13 @@ export function createAgentChatStore(
                     break;
 
                 case 'queued':
+                    // A frame carrying a ticket means the turn has *not*
+                    // started: the request is about to end, and this is the
+                    // place we must present to keep our position.
+                    if (event.ticket) {
+                        queueTicket = event.ticket;
+                        retryAfterMs = event.retry_after_ms ?? 1000;
+                    }
                     set({ queue: { position: event.position, ahead: event.ahead, etaSeconds: event.eta_seconds } });
                     break;
 
@@ -755,16 +823,28 @@ export function createAgentChatStore(
                     break;
 
                 case 'done': {
+                    // Not an ending at all: the turn never started, and the
+                    // response is closing so the worker can serve somebody
+                    // else. `onComplete` schedules the next attempt.
+                    if (event.reason === 'queued') {
+                        awaitingSlot = true;
+                        break;
+                    }
+
                     // 'complete' is the ordinary ending and speaks for itself —
                     // the answer is right there. The two ceilings do not: the
                     // stream simply closes, and nothing on screen distinguishes
-                    // "finished" from "stopped".
+                    // "finished" from "stopped". Neither does a stop the user
+                    // asked for, which is the one ending they already know
+                    // about but should still see acknowledged.
                     const ended =
                         event.reason === 'step_limit'
                             ? m['server.ai.endedStepLimit']()
                             : event.reason === 'time_limit'
                               ? m['server.ai.endedTimeLimit']()
-                              : null;
+                              : event.reason === 'cancelled'
+                                ? m['server.ai.stopped']()
+                                : null;
 
                     if (ended !== null) {
                         sealAssistant();
@@ -811,6 +891,16 @@ export function createAgentChatStore(
                 overrides.onAccepted?.();
             },
             onComplete: () => {
+                // Turned away for want of an inference slot. Nothing ran, the
+                // transcript is untouched, and the composer stays locked — from
+                // the user's side this is still one turn in progress, and the
+                // queue banner is the only thing that changed.
+                if (awaitingSlot) {
+                    awaitingSlot = false;
+                    scheduleQueueRetry();
+                    return;
+                }
+
                 // A suspension closes the stream deliberately; settling then
                 // would wipe the card the user still has to act on.
                 const last = get().entries.at(-1)?.kind;
@@ -832,7 +922,34 @@ export function createAgentChatStore(
             },
         });
 
-        const beginTurn = () => {
+        /**
+         * Come back for the slot we are queued for.
+         *
+         * Deliberately not a fixed interval: the backend says how long to wait,
+         * scaled with how far back the place is, so a long queue is not also a
+         * busy one. The attempt re-sends exactly what was sent before, with the
+         * ticket attached — the request that was turned away changed nothing,
+         * so replaying it is safe by construction rather than by care.
+         */
+        const scheduleQueueRetry = () => {
+            clearSlowTimer();
+            clearStallTimer();
+            controller = null;
+
+            const attempt = retryAttempt;
+            if (attempt === null) {
+                settle();
+                return;
+            }
+
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = setTimeout(() => {
+                retryTimer = null;
+                attempt();
+            }, retryAfterMs);
+        };
+
+        const beginTurn = (keepQueue = false) => {
             ++reconciliationGeneration;
             ++transcriptGeneration;
             transcriptRequest = null;
@@ -848,7 +965,9 @@ export function createAgentChatStore(
             set({
                 loading: true,
                 slowHint: false,
-                queue: null,
+                // A queued retry keeps the banner: clearing it would make the
+                // position flicker to nothing and back on every attempt.
+                ...(keepQueue ? {} : { queue: null }),
                 step: null,
                 activity: { phase: 'waiting', startedAt: Date.now() },
             });
@@ -864,7 +983,17 @@ export function createAgentChatStore(
             const { target, loading } = get();
             if (!target || loading) return;
 
-            adapter.decide(target, { turnId, ...body }, callbacks, beginTurn());
+            const attempt = () => {
+                adapter.decide(
+                    target,
+                    { turnId, ...body, ticket: queueTicket ?? undefined },
+                    callbacks,
+                    beginTurn(queueTicket !== null),
+                );
+            };
+
+            retryAttempt = attempt;
+            attempt();
         };
 
         return {
@@ -889,6 +1018,7 @@ export function createAgentChatStore(
                 controller = null;
                 clearSlowTimer();
                 clearStallTimer();
+                clearQueueRetry();
                 ++transcriptGeneration;
                 transcriptRequest = null;
 
@@ -986,12 +1116,27 @@ export function createAgentChatStore(
 
                 set(state => ({ entries: [...state.entries, { kind: 'user', key: nextKey(), content: trimmed }] }));
 
-                adapter.startTurn(
-                    target,
-                    { query: trimmed, conversationId, console: consoleBuffer },
-                    streamCallbacks(),
-                    beginTurn(),
-                );
+                // The message is appended once, here. A queued retry re-sends
+                // the request but not this: the attempt that was turned away
+                // recorded nothing, so the transcript must not grow a second
+                // copy of what the user typed.
+                const callbacks = streamCallbacks();
+                const attempt = () => {
+                    adapter.startTurn(
+                        target,
+                        {
+                            query: trimmed,
+                            conversationId: get().conversationId ?? conversationId,
+                            console: consoleBuffer,
+                            ticket: queueTicket ?? undefined,
+                        },
+                        callbacks,
+                        beginTurn(queueTicket !== null),
+                    );
+                };
+
+                retryAttempt = attempt;
+                attempt();
             },
 
             decide: (turnId, decision, confirmation) => {
@@ -1086,24 +1231,72 @@ export function createAgentChatStore(
             },
 
             cancel: () => {
+                const { target } = get();
+                const turnId = activeTurnId;
+                const accepted = streamAccepted;
+                const ticket = clearQueueRetry();
+
                 controller?.abort();
                 controller = null;
                 clearSlowTimer();
                 clearStallTimer();
                 sealAssistant();
                 sealTools(m['server.ai.tool.cancelled']());
-                patchLast(
-                    entry => entry.kind === 'assistant',
-                    entry =>
-                        entry.kind === 'assistant'
-                            ? { ...entry, content: `${entry.content}\n\n*${m['server.ai.cancelled']()}*` }
-                            : entry,
-                );
-                if (streamAccepted && activeTurnId !== null) {
-                    reconcileLostStream(m['server.ai.stalled']());
-                } else {
-                    set({ loading: false, queue: null, step: null, activity: null, slowHint: false });
+
+                // Two different things wear the same button. A queued turn has
+                // not started, so stopping it is handing the place back — and
+                // handing it back rather than letting it lapse is what stops
+                // the per-user limit locking the user out of their own next
+                // message for the next twenty seconds.
+                if (ticket !== null && target) {
+                    void adapter.releaseQueue(target, ticket).catch(() => {
+                        /* it lapses on its own soon enough */
+                    });
                 }
+
+                // A running turn is the case that used to be a lie: aborting
+                // the fetch stopped the browser reading and nothing else, while
+                // the turn went on spending budget and running tools. This is
+                // the half that reaches the server. It does not stop a tool
+                // already in flight — nothing can — so the terminal state comes
+                // from reconciliation rather than from here.
+                if (accepted && turnId !== null && target) {
+                    void adapter.cancelTurn(target, turnId).catch(() => {
+                        /* reconciliation reports whatever actually happened */
+                    });
+
+                    patchLast(
+                        entry => entry.kind === 'assistant',
+                        entry =>
+                            entry.kind === 'assistant'
+                                ? { ...entry, content: `${entry.content}\n\n*${m['server.ai.cancelled']()}*` }
+                                : entry,
+                    );
+
+                    const generation = ++reconciliationGeneration;
+                    set({
+                        loading: true,
+                        queue: null,
+                        step: null,
+                        slowHint: false,
+                        activity: { phase: 'waiting', startedAt: Date.now() },
+                    });
+                    void reconcile(turnId, generation);
+
+                    return;
+                }
+
+                set(state => ({
+                    loading: false,
+                    queue: null,
+                    step: null,
+                    activity: null,
+                    slowHint: false,
+                    entries:
+                        ticket !== null
+                            ? [...state.entries, { kind: 'notice', key: nextKey(), content: m['server.ai.queue.left']() }]
+                            : state.entries,
+                }));
             },
         };
     });
@@ -1216,6 +1409,8 @@ export const useAgentChat = createAgentChatStore({
     startTurn: (uuid, body, callbacks, signal) => streamAgentTurn(uuid, body, callbacks, signal),
     decide: (uuid, body, callbacks, signal) => streamAgentDecision(uuid, body, callbacks, signal),
     reconcileTurn: (uuid, turnId) => getAgentTurnStatus(uuid, turnId),
+    cancelTurn: (uuid, turnId) => cancelAgentTurn(uuid, turnId),
+    releaseQueue: (uuid, ticket) => releaseAgentQueue(uuid, ticket),
 });
 
 /**
@@ -1233,6 +1428,8 @@ export const useAdminAgentChat = createAgentChatStore(
         startTurn: (_target, body, callbacks, signal) => streamAdminAgentTurn(body, callbacks, signal),
         decide: (_target, body, callbacks, signal) => streamAdminAgentDecision(body, callbacks, signal),
         reconcileTurn: (_target, turnId) => getAdminAgentTurnStatus(turnId),
+        cancelTurn: (_target, turnId) => cancelAdminAgentTurn(turnId),
+        releaseQueue: (_target, ticket) => releaseAdminAgentQueue(ticket),
     },
     ADMIN_AGENT_TARGET,
 );

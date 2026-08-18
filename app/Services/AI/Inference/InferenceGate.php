@@ -25,17 +25,37 @@ use Everest\Exceptions\Service\AI\AIServiceException;
  *
  * Design notes:
  *
- * - **Slot-per-lock, not a ticket queue.** Strict FIFO needs a "now serving"
- *   counter, which desynchronises the moment a waiter times out and abandons
- *   its ticket. Polling a fixed set of slot locks is self-healing and, because
- *   every waiter polls on the same interval, is near-FIFO in practice.
- * - **Two lanes.** A turn resuming after a human approved an action jumps
- *   ahead of brand-new turns: it is already half-finished, the user is
- *   actively waiting on it, and finishing it is what returns VRAM to the pool.
- *   New turns stand down while any resume is waiting.
- * - **The lease is turn-scoped.** A turn acquires once and holds through every
- *   model call and tool execution, rather than re-queueing per step — which
- *   would make a ten-step turn queue ten times.
+ * - **Nobody waits in a worker.** A turn that cannot have a slot is given a
+ *   ticket and the request ends. The old gate blocked here, sleeping in 250ms
+ *   increments for up to two minutes — which meant every queued turn occupied
+ *   one PHP worker doing nothing, and the queue consumed the very capacity it
+ *   existed to protect. Queue depth had to be clamped against the deployment's
+ *   worker pool to stop it exhausting the panel outright. It no longer competes
+ *   for workers at all.
+ * - **The ticket is the place in line.** Presenting it again keeps the
+ *   position; presenting nothing joins at the back. A ticket that stops being
+ *   presented is dropped, so a closed tab frees both its place and its per-user
+ *   reservation without anyone reaping anything.
+ * - **Slot-per-lock, not a ticket queue, for the slots themselves.** Which turn
+ *   is *allowed* to try is decided by the queue; whether a slot is actually
+ *   free is decided by taking it. Probing rather than counting means a crashed
+ *   worker's slot returns on lock expiry with no reaper.
+ * - **Two lanes.** A turn resuming after a human approved an action jumps ahead
+ *   of brand-new turns: it is already half-finished, the user is actively
+ *   waiting on it, and finishing it is what returns VRAM to the pool.
+ * - **The lease is turn-scoped.** A turn is admitted once and holds through
+ *   every model call and tool execution, rather than re-queueing per step —
+ *   which would make a ten-step turn queue ten times.
+ *
+ * @phpstan-type Ticket array{
+ *     token: string,
+ *     owner: string,
+ *     lane: string,
+ *     seq: int,
+ *     issued: float,
+ *     seen: float,
+ *     reservation: array{ownerKey: string, token: string},
+ * }
  */
 class InferenceGate
 {
@@ -50,7 +70,7 @@ class InferenceGate
     public const LANE_NEW = 'new';
 
     protected const SLOT_KEY = 'ai:slot:';
-    protected const WAITING_KEY = 'ai:waiting:';
+    protected const QUEUE_KEY = 'ai:queue';
     protected const USER_KEY = 'ai:active:user:';
     protected const USER_RESERVATION_KEY = 'ai:reservation:user:';
     protected const ADMISSION_LOCK_KEY = 'ai:admission';
@@ -58,9 +78,14 @@ class InferenceGate
     protected const EWMA_KEY = 'ai:ewma_ms';
 
     /**
-     * How often a waiter re-checks for a free slot.
+     * How long a ticket survives without being presented again.
+     *
+     * Generous against the retry interval below — several missed attempts, not
+     * one — because dropping a ticket costs its holder their place in a queue
+     * they have already waited in. A tab that was closed frees up in seconds
+     * either way.
      */
-    protected const POLL_INTERVAL_US = 250_000;
+    protected const TICKET_IDLE_SECONDS = 20;
 
     /**
      * Smoothing factor for the rolling turn-duration average behind the ETA.
@@ -77,39 +102,88 @@ class InferenceGate
     }
 
     /**
-     * Acquire a slot for one turn.
+     * Ask to run a turn now.
+     *
+     * Returns either a held slot or a place in the queue; it never blocks and
+     * never sleeps. A caller holding a ticket presents it on the next attempt
+     * to keep its position.
      *
      * @param string $ownerKey identity for per-user fairness (typically the user uuid)
-     * @param callable|null $onWait invoked with (position, ahead, etaSeconds) while queued,
-     *                              so a streaming caller can report progress to the user
+     * @param string|null $ticket the place this caller already holds, if any
      *
-     * @throws AIServiceException when the queue is full or the wait is exceeded
+     * @throws AIServiceException when the queue is full, the caller already has
+     *                            a turn in flight, or a presented ticket has lapsed
      */
-    public function acquire(string $ownerKey, string $lane = self::LANE_NEW, ?callable $onWait = null): TurnLease
+    public function admit(string $ownerKey, string $lane = self::LANE_NEW, ?string $ticket = null): Admission
     {
         if (!$this->applies()) {
-            return TurnLease::passthrough();
+            return Admission::hold(TurnLease::passthrough());
         }
 
-        // Reserve before either taking a slot or joining the queue. Queued work
-        // consumes request workers just as surely as active inference does, so
-        // excluding it made the per-user limit ineffective under contention.
-        // The small per-user lock makes the check plus increment one admission
-        // decision rather than two racing cache operations.
-        $reservation = $this->reserveUser($ownerKey);
+        $held = $ticket === null ? null : $this->ticket($ticket, $ownerKey);
+
+        if ($ticket !== null && $held === null) {
+            // Either it lapsed or it was never ours. Both mean the place is
+            // gone, and silently rejoining at the back would tell somebody who
+            // has already waited two minutes that they are position nine again.
+            throw new AIServiceException('The AI is busy and did not free up in time. Please try again in a moment.');
+        }
+
+        // Reserve before joining the queue. A queued turn is work the user has
+        // asked for, so excluding it would make the per-user limit ineffective
+        // under exactly the contention it exists for. The small per-user lock
+        // makes the check plus increment one admission decision rather than two
+        // racing cache operations.
+        $reservation = $held['reservation'] ?? $this->reserveUser($ownerKey);
 
         try {
-            // Fast path: a free slot with nobody queued ahead.
-            if (!$this->shouldStandDown($lane) && ($lease = $this->tryGrabSlot($reservation)) !== null) {
-                return $lease;
-            }
-
-            return $this->waitForSlot($reservation, $lane, $onWait);
+            return $this->place($reservation, $lane, $held);
         } catch (\Throwable $e) {
-            $this->releaseUser($reservation);
+            // A returning ticket owns its reservation through the failure; a
+            // new arrival's was taken moments ago for an attempt that is over.
+            if ($held === null) {
+                $this->releaseUser($reservation);
+            }
 
             throw $e;
         }
+    }
+
+    /**
+     * Give up a queue place.
+     *
+     * The idle timeout would collect it anyway, but a user who pressed Stop
+     * should not then be told they already have a request queued for the next
+     * twenty seconds.
+     */
+    public function releaseTicket(string $ticket, string $ownerKey): bool
+    {
+        if (!$this->applies()) {
+            return false;
+        }
+
+        $reservation = null;
+
+        $this->withQueue(function (array $queue) use ($ticket, $ownerKey, &$reservation): array {
+            $held = $queue[$ticket] ?? null;
+
+            if ($held === null || !hash_equals((string) $held['owner'], $ownerKey)) {
+                return $queue;
+            }
+
+            $reservation = $held['reservation'];
+            unset($queue[$ticket]);
+
+            return $queue;
+        });
+
+        if ($reservation === null) {
+            return false;
+        }
+
+        $this->releaseUser($reservation);
+
+        return true;
     }
 
     /**
@@ -121,51 +195,211 @@ class InferenceGate
         return in_array($this->factory->provider(), ProviderConfig::SELF_HOSTED, true);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | The queue
+    |--------------------------------------------------------------------------
+    */
+
     /**
+     * Take a slot if this caller is entitled to one, or hold its place.
+     *
+     * @param array{ownerKey: string, token: string} $reservation
+     * @param Ticket|null $held the caller's existing ticket, if it presented one
+     *
      * @throws AIServiceException
      */
-    protected function waitForSlot(array $reservation, string $lane, ?callable $onWait): TurnLease
+    protected function place(array $reservation, string $lane, ?array $held): Admission
     {
-        $this->reserveQueuePlace($lane);
-        $deadline = microtime(true) + $this->maxWaitSeconds();
-        $reported = null;
+        $lease = null;
+        $token = $held['token'] ?? (string) Str::uuid();
+        $ahead = 0;
+
+        $this->withQueue(function (array $queue) use (&$lease, &$ahead, $reservation, $lane, $held, $token): array {
+            $seq = $held['seq'] ?? $this->nextSequence($queue);
+            $mine = ['lane' => $lane, 'seq' => $seq];
+
+            $ahead = 0;
+            foreach ($queue as $other) {
+                if ($other['token'] !== $token && $this->outranks($other, $mine)) {
+                    ++$ahead;
+                }
+            }
+
+            // Contend only for slots nobody ahead has a claim on. Letting every
+            // waiter race would make position advisory, and the user who
+            // arrived first would watch later ones overtake them.
+            if ($ahead < $this->slots() - $this->slotsInUse()) {
+                $lease = $this->tryGrabSlot($reservation);
+
+                if ($lease !== null) {
+                    unset($queue[$token]);
+
+                    return $queue;
+                }
+            }
+
+            // Only now, having established that this caller must wait. The
+            // check bounds the *queue*, not the service: a depth of zero means
+            // a turn that cannot start immediately is refused, and running that
+            // check first would have refused turns a slot was standing free for.
+            if ($held === null && count($queue) >= $this->maxQueueDepth()) {
+                throw new AIServiceException('The AI is at capacity right now and the queue is full. Please try again in a minute.');
+            }
+
+            $queue[$token] = [
+                'token' => $token,
+                'owner' => $reservation['ownerKey'],
+                'lane' => $lane,
+                'seq' => $seq,
+                'issued' => $held['issued'] ?? $this->now(),
+                'seen' => $this->now(),
+                'reservation' => $reservation,
+            ];
+
+            return $queue;
+        });
+
+        if ($lease !== null) {
+            return Admission::hold($lease);
+        }
+
+        return Admission::wait($token, $ahead, $this->estimatedWaitSeconds($ahead), $this->retryAfterMs($ahead));
+    }
+
+    /**
+     * This caller's live ticket, if it still has one.
+     *
+     * @return Ticket|null the ticket, or null when it lapsed or belongs to somebody else
+     */
+    protected function ticket(string $token, string $ownerKey): ?array
+    {
+        $found = null;
+
+        $this->withQueue(function (array $queue, array &$abandoned) use ($token, $ownerKey, &$found): array {
+            $held = $queue[$token] ?? null;
+
+            if ($held === null || !hash_equals((string) $held['owner'], $ownerKey)) {
+                return $queue;
+            }
+
+            // The total wait is bounded by the same setting the blocking gate
+            // used, now measured from when the place was first taken rather
+            // than by how long a worker sat on a sleep loop.
+            if ($this->now() - $held['issued'] > $this->maxWaitSeconds()) {
+                unset($queue[$token]);
+                $abandoned[] = $held['reservation'];
+
+                return $queue;
+            }
+
+            $found = $held;
+
+            return $queue;
+        });
+
+        return $found;
+    }
+
+    /**
+     * Mutate the queue under the admission lock, pruning what has lapsed.
+     *
+     * Reservations belonging to dropped tickets are collected here and released
+     * *after* the lock, because releasing takes the per-user lock and every
+     * other path takes that one first — acquiring them in the other order would
+     * be a lock inversion waiting to deadlock. They travel as a by-reference
+     * parameter rather than on `$this` so the collection has the same lifetime
+     * as the lock it belongs to, and cannot outlive a call that threw.
+     *
+     * @param \Closure(array<string, Ticket>, list<array{ownerKey: string, token: string}>): array<string, Ticket> $mutate
+     */
+    protected function withQueue(\Closure $mutate): void
+    {
+        $lock = Cache::lock(self::ADMISSION_LOCK_KEY, 5);
+        $lock->block(5);
+
+        /** @var list<array{ownerKey: string, token: string}> $abandoned */
+        $abandoned = [];
 
         try {
-            while (true) {
-                if (!$this->shouldStandDown($lane)) {
-                    $lease = $this->tryGrabSlot($reservation);
-                    if ($lease !== null) {
-                        return $lease;
-                    }
-                }
+            [$queue, $abandoned] = $this->prune(Cache::get(self::QUEUE_KEY, []));
 
-                if (microtime(true) >= $deadline) {
-                    throw new AIServiceException('The AI is busy and did not free up in time. Please try again in a moment.');
-                }
-
-                // PHP can keep running after the browser has gone away. Once
-                // the web server reports the disconnect there is no consumer
-                // for this turn, so promptly unwind both queue and user
-                // reservations instead of occupying a worker until timeout.
-                if ($this->clientDisconnected()) {
-                    throw new AIServiceException('The AI request was cancelled because the client disconnected.');
-                }
-
-                if ($onWait !== null) {
-                    $ahead = $this->aheadOf($lane);
-                    // Only re-report when the number actually moves, so a
-                    // streaming caller does not spam identical frames.
-                    if ($ahead !== $reported) {
-                        $reported = $ahead;
-                        $onWait($ahead + 1, $ahead, $this->estimatedWaitSeconds($ahead));
-                    }
-                }
-
-                usleep(self::POLL_INTERVAL_US);
-            }
+            Cache::put(self::QUEUE_KEY, $mutate($queue, $abandoned), $this->maxWaitSeconds() + 60);
         } finally {
-            $this->leaveQueue($lane);
+            $lock->release();
+
+            foreach ($abandoned as $reservation) {
+                $this->releaseUser($reservation);
+            }
         }
+    }
+
+    /**
+     * Drop tickets nobody is presenting any more.
+     *
+     * Self-healing rather than reaped: a tab that closed, a client that lost
+     * its connection, and a browser that navigated away are all the same event
+     * from here, and none of them will ever tell us about it.
+     *
+     * @param array<string, Ticket> $queue
+     *
+     * @return array{0: array<string, Ticket>, 1: list<array{ownerKey: string, token: string}>}
+     */
+    protected function prune(array $queue): array
+    {
+        $now = $this->now();
+        $wait = $this->maxWaitSeconds();
+        $abandoned = [];
+
+        foreach ($queue as $token => $held) {
+            if ($now - $held['seen'] > self::TICKET_IDLE_SECONDS || $now - $held['issued'] > $wait) {
+                $abandoned[] = $held['reservation'];
+                unset($queue[$token]);
+            }
+        }
+
+        return [$queue, $abandoned];
+    }
+
+    /**
+     * Whether one ticket is served before another.
+     *
+     * Resumes outrank new turns outright — a half-finished turn a user is
+     * actively waiting on is what returns VRAM to the pool — and within a lane
+     * it is simply arrival order.
+     */
+    /**
+     * @param Ticket|array{lane: string, seq: int} $a
+     * @param Ticket|array{lane: string, seq: int} $b
+     */
+    protected function outranks(array $a, array $b): bool
+    {
+        if ($a['lane'] !== $b['lane']) {
+            return $a['lane'] === self::LANE_RESUME;
+        }
+
+        return $a['seq'] < $b['seq'];
+    }
+
+    /** @param array<string, Ticket> $queue */
+    protected function nextSequence(array $queue): int
+    {
+        $highest = 0;
+
+        foreach ($queue as $held) {
+            $highest = max($highest, (int) $held['seq']);
+        }
+
+        return $highest + 1;
+    }
+
+    /**
+     * How soon to come back. Scaled with depth so a long queue is not also a
+     * busy one, and capped so the front of it stays responsive.
+     */
+    protected function retryAfterMs(int $ahead): int
+    {
+        return (int) min(4000, 750 + 250 * $ahead);
     }
 
     /**
@@ -188,27 +422,6 @@ class InferenceGate
         return null;
     }
 
-    /**
-     * Whether a lane must yield. New turns stand down while any resume is
-     * queued, so half-finished work drains first and releases its VRAM.
-     */
-    protected function shouldStandDown(string $lane): bool
-    {
-        return $lane === self::LANE_NEW && $this->waiting(self::LANE_RESUME) > 0;
-    }
-
-    /**
-     * How many waiters sit in front of this one.
-     */
-    protected function aheadOf(string $lane): int
-    {
-        if ($lane === self::LANE_RESUME) {
-            return max(0, $this->waiting(self::LANE_RESUME) - 1);
-        }
-
-        return max(0, $this->waiting(self::LANE_NEW) - 1) + $this->waiting(self::LANE_RESUME);
-    }
-
     /*
     |--------------------------------------------------------------------------
     | Per-user fairness
@@ -216,6 +429,8 @@ class InferenceGate
     */
 
     /**
+     * @return array{ownerKey: string, token: string}
+     *
      * @throws AIServiceException
      */
     protected function reserveUser(string $ownerKey): array
@@ -277,43 +492,43 @@ class InferenceGate
     |--------------------------------------------------------------------------
     */
 
-    protected function reserveQueuePlace(string $lane): void
-    {
-        $lock = Cache::lock(self::ADMISSION_LOCK_KEY, 5);
-
-        $lock->block(5, function () use ($lane) {
-            if ($this->queueDepth() >= $this->maxQueueDepth()) {
-                throw new AIServiceException('The AI is at capacity right now and the queue is full. Please try again in a minute.');
-            }
-
-            $key = self::WAITING_KEY . $lane;
-            if (!Cache::add($key, 1, $this->maxWaitSeconds() + 60)) {
-                Cache::increment($key);
-            }
-        });
-    }
-
-    protected function leaveQueue(string $lane): void
-    {
-        $lock = Cache::lock(self::ADMISSION_LOCK_KEY, 5);
-
-        $lock->block(5, function () use ($lane) {
-            $key = self::WAITING_KEY . $lane;
-
-            if (Cache::decrement($key) <= 0) {
-                Cache::forget($key);
-            }
-        });
-    }
-
     public function waiting(string $lane): int
     {
-        return max(0, (int) Cache::get(self::WAITING_KEY . $lane, 0));
+        $waiting = 0;
+
+        foreach ($this->live() as $held) {
+            if ($held['lane'] === $lane) {
+                ++$waiting;
+            }
+        }
+
+        return $waiting;
     }
 
     public function queueDepth(): int
     {
-        return $this->waiting(self::LANE_NEW) + $this->waiting(self::LANE_RESUME);
+        return count($this->live());
+    }
+
+    /**
+     * The queue as it stands, without taking the lock.
+     *
+     * Read-only callers — the admin card, the ETA — do not need to serialise
+     * against admissions, and lapsed tickets are filtered rather than collected
+     * so a status read never mutates anything.
+     *
+     * @return array<string, Ticket>
+     */
+    protected function live(): array
+    {
+        $now = $this->now();
+        $wait = $this->maxWaitSeconds();
+
+        return array_filter(
+            Cache::get(self::QUEUE_KEY, []),
+            fn (array $held): bool => $now - $held['seen'] <= self::TICKET_IDLE_SECONDS
+                && $now - $held['issued'] <= $wait,
+        );
     }
 
     /**
@@ -439,34 +654,28 @@ class InferenceGate
     }
 
     /**
-     * How many turns may wait for a slot.
+     * How many turns may hold a queue place.
      *
      * Zero means no queue: a turn that cannot have a slot immediately is
      * refused rather than made to wait. That is the sentinel the settings form
-     * and its validation both describe, and `reserveQueuePlace()` enforces it
-     * without a special case, since a depth of zero is never under the limit.
+     * and its validation both describe, and `place()` enforces it without a
+     * special case, since a depth of zero is never under the limit.
+     *
+     * No longer clamped against the deployment's worker pool. That clamp
+     * existed because every waiter occupied a PHP worker; queueing costs no
+     * worker now, so the operator's number is simply the operator's number.
      */
     public function maxQueueDepth(): int
     {
-        $configured = max(0, (int) $this->setting(
+        return max(0, (int) $this->setting(
             'concurrency:queue_depth',
             config('modules.ai.concurrency.queue_depth', 20)
         ));
-
-        // Every synchronous waiter occupies one PHP worker. Leave enough room
-        // for the active inference streams and refuse excess configuration
-        // rather than allowing the queue to exhaust the deployment pool.
-        return min($configured, max(0, $this->workerCapacity() - $this->slots()));
     }
 
-    public function workerCapacity(): int
-    {
-        return max(
-            $this->slots(),
-            (int) config('modules.ai.concurrency.worker_capacity', 32),
-        );
-    }
-
+    /**
+     * The longest a turn may hold a queue place before being told to give up.
+     */
     public function maxWaitSeconds(): int
     {
         return max(5, (int) $this->setting('concurrency:max_wait_seconds', config('modules.ai.concurrency.max_wait_seconds', 120)));
@@ -497,13 +706,20 @@ class InferenceGate
         return $this->maxWaitSeconds() + $this->leaseTtlSeconds();
     }
 
-    protected function clientDisconnected(): bool
-    {
-        return connection_aborted() !== 0;
-    }
-
     protected function setting(string $key, mixed $default = null): mixed
     {
         return Setting::get('settings::modules:ai:' . $key, $default);
+    }
+
+    /**
+     * Wall clock, as a seam.
+     *
+     * Ticket ages are measured in real seconds rather than in Carbon, because
+     * they bound a wait a user is sitting through; travelling Laravel's clock
+     * would not move them. A test that needs a lapsed ticket overrides this.
+     */
+    protected function now(): float
+    {
+        return microtime(true);
     }
 }

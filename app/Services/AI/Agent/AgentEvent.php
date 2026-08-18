@@ -44,13 +44,31 @@ class AgentEvent
         return new self(self::TYPE_CONVERSATION, ['id' => $id, 'title' => $title]);
     }
 
-    public static function queued(int $position, int $ahead, int $etaSeconds): self
-    {
-        return new self(self::TYPE_QUEUED, [
+    /**
+     * The turn is waiting for an inference slot, and holds a place in line.
+     *
+     * The ticket is the place, and the client presents it on the next attempt
+     * to keep it. This is the whole of the queueing contract: the panel does
+     * not hold the turn open while it waits — that cost a PHP worker per waiter
+     * — so a queued turn is one the client is responsible for coming back for.
+     *
+     * @param string|null $ticket null on a turn that was admitted immediately,
+     *                            where the frame is informational only
+     */
+    public static function queued(
+        int $position,
+        int $ahead,
+        int $etaSeconds,
+        ?string $ticket = null,
+        int $retryAfterMs = 0,
+    ): self {
+        return new self(self::TYPE_QUEUED, array_filter([
             'position' => $position,
             'ahead' => $ahead,
             'eta_seconds' => $etaSeconds,
-        ]);
+            'ticket' => $ticket,
+            'retry_after_ms' => $retryAfterMs ?: null,
+        ], fn ($value) => $value !== null));
     }
 
     public static function text(string $delta): self

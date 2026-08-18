@@ -58,6 +58,19 @@ class AgentContext
     /** The current request phase stopped for a human decision. */
     public bool $suspended = false;
 
+    /**
+     * The user asked for this turn to stop, and it did.
+     *
+     * A sibling of `$suspended` rather than an exception, because cancellation
+     * ends a turn cleanly: whatever ran, ran and reported, and the transcript
+     * has to stay answerable — an assistant message whose tool calls were never
+     * answered is one no provider will accept on the next turn. Unwinding
+     * through the loop would leave exactly that. Deliberately not serialised
+     * with the rest of the state: a cancelled turn is over, so there is nothing
+     * for a later leg to restore.
+     */
+    public bool $cancelled = false;
+
     /** Tool-call events emitted across every suspension leg of this turn. */
     public int $toolCalls = 0;
 

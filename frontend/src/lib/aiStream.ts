@@ -71,7 +71,24 @@ export type AiApprovalPreview = AiDiffPreview | AiServerPreview | AiConfirmation
 
 export type AgentEvent =
     | { type: 'conversation'; id: number; title: string }
-    | { type: 'queued'; position: number; ahead: number; eta_seconds: number }
+    | {
+          /**
+           * The turn is waiting for an inference slot.
+           *
+           * `ticket` is the place in line, and its presence is what
+           * distinguishes the two cases: with one, the turn has *not* started
+           * and the client must present the ticket again to keep its position;
+           * without one the frame is informational. The panel deliberately does
+           * not hold the request open while it waits — that cost one PHP worker
+           * per waiter — so coming back is the client's job.
+           */
+          type: 'queued';
+          position: number;
+          ahead: number;
+          eta_seconds: number;
+          ticket?: string;
+          retry_after_ms?: number;
+      }
     | { type: 'text'; content: string }
     | { type: 'reasoning'; content: string }
     | { type: 'tool_pending'; id: string; tool: string }
@@ -187,12 +204,17 @@ async function readEventStream(
     });
 
     if (!response.ok) {
-        // Failures before the stream opens (rate limits, gating, a model that
-        // cannot call tools) are plain JSON, not SSE.
+        // Failures before the stream opens (rate limits, gating, a busy
+        // inference queue, a model that cannot call tools) are plain JSON, not
+        // SSE. The panel's own API answers in a JSON:API envelope, which is
+        // checked first: without it every one of those became "Request failed
+        // (503)", discarding a sentence written specifically for this reader.
         let message = `Request failed (${response.status})`;
         try {
             const data = await response.json();
-            if (typeof data?.error === 'string') message = data.error;
+            const detail = data?.errors?.[0]?.detail;
+            if (typeof detail === 'string' && detail !== '') message = detail;
+            else if (typeof data?.error === 'string') message = data.error;
             else if (typeof data?.message === 'string') message = data.message;
         } catch {
             /* keep the status message */

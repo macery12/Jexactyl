@@ -352,7 +352,7 @@ export interface AdminAgentTranscript {
 }
 
 export function streamAdminAgentTurn(
-    opts: { query: string; conversationId?: number | null },
+    opts: { query: string; conversationId?: number | null; ticket?: string },
     callbacks: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
@@ -361,6 +361,9 @@ export function streamAdminAgentTurn(
         {
             query: opts.query,
             conversation_id: opts.conversationId ?? undefined,
+            // The queue place this attempt already holds, if the last one was
+            // turned away. Without it the turn rejoins at the back.
+            ticket: opts.ticket ?? undefined,
         },
         callbacks,
         signal,
@@ -373,6 +376,7 @@ export function streamAdminAgentDecision(
         decision: 'approve' | 'reject' | 'answer';
         confirmation?: string;
         answer?: string;
+        ticket?: string;
     },
     callbacks: AgentStreamCallbacks,
     signal?: AbortSignal,
@@ -384,10 +388,21 @@ export function streamAdminAgentDecision(
             decision: opts.decision,
             confirmation: opts.confirmation ?? undefined,
             answer: opts.answer ?? undefined,
+            ticket: opts.ticket ?? undefined,
         },
         callbacks,
         signal,
     );
+}
+
+/** Ask a running admin turn to stop. See `cancelAgentTurn` for the semantics. */
+export async function cancelAdminAgentTurn(turnId: string): Promise<void> {
+    await http.post(`/api/application/ai/agent/turns/${turnId}/cancel`);
+}
+
+/** Give up a queue place, rather than letting it lapse on its own. */
+export async function releaseAdminAgentQueue(ticket: string): Promise<void> {
+    await http.delete(`/api/application/ai/agent/queue/${encodeURIComponent(ticket)}`);
 }
 
 export async function getAdminAgentTurnStatus(turnId: string): Promise<AgentTurnStatus> {

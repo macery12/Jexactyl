@@ -276,27 +276,21 @@ return [
      */
     'concurrency' => [
         /*
-         * PHP workers available to serve streamed agent requests. Queue depth
-         * is clamped to this value minus active inference slots, preventing
-         * synchronous waiters from consuming the entire deployment pool.
-         */
-        'worker_capacity' => env('AI_WORKER_CAPACITY', 32),
-
-        /*
          * Concurrent inference slots. Should match the server's own parallelism
          * (Ollama's OLLAMA_NUM_PARALLEL). Null derives it from the model probe.
          */
         'slots' => env('AI_CONCURRENCY_SLOTS', null),
 
         /*
-         * How many turns may wait for a slot before new requests are refused.
-         * Refusing fast is kinder than an unbounded queue nobody reaches the
-         * front of.
+         * How many turns may hold a queue place before new requests are
+         * refused. Refusing fast is kinder than an unbounded queue nobody
+         * reaches the front of. A queued turn holds a ticket rather than a PHP
+         * worker, so this bounds patience, not the deployment's capacity.
          */
         'queue_depth' => env('AI_QUEUE_DEPTH', 20),
 
         /*
-         * How long a turn may wait for a slot before giving up.
+         * How long a turn may hold its queue place before giving up.
          */
         'max_wait_seconds' => env('AI_QUEUE_MAX_WAIT', 120),
 

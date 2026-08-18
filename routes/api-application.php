@@ -233,6 +233,11 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::post('/agent/decide', [Application\AiAgentController::class, 'decide']);
         Route::get('/agent/pending', [Application\AiAgentController::class, 'pending']);
         Route::get('/agent/turns/{turnId}', [Application\AiAgentController::class, 'turnStatus']);
+        // Stopping a turn and giving up a queue place are separate because the
+        // two states are: a queued turn has a ticket and no turn id, and
+        // nothing of it has run.
+        Route::post('/agent/turns/{turnId}/cancel', [Application\AiAgentController::class, 'cancelTurn']);
+        Route::delete('/agent/queue/{ticket}', [Application\AiAgentController::class, 'releaseQueue']);
 
         Route::prefix('/agent/conversations')->group(function () {
             Route::get('/', [Application\AiAgentController::class, 'conversations']);

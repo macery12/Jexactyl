@@ -44,7 +44,7 @@ export interface AiConversation {
 
 export interface AgentTurnStatus {
     turn_id: string;
-    status: 'running' | 'success' | 'error' | 'suspended';
+    status: 'running' | 'success' | 'error' | 'suspended' | 'cancelled';
     terminal: boolean;
     error?: string;
     conversation_id?: number;
@@ -82,7 +82,7 @@ export async function getAgentTurnStatus(uuid: string, turnId: string): Promise<
  */
 export function streamAgentTurn(
     uuid: string,
-    opts: { query: string; conversationId?: number | null; console?: string | null },
+    opts: { query: string; conversationId?: number | null; console?: string | null; ticket?: string },
     callbacks: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
@@ -92,6 +92,9 @@ export function streamAgentTurn(
             query: opts.query,
             conversation_id: opts.conversationId ?? undefined,
             console: opts.console ?? undefined,
+            // The queue place this attempt already holds, if the last one was
+            // turned away. Without it the turn rejoins at the back.
+            ticket: opts.ticket ?? undefined,
         },
         callbacks,
         signal,
@@ -106,7 +109,13 @@ export function streamAgentTurn(
  */
 export function streamAgentDecision(
     uuid: string,
-    opts: { turnId: string; decision: 'approve' | 'reject' | 'answer'; confirmation?: string; answer?: string },
+    opts: {
+        turnId: string;
+        decision: 'approve' | 'reject' | 'answer';
+        confirmation?: string;
+        answer?: string;
+        ticket?: string;
+    },
     callbacks: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
@@ -117,10 +126,29 @@ export function streamAgentDecision(
             decision: opts.decision,
             confirmation: opts.confirmation ?? undefined,
             answer: opts.answer ?? undefined,
+            ticket: opts.ticket ?? undefined,
         },
         callbacks,
         signal,
     );
+}
+
+/**
+ * Ask a running turn to stop.
+ *
+ * Aborting the stream only stops the browser reading; the turn carries on
+ * spending budget and running tools. This is the half that reaches the server.
+ * It reports that the request was recorded, not that the turn has ended — a
+ * tool already in flight always finishes — so the caller reconciles afterwards
+ * for the terminal state.
+ */
+export async function cancelAgentTurn(uuid: string, turnId: string): Promise<void> {
+    await http.post(`/api/client/servers/${uuid}/ai/agent/turns/${turnId}/cancel`);
+}
+
+/** Give up a queue place, rather than letting it lapse on its own. */
+export async function releaseAgentQueue(uuid: string, ticket: string): Promise<void> {
+    await http.delete(`/api/client/servers/${uuid}/ai/agent/queue/${encodeURIComponent(ticket)}`);
 }
 
 export async function listConversations(uuid: string): Promise<AiConversation[]> {

@@ -56,7 +56,11 @@ export const ChatComposer = forwardRef<
                     <button
                         type="button"
                         onClick={onCancel}
-                        title={m['common.actions.cancel']()}
+                        // Not "cancel": this now stops the turn on the server
+                        // rather than only closing the browser's reader, and
+                        // the label is the only thing that says which.
+                        title={m['server.ai.stop']()}
+                        aria-label={m['server.ai.stop']()}
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-surface-2)] text-[var(--color-ink)] transition-colors hover:bg-[var(--color-border-strong)]"
                     >
                         <Square className="h-3.5 w-3.5 fill-current" />

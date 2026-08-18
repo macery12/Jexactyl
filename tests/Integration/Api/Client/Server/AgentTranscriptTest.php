@@ -401,6 +401,182 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         $this->assertNotNull($lapsed->fresh()->resolved_at);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admission — what a queued turn costs (DESIGN-003)
+    |--------------------------------------------------------------------------
+    */
+
+    public function testATurnWithNoFreeSlotIsTicketedWithoutRecordingAnything(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        $gate = $this->busyGate();
+
+        $before = microtime(true);
+        $response = $this->actingAs($user)->post(
+            "/api/client/servers/{$server->uuid}/ai/agent",
+            ['query' => 'why is my server crashing'],
+        );
+        $body = $response->streamedContent();
+
+        $response->assertOk();
+
+        // The property the whole rewrite exists for: the request comes back
+        // rather than parking a PHP worker on a sleep loop until a GPU frees
+        // up. Timing an assertion is usually a smell; here the elapsed time is
+        // the thing under test.
+        $this->assertLessThan(5.0, microtime(true) - $before);
+
+        $frames = $this->frames($body);
+        $queued = $this->frameOfType($frames, 'queued');
+
+        $this->assertNotNull($queued, 'A turn that cannot start must be told where it stands.');
+        $this->assertNotEmpty($queued['ticket']);
+        $this->assertGreaterThan(0, $queued['retry_after_ms']);
+        $this->assertSame('queued', $this->frameOfType($frames, 'done')['reason']);
+
+        // And nothing happened. This is what makes "come back shortly" a safe
+        // answer rather than a lie: the message was not recorded, no
+        // conversation was opened, and no usage row exists to reconcile — so
+        // presenting the ticket later is a replay of a request that changed
+        // nothing, safe by construction rather than by care.
+        $this->assertSame(0, AiConversation::where('user_id', $user->id)->count());
+        $this->assertSame(0, \Everest\Models\AiUsageLog::where('user_id', $user->id)->count());
+
+        // No turn id either: there is no turn to reconcile against, and
+        // advertising one would send a client that lost this response looking
+        // for work that was never started.
+        $this->assertNull($response->headers->get('X-Agent-Turn-Id'));
+
+        $this->assertSame(1, $gate->queueDepth());
+    }
+
+    public function testAQueuePlaceCanBeGivenBackOnlyByTheUserHoldingIt(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        [$stranger] = $this->generateTestAccount();
+        $gate = $this->busyGate();
+
+        $ticket = $this->frameOfType(
+            $this->frames(
+                $this->actingAs($user)
+                    ->post("/api/client/servers/{$server->uuid}/ai/agent", ['query' => 'anybody there'])
+                    ->streamedContent()
+            ),
+            'queued',
+        )['ticket'];
+
+        $this->actingAs($stranger)
+            ->deleteJson("/api/client/servers/{$server->uuid}/ai/agent/queue/{$ticket}")
+            ->assertNotFound();
+
+        $this->assertSame(1, $gate->queueDepth(), 'Another user must not be able to drop this place.');
+
+        $this->actingAs($user)
+            ->deleteJson("/api/client/servers/{$server->uuid}/ai/agent/queue/{$ticket}")
+            ->assertOk()
+            ->assertJsonPath('data.released', true);
+
+        $this->assertSame(0, $gate->queueDepth());
+    }
+
+    public function testAnAdmissionRefusalIsReadableRatherThanABareFiveHundred(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        $this->busyGate();
+
+        // A ticket that was never issued: the same answer a client gets when
+        // its place lapsed after the tab slept. The gate's refusals are written
+        // for this reader, and used to reach them because admission happened
+        // inside the stream, where the error frame quotes our own exceptions.
+        $response = $this->actingAs($user)->postJson(
+            "/api/client/servers/{$server->uuid}/ai/agent",
+            ['query' => 'still there?', 'ticket' => 'a-place-nobody-holds'],
+        );
+
+        $response->assertStatus(503);
+        $this->assertStringContainsString('did not free up in time', (string) $response->json('errors.0.detail'));
+        $this->assertNotNull($response->headers->get('Retry-After'));
+    }
+
+    public function testAUserAlreadyHoldingAPlaceIsToldSoRatherThanGivenASecondOne(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        $gate = $this->busyGate();
+
+        $this->actingAs($user)
+            ->post("/api/client/servers/{$server->uuid}/ai/agent", ['query' => 'first'])
+            ->assertOk();
+
+        $response = $this->actingAs($user)->postJson(
+            "/api/client/servers/{$server->uuid}/ai/agent",
+            ['query' => 'second'],
+        );
+
+        $response->assertStatus(503);
+        $this->assertStringContainsString('already have an AI request', (string) $response->json('errors.0.detail'));
+
+        // The refused attempt keeps nothing: one place, still held by the first.
+        $this->assertSame(1, $gate->queueDepth());
+    }
+
+    /**
+     * A gate whose only slot is already taken, on a provider it applies to.
+     *
+     * `openai_compatible` reports tool support without probing a host, so the
+     * agent's availability check passes offline — which is what lets these
+     * exercise the real controller rather than a stand-in for it.
+     */
+    private function busyGate(): \Everest\Services\AI\Inference\InferenceGate
+    {
+        $this->enableAgent();
+        \Illuminate\Support\Facades\Cache::flush();
+
+        config()->set('modules.ai.provider', \Everest\Services\AI\Data\ProviderConfig::PROVIDER_OPENAI_COMPATIBLE);
+        config()->set('modules.ai.concurrency.slots', 1);
+        config()->set('modules.ai.concurrency.per_user', 1);
+        config()->set('modules.ai.concurrency.queue_depth', 5);
+        \Everest\Models\Setting::forget('settings::modules:ai:provider');
+        \Everest\Models\Setting::forget('settings::modules:ai:concurrency:slots');
+        \Everest\Models\Setting::forget('settings::modules:ai:concurrency:per_user');
+        \Everest\Models\Setting::forget('settings::modules:ai:concurrency:queue_depth');
+
+        $gate = $this->app->make(\Everest\Services\AI\Inference\InferenceGate::class);
+        $this->assertTrue($gate->admit('somebody-else-entirely')->granted());
+
+        return $gate;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function frames(string $body): array
+    {
+        $frames = [];
+
+        foreach (explode("\n", $body) as $line) {
+            if (!str_starts_with($line, 'data: ') || trim($line) === 'data: [DONE]') {
+                continue;
+            }
+
+            $decoded = json_decode(substr(trim($line), 6), true);
+            if (is_array($decoded)) {
+                $frames[] = $decoded;
+            }
+        }
+
+        return $frames;
+    }
+
+    private function frameOfType(array $frames, string $type): ?array
+    {
+        foreach ($frames as $frame) {
+            if (($frame['type'] ?? null) === $type) {
+                return $frame;
+            }
+        }
+
+        return null;
+    }
+
     private function enableAgent(): void
     {
         config()->set('modules.ai.enabled', true);

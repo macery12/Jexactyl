@@ -48,11 +48,17 @@ class AgentRunner
         private PiiRedactor $redactor,
         private AssistAuthorizer $assist,
         private DaemonFileRepository $files,
+        private TurnCancellations $cancellations,
     ) {
     }
 
     /**
      * Run a turn, emitting events as it goes.
+     *
+     * The inference slot is not acquired here. Admission is the caller's
+     * business now: a turn that cannot have a slot is handed a queue ticket and
+     * the request ends, rather than a PHP worker being parked on a sleep loop
+     * until one frees up. By the time this is reached the slot is already held.
      *
      * @param callable(AgentEvent): void $emit
      */
@@ -60,15 +66,8 @@ class AgentRunner
     {
         $startedAt = $this->now();
         $this->beginDeadline($context, $startedAt);
-        $lease = null;
 
         try {
-            $lease = $this->gate->acquire(
-                $context->user->uuid,
-                $context->step > 0 ? InferenceGate::LANE_RESUME : InferenceGate::LANE_NEW,
-                fn (int $position, int $ahead, int $eta) => $emit(AgentEvent::queued($position, $ahead, $eta)),
-            );
-
             // One batch id across the turn, so every activity row a tool
             // produces traces back to the conversation that caused it.
             LogBatch::start();
@@ -83,7 +82,6 @@ class AgentRunner
             throw $e;
         } finally {
             LogBatch::end();
-            $lease?->release();
 
             $elapsed = (int) round(($this->now() - $startedAt) * 1000);
             $this->gate->recordTurnDuration($elapsed);
@@ -108,6 +106,12 @@ class AgentRunner
         $deadline = $this->beginDeadline($context, $startedAt);
 
         while ($context->step < $maxSteps) {
+            if ($this->stopRequested($context)) {
+                $emit(AgentEvent::done('cancelled'));
+
+                return;
+            }
+
             if ($this->now() >= $deadline) {
                 $emit(AgentEvent::done('time_limit'));
 
@@ -185,6 +189,16 @@ class AgentRunner
             $context->push(AiMessage::assistant($text !== '' ? $text : null, $calls, $reasoning));
 
             foreach ($calls as $call) {
+                // Between calls, never inside one. A model can ask for several
+                // tools at once, and a stop arriving after the second of five
+                // must not run the other three.
+                if ($this->stopRequested($context)) {
+                    $this->answerUnrunCalls($context);
+                    $emit(AgentEvent::done('cancelled'));
+
+                    return;
+                }
+
                 $outcome = $this->handleCall($context, $call, $definitions, $emit);
 
                 if ($outcome === 'suspended') {
@@ -194,6 +208,49 @@ class AgentRunner
         }
 
         $emit(AgentEvent::done('step_limit'));
+    }
+
+    /**
+     * Whether the user has asked for this turn to stop.
+     *
+     * Latched on the context the first time it is true, so every later
+     * checkpoint agrees without asking again, and so the stream owner can tell
+     * a cancelled turn from a completed one after the loop has returned.
+     */
+    protected function stopRequested(AgentContext $context): bool
+    {
+        if ($context->cancelled) {
+            return true;
+        }
+
+        return $context->cancelled = $this->cancellations->requested($context->turnId);
+    }
+
+    /**
+     * Answer the calls a stop left unrun.
+     *
+     * The assistant message carrying them has already been pushed — and, with a
+     * recorder attached, already written to the transcript. A request whose tool
+     * calls are not all answered is one every provider rejects, so leaving them
+     * open would make the *next* turn fail on a conversation that only stopped.
+     */
+    protected function answerUnrunCalls(AgentContext $context): void
+    {
+        foreach ($context->unresolvedToolCalls() as $call) {
+            $context->push(
+                AiMessage::tool(
+                    $call->id,
+                    $call->name,
+                    json_encode([
+                        'ok' => false,
+                        'error' => 'cancelled',
+                        'message' => 'The user stopped this turn before the call ran.',
+                    ]),
+                    true,
+                ),
+                TurnRecorder::toolDisplay(false, 'Stopped by you'),
+            );
+        }
     }
 
     /**
@@ -1102,6 +1159,14 @@ class AgentRunner
 
         foreach ($calls as $index => $child) {
             [$definition, $childRisk] = $resolved[$index];
+
+            // A stop is observed between children, like every other boundary.
+            // The batch is explicitly partial by design, so this needs no new
+            // outcome: the children that ran are reported as having run, and
+            // the rest say why they did not.
+            if ($halted === null && $this->stopRequested($context)) {
+                $halted = 'cancelled';
+            }
 
             if ($halted === null && $this->now() >= $deadline) {
                 $halted = 'out_of_time';

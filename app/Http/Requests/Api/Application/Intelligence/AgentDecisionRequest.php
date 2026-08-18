@@ -26,6 +26,7 @@ class AgentDecisionRequest extends ApplicationApiRequest
             'decision' => 'required|string|in:approve,reject,answer',
             'confirmation' => 'nullable|string|max:255',
             'answer' => 'nullable|string|max:500',
+            'ticket' => 'nullable|string|max:64',
         ];
     }
 }

@@ -103,6 +103,15 @@ class AiAgentController extends ApplicationApiController
         $this->assertAgentAvailable();
 
         $user = $request->user();
+
+        // Before the message is recorded, so a turn told to come back later has
+        // changed nothing and the client can simply present its ticket again.
+        $admission = $this->admitTurn($request, $user, InferenceGate::LANE_NEW);
+
+        if (!$admission->granted()) {
+            return $this->queuedResponse($admission);
+        }
+
         $reservation = $this->budget->reserve($user);
 
         try {
@@ -141,9 +150,15 @@ class AiAgentController extends ApplicationApiController
 
             $context->push(AiMessage::user($query));
 
-            return $this->streamTurn($context, conversation: $conversation, budgetReservation: $reservation);
+            return $this->streamTurn(
+                $context,
+                conversation: $conversation,
+                budgetReservation: $reservation,
+                lease: $admission->lease,
+            );
         } catch (\Throwable $e) {
             $reservation->release();
+            $admission->lease?->release();
 
             throw $e;
         }
@@ -189,6 +204,18 @@ class AiAgentController extends ApplicationApiController
         return $this->agentTurnStatus($request->user(), $turnId, null, ToolDefinition::SCOPE_ADMIN);
     }
 
+    /** Stop a turn that is still running. */
+    public function cancelTurn(GetIntelligenceRequest $request, string $turnId): JsonResponse
+    {
+        return $this->cancelAgentTurn($request->user(), $turnId, null, ToolDefinition::SCOPE_ADMIN);
+    }
+
+    /** Give up a queue place. */
+    public function releaseQueue(GetIntelligenceRequest $request, string $ticket): JsonResponse
+    {
+        return $this->releaseQueuePlace($request->user(), $ticket);
+    }
+
     /**
      * Approve, reject or answer a suspended turn, then resume it.
      *
@@ -227,78 +254,86 @@ class AiAgentController extends ApplicationApiController
 
         $decision = (string) $request->input('decision');
         $this->assertDecisionMatchesPending($pending, $decision);
-        $conversation = $this->pendingConversation($pending, (int) $user->id);
-        $context = $this->restoreTurn($pending, $user, null);
-
-        if ($decision === 'reject') {
-            $reservation = $this->budget->reserve($user);
-
-            try {
-                if (!$this->claimRejection($pending)) {
-                    $reservation->release();
-
-                    return $this->existingDecisionResponse($pending);
-                }
-                $this->applyRejection($pending, $context);
-
-                return $this->streamTurn(
-                    $context,
-                    $pending,
-                    conversation: $conversation,
-                    budgetReservation: $reservation,
-                );
-            } catch (\Throwable $e) {
-                $reservation->release();
-
-                throw $e;
-            }
-        }
 
         if ($decision === 'answer') {
             $this->assertAnswerAcceptable($pending, (string) $request->input('answer', ''));
+        }
+
+        // Ahead of the claim, so a resume told to come back later leaves the
+        // action exactly as it found it — still pending, still decidable. The
+        // typed confirmation cannot be checked this early here, unlike on the
+        // server surface: it is checked against the assist target, which only
+        // exists once the turn has been restored. A refusal after this point
+        // therefore hands the slot straight back rather than skipping it.
+        $admission = $this->admitTurn($request, $user, InferenceGate::LANE_RESUME);
+
+        if (!$admission->granted()) {
+            return $this->queuedResponse($admission);
+        }
+
+        try {
+            $conversation = $this->pendingConversation($pending, (int) $user->id);
+            $context = $this->restoreTurn($pending, $user, null);
+
+            if ($decision === 'reject') {
+                $reservation = $this->budget->reserve($user);
+
+                try {
+                    if (!$this->claimRejection($pending)) {
+                        $reservation->release();
+                        $admission->lease?->release();
+
+                        return $this->existingDecisionResponse($pending);
+                    }
+                    $this->applyRejection($pending, $context);
+
+                    return $this->streamTurn(
+                        $context,
+                        $pending,
+                        conversation: $conversation,
+                        budgetReservation: $reservation,
+                        lease: $admission->lease,
+                    );
+                } catch (\Throwable $e) {
+                    $reservation->release();
+
+                    throw $e;
+                }
+            }
+
+            if ($decision === 'approve') {
+                $this->assertConfirmed($request, $pending, $context);
+            }
+
             $reservation = $this->budget->reserve($user);
 
             try {
                 if (!$this->claimPending($pending)) {
                     $reservation->release();
+                    $admission->lease?->release();
 
                     return $this->existingDecisionResponse($pending);
                 }
                 $context->executionKey = $pending->execution_key;
-                $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+
+                if ($decision === 'answer') {
+                    $this->applyAnswer($pending, $context, (string) $request->input('answer', ''));
+                }
 
                 return $this->streamTurn(
                     $context,
                     $pending,
                     conversation: $conversation,
                     budgetReservation: $reservation,
+                    lease: $admission->lease,
                 );
             } catch (\Throwable $e) {
                 $this->abandonClaim($pending, $reservation);
 
                 throw $e;
             }
-        }
-
-        $this->assertConfirmed($request, $pending, $context);
-        $reservation = $this->budget->reserve($user);
-
-        try {
-            if (!$this->claimPending($pending)) {
-                $reservation->release();
-
-                return $this->existingDecisionResponse($pending);
-            }
-            $context->executionKey = $pending->execution_key;
-
-            return $this->streamTurn(
-                $context,
-                $pending,
-                conversation: $conversation,
-                budgetReservation: $reservation,
-            );
         } catch (\Throwable $e) {
-            $this->abandonClaim($pending, $reservation);
+            $admission->lease?->release();
 
             throw $e;
         }

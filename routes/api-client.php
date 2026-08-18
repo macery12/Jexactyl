@@ -228,6 +228,11 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
         Route::post('/ai/agent/decide', [Client\Servers\AgentController::class, 'decide']);
         Route::get('/ai/agent/pending', [Client\Servers\AgentController::class, 'pending']);
         Route::get('/ai/agent/turns/{turnId}', [Client\Servers\AgentController::class, 'turnStatus']);
+        // Stopping a turn and giving up a queue place are separate because the
+        // two states are: a queued turn has a ticket and no turn id, and
+        // nothing of it has run.
+        Route::post('/ai/agent/turns/{turnId}/cancel', [Client\Servers\AgentController::class, 'cancelTurn']);
+        Route::delete('/ai/agent/queue/{ticket}', [Client\Servers\AgentController::class, 'releaseQueue']);
 
         Route::prefix('/ai/conversations')->group(function () {
             Route::get('/', [Client\Servers\AIConversationController::class, 'index']);

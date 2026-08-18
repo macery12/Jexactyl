@@ -8,18 +8,13 @@ use Everest\Models\AiToolCall;
 use Everest\Models\AiUsageLog;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
-use Everest\Services\AI\Tools\RiskGate;
-use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\AgentEvent;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
-use Everest\Services\AI\Agent\TurnRecorder;
-use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
-use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 
 /**
  * What a turn leaves behind when it goes wrong.
@@ -423,70 +418,5 @@ class AgentTurnOutcomeTest extends TestCase
             'status' => AiPendingAction::STATUS_PENDING,
             'expires_at' => now()->addMinutes(30),
         ], $overrides));
-    }
-}
-
-class AgentTurnOutcomeHarness
-{
-    use HandlesAgentTurns;
-
-    public function stream(AgentContext $context): \Symfony\Component\HttpFoundation\StreamedResponse
-    {
-        return $this->streamTurn($context);
-    }
-
-    public function claim(AiPendingAction $pending): bool
-    {
-        return $this->claimPending($pending);
-    }
-
-    public function abandon(AiPendingAction $pending): void
-    {
-        $this->abandonClaim($pending);
-    }
-
-    public function expire(AiPendingAction $pending): bool
-    {
-        return $this->expireIfStale($pending);
-    }
-
-    public function sweep($scope): void
-    {
-        $this->sweepExpiredPending($scope);
-    }
-
-    public function assertDecision(AiPendingAction $pending, string $decision): void
-    {
-        $this->assertDecisionMatchesPending($pending, $decision);
-    }
-
-    public function assertAnswer(AiPendingAction $pending, string $answer): string
-    {
-        return $this->assertAnswerAcceptable($pending, $answer);
-    }
-
-    protected function agentRunner(): AgentRunner
-    {
-        return app(AgentRunner::class);
-    }
-
-    protected function toolRegistry(): ToolRegistry
-    {
-        return app(ToolRegistry::class);
-    }
-
-    protected function toolRiskGate(): RiskGate
-    {
-        return app(RiskGate::class);
-    }
-
-    protected function turnRecorder(): TurnRecorder
-    {
-        return app(TurnRecorder::class);
-    }
-
-    protected function providerFactory(): ProviderFactory
-    {
-        return app(ProviderFactory::class);
     }
 }

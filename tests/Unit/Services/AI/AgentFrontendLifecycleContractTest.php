@@ -15,6 +15,30 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $this->assertStringNotContainsString('if (!finished) onComplete()', $source);
     }
 
+    /**
+     * A refusal before the stream opens has to survive to the screen.
+     *
+     * The panel answers its own API in a JSON:API envelope, and the reader only
+     * understood `error` and `message` — so a busy queue, a lapsed place or a
+     * turn the user already has running all arrived as "Request failed (503)",
+     * discarding a sentence written for exactly this reader. The handler's
+     * shape and the reader's have to be pinned together or they drift apart in
+     * silence: nothing throws, the user just stops being told why.
+     */
+    public function testPreStreamRefusalsAreReadInThePanelsOwnErrorShape(): void
+    {
+        $reader = file_get_contents(base_path('frontend/src/lib/aiStream.ts'));
+        $handler = file_get_contents(base_path('app/Exceptions/Handler.php'));
+        $trait = file_get_contents(base_path('app/Http/Controllers/Api/Concerns/HandlesAgentTurns.php'));
+
+        $this->assertStringContainsString('data?.errors?.[0]?.detail', $reader);
+        $this->assertStringContainsString("'detail' => \$e instanceof HttpExceptionInterface", $handler);
+
+        // And admission refusals have to become an HttpException to reach that
+        // branch at all: the gate's own exception type renders as a bare 500.
+        $this->assertStringContainsString('ServiceUnavailableHttpException', $trait);
+    }
+
     public function testDecisionsCommitOnlyAfterHttpAcknowledgement(): void
     {
         $source = file_get_contents(base_path('frontend/src/state/agentChat.ts'));
@@ -220,6 +244,73 @@ class AgentFrontendLifecycleContractTest extends TestCase
         ] as $key) {
             $this->assertArrayHasKey($key, $messages, $key);
         }
+    }
+
+    /**
+     * Stop has to reach the server (DESIGN-003).
+     *
+     * The old `cancel()` aborted the fetch and nothing else, which stopped the
+     * browser reading while the turn carried on spending budget and running
+     * tools. A regression here is invisible — the button still appears to work
+     * — so what is pinned is that the request is actually made.
+     */
+    public function testStoppingATurnReachesTheBackendAndNotOnlyTheReader(): void
+    {
+        $store = file_get_contents(base_path('frontend/src/state/agentChat.ts'));
+        $api = file_get_contents(base_path('frontend/src/api/ai.ts'));
+        $adminApi = file_get_contents(base_path('frontend/src/api/adminAi.ts'));
+
+        $this->assertStringContainsString('adapter.cancelTurn(target, turnId)', $store);
+        $this->assertStringContainsString('ai/agent/turns/${turnId}/cancel', $api);
+        $this->assertStringContainsString('ai/agent/turns/${turnId}/cancel', $adminApi);
+
+        // Both surfaces, or the admin assistant keeps the old behaviour while
+        // the customer one is fixed.
+        $this->assertStringContainsString('cancelTurn: (uuid, turnId) => cancelAgentTurn(uuid, turnId)', $store);
+        $this->assertStringContainsString('cancelTurn: (_target, turnId) => cancelAdminAgentTurn(turnId)', $store);
+
+        // A queued turn has no turn id and nothing has run, so stopping it is
+        // handing the place back rather than cancelling anything.
+        $this->assertStringContainsString('adapter.releaseQueue(target, ticket)', $store);
+
+        // The terminal state comes from the backend, because a tool already in
+        // flight always finishes — the client cannot know what actually ran.
+        $cancel = strpos($store, 'cancel: () => {');
+        $this->assertIsInt($cancel);
+        $this->assertStringContainsString('void reconcile(turnId, generation)', substr($store, $cancel));
+    }
+
+    /**
+     * A queued turn comes back for its place, and does so exactly once.
+     *
+     * The panel no longer holds a request open while a turn waits for a slot,
+     * so retrying is the client's job. The hazard is the retry replaying more
+     * than the request: the user's message is appended to the transcript by
+     * `send`, and an attempt that re-appended it would grow a duplicate on
+     * every poll of a busy queue.
+     */
+    public function testAQueuedTurnRepresentsItsTicketWithoutReplayingTheTranscript(): void
+    {
+        $store = file_get_contents(base_path('frontend/src/state/agentChat.ts'));
+
+        $this->assertStringContainsString('ticket: queueTicket ?? undefined', $store);
+        $this->assertStringContainsString('scheduleQueueRetry()', $store);
+        $this->assertStringContainsString("if (event.reason === 'queued')", $store);
+
+        // The message is appended before the attempt closure is defined, and
+        // the closure is what the retry calls — so the append cannot repeat.
+        $send = strpos($store, 'send: (query, consoleBuffer) => {');
+        $this->assertIsInt($send);
+        $body = substr($store, $send, 1800);
+        $appended = strpos($body, "kind: 'user', key: nextKey()");
+        $attempt = strpos($body, 'const attempt = () => {');
+        $this->assertIsInt($appended);
+        $this->assertIsInt($attempt);
+        $this->assertLessThan($attempt, $appended);
+
+        // The banner survives a retry rather than flickering to nothing.
+        $this->assertStringContainsString('beginTurn(queueTicket !== null)', $store);
+        $this->assertStringContainsString('keepQueue ? {} : { queue: null }', $store);
     }
 
     public function testReusedCallIdsOnlyUpdateTheLatestUnresolvedRowAndReplayAsAQueue(): void

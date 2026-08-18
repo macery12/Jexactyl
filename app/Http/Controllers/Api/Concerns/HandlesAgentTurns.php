@@ -4,6 +4,7 @@ namespace Everest\Http\Controllers\Api\Concerns;
 
 use Everest\Models\Server;
 use Illuminate\Support\Str;
+use Illuminate\Http\Request;
 use Everest\Models\AiToolCall;
 use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
@@ -19,15 +20,21 @@ use Everest\Services\AI\Agent\AssistGrant;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Inference\Admission;
+use Everest\Services\AI\Inference\TurnLease;
 use Everest\Services\AI\Privacy\RedactionMap;
 use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Agent\AssistAuthorizer;
+use Everest\Services\AI\Agent\TurnCancellations;
+use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\AiBudgetReservation;
 use Everest\Services\AI\Support\AiTurnUsageRecorder;
+use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
+use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 
 /**
  * Running an agent turn over SSE, and resuming one that suspended.
@@ -66,6 +73,7 @@ trait HandlesAgentTurns
         ?AiPendingAction $resuming = null,
         ?AiConversation $conversation = null,
         ?AiBudgetReservation $budgetReservation = null,
+        ?TurnLease $lease = null,
     ): StreamedResponse {
         $runner = $this->agentRunner();
         $recorder = $this->turnRecorder();
@@ -76,7 +84,7 @@ trait HandlesAgentTurns
         $model = $this->providerFactory()->model(ProviderFactory::TASK_AGENT);
         $idleSeconds = $runner->streamIdleSeconds();
 
-        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model, $budgetReservation) {
+        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model, $budgetReservation, $lease) {
             $usageReconciled = $budgetReservation?->passthrough ?? true;
 
             try {
@@ -152,7 +160,17 @@ trait HandlesAgentTurns
                     }
 
                     $runner->run($context, $emit);
-                    $status = $context->suspended ? 'suspended' : 'success';
+                    $status = match (true) {
+                        $context->suspended => 'suspended',
+                        // A stop is a clean ending, not a failure: whatever ran
+                        // ran and reported, and the transcript is answerable.
+                        // It is its own terminal state because "the user
+                        // stopped it" and "it broke" are different facts, and
+                        // an operator reading a usage row is entitled to know
+                        // which one happened.
+                        $context->cancelled => 'cancelled',
+                        default => 'success',
+                    };
 
                     if ($resuming !== null) {
                         AiPendingAction::whereKey($resuming->id)
@@ -194,7 +212,7 @@ trait HandlesAgentTurns
                     // carry SQL, absolute paths or internal detail — which
                     // APP_DEBUG makes routine — and both the SSE frame and the
                     // stored row are read by a browser.
-                    $error = $e instanceof \Everest\Exceptions\Service\AI\AIServiceException
+                    $error = $e instanceof AIServiceException
                         ? $e->getMessage()
                         : 'The AI ran into a problem. Please try again.';
                     $this->write('data: ' . json_encode(AgentEvent::error($error)->toArray()));
@@ -255,6 +273,13 @@ trait HandlesAgentTurns
                 // triggers the client's authoritative status reconciliation.
                 $this->write('data: [DONE]');
             } finally {
+                // The inference slot belongs to the stream rather than to the
+                // runner: it is taken before the turn is built — early enough
+                // that a queued turn can be turned away having changed nothing
+                // — so it has to be given back here, on every path out
+                // including the ones that threw before the loop ever ran.
+                $lease?->release();
+
                 // Admission remains held until the cumulative row above has
                 // replaced the previous suspension leg. The next request can
                 // therefore never observe stale spend at the boundary.
@@ -269,6 +294,145 @@ trait HandlesAgentTurns
             'X-Agent-Turn-Id' => $turnId,
             'X-Agent-Idle-Seconds' => (string) $idleSeconds,
         ]);
+    }
+
+    /**
+     * Ask for an inference slot before the turn changes anything.
+     *
+     * Placed ahead of every effect on purpose. Admission used to happen deep
+     * inside the run loop, which was survivable only because it blocked: by the
+     * time it could have said "not yet", the user's message had been recorded
+     * and — on a resume — an approved action had been claimed and executed.
+     * Turning a caller away at that point is not possible, so the old gate
+     * parked a PHP worker on a sleep loop instead. Asking here, before anything
+     * has been claimed or written, is what makes "come back shortly" a safe
+     * answer.
+     *
+     * @throws AIServiceException when the queue is
+     *                            full, the caller
+     *                            already has a turn
+     *                            in flight, or a
+     *                            ticket has lapsed
+     */
+    protected function admitTurn(Request $request, $user, string $lane): Admission
+    {
+        $ticket = $request->input('ticket');
+
+        try {
+            return app(InferenceGate::class)->admit(
+                (string) $user->uuid,
+                $lane,
+                is_string($ticket) && $ticket !== '' ? $ticket : null,
+            );
+        } catch (AIServiceException $e) {
+            // The gate's refusals are written for this audience — a full queue,
+            // a lapsed place, a turn the user already has running — and they
+            // used to reach the browser because admission happened inside the
+            // stream, where the error frame quotes our own exceptions. Asking
+            // before the stream opens means saying it in HTTP instead, or the
+            // user gets a bare 500 in place of a sentence explaining the wait.
+            throw new ServiceUnavailableHttpException(5, $e->getMessage(), $e);
+        }
+    }
+
+    /**
+     * Tell the client where it stands, and stop.
+     *
+     * Written as SSE rather than a JSON 429 so the browser's existing reader
+     * handles it on the same code path as a turn that ran: one transport, one
+     * set of failure modes. Deliberately carries no `X-Agent-Turn-Id` — nothing
+     * has started, so there is no turn to reconcile against if this response is
+     * itself lost, and the client must simply present its ticket again.
+     */
+    protected function queuedResponse(Admission $admission): StreamedResponse
+    {
+        $queued = $admission->toArray();
+
+        return response()->stream(function () use ($queued): void {
+            $this->write(': keep-alive');
+            $this->write('data: ' . json_encode(AgentEvent::queued(
+                $queued['position'],
+                $queued['ahead'],
+                $queued['eta_seconds'],
+                $queued['ticket'],
+                $queued['retry_after_ms'],
+            )->toArray()));
+            $this->write('data: ' . json_encode(AgentEvent::done('queued')->toArray()));
+            $this->write('data: [DONE]');
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    /**
+     * Give up a queue place.
+     *
+     * Its own endpoint rather than a flag on the cancel one, because a queued
+     * turn and a running turn are different things: one has a ticket and no
+     * turn id, the other has a turn id and no ticket, and nothing has happened
+     * in the first case. Ownership is checked against the ticket itself, so
+     * presenting somebody else's is the same as presenting a lapsed one.
+     */
+    protected function releaseQueuePlace($user, string $ticket): JsonResponse
+    {
+        $released = app(InferenceGate::class)->releaseTicket($ticket, (string) $user->uuid);
+
+        return response()->json(['data' => ['released' => $released]]);
+    }
+
+    /**
+     * Ask a running turn to stop.
+     *
+     * Scoped exactly as the status endpoint is, because they answer questions
+     * about the same row and a turn one user may read is precisely the turn
+     * that user may stop.
+     *
+     * The response reports that the request was *recorded*, not that the turn
+     * has ended — those are different moments, and the client finds out about
+     * the second by reconciling. A tool already in flight always finishes;
+     * there is no point at which an HTTP call through the panel's own
+     * middleware can be un-started, so the honest thing is to stop scheduling
+     * work rather than to pretend the last thing can be recalled.
+     */
+    protected function cancelAgentTurn(
+        $user,
+        string $turnId,
+        ?Server $server,
+        string $scope,
+    ): JsonResponse {
+        if (!Str::isUuid($turnId)) {
+            abort(404);
+        }
+
+        $query = AiUsageLog::query()
+            ->where('turn_id', $turnId)
+            ->where('user_id', $user->id);
+
+        if ($server !== null) {
+            $query->where('server_uuid', $server->uuid)->where('source', 'agent');
+        } else {
+            $query->whereNull('server_uuid')->where('source', 'admin-agent');
+        }
+
+        $usage = $query->firstOrFail();
+
+        if ($usage->status === 'suspended') {
+            // Nothing is executing. The decision the user actually wants is on
+            // the card in front of them, and routing them to it is better than
+            // quietly accepting a stop that would stop nothing.
+            abort(409, 'That turn is waiting for your decision. Decline the action instead.');
+        }
+
+        $recorded = $usage->status === 'running'
+            && app(TurnCancellations::class)->request($usage);
+
+        return response()->json(['data' => [
+            'turn_id' => $turnId,
+            'status' => $usage->fresh()?->status ?? $usage->status,
+            'cancel_requested' => $recorded || $usage->cancel_requested_at !== null,
+        ]]);
     }
 
     /**

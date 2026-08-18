@@ -38,6 +38,7 @@ class AiUsageLog extends Model
         'error_message',
         'heartbeat_at',
         'deadline_at',
+        'cancel_requested_at',
     ];
 
     protected $casts = [
@@ -49,6 +50,7 @@ class AiUsageLog extends Model
         'latency_ms' => 'integer',
         'heartbeat_at' => 'datetime',
         'deadline_at' => 'datetime',
+        'cancel_requested_at' => 'datetime',
     ];
 
     public function user(): BelongsTo
