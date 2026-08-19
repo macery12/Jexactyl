@@ -2,6 +2,8 @@
 
 namespace Everest\Models;
 
+use Illuminate\Support\Facades\DB;
+
 /**
  * Everest\Models\EmailQuota.
  *
@@ -114,38 +116,67 @@ class EmailQuota extends Model
     /**
      * Try to reserve quota for sending emails.
      * Returns true if quota available, false otherwise.
+     *
+     * Read-modify-write on a shared counter, so it has to be serialised: with
+     * several mail workers draining the queue in parallel, an unlocked version
+     * loses updates and lets a user send past their plan limit. The row is
+     * re-read under `lockForUpdate` rather than trusting the in-memory copy,
+     * which may have been loaded before another worker incremented it.
+     *
+     * Mirrors ResendQuota::reserve().
      */
     public function reserveQuota(int $count = 1): bool
     {
-        $this->checkAndResetQuota();
+        $reserved = DB::transaction(function () use ($count) {
+            /** @var self|null $quota */
+            $quota = self::query()->whereKey($this->getKey())->lockForUpdate()->first();
 
-        $planConfig = self::PLANS[$this->plan] ?? self::PLANS['free'];
-
-        // Check daily limit (if applicable)
-        if ($planConfig['daily_limit'] !== null) {
-            if ($this->daily_sent + $count > $planConfig['daily_limit']) {
-                return false;
+            if (!$quota) {
+                return null;
             }
-        }
 
-        // Check monthly limit
-        if ($this->monthly_sent + $count > $this->monthly_limit) {
-            // If overage allowed, track it
-            if ($planConfig['overage_allowed']) {
-                $overage = ($this->monthly_sent + $count) - $this->monthly_limit;
-                $this->monthly_overage += $overage;
-            } else {
-                return false;
+            $quota->checkAndResetQuota();
+
+            $planConfig = self::PLANS[$quota->plan] ?? self::PLANS['free'];
+
+            // Check daily limit (if applicable)
+            if ($planConfig['daily_limit'] !== null) {
+                if ($quota->daily_sent + $count > $planConfig['daily_limit']) {
+                    return null;
+                }
             }
+
+            // Check monthly limit
+            if ($quota->monthly_sent + $count > $quota->monthly_limit) {
+                // If overage allowed, track it
+                if ($planConfig['overage_allowed']) {
+                    $overage = ($quota->monthly_sent + $count) - $quota->monthly_limit;
+                    $quota->monthly_overage += $overage;
+                } else {
+                    return null;
+                }
+            }
+
+            // Reserve quota
+            $quota->monthly_sent += $count;
+            if ($planConfig['daily_limit'] !== null) {
+                $quota->daily_sent += $count;
+            }
+
+            $quota->save();
+
+            return $quota;
+        });
+
+        if ($reserved === null) {
+            // Refresh so a caller that goes on to compute getNextAvailableTime()
+            // reasons about the same counters the refusal was based on.
+            $this->refresh();
+
+            return false;
         }
 
-        // Reserve quota
-        $this->monthly_sent += $count;
-        if ($planConfig['daily_limit'] !== null) {
-            $this->daily_sent += $count;
-        }
-
-        $this->save();
+        $this->setRawAttributes($reserved->getAttributes(), true);
 
         return true;
     }

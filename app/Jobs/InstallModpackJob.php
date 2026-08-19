@@ -10,8 +10,12 @@ use Illuminate\Queue\InteractsWithQueue;
 use Everest\Models\MarketplaceInstallLog;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Everest\Services\Mods\CurseForgeService;
+use Illuminate\Queue\Attributes\MaxExceptions;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Everest\Repositories\Wings\DaemonScriptRepository;
 use Everest\Repositories\Wings\DaemonServerRepository;
+use Everest\Exceptions\Service\Mods\ModpackInstallException;
+use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 
 /**
  * Installs a CurseForge modpack with a "resolve on panel, download on node" model,
@@ -30,6 +34,7 @@ use Everest\Repositories\Wings\DaemonServerRepository;
  * The panel resolves all URLs; the scripts need only curl/unzip/java (no jq, no
  * CurseForge key on the node).
  */
+#[MaxExceptions(2)]
 class InstallModpackJob extends Job implements ShouldQueue
 {
     use InteractsWithQueue;
@@ -49,9 +54,29 @@ class InstallModpackJob extends Job implements ShouldQueue
         public bool $wipeServer,
         public bool $installLoader,
     ) {
-        $this->queue   = 'standard';
+        // The queue is deliberately not set here. Routing lives in
+        // config/queue.php; assigning $this->queue would silently take
+        // precedence over it. See Everest\Providers\QueueServiceProvider.
         $this->timeout = (int) config('modules.mods.installer.install_timeout', 3600);
         $this->tries   = (int) config('modules.mods.installer.tries', 3);
+    }
+
+    /**
+     * Two installs racing on one server would fight over `server.startup`,
+     * `server.image`, and the same /mnt/server tree — and nothing upstream
+     * prevents it, since ModpackController creates a fresh DownloadQueue parent
+     * per request without a duplicate check.
+     *
+     * `dontRelease()` because a second install request is not work to be done
+     * later; the first one is already installing this pack.
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping('modpack:server:' . $this->parent->server_id))
+                ->dontRelease()
+                ->expireAfter($this->timeout + 60),
+        ];
     }
 
     public function handle(
@@ -92,7 +117,7 @@ class InstallModpackJob extends Job implements ShouldQueue
             $zipMeta = $curseForge->resolveFiles([$fileId])[$fileId] ?? null;
             $zipUrl  = $zipMeta['download_url'] ?? null;
             if (empty($zipUrl)) {
-                throw new \RuntimeException('This modpack file cannot be downloaded (distribution disabled by the author).');
+                throw ModpackInstallException::terminal('This modpack file cannot be downloaded (distribution disabled by the author).');
             }
 
             // Download the zip to temp — only to read manifest.json on the panel.
@@ -150,14 +175,14 @@ class InstallModpackJob extends Job implements ShouldQueue
                     $res = $scriptRepo->run($this->buildWipeScript(), [], $callTimeout);
                     if (!str_contains($res['stdout'], self::WIPE_SENTINEL)) {
                         $parent->update(['install_log' => $this->buildFailLog('Server wipe', $res)]);
-                        throw new \RuntimeException($this->firstError($res['stderr']) ?: 'Server wipe did not complete.');
+                        throw ModpackInstallException::retryable($this->firstError($res['stderr']) ?: 'Server wipe did not complete.');
                     }
                 }
 
                 // Step: loader install (set startup + Java image, run installer in a Java image).
                 if ($this->installLoader) {
                     if (!$loaderName || !$loaderVersion || !$mcVersion) {
-                        throw new \RuntimeException('Could not determine the modpack loader from its manifest.');
+                        throw ModpackInstallException::terminal('Could not determine the modpack loader from its manifest.');
                     }
 
                     $parent->update(['phase' => 'loader', 'total_children' => $total]);
@@ -180,7 +205,7 @@ class InstallModpackJob extends Job implements ShouldQueue
                     );
                     if (!str_contains($res['stdout'], self::LOADER_SENTINEL)) {
                         $parent->update(['install_log' => $this->buildFailLog('Loader install', $res)]);
-                        throw new \RuntimeException($this->firstError($res['stderr']) ?: 'Loader install did not complete.');
+                        throw ModpackInstallException::retryable($this->firstError($res['stderr']) ?: 'Loader install did not complete.');
                     }
                     $notes[] = ucfirst($loaderName) . " {$loaderVersion} installed for Minecraft {$mcVersion}.";
                 }
@@ -190,7 +215,7 @@ class InstallModpackJob extends Job implements ShouldQueue
                 $res = $scriptRepo->run($this->buildOverridesScript($zipUrl, $overridesRoot), [], $callTimeout);
                 if (!str_contains($res['stdout'], self::OVERRIDES_SENTINEL)) {
                     $parent->update(['install_log' => $this->buildFailLog('Overrides', $res)]);
-                    throw new \RuntimeException($this->firstError($res['stderr']) ?: 'Overrides step did not complete.');
+                    throw ModpackInstallException::retryable($this->firstError($res['stderr']) ?: 'Overrides step did not complete.');
                 }
 
                 $parent->update(['phase' => 'mods', 'completed_children' => 0, 'failed_children' => 0]);
@@ -222,6 +247,26 @@ class InstallModpackJob extends Job implements ShouldQueue
 
             $this->recordAudit($server, MarketplaceInstallLog::STATUS_SUCCESS);
         } catch (\Exception $e) {
+            // A transient failure with attempts left is left resumable: the row
+            // keeps its `phase` and batch offsets, so rethrowing hands the job
+            // back to the queue and the next attempt picks up where this one
+            // stopped rather than re-wiping and re-downloading from zero.
+            if ($this->shouldRetry($e)) {
+                Log::warning('InstallModpackJob attempt failed, will retry', [
+                    'parent_id' => $parent->id,
+                    'attempt'   => $this->attempts(),
+                    'tries'     => $this->tries,
+                    'phase'     => $parent->phase,
+                    'error'     => $e->getMessage(),
+                ]);
+
+                // Surfaced to the UI while the retry is pending, and preserved
+                // for failed() to report if this turns out to be the last attempt.
+                $parent->update(['error_message' => $e->getMessage()]);
+
+                throw $e;
+            }
+
             Log::error('InstallModpackJob failed', [
                 'parent_id' => $parent->id,
                 'error'     => $e->getMessage(),
@@ -274,7 +319,7 @@ class InstallModpackJob extends Job implements ShouldQueue
             $stdout = $res['stdout'];
 
             if (!str_contains($stdout, self::BATCH_SENTINEL)) {
-                throw new \RuntimeException($this->firstError($res['stderr']) ?: 'A mod batch did not complete.');
+                throw ModpackInstallException::retryable($this->firstError($res['stderr']) ?: 'A mod batch did not complete.');
             }
 
             [$processed, , $batchFailed] = $this->parseBatch($stdout);
@@ -299,18 +344,18 @@ class InstallModpackJob extends Job implements ShouldQueue
     {
         $zip = new \ZipArchive();
         if ($zip->open($zipPath) !== true) {
-            throw new \RuntimeException('Failed to open modpack archive.');
+            throw ModpackInstallException::terminal('Failed to open modpack archive.');
         }
 
         try {
             $manifestJson = $zip->getFromName('manifest.json');
             if ($manifestJson === false) {
-                throw new \RuntimeException('manifest.json not found in modpack archive.');
+                throw ModpackInstallException::terminal('manifest.json not found in modpack archive.');
             }
 
             $manifest = json_decode($manifestJson, true);
             if (!is_array($manifest)) {
-                throw new \RuntimeException('Failed to parse manifest.json.');
+                throw ModpackInstallException::terminal('Failed to parse manifest.json.');
             }
 
             $overridesRoot = rtrim($manifest['overrides'] ?? 'overrides', '/');
@@ -656,7 +701,7 @@ BASH;
     {
         $handle = fopen($destPath, 'w');
         if (!$handle) {
-            throw new \RuntimeException('Failed to create temp file for modpack download.');
+            throw ModpackInstallException::retryable('Failed to create temp file for modpack download.');
         }
 
         try {
@@ -669,7 +714,11 @@ BASH;
                 ->get($url);
 
             if (!$response->successful()) {
-                throw new \RuntimeException('Failed to download modpack archive. HTTP ' . $response->status());
+                $message = 'Failed to download modpack archive. HTTP ' . $response->status();
+
+                // 5xx and 429 are CurseForge/CDN having a bad moment; anything
+                // else is a URL that will keep returning the same thing.
+                throw ($response->serverError() || $response->status() === 429) ? ModpackInstallException::retryable($message) : ModpackInstallException::terminal($message);
             }
         } finally {
             if (is_resource($handle)) {
@@ -754,16 +803,52 @@ BASH;
         ]);
     }
 
+    /**
+     * Whether this attempt is worth handing back to the queue.
+     *
+     * Only transient causes qualify, and only while attempts remain — on the
+     * last attempt we fall through to the terminal branch so the user gets the
+     * real error on the row instead of failed()'s generic message.
+     */
+    private function shouldRetry(\Throwable $e): bool
+    {
+        if ($this->attempts() >= $this->tries) {
+            return false;
+        }
+
+        if ($e instanceof ModpackInstallException) {
+            return $e->isRetryable();
+        }
+
+        // Anything that is plainly the node or the network rather than the pack.
+        return $e instanceof DaemonConnectionException
+            || $e instanceof \GuzzleHttp\Exception\ConnectException
+            || $e instanceof \Illuminate\Http\Client\ConnectionException;
+    }
+
+    /**
+     * Reached only for failures that never got to the catch above — a timeout,
+     * an \Error, or the worker being killed mid-install.
+     *
+     * `phase` and the batch counters are deliberately left untouched: they are
+     * what lets a retry from the UI resume, and clearing them here would
+     * silently turn every infrastructure blip into a full reinstall.
+     */
     public function failed(\Throwable $exception): void
     {
         Log::error('InstallModpackJob infrastructure failure', [
             'parent_id' => $this->parent->id,
+            'phase'     => $this->parent->phase,
             'error'     => $exception->getMessage(),
         ]);
 
+        // A classified failure already recorded why it gave up; don't overwrite
+        // a useful message with the generic one.
+        $recorded = $this->parent->error_message;
+
         $this->parent->update([
             'status'        => DownloadQueue::STATUS_FAILED,
-            'error_message' => 'Modpack install worker encountered an unexpected error.',
+            'error_message' => $recorded ?: 'Modpack install worker encountered an unexpected error.',
             'completed_at'  => now(),
         ]);
     }

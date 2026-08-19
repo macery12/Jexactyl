@@ -24,6 +24,7 @@ import {
     Users,
     UserCog,
     Sparkles,
+    ListOrdered,
 } from 'lucide-react';
 import { lazy } from 'react';
 import { route, type RouteDef } from './registry';
@@ -63,6 +64,7 @@ const AiSection = lazy(() => import('@/pages/admin/ai/AiSection'));
 const AssistantPage = lazy(() => import('@/pages/admin/assistant/AssistantPage'));
 const LinksSection = lazy(() => import('@/pages/admin/links/LinksSection'));
 const AdminIndexRedirect = lazy(() => import('@/pages/admin/overview/AdminIndexRedirect'));
+const QueuesPage = lazy(() => import('@/pages/admin/queues/QueuesPage'));
 
 // Admin area (/admin/*) — sidebar grouped by `category`.
 // Seeded from V1_UI_Map §3.4. All entries are placeholders for Phase 1.
@@ -121,6 +123,10 @@ export const adminRoutes: RouteDef[] = [
     route('databases/*', { name: 'Databases', icon: Database, category: 'management', permission: 'databases.read', element: DatabasesSection }),
     route('infrastructure/*', { name: 'Infrastructure', icon: Server, category: 'management', permission: ['nodes.read', 'servers.read'], element: InfrastructureSection }),
     route('nests/*', { name: 'Nests', icon: Egg, category: 'management', permission: 'nests.read', element: NestsSection }),
+
+    // Background work. Sits under Management rather than General because it is
+    // about the machinery, not the panel's own settings.
+    route('queues', { name: 'Queues', icon: ListOrdered, category: 'management', permission: 'overview.read', end: true, element: QueuesPage }),
     // Legacy paths redirect into the merged Infrastructure section (hidden from nav).
     route('nodes/*', { element: NodesRedirect }),
     route('servers/*', { element: ServersRedirect }),

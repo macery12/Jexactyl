@@ -15,6 +15,7 @@ import {
     ArrowUp,
     Activity,
     Wrench,
+    ListOrdered,
 } from 'lucide-react';
 import { getAdminOverview, type AdminOverview, type OverviewNode, type OverviewNodeResource } from '@/api/adminOverview';
 import { useFlags } from '@/state/flags';
@@ -185,6 +186,11 @@ function buildAttention(data: AdminOverview, billingEnabled: boolean, ticketsEna
     }
     if (billingEnabled && data.queues.billingExceptions > 0) {
         items.push({ key: 'billing', label: m['admin.overview.attention.billing']({ count: data.queues.billingExceptions }), to: '/admin/billing' });
+    }
+    // A stalled queue means invoices, email and scheduled tasks have silently
+    // stopped, so it belongs alongside the other things demanding action.
+    if (data.workers.criticalWarnings > 0) {
+        items.push({ key: 'workers', label: m['admin.overview.attention.workers'](), to: '/admin/queues' });
     }
     return items;
 }
@@ -361,6 +367,16 @@ export default function OverviewPage() {
                                             to="/admin/billing"
                                         />
                                     )}
+                                    {data.workers.criticalWarnings > 0 && (
+                                        <QueueCard
+                                            icon={ListOrdered}
+                                            count={data.workers.depth}
+                                            title={m['admin.overview.queue.workers']()}
+                                            detail={data.workers.summary ?? m['admin.overview.queue.workersSub']()}
+                                            tone="danger"
+                                            to="/admin/queues"
+                                        />
+                                    )}
                                     {data.queues.deferredEmails > 0 && (
                                         <QueueCard
                                             icon={Mail}
@@ -373,6 +389,7 @@ export default function OverviewPage() {
                                     )}
                                     {(!ticketsEnabled || data.queues.tickets.pending === 0) &&
                                         (!billingEnabled || data.queues.billingExceptions === 0) &&
+                                        data.workers.criticalWarnings === 0 &&
                                         data.queues.deferredEmails === 0 && (
                                             <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-border-strong)] py-10 text-center">
                                                 <CheckCircle2 className="h-5 w-5 text-[var(--color-accent)]" />

@@ -49,7 +49,6 @@ class RunTaskJobTest extends IntegrationTestCase
         $this->assertTrue(CarbonImmutable::now()->isSameAs(\DateTimeInterface::ATOM, $schedule->last_run_at));
     }
 
-    #[DataProvider('isManualRunDataProvider')]
     public function testJobWithInvalidActionThrowsException()
     {
         $server = $this->createServerModel();
@@ -66,7 +65,7 @@ class RunTaskJobTest extends IntegrationTestCase
         Bus::dispatchSync($job);
     }
 
-
+    #[DataProvider('isManualRunDataProvider')]
     public function testJobIsExecuted(bool $isManualRun)
     {
         $server = $this->createServerModel();
@@ -104,7 +103,6 @@ class RunTaskJobTest extends IntegrationTestCase
         $this->assertFalse($schedule->is_processing);
         $this->assertTrue(CarbonImmutable::now()->isSameAs(\DateTimeInterface::ATOM, $schedule->last_run_at));
     }
-
 
     #[DataProvider('isManualRunDataProvider')]
     public function testExceptionDuringRunIsHandledCorrectly(bool $continueOnFailure)

@@ -83,7 +83,12 @@ class ProcessDeferredEmailsJobTest extends TestCase
                 && $job->correlationId === $correlationId;
         });
 
-        $this->assertDatabaseMissing('deferred_emails', ['id' => $deferred->id]);
+        // The row is kept and marked, not deleted: it is the only record that
+        // this email was ever deferred and then released.
+        $deferred->refresh();
+        $this->assertNotNull($deferred->sent_at);
+        $this->assertNull($deferred->claim_token);
+        $this->assertSame(3, $deferred->attempts);
 
         $quota->refresh();
         $this->assertSame(27, $quota->monthly_sent);
@@ -122,7 +127,87 @@ class ProcessDeferredEmailsJobTest extends TestCase
             return $job->correlationId === $deferred->correlation_id;
         });
 
-        $this->assertDatabaseMissing('deferred_emails', ['id' => $deferred->id]);
+        $deferred->refresh();
+        $this->assertNotNull($deferred->sent_at);
+    }
+
+    public function testAClaimedRowIsNotHandedToASecondConcurrentRun(): void
+    {
+        Bus::fake();
+
+        $deferred = DeferredEmail::create([
+            'user_id' => 1,
+            'template_key' => 'auth.password_reset',
+            'recipient' => 'once@example.com',
+            'data' => ['token' => 'only-once'],
+            'correlation_id' => (string) Str::uuid(),
+            'reason' => 'daily_limit',
+            'scheduled_at' => now()->subMinute(),
+            'attempts' => 0,
+        ]);
+
+        // Stand in for a run that claimed the row and is still working through
+        // its batch. Before the claim existed, the second run below re-read the
+        // same row and dispatched a duplicate send.
+        $deferred->forceFill([
+            'claim_token' => (string) Str::uuid(),
+            'claimed_at' => now(),
+        ])->save();
+
+        (new ProcessDeferredEmailsJob())->handle(app(EmailDeliveryTracker::class));
+
+        Bus::assertNothingDispatched();
+    }
+
+    public function testAnExpiredClaimIsReclaimedSoTheEmailIsNotStranded(): void
+    {
+        Bus::fake();
+
+        $deferred = DeferredEmail::create([
+            'user_id' => 1,
+            'template_key' => 'auth.password_reset',
+            'recipient' => 'stranded@example.com',
+            'data' => ['token' => 'reclaim'],
+            'correlation_id' => (string) Str::uuid(),
+            'reason' => 'daily_limit',
+            'scheduled_at' => now()->subHour(),
+            'attempts' => 0,
+        ]);
+
+        // The only way a claim outlives its holder is the holder dying, and the
+        // email still needs to go out.
+        $deferred->forceFill([
+            'claim_token' => (string) Str::uuid(),
+            'claimed_at' => now()->subMinutes(DeferredEmail::CLAIM_LEASE_MINUTES + 1),
+        ])->save();
+
+        (new ProcessDeferredEmailsJob())->handle(app(EmailDeliveryTracker::class));
+
+        Bus::assertDispatched(SendEmailJob::class);
+
+        $deferred->refresh();
+        $this->assertNotNull($deferred->sent_at);
+    }
+
+    public function testAlreadySentRowsAreNeverReclaimed(): void
+    {
+        Bus::fake();
+
+        DeferredEmail::create([
+            'user_id' => 1,
+            'template_key' => 'auth.password_reset',
+            'recipient' => 'done@example.com',
+            'data' => ['token' => 'done'],
+            'correlation_id' => (string) Str::uuid(),
+            'reason' => 'daily_limit',
+            'scheduled_at' => now()->subHour(),
+            'attempts' => 1,
+            'sent_at' => now()->subMinutes(30),
+        ]);
+
+        (new ProcessDeferredEmailsJob())->handle(app(EmailDeliveryTracker::class));
+
+        Bus::assertNothingDispatched();
     }
 
     public function testCheckingEmptyDeferredQueueDoesNotWriteRoutineInfoLogs(): void
@@ -207,6 +292,8 @@ class ProcessDeferredEmailsJobTest extends TestCase
             $table->timestamp('scheduled_at');
             $table->timestamp('sent_at')->nullable();
             $table->integer('attempts')->default(0);
+            $table->uuid('claim_token')->nullable();
+            $table->timestamp('claimed_at')->nullable();
             $table->timestamps();
         });
     }

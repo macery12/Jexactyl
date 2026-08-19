@@ -8,6 +8,7 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::get('/permissions', Application\PermissionsController::class);
 
     Route::get('/overview', [Application\OverviewController::class, 'index']);
+    Route::get('/queues', [Application\QueueHealthController::class, 'index']);
 
     Route::get('/activity', Application\ActivityLogController::class);
     Route::get('/activity/users', [Application\ActivityLogController::class, 'users']);

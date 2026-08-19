@@ -5,15 +5,33 @@ namespace Everest\Jobs\Schedule;
 use Everest\Jobs\Job;
 use Everest\Models\Task;
 use Carbon\CarbonImmutable;
+use Illuminate\Queue\Attributes\Tries;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\Attributes\Backoff;
+use Illuminate\Queue\Attributes\Timeout;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\DispatchesJobs;
 use Everest\Services\Backups\InitiateBackupService;
 use Everest\Repositories\Wings\DaemonPowerRepository;
 use Everest\Repositories\Wings\DaemonCommandRepository;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 
+/**
+ * Every action here talks to Wings, so the job needs a timeout of its own —
+ * without one it inherited the worker's, which was shorter than a slow node's
+ * backup initiation and produced mid-flight MaxAttemptsExceededException.
+ *
+ * Deliberately no WithoutOverlapping: queueNextTask() dispatches the following
+ * task from inside this job's own handler, so a same-key lock would either drop
+ * the next task or burn its attempts waiting for a lock this job still holds.
+ * Double-running is prevented by the timeout/retry_after ladder instead.
+ */
+#[Timeout(120)]
+#[Tries(3)]
+#[Backoff([10, 60, 180])]
+#[DeleteWhenMissingModels]
 class RunTaskJob extends Job implements ShouldQueue
 {
     use DispatchesJobs;
@@ -25,7 +43,8 @@ class RunTaskJob extends Job implements ShouldQueue
      */
     public function __construct(public Task $task, public bool $manualRun = false)
     {
-        $this->queue = 'standard';
+        // No queue is set here on purpose — routing lives in config/queue.php,
+        // and assigning $this->queue would silently override it.
     }
 
     /**

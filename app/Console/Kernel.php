@@ -89,11 +89,23 @@ class Kernel extends ConsoleKernel
             $schedule->command(ExpireInvoicesCommand::class)->dailyAt('02:00'); // Auto-cleanup data snapshots (if enabled)
         }
 
-        // Process deferred emails every 5 minutes
-        $schedule->command(ProcessDeferredEmailsCommand::class)->everyFiveMinutes();
+        // Process deferred emails every 5 minutes. Overlap protection matters
+        // here: without it, a slow run still holding its rows was joined by the
+        // next tick and both dispatched the same emails.
+        $schedule->command(ProcessDeferredEmailsCommand::class)->everyFiveMinutes()->withoutOverlapping();
 
         // Process jGuard delayed activations every minute
-        $schedule->command(ProcessJGuardActivationsCommand::class)->everyMinute();
+        $schedule->command(ProcessJGuardActivationsCommand::class)->everyMinute()->withoutOverlapping();
+
+        // failed_jobs is append-only and had nothing pruning it. A week is long
+        // enough to investigate a failure and short enough that the table stays
+        // small — which is also why it needs no extra index.
+        $schedule->command('queue:prune-failed', ['--hours' => 168])->weekly();
+
+        // Rolls the live throughput/runtime counters into a retained time series.
+        // Note this *deletes* the live counters as it goes, which is why the
+        // queue page reports over the retained window rather than the counters.
+        $schedule->command('horizon:snapshot')->everyFiveMinutes();
 
         // Send server renewal notices (run daily - checks for servers expiring in 7, 3, and 1 day)
         if (config('modules.billing.enabled')) {
