@@ -21,13 +21,6 @@ use Everest\Services\AI\Tools\Definitions\SharedTools;
  */
 class ToolRegistry
 {
-    /**
-     * Meta-tool the agent calls to pull in a group of tools it needs. Keeps
-     * the offered set small — local models degrade sharply past roughly
-     * fifteen tools — without hiding capability behind a config flag.
-     */
-    public const META_ACTIVATE_GROUP = 'activate_tool_group';
-
     /** @var array<string, ToolDefinition>|null */
     private ?array $indexed = null;
 
@@ -63,14 +56,20 @@ class ToolRegistry
     }
 
     /**
-     * Descriptions for every group across every scope, for the meta-tool and
-     * the admin catalogue.
+     * Descriptions for every category across every scope, for the admin
+     * catalogue.
+     *
+     * Read by the operator's tool page and by nothing at inference time. A
+     * category organises the catalogue; it gates nothing, and the model is never
+     * shown the list.
      *
      * @return array<string, string>
      */
-    public function groupDescriptions(): array
+    public function categoryDescriptions(): array
     {
-        return ServerTools::GROUP_DESCRIPTIONS + AdminTools::GROUP_DESCRIPTIONS;
+        return ServerTools::CATEGORY_DESCRIPTIONS
+            + AdminTools::CATEGORY_DESCRIPTIONS
+            + SharedTools::CATEGORY_DESCRIPTIONS;
     }
 
     public function find(string $name): ?ToolDefinition
@@ -91,15 +90,18 @@ class ToolRegistry
      * and token-efficiency measure, not the security boundary — the endpoint's
      * own permission gate remains authoritative on every call.
      *
-     * @param string[] $activeGroups groups the agent has pulled in this turn
+     * Returns the whole permitted catalogue for the surface, not the set the
+     * model is shown — `WorkingSetPlanner` decides that, and it needs to see
+     * everything reachable in order to decide. The two were the same thing while
+     * every permitted tool was offered at once, which is exactly the arrangement
+     * this stopped being.
      *
      * @return ToolDefinition[]
      */
-    public function forServer(User $user, Server $server, array $activeGroups = []): array
+    public function forServer(User $user, Server $server): array
     {
         return $this->offered(
             ToolDefinition::SCOPE_SERVER,
-            $activeGroups,
             fn (ToolDefinition $definition) => $this->userCanUse($user, $server, $definition),
         );
     }
@@ -114,15 +116,12 @@ class ToolRegistry
      * endpoint's own `ApplicationApiRequest::authorize()` both re-check the
      * identical capability on every call.
      *
-     * @param string[] $activeGroups
-     *
      * @return ToolDefinition[]
      */
-    public function forAdmin(User $user, array $activeGroups = []): array
+    public function forAdmin(User $user): array
     {
         return $this->offered(
             ToolDefinition::SCOPE_ADMIN,
-            $activeGroups,
             fn (ToolDefinition $definition) => $this->adminCanUse($user, $definition),
         );
     }
@@ -142,8 +141,9 @@ class ToolRegistry
      * ugly but safe; the reverse cannot happen, because the ability list is
      * still the boundary.
      *
-     * The group gate is deliberately skipped: a binding names its tools
-     * outright, so there is nothing left for a group to reveal.
+     * Returns everything the grant covers, not what the session is shown. The
+     * read and write assist phases decide the latter, and a binding naming a tool
+     * is the outer bound on both.
      *
      * @param string[] $toolNames
      * @param string[] $abilities
@@ -217,31 +217,25 @@ class ToolRegistry
     }
 
     /**
-     * The base set first, then whatever groups are active.
+     * Everything in scope that this user may use and the operator has not
+     * disabled, in declaration order.
      *
-     * Ordering here is not a priority scheme — `AgentRunner::capDefinitions()`
-     * reserves the base set outright and spends what is left on grouped tools,
-     * so neither half can silently displace the other. What the ordering does is
-     * keep the two halves contiguous, which is what lets the cap split them
-     * without inspecting every definition twice.
+     * Declaration order carries no meaning any more. It used to: the base set
+     * came first and grouped tools second, so that a cap could take the tail
+     * without inspecting every definition twice, and the whole arrangement was
+     * built around which half a truncation should eat. Nothing truncates a tail
+     * now — `WorkingSetPlanner` builds a set in priority order and refuses
+     * outright if the required part does not fit — so the order here is simply
+     * whatever the definition files say.
      *
-     * An earlier attempt put grouped tools first, on the reasoning that a tool
-     * the agent explicitly asked for is better evidence of what the turn needs
-     * than a static declaration order. That is true, and it is why activation is
-     * now reported back rather than assumed — but as an ordering it made the cap
-     * eat reads instead, which is the worse failure: a read that is missing
-     * looks to the model exactly like a capability the panel does not have.
-     *
-     * @param string[] $activeGroups
      * @param callable(ToolDefinition): bool $permitted
      *
      * @return ToolDefinition[]
      */
-    private function offered(string $scope, array $activeGroups, callable $permitted): array
+    private function offered(string $scope, callable $permitted): array
     {
         $disabled = $this->riskGate->disabledTools();
-        $base = [];
-        $grouped = [];
+        $available = [];
 
         foreach ($this->all() as $definition) {
             if (!$definition->inScope($scope)) {
@@ -252,25 +246,14 @@ class ToolRegistry
                 continue;
             }
 
-            // Grouped tools stay hidden until the agent asks for the group.
-            if ($definition->group !== null && !in_array($definition->group, $activeGroups, true)) {
-                continue;
-            }
-
             if (!$permitted($definition)) {
                 continue;
             }
 
-            if ($definition->group !== null) {
-                $grouped[] = $definition;
-
-                continue;
-            }
-
-            $base[] = $definition;
+            $available[] = $definition;
         }
 
-        return array_merge($base, $grouped);
+        return $available;
     }
 
     /**
@@ -330,114 +313,20 @@ class ToolRegistry
     }
 
     /**
-     * Groups that hold at least one tool this user could use, so the meta-tool
-     * only ever advertises groups that would actually yield something.
+     * Build the model-facing tool list.
      *
-     * @return array<string, string> group => description
-     */
-    public function availableGroups(User $user, Server $server, array $activeGroups = []): array
-    {
-        return $this->groupsFor(
-            ToolDefinition::SCOPE_SERVER,
-            $activeGroups,
-            fn (ToolDefinition $definition) => $this->userCanUse($user, $server, $definition),
-        );
-    }
-
-    /**
-     * @param string[] $activeGroups
-     *
-     * @return array<string, string> group => description
-     */
-    public function availableAdminGroups(User $user, array $activeGroups = []): array
-    {
-        return $this->groupsFor(
-            ToolDefinition::SCOPE_ADMIN,
-            $activeGroups,
-            fn (ToolDefinition $definition) => $this->adminCanUse($user, $definition),
-        );
-    }
-
-    /**
-     * @param string[] $activeGroups
-     * @param callable(ToolDefinition): bool $permitted
-     *
-     * @return array<string, string>
-     */
-    private function groupsFor(string $scope, array $activeGroups, callable $permitted): array
-    {
-        $disabled = $this->riskGate->disabledTools();
-        $descriptions = $this->groupDescriptions();
-        $groups = [];
-
-        foreach ($this->all() as $definition) {
-            if ($definition->group === null || in_array($definition->group, $activeGroups, true)) {
-                continue;
-            }
-
-            if (!$definition->inScope($scope)) {
-                continue;
-            }
-
-            if (in_array($definition->name, $disabled, true)) {
-                continue;
-            }
-
-            if (!$permitted($definition)) {
-                continue;
-            }
-
-            $groups[$definition->group] = $descriptions[$definition->group] ?? $definition->group;
-        }
-
-        return $groups;
-    }
-
-    /**
-     * Build the model-facing tool list, appending the group meta-tool when
-     * there is anything left to activate.
+     * The group meta-tool used to be appended here, after the cap had already
+     * run, which is what kept it out of the budget. There is no meta-tool and no
+     * cap now: the planner hands over a set that already fits, and every tool in
+     * it is a real registered definition the operator can see and disable.
      *
      * @param ToolDefinition[] $definitions
-     * @param array<string, string> $groups
      *
      * @return AiTool[]
      */
-    public function toAiTools(array $definitions, array $groups = []): array
+    public function toAiTools(array $definitions): array
     {
-        $tools = array_map(fn (ToolDefinition $d) => $d->toAiTool(), $definitions);
-
-        if ($groups !== []) {
-            $tools[] = $this->groupMetaTool($groups);
-        }
-
-        return $tools;
-    }
-
-    /**
-     * @param array<string, string> $groups
-     */
-    public function groupMetaTool(array $groups): AiTool
-    {
-        $lines = [];
-        foreach ($groups as $name => $description) {
-            $lines[] = sprintf('"%s" — %s', $name, $description);
-        }
-
-        return new AiTool(
-            self::META_ACTIVATE_GROUP,
-            "Load an additional set of tools for this conversation. Call this when the task needs a capability you do not currently have a tool for. Available:\n" . implode("\n", $lines),
-            [
-                'type' => 'object',
-                'properties' => [
-                    'group' => [
-                        'type' => 'string',
-                        'enum' => array_keys($groups),
-                        'description' => 'The tool group to load.',
-                    ],
-                ],
-                'required' => ['group'],
-            ]
-        );
+        return array_map(fn (ToolDefinition $d) => $d->toAiTool(), $definitions);
     }
 
     /**

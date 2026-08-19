@@ -5,32 +5,34 @@ namespace Everest\Tests\Unit\Services\AI;
 use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Tests\TestCase;
-use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\Tools\RiskGate;
-use Everest\Services\AI\Agent\AgentRunner;
+use Everest\Services\AI\Agent\ToolBudget;
+use Everest\Services\AI\Agent\WorkingSet;
+use Everest\Services\AI\Agent\PlanFailure;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Tools\ToolDefinition;
+use Everest\Services\AI\Agent\WorkingSetPlanner;
 use Everest\Services\AI\Support\SchemaValidator;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
+use Everest\Services\AI\Agent\PrerequisiteResolver;
 use Everest\Services\Authorization\AdminAuthorizer;
-use Everest\Services\AI\Tools\Definitions\ServerTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
  * What the model is actually handed.
  *
- * Two failures live here, and they compounded. The offered set was capped by
- * slicing the tail, and the tail was `activate_tool_group` — so on a server turn
- * for a fully-permissioned user the one tool that could reach any of the others
- * was the one dropped, and every grouped tool became unreachable. Underneath
- * that, the base set was partitioned by feature area rather than by what a tool
- * does, so the always-offered tools were mostly writes while the cheap reads
- * that answer most questions were the ones behind the gate that no longer
- * opened.
+ * This file used to be about a cap that truncated a tail. The tail was
+ * `activate_tool_group`, so a fully-permissioned server turn dropped the one
+ * tool that could reach any of the others and every grouped tool became
+ * unreachable — while the base set, partitioned by feature area rather than by
+ * what a tool does, kept the writes and gated the cheap reads. The result was an
+ * agent that could delete a directory without ceremony but could not say which
+ * port the server listened on.
  *
- * The result was an agent that could delete a directory without ceremony but
- * could not say which port the server listened on.
+ * Nothing truncates now. `WorkingSetPlanner` builds a set in priority order and
+ * refuses a change it cannot make whole, so the tests here are about that
+ * refusal and about the priority — the two properties the old design lacked.
  */
 class ToolOfferingTest extends TestCase
 {
@@ -43,9 +45,14 @@ class ToolOfferingTest extends TestCase
         return new ToolRegistry(new RiskGate(new ConsoleCommandGate()), new SchemaValidator(), $authorizer);
     }
 
+    private function planner(): WorkingSetPlanner
+    {
+        return new WorkingSetPlanner($this->registry(), new PrerequisiteResolver());
+    }
+
     /**
-     * A user who holds every permission — the case that used to break, because
-     * it is the one that produces the largest offering.
+     * A user who holds every permission — the case that produces the largest
+     * catalogue, and the one the old cap broke on.
      */
     private function user(): User
     {
@@ -64,454 +71,302 @@ class ToolOfferingTest extends TestCase
         return $server;
     }
 
-    /**
-     * @param AiTool[] $tools
-     *
-     * @return string[]
-     */
-    private function names(array $tools): array
+    private function context(bool $admin = false): AgentContext
     {
-        return array_map(static fn (AiTool $tool) => $tool->name, $tools);
-    }
-
-    /**
-     * The runner's own pipeline: offer, cap the definitions, then shape them.
-     *
-     * Ordered exactly as `AgentRunner::loop()` does it, because the two halves
-     * only compose correctly in that order — capping after `toAiTools()` cannot
-     * tell a base tool from a grouped one, and capping the meta-tool at all
-     * defeats the mechanism the cap exists to serve.
-     *
-     * @param string[] $active
-     *
-     * @return string[]
-     */
-    private function offeredToModel(array $active = [], ?int $max = null): array
-    {
-        if ($max !== null) {
-            config()->set('modules.ai.agent.max_tools', $max);
-        }
-
-        $registry = $this->registry();
-        $user = $this->user();
-        $server = $this->server();
-
-        $capped = $this->capDefinitions($registry->forServer($user, $server, $active));
-
-        return $this->names($registry->toAiTools(
-            $capped,
-            $registry->availableGroups($user, $server, $active),
-        ));
-    }
-
-    /**
-     * @param ToolDefinition[] $definitions
-     *
-     * @return ToolDefinition[]
-     */
-    private function capDefinitions(array $definitions): array
-    {
-        $context = new AgentContext($this->user(), $this->server(), 'turn-offering-test');
-        $method = new \ReflectionMethod(AgentRunner::class, 'capDefinitions');
-
-        return $method->invoke(app(AgentRunner::class), $context, $definitions);
-    }
-
-    /**
-     * What `AgentRunner::offerings()` decides for a server turn at a given cap —
-     * the step above `capDefinitions()`, and the one that chooses between
-     * offering everything by name and hiding the extras behind groups.
-     *
-     * @param string[] $active
-     *
-     * @return array{0: ToolDefinition[], 1: array<string, string>}
-     */
-    private function offerings(int $max, array $active = []): array
-    {
-        config()->set('modules.ai.agent.max_tools', $max);
-
-        $context = new AgentContext($this->user(), $this->server(), 'turn-offerings-test');
-        $context->activeGroups = $active;
-
-        $method = new \ReflectionMethod(AgentRunner::class, 'offerings');
-
-        return $method->invoke(app(AgentRunner::class), $context);
-    }
-
-    /**
-     * @param ToolDefinition[] $definitions
-     *
-     * @return string[]
-     */
-    private function definitionNames(array $definitions): array
-    {
-        return array_map(static fn (ToolDefinition $d) => $d->name, $definitions);
-    }
-
-    /**
-     * @return AiTool[]
-     */
-    private function serverOffering(): array
-    {
-        $registry = $this->registry();
-        $user = $this->user();
-        $server = $this->server();
-
-        return $registry->toAiTools(
-            $registry->forServer($user, $server),
-            $registry->availableGroups($user, $server),
+        return new AgentContext(
+            $this->user(),
+            $admin ? null : $this->server(),
+            'turn-offering-test',
         );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | The cap
+    | The tools that are never spent against the budget
     |--------------------------------------------------------------------------
     */
 
     /**
-     * The regression itself, stated as the arithmetic that produced it: an
-     * offering one tool over the cap, truncated from the end.
-     */
-    public function testTheToolThatLoadsOtherToolsSurvivesTheCap(): void
-    {
-        $offered = $this->serverOffering();
-
-        $this->assertContains(
-            ToolRegistry::META_ACTIVATE_GROUP,
-            $this->names($offered),
-            'The loop should offer the meta-tool while any group is dormant.'
-        );
-
-        // One under what the offering needs, so the cap certainly bites.
-        $kept = $this->offeredToModel([], count($offered) - 3);
-
-        $this->assertContains(ToolRegistry::META_ACTIVATE_GROUP, $kept);
-        $this->assertContains(SharedTools::ASK_USER, $kept);
-    }
-
-    /**
-     * Every tool the cap does not count, so a change to the exemption list shows
-     * up here as one edit rather than as arithmetic scattered through the file.
+     * Discovery and the safety exits survive a budget of nothing.
      *
-     * `activate_tool_group` belongs with them despite not being in
-     * `UNCAPPED_TOOLS`: it is appended by `toAiTools()` after the cap has already
-     * run, which comes to the same thing from the model's side.
-     *
-     * @return string[]
+     * The direct successor to the failure this file was written for. Then it was
+     * `activate_tool_group` being sliced off the tail; now it is `search_tools`,
+     * and the consequence would be identical and worse — a model that cannot
+     * reach the catalogue at all, on a working set that is by design a fraction
+     * of it.
      */
-    private function exempt(): array
+    public function testTheAlwaysOfferedToolsSurviveAnEmptyBudget(): void
     {
-        return [ToolRegistry::META_ACTIVATE_GROUP, SharedTools::ASK_USER, SharedTools::BATCH];
-    }
+        $offered = $this->planner()->plan($this->context(), 0)->names();
 
-    /**
-     * Squeezed as far as the setting goes, the exempt tools are still there.
-     *
-     * `maxTools()` floors at four however low the setting is set, so the
-     * smallest possible offering is those four plus the exemptions — an agent
-     * with almost nothing to work with can still load a tool, ask a person, or
-     * make its changes as one reviewable set, which are the three ways out of
-     * having nothing to work with.
-     */
-    public function testTheExemptToolsSurviveEvenTheSmallestCap(): void
-    {
-        $kept = $this->offeredToModel([], 1);
-
-        $this->assertCount(4 + count($this->exempt()), $kept);
-
-        foreach ($this->exempt() as $tool) {
-            $this->assertContains($tool, $kept);
+        foreach (SharedTools::ALWAYS_OFFERED as $name) {
+            $this->assertContains($name, $offered, $name . ' must never be spent against the budget.');
         }
     }
 
     /**
-     * The exemption is a reservation, not a bonus: it must not let the scoped
-     * set run over the number the operator configured.
+     * They are not counted, either. Being offered and being charged for are
+     * separate, and a budget of 8 has to mean eight *capabilities*.
      */
-    public function testTheCapCountsScopedToolsOnly(): void
+    public function testTheAlwaysOfferedToolsAreNotCountedAgainstTheBudget(): void
     {
-        $kept = $this->offeredToModel([], 6);
+        $set = $this->planner()->plan($this->context(), 6);
 
-        $scoped = array_diff($kept, $this->exempt());
-
-        $this->assertCount(6, $scoped);
-        $this->assertCount(6 + count($this->exempt()), $kept);
-    }
-
-    /**
-     * An offering that fits is returned whole, and the exempt tools do not get
-     * shuffled to the front of a set that was already ordered.
-     */
-    public function testAnOfferingUnderTheCapIsUntouched(): void
-    {
-        $this->assertSame(
-            $this->names($this->serverOffering()),
-            $this->offeredToModel([], 999),
-        );
+        $this->assertLessThanOrEqual(6, $set->billableSize());
+        $this->assertGreaterThan(6, $set->size(), 'The exempt tools should be offered on top of the budget.');
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Flat versus grouped
+    | Priority
     |--------------------------------------------------------------------------
     */
 
     /**
-     * When the catalogue fits, groups do not exist.
-     *
-     * Not "the meta-tool is offered but unnecessary" — there is nothing left to
-     * activate, so the registry stops appending it and the system prompt drops
-     * its paragraph about it. That total absence is the point: a model told about
-     * a loading mechanism will use it, spending a step and a guess to reach a
-     * tool it was already holding.
+     * A phase opens with the reads its surface actually needs.
      */
-    public function testACapThatFitsOffersEveryToolByName(): void
+    public function testAPhaseReservesItsOwnToolsFirst(): void
     {
-        [$definitions, $groups] = $this->offerings(999);
+        $offered = $this->planner()->plan($this->context(), 4)->names();
 
-        $this->assertSame(
+        foreach (WorkingSet::RESERVED[WorkingSet::PHASE_SERVER] as $name) {
+            $this->assertContains($name, $offered);
+        }
+    }
+
+    /**
+     * A pinned tool outranks a merely-retrieved one.
+     *
+     * The whole point of the two tiers. A search returns the tool the model
+     * wanted plus some neighbours, and when the budget runs out it must be the
+     * neighbours that go — not the thing the turn is holding on to.
+     */
+    public function testAPinOutranksARetrievedSuggestion(): void
+    {
+        $context = $this->context();
+        $context->pin('backups_list', 'the user asked about backups');
+        $context->setRetrieved(['files_compress', 'files_rename', 'files_copy', 'databases_list']);
+
+        $offered = $this->planner()->plan($context, 3)->names();
+
+        $this->assertContains('backups_list', $offered);
+        $this->assertNotContains('files_copy', $offered);
+    }
+
+    /**
+     * A pin the budget cannot hold is *named*, not dropped in silence.
+     *
+     * Silence is the original sin here. A model cannot tell a tool that was
+     * removed from a tool that never existed, so it reports that the panel
+     * cannot do something it can — and the user believes it.
+     */
+    public function testAPinThatWillNotFitIsReported(): void
+    {
+        $context = $this->context();
+
+        foreach (['backups_list', 'databases_list', 'schedules_list', 'allocations_list'] as $name) {
+            $context->pin($name, 'test');
+        }
+
+        $set = $this->planner()->plan($context, 2);
+
+        $this->assertNotEmpty($set->dropped, 'A pin that did not fit must appear in dropped.');
+
+        foreach ($set->dropped as $name) {
+            $this->assertNotContains($name, $set->names());
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Atomicity
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * A load that will not fit changes nothing at all.
+     *
+     * The property the doc calls for and the cap could not provide: append-then-
+     * truncate would have let a wide load evict whatever the turn was already
+     * holding, which is the eviction the design forbids outright.
+     */
+    public function testAnOversizedLoadLeavesTheExistingSetUntouched(): void
+    {
+        $context = $this->context();
+        $context->pin('backups_list', 'the user asked about backups');
+        $before = $context->pinned;
+
+        $failure = $this->planner()->propose(
+            $context,
+            ['files_compress', 'files_rename', 'files_copy', 'files_delete', 'files_create_folder'],
             [],
-            $groups,
-            'With every group already in play there is nothing left to activate.'
+            2,
         );
 
-        $names = $this->definitionNames($definitions);
-
-        foreach (ServerTools::all() as $definition) {
-            $this->assertContains(
-                $definition->name,
-                $names,
-                sprintf('%s fits inside this cap, so it should be offered outright.', $definition->name)
-            );
-        }
-
-        $this->assertNotContains(
-            ToolRegistry::META_ACTIVATE_GROUP,
-            $this->names($this->registry()->toAiTools($definitions, $groups)),
-        );
+        $this->assertInstanceOf(PlanFailure::class, $failure);
+        $this->assertSame(PlanFailure::TOOL_SET_TOO_LARGE, $failure->code);
+        $this->assertNotEmpty($failure->conflicting, 'The refusal has to name what would not fit.');
+        $this->assertSame($before, $context->pinned, 'A refused load must not have changed the pins.');
     }
 
     /**
-     * Below the catalogue size, grouping comes back — which is the case it was
-     * built for, and the only one it is still paid for.
+     * Dropping makes room, which is what keeps a refusal recoverable.
      */
-    public function testACapThatDoesNotFitFallsBackToGroups(): void
+    public function testDroppingAToolMakesRoomForAnother(): void
     {
-        [$definitions, $groups] = $this->offerings(12);
+        $context = $this->context();
+        $context->pin('backups_list', 'test');
+        $context->pin('databases_list', 'test');
 
-        $this->assertNotEmpty($groups, 'A cap this low has to hold something back.');
+        $plan = $this->planner()->propose($context, ['schedules_list'], ['backups_list'], 3);
 
-        $names = $this->definitionNames($definitions);
-
-        $this->assertContains('files_read', $names, 'Reads are never the thing withheld.');
-        $this->assertNotContains('files_delete', $names);
-
-        $this->assertContains(
-            ToolRegistry::META_ACTIVATE_GROUP,
-            $this->names($this->registry()->toAiTools($definitions, $groups)),
-        );
+        $this->assertIsArray($plan);
+        $this->assertContains('schedules_list', $plan['pinned']);
+        $this->assertNotContains('backups_list', $plan['pinned']);
+        $this->assertContains('backups_list', $plan['dropped']);
     }
 
     /**
-     * The default install is the flat one.
+     * A budget that can hold the whole surface holds the whole surface.
      *
-     * Asserted against the shipped config rather than a literal, so adding tools
-     * until the catalogue outgrows the default cap fails here — loudly, and at
-     * the moment it happens — rather than silently reintroducing an activation
-     * step on every turn that needs to edit a file.
+     * Retrieval is what a *small* budget needs. A frontier model given 32 slots
+     * against a 26-tool surface should behave exactly as the panel did before any
+     * of this existed — making it search for something it could simply have been
+     * shown is a step spent and a chance to search badly. This is the one thing
+     * the old `groupsInPlay()` had right, and it is kept.
      */
-    public function testTheShippedCapFitsTheWholeServerCatalogue(): void
+    public function testAGenerousBudgetOffersTheWholeSurface(): void
     {
-        [, $groups] = $this->offerings((int) config('modules.ai.agent.max_tools'));
+        $planner = $this->planner();
+        $context = $this->context();
 
-        $this->assertSame(
-            [],
-            $groups,
-            'The default max_tools no longer fits the server catalogue; raise it or the agent regains a step of indirection.'
-        );
+        $callable = array_keys($planner->callable($context));
+        $offered = $planner->plan($context, 64)->names();
+
+        sort($callable);
+        sort($offered);
+
+        $this->assertSame($callable, $offered);
+    }
+
+    /**
+     * ...and the fill never displaces a pin on a budget that cannot.
+     */
+    public function testTheCatalogueFillIsSpentLast(): void
+    {
+        $context = $this->context();
+        $context->pin('backup_restore', 'the user asked to roll back');
+
+        $offered = $this->planner()->plan($context, 3)->names();
+
+        $this->assertContains('backup_restore', $offered);
     }
 
     /*
     |--------------------------------------------------------------------------
-    | The partition
+    | Reachability
     |--------------------------------------------------------------------------
     */
 
     /**
-     * Every read is offered without an activation step.
+     * A server tool is never *offered* on an admin turn, however it was pinned.
      *
-     * These are the tools that answer the questions users actually ask, and
-     * each was previously behind a group: "what port am I on", "do I have
-     * backups", "which plugins are installed", "what version is this".
+     * Discovery deliberately advertises these — that is how "read their startup
+     * command" finds `startup_list` — so the boundary has to hold one step later,
+     * at the point a schema would be handed over. It does, because the offered
+     * set is built from what is callable now and an unapproved session makes
+     * nothing callable.
      */
-    public function testEveryReadOnlyServerToolIsOfferedUpFront(): void
+    public function testAnAdminTurnIsNotOfferedServerToolsWithoutASession(): void
     {
-        $names = $this->names($this->serverOffering());
+        $context = $this->context(admin: true);
+        $context->pin('startup_list', 'the administrator asked about a startup command');
 
-        foreach (ServerTools::all() as $definition) {
-            if ($definition->risk !== ToolDefinition::RISK_SAFE) {
-                continue;
-            }
+        $offered = $this->planner()->plan($context, 12)->names();
 
-            $this->assertContains(
-                $definition->name,
-                $names,
-                sprintf('%s only reads, so it should never need unlocking.', $definition->name)
+        $this->assertNotContains('startup_list', $offered);
+        $this->assertNotContains('files_read', $offered);
+    }
+
+    /**
+     * ...but the gateway that would make it reachable *is* offered.
+     *
+     * Half of the previous test on its own would be a regression rather than a
+     * boundary: refusing the tool and offering nothing to do about it is exactly
+     * the dead end retrieval was supposed to remove.
+     */
+    public function testAPinnedServerToolPullsInItsGateway(): void
+    {
+        $context = $this->context(admin: true);
+        $context->pin('startup_list', 'the administrator asked about a startup command');
+
+        $offered = $this->planner()->plan($context, 12)->names();
+
+        $this->assertContains('admin_assist_server', $offered);
+    }
+
+    /**
+     * The catalogue search looks through is wider than the set it can offer.
+     */
+    public function testTheAdminCatalogueIncludesReachableServerTools(): void
+    {
+        $catalogue = array_map(
+            fn (ToolDefinition $d) => $d->name,
+            $this->planner()->catalogue($this->context(admin: true)),
+        );
+
+        $this->assertContains('startup_list', $catalogue, 'Search has to be able to find it.');
+        $this->assertContains('admin_servers_list', $catalogue);
+    }
+
+    /**
+     * A server tool no session could ever grant is not advertised either.
+     *
+     * The catalogue is bounded by `AssistBinding`'s own lists rather than by
+     * scope, so a tool outside every grant — deletion, which is deliberately
+     * absent from both — cannot be surfaced as though an approval would reach it.
+     */
+    public function testTheAdminCatalogueExcludesToolsNoSessionCanGrant(): void
+    {
+        $catalogue = array_map(
+            fn (ToolDefinition $d) => $d->name,
+            $this->planner()->catalogue($this->context(admin: true)),
+        );
+
+        $this->assertNotContains('files_delete', $catalogue);
+        $this->assertNotContains('backup_delete', $catalogue);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Budget profiles
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Every profile leaves room to work in.
+     *
+     * A profile whose budget the server phase's reserved set alone exhausted
+     * would offer a model no slot for the tool it went and found, which is the
+     * one arrangement retrieval cannot recover from.
+     */
+    public function testEveryProfileLeavesRoomBeyondItsReservedSet(): void
+    {
+        $largestPhase = max(array_map('count', WorkingSet::RESERVED));
+
+        foreach (ToolBudget::profiles() as $profile => $limits) {
+            $this->assertGreaterThan(
+                $largestPhase,
+                $limits['schemas'],
+                sprintf('The %s profile reserves its whole budget before finding anything.', $profile),
+            );
+
+            $this->assertLessThan(
+                $limits['schemas'],
+                $limits['results'],
+                sprintf('A %s search must not be able to replace the whole working set.', $profile),
             );
         }
-    }
-
-    /**
-     * Nothing behind a group is a read, which is the same rule from the other
-     * side — it is what stops a future tool being filed by feature area out of
-     * habit and quietly disappearing again.
-     */
-    public function testNothingGatedIsMerelyARead(): void
-    {
-        foreach (ServerTools::all() as $definition) {
-            if ($definition->group === null) {
-                continue;
-            }
-
-            $this->assertNotSame(
-                ToolDefinition::RISK_SAFE,
-                $definition->risk,
-                sprintf('%s is read-only and should not sit behind a group.', $definition->name)
-            );
-        }
-    }
-
-    /**
-     * Every group named in a meta-tool description resolves to real tools.
-     *
-     * The enum the model chooses from is built from the description map, so a
-     * group described but never assigned is an option that silently does
-     * nothing — the agent spends a step, gains no tool, and tries again.
-     */
-    public function testEveryDescribedGroupHasToolsInIt(): void
-    {
-        $assigned = [];
-        foreach (ServerTools::all() as $definition) {
-            if ($definition->group !== null) {
-                $assigned[$definition->group] = true;
-            }
-        }
-
-        $this->assertSame(
-            array_keys(ServerTools::GROUP_DESCRIPTIONS),
-            array_keys($assigned),
-            'The described groups and the assigned ones have drifted apart.'
-        );
-    }
-
-    /**
-     * A group activation adds tools rather than replacing them: the reads the
-     * agent used to decide it needed the group have to still be there when it
-     * comes to use it.
-     */
-    public function testActivatingAGroupWidensTheOffering(): void
-    {
-        $registry = $this->registry();
-        $user = $this->user();
-        $server = $this->server();
-
-        $before = array_map(
-            static fn (ToolDefinition $d) => $d->name,
-            $registry->forServer($user, $server)
-        );
-
-        $after = array_map(
-            static fn (ToolDefinition $d) => $d->name,
-            $registry->forServer($user, $server, [ServerTools::GROUP_FILES_EDIT])
-        );
-
-        $this->assertContains('files_delete', $after);
-        $this->assertNotContains('files_delete', $before);
-        $this->assertSame(
-            $before,
-            array_values(array_intersect($after, $before)),
-            'Activating a group must add to the offering, not reshuffle what was there.'
-        );
-    }
-
-    /**
-     * Activating a group must not cost the agent a read.
-     *
-     * This is the bug the previous ordering created, one level up from the one
-     * it fixed: grouped tools went to the front, the cap truncated from the
-     * back, and so asking for "backups" on a full offering silently removed
-     * `databases_list`, `schedules_list` and `files_download_url` — the last of
-     * those being needed by the very group that displaced it.
-     *
-     * The two halves fail differently, which is why they are not ranked against
-     * each other at all. A missing read reads to the model as a capability the
-     * panel does not have, so it stops; a group that only partly loaded is a
-     * fact it can be told, and is.
-     */
-    public function testTheBaseSetIsReservedAgainstAnActivation(): void
-    {
-        $active = [ServerTools::GROUP_FILES_EDIT, ServerTools::GROUP_BACKUPS];
-
-        $base = $this->offeredToModel([], 999);
-
-        // Exactly enough room for the base set and not one tool more, so the
-        // two groups cannot fit and the cap has to choose. Derived rather than
-        // hardcoded: a cap below the base set is a different branch — it
-        // truncates and warns, because an operator who set it that low meant it.
-        $cap = count(array_diff($base, [ToolRegistry::META_ACTIVATE_GROUP]));
-
-        $kept = $this->offeredToModel($active, $cap);
-
-        foreach ($base as $name) {
-            // The meta-tool is the one thing allowed to disappear here, and not
-            // because of the cap: with every group already active there is
-            // nothing left for it to load, so the registry stops offering it.
-            if ($name === ToolRegistry::META_ACTIVATE_GROUP) {
-                continue;
-            }
-
-            $this->assertContains(
-                $name,
-                $kept,
-                sprintf('%s was offered before the activation and must survive it.', $name)
-            );
-        }
-
-        $grouped = array_filter(
-            ServerTools::all(),
-            static fn (ToolDefinition $d) => in_array($d->group, $active, true)
-        );
-
-        $this->assertNotEmpty($grouped, 'The fixture needs groups with tools in them.');
-        $this->assertNotEmpty(
-            array_diff(array_map(static fn (ToolDefinition $d) => $d->name, $grouped), $kept),
-            'This cap cannot fit both halves, so something grouped must have been dropped.'
-        );
-    }
-
-    /**
-     * An activation that did not fully fit says so.
-     *
-     * Silence here is indistinguishable from the activation having failed: the
-     * agent asks for backups, the next step offers no backup tool, and the only
-     * conclusion available to it is that the panel is broken. Naming what did
-     * not load also gives it something it can act on.
-     */
-    public function testAnActivationReportsWhatDidNotFit(): void
-    {
-        config()->set('modules.ai.agent.max_tools', 12);
-
-        $context = new AgentContext($this->user(), $this->server(), 'turn-activation-test');
-        $context->activeGroups = [ServerTools::GROUP_BACKUPS];
-
-        $method = new \ReflectionMethod(AgentRunner::class, 'activationReport');
-        $report = $method->invoke(app(AgentRunner::class), $context, ServerTools::GROUP_BACKUPS);
-
-        $this->assertSame(ServerTools::GROUP_BACKUPS, $report['activated']);
-        $this->assertArrayHasKey('not_loaded', $report, 'A cap this low cannot fit the group.');
-        $this->assertNotEmpty($report['not_loaded']);
-        $this->assertArrayHasKey('note', $report);
     }
 
     /*
@@ -601,23 +456,5 @@ class ToolOfferingTest extends TestCase
         );
 
         return $user;
-    }
-
-    /**
-     * Room to spare means nothing to report, so the model is not handed a
-     * caveat about a limit it never reached.
-     */
-    public function testAnActivationThatFitsReportsNoShortfall(): void
-    {
-        config()->set('modules.ai.agent.max_tools', 999);
-
-        $context = new AgentContext($this->user(), $this->server(), 'turn-activation-fits');
-        $context->activeGroups = [ServerTools::GROUP_BACKUPS];
-
-        $method = new \ReflectionMethod(AgentRunner::class, 'activationReport');
-        $report = $method->invoke(app(AgentRunner::class), $context, ServerTools::GROUP_BACKUPS);
-
-        $this->assertArrayNotHasKey('not_loaded', $report);
-        $this->assertNotEmpty($report['tools']);
     }
 }

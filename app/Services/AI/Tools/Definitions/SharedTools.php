@@ -2,6 +2,7 @@
 
 namespace Everest\Services\AI\Tools\Definitions;
 
+use Everest\Services\AI\Tools\ToolDiscovery;
 use Everest\Services\AI\Tools\ToolDefinition;
 
 /**
@@ -12,9 +13,17 @@ use Everest\Services\AI\Tools\ToolDefinition;
  * scope of their own.
  *
  * They are declared here as real definitions rather than synthesised at prompt
- * time — the way `activate_tool_group` is — so they appear in the admin tool
- * catalogue and obey the operator's disable list and risk overrides like
- * everything else.
+ * time, so they appear in the admin tool catalogue and obey the operator's
+ * disable list and risk overrides like everything else. The meta-tool that used
+ * to be synthesised — `activate_tool_group` — was the exception that proved the
+ * rule: invisible to the catalogue, impossible to disable, and impossible to
+ * override. `search_tools` and `load_tools` replace it and are declared properly.
+ *
+ * All four are exempt from the working-set budget. None of them is a capability:
+ * `ask_user` is the way out of a position the agent cannot otherwise leave,
+ * `batch` is how it makes several changes without asking twenty times, and the
+ * two discovery tools are how it reaches everything else at all. Spending budget
+ * on them would defeat the mechanism the budget exists to serve.
  */
 class SharedTools
 {
@@ -27,6 +36,57 @@ class SharedTools
      * Run several calls behind a single approval.
      */
     public const BATCH = 'batch';
+
+    /**
+     * Find tools by name or by what the user is trying to do.
+     */
+    public const SEARCH_TOOLS = 'search_tools';
+
+    /**
+     * Put named tools into the working set, or take them out of it.
+     */
+    public const LOAD_TOOLS = 'load_tools';
+
+    /**
+     * The tools that are always offered, in every phase, on every surface.
+     *
+     * Ordered deliberately: discovery first, because a model reading its own tool
+     * list top-down should meet the way out of "I have no tool for this" before
+     * it meets anything it could misuse instead.
+     */
+    public const ALWAYS_OFFERED = [
+        self::SEARCH_TOOLS,
+        self::LOAD_TOOLS,
+        self::ASK_USER,
+        self::BATCH,
+    ];
+
+    public const CATEGORY_DISCOVERY = 'discovery';
+    public const CATEGORY_CONVERSATION = 'conversation';
+
+    public const CATEGORY_DESCRIPTIONS = [
+        self::CATEGORY_DISCOVERY => 'Finding and loading the tools for the task at hand.',
+        self::CATEGORY_CONVERSATION => 'Asking the user, and grouping changes for one approval.',
+    ];
+
+    /**
+     * How many search results the model may ask for at once.
+     *
+     * The floor is 1 because an exact-name lookup wants exactly one answer. The
+     * ceiling is 8 because every result is a candidate for the working set, and a
+     * working set that turns over completely on one search is not a working set.
+     */
+    public const MIN_SEARCH_RESULTS = 1;
+    public const MAX_SEARCH_RESULTS = 8;
+
+    /**
+     * How many tools one `load_tools` call may name.
+     *
+     * Generous relative to any real budget: the planner refuses an oversized set
+     * outright, with the names, which teaches the model more than a schema error
+     * that says only "too many".
+     */
+    public const MAX_LOAD_TOOLS = 12;
 
     /**
      * The fewest calls worth batching.
@@ -104,6 +164,11 @@ class SharedTools
                 // is not told this changes anything.
                 risk: ToolDefinition::RISK_SAFE,
                 scope: ToolDefinition::SCOPE_SHARED,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_CONVERSATION,
+                    aliases: ['ask the user', 'ask a question', 'which one do you want', 'clarify'],
+                    tags: ['conversation', 'question'],
+                ),
                 hostHandled: true,
             ),
 
@@ -166,6 +231,98 @@ class SharedTools
                 // the catalogue is not told the wrapper itself changes anything.
                 risk: ToolDefinition::RISK_SAFE,
                 scope: ToolDefinition::SCOPE_SHARED,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_CONVERSATION,
+                    aliases: ['do several things at once', 'make many changes', 'bulk edit', 'all of them'],
+                    tags: ['conversation', 'batch', 'bulk'],
+                ),
+                hostHandled: true,
+            ),
+
+            new ToolDefinition(
+                name: self::SEARCH_TOOLS,
+                description: 'Find a tool. You are given a small working set, not everything you are '
+                    . 'allowed to do, so if there is no tool in front of you for what you need, search '
+                    . 'for it rather than concluding it does not exist. Describe the task in the words '
+                    . 'you would use — "read the startup command", "make a backup" — or pass exact_name '
+                    . 'if you already know what the tool is called. Anything found is added to your '
+                    . 'tools and can be called on your next step. Searching changes nothing and runs '
+                    . 'nothing.',
+                parameters: [
+                    'type' => 'object',
+                    'properties' => [
+                        'query' => [
+                            'type' => 'string',
+                            'description' => 'What you are trying to do, in your own words.',
+                        ],
+                        'exact_name' => [
+                            'type' => 'string',
+                            'description' => 'The exact registered name of a tool, if you know it. '
+                                . 'Takes priority over query.',
+                        ],
+                        'limit' => [
+                            'type' => 'integer',
+                            'minimum' => self::MIN_SEARCH_RESULTS,
+                            'maximum' => self::MAX_SEARCH_RESULTS,
+                            'description' => 'How many results to return. Fewer is better.',
+                        ],
+                    ],
+                ],
+                method: '',
+                uriTemplate: '',
+                // Genuinely SAFE, unlike the nominal tier on ask_user and batch:
+                // this reads a catalogue that was already filtered by the same
+                // permission checks that decide what is offered, and executes
+                // nothing. A result is a name and one line, never a schema and
+                // never data from the panel.
+                risk: ToolDefinition::RISK_SAFE,
+                scope: ToolDefinition::SCOPE_SHARED,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DISCOVERY,
+                    aliases: ['find a tool', 'what can you do', 'is there a tool for', 'search tools'],
+                    tags: ['discovery', 'search'],
+                ),
+                hostHandled: true,
+            ),
+
+            new ToolDefinition(
+                name: self::LOAD_TOOLS,
+                description: 'Add tools to your working set by name, or drop ones you have finished '
+                    . 'with. Use this when you already know a tool\'s exact name — search_tools is for '
+                    . 'when you do not. If a tool needs something first, such as a session on a '
+                    . 'customer\'s server, you are told what and it is loaded for you. Loading a tool '
+                    . 'never runs it.',
+                parameters: [
+                    'type' => 'object',
+                    'properties' => [
+                        'tools' => [
+                            'type' => 'array',
+                            'description' => 'Exact tool names to load.',
+                            'minItems' => 1,
+                            'maxItems' => self::MAX_LOAD_TOOLS,
+                            'items' => ['type' => 'string'],
+                        ],
+                        'reason' => [
+                            'type' => 'string',
+                            'description' => 'Why you need them, in one line.',
+                        ],
+                        'drop' => [
+                            'type' => 'array',
+                            'description' => 'Tools you are done with, to make room.',
+                            'items' => ['type' => 'string'],
+                        ],
+                    ],
+                    'required' => ['tools'],
+                ],
+                method: '',
+                uriTemplate: '',
+                risk: ToolDefinition::RISK_SAFE,
+                scope: ToolDefinition::SCOPE_SHARED,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DISCOVERY,
+                    aliases: ['load a tool', 'get a tool', 'i need the tool called', 'drop a tool'],
+                    tags: ['discovery', 'load'],
+                ),
                 hostHandled: true,
             ),
         ];

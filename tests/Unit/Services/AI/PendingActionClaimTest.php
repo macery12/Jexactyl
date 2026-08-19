@@ -2,16 +2,16 @@
 
 namespace Everest\Tests\Unit\Services\AI;
 
-use Everest\Models\AiPendingAction;
 use Everest\Tests\TestCase;
-use Illuminate\Database\Schema\Blueprint;
+use Everest\Models\AiPendingAction;
 use Illuminate\Support\Facades\Schema;
-use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
+use Everest\Services\AI\Tools\RiskGate;
+use Everest\Services\AI\ProviderFactory;
+use Illuminate\Database\Schema\Blueprint;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\TurnRecorder;
-use Everest\Services\AI\ProviderFactory;
-use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 
 class PendingActionClaimTest extends TestCase
 {
@@ -135,9 +135,28 @@ class PendingClaimHarness
         $this->recoverStaleClaim($pending);
     }
 
-    protected function agentRunner(): AgentRunner { throw new \LogicException(); }
-    protected function toolRegistry(): ToolRegistry { throw new \LogicException(); }
-    protected function toolRiskGate(): RiskGate { throw new \LogicException(); }
-    protected function turnRecorder(): TurnRecorder { throw new \LogicException(); }
-    protected function providerFactory(): ProviderFactory { throw new \LogicException(); }
+    protected function agentRunner(): AgentRunner
+    {
+        throw new \LogicException();
+    }
+
+    protected function toolRegistry(): ToolRegistry
+    {
+        throw new \LogicException();
+    }
+
+    protected function toolRiskGate(): RiskGate
+    {
+        throw new \LogicException();
+    }
+
+    protected function turnRecorder(): TurnRecorder
+    {
+        throw new \LogicException();
+    }
+
+    protected function providerFactory(): ProviderFactory
+    {
+        throw new \LogicException();
+    }
 }

@@ -205,28 +205,29 @@ return [
         'allow_destructive_batches' => env('AI_AGENT_ALLOW_DESTRUCTIVE_BATCHES', false),
 
         /*
-         * Cap on scoped tools exposed in a single request, and the switch
-         * between the agent's two ways of presenting them.
+         * How many complete tool schemas the model is offered in one step.
          *
-         * Above the size of the catalogue — which is where the default sits, at
-         * 32 against 26 on either surface — every tool is offered by name and
-         * the model simply calls the one it wants. Below it, tools marked with a
-         * group are withheld until the model asks for that group through
-         * `activate_tool_group`, which keeps the offered set inside what a small
-         * model can choose between, at the cost of a step spent loading and a
-         * guess about which group holds what.
+         * Null means "work it out from the model", which is the default and
+         * almost always the right answer. `ToolBudget` reads the size and context
+         * window the provider reports and picks a profile: 8 schemas for anything
+         * under about 8B, 12 up to about 20B, 20 above that, 32 for a hosted
+         * frontier model. Nothing is hidden by a low number — the agent reaches
+         * the rest of the catalogue through `search_tools` — so the only thing
+         * this trades is a step spent searching against a model's ability to
+         * choose correctly between more options.
          *
-         * So this is really "how many tools can this model choose between".
-         * Leave it alone on a hosted model or anything from about 24B up. Lower
-         * it to 12-15 for a 7B or 8B, which turns grouping back on: read-only
-         * tools are reserved and only grouped ones are dropped, so the lookups
-         * that answer questions survive ahead of the writes that change things.
+         * Setting a number overrides the detection outright. Worth doing once you
+         * have measured your own model, and worth remembering that the useful
+         * direction is usually down: a model that keeps calling the wrong tool is
+         * telling you it is being shown too many, and a bigger number will not
+         * fix it.
          *
-         * `ask_user` is never counted; see AgentRunner::UNCAPPED_TOOLS.
-         * `activate_tool_group` is not counted either, and does not exist at all
-         * when there is nothing left to load.
+         * The four tools that are always offered — search_tools, load_tools,
+         * ask_user, batch — are not counted against this. None of them is a
+         * capability, and spending the budget on them would defeat what the
+         * budget is for.
          */
-        'max_tools' => env('AI_AGENT_MAX_TOOLS', 32),
+        'max_tools' => env('AI_AGENT_MAX_TOOLS'),
 
         /*
          * Ask the model to reason before it acts, where the model supports it.

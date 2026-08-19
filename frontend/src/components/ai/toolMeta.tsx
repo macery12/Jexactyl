@@ -17,6 +17,7 @@ import {
     HelpCircle,
     Info,
     Layers,
+    Search,
     LifeBuoy,
     Network,
     Package,
@@ -83,7 +84,11 @@ const META: Record<string, ToolMeta> = {
     minecraft_server_info: { icon: Info },
     mods_installed: { icon: Boxes },
 
-    activate_tool_group: { icon: Wrench, primary: 'group' },
+    // The query is the whole content of a search row — "looked for: read the
+    // startup command" is the most legible thing the transcript can say about a
+    // step that otherwise looks like the agent doing nothing.
+    search_tools: { icon: Search, primary: 'query' },
+    load_tools: { icon: Wrench, primary: 'tools' },
     ask_user: { icon: HelpCircle, primary: 'question' },
     // No primary: the summary is rendered by the batch preview itself, above the
     // list, where it introduces the set rather than labelling one row of it.

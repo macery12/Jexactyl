@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, RotateCcw, Search, ShieldAlert, Terminal, X } from 'lucide-react';
-import { m } from '@/i18n';
+import { m, td } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -82,14 +82,18 @@ export default function ToolsPage() {
               )
             : data.data;
 
-        const byGroup = new Map<string, AiToolDefinition[]>();
+        const byCategory = new Map<string, AiToolDefinition[]>();
         for (const tool of matching) {
-            const key = tool.group ?? '';
-            byGroup.set(key, [...(byGroup.get(key) ?? []), tool]);
+            byCategory.set(tool.category, [...(byCategory.get(tool.category) ?? []), tool]);
         }
 
-        // The always-available base set first, then the opt-in groups.
-        return [...byGroup.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)));
+        // Discovery first — the tools that reach every other tool — then the rest
+        // alphabetically. There is no "base set" heading any more because there is
+        // no base set: what the model is offered is decided per step, not by which
+        // drawer a tool was filed in.
+        return [...byCategory.entries()].sort(([a], [b]) =>
+            a === 'discovery' ? -1 : b === 'discovery' ? 1 : a.localeCompare(b),
+        );
     }, [data, search]);
 
     if (isLoading || !data) {
@@ -145,13 +149,13 @@ export default function ToolsPage() {
                 </Button>
             </div>
 
-            {groups.map(([group, tools]) => (
+            {groups.map(([category, tools]) => (
                 <Panel
-                    key={group || 'base'}
-                    title={group || m['admin.ai.tools.baseSet']()}
+                    key={category}
+                    title={td(`admin.ai.tools.category.${category}`, category)}
                     right={
                         <span className="text-[11px] normal-case tracking-normal text-[var(--color-ink-faint)]">
-                            {group ? data.groups[group] : m['admin.ai.tools.baseSetHint']()}
+                            {data.categories[category] ?? ''}
                         </span>
                     }
                 >

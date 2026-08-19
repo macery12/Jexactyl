@@ -7,6 +7,7 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Services\AI\OpenAIService;
 use Illuminate\Support\Facades\Artisan;
+use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\Mods\ModrinthService;
 use Everest\Services\AI\Privacy\PiiRedactor;
@@ -35,6 +36,7 @@ class SensitiveSettingsLoggingTest extends TestCase
         $controller = new IntelligenceController(
             \Mockery::mock(OpenAIService::class),
             app(PiiRedactor::class),
+            app(ToolBudget::class),
         );
         $request = \Mockery::mock(UpdateIntelligenceSettingsRequest::class);
         $request->shouldReceive('normalize')->once()->andReturn([

@@ -2,7 +2,6 @@
 
 namespace Everest\Tests\Unit\Services\AI;
 
-use Mockery;
 use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Tests\TestCase;
@@ -24,7 +23,7 @@ class AgentFileApprovalIntegrityTest extends TestCase
         $context = new AgentContext($user, $server, 'aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff');
         $definition = app(ToolRegistry::class)->find('files_write');
 
-        $files = Mockery::mock(DaemonFileRepository::class);
+        $files = \Mockery::mock(DaemonFileRepository::class);
         $files->shouldReceive('setServer')->once()->with($server)->andReturnSelf();
         $files->shouldReceive('getContent')
             ->once()

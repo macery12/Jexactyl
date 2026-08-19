@@ -3,6 +3,8 @@
 namespace Everest\Services\AI\Tools\Definitions;
 
 use Everest\Models\AdminRole;
+use Everest\Services\AI\Tools\Prerequisite;
+use Everest\Services\AI\Tools\ToolDiscovery;
 use Everest\Services\AI\Tools\ToolDefinition;
 
 /**
@@ -43,16 +45,32 @@ class AdminTools
 {
     use DefinesToolSchemas;
 
-    public const GROUP_BILLING = 'billing';
-    public const GROUP_COMMERCE = 'commerce';
-    public const GROUP_SUPPORT = 'support';
-    public const GROUP_PANEL = 'panel';
+    public const CATEGORY_PANEL = 'panel';
+    public const CATEGORY_USERS = 'users';
+    public const CATEGORY_SERVERS = 'servers';
+    public const CATEGORY_BILLING = 'billing';
+    public const CATEGORY_COMMERCE = 'commerce';
+    public const CATEGORY_SUPPORT = 'support';
+    public const CATEGORY_ASSIST = 'assist';
 
-    public const GROUP_DESCRIPTIONS = [
-        self::GROUP_BILLING => 'Read the product catalogue, and create or edit products.',
-        self::GROUP_COMMERCE => 'Coupons, orders and per-node pricing multipliers.',
-        self::GROUP_SUPPORT => 'Read support tickets and their conversations, and open a diagnostic session on the server a ticket is about.',
-        self::GROUP_PANEL => 'Read panel feature toggles and server presets.',
+    /**
+     * What each category covers, for the operator's tool catalogue.
+     *
+     * These describe an area of the panel and nothing more. The group
+     * descriptions they replace had to be written for a *model* to choose
+     * between — they said what a group did not cover, because a model that spent
+     * a step activating "backups" to answer "do I have any" was the failure mode
+     * — and none of that is needed now that the model searches for a tool
+     * instead of guessing which drawer it is in.
+     */
+    public const CATEGORY_DESCRIPTIONS = [
+        self::CATEGORY_PANEL => 'Panel-wide totals, feature toggles and server presets.',
+        self::CATEGORY_USERS => 'Accounts and who owns what.',
+        self::CATEGORY_SERVERS => 'Server records, and panel-side activity across them.',
+        self::CATEGORY_BILLING => 'The product catalogue, categories and billing cycles.',
+        self::CATEGORY_COMMERCE => 'Coupons, orders and per-node pricing multipliers.',
+        self::CATEGORY_SUPPORT => 'Support tickets and their conversations.',
+        self::CATEGORY_ASSIST => 'Opening and widening an audited session on a customer\'s server.',
     ];
 
     /**
@@ -108,6 +126,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/overview',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::OVERVIEW_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_PANEL,
+                    aliases: ['panel overview', 'how is the panel doing', 'total users', 'total servers', 'node usage', 'dashboard', 'capacity'],
+                    tags: ['panel', 'overview', 'totals', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -128,6 +151,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/users',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::USERS_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_USERS,
+                    aliases: ['find a user', 'search for a customer', 'look up an account', 'who is this', 'list users', 'find by email'],
+                    tags: ['panel', 'users', 'accounts', 'search', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $u) => [
                     'id' => $u['id'] ?? null,
                     'uuid' => $u['uuid'] ?? null,
@@ -150,6 +178,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/users/{user}',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::USERS_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_USERS,
+                    aliases: ['user details', 'account details', 'what servers does this user own', 'customer record'],
+                    tags: ['panel', 'users', 'accounts', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -170,6 +203,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/servers',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SERVERS_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SERVERS,
+                    aliases: ['find a server', 'search for a server', 'look up a server by name', 'list servers', 'which server is this', 'server id'],
+                    tags: ['panel', 'servers', 'search', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $s) => [
                     'id' => $s['id'] ?? null,
                     'uuid' => $s['uuid'] ?? null,
@@ -194,6 +232,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/servers/{server}',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SERVERS_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SERVERS,
+                    aliases: ['server record', 'server details', 'server limits', 'which node is it on', 'who owns this server', 'is it suspended'],
+                    tags: ['panel', 'servers', 'read'],
+                ),
                 // The Application API representation also contains the full
                 // container environment. It is useful to administrators in
                 // the UI, but it includes hidden and dynamically configured
@@ -233,6 +276,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/activity',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::ACTIVITY_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SERVERS,
+                    aliases: ['panel activity', 'audit log', 'who did what', 'recent admin actions', 'activity across the panel'],
+                    tags: ['panel', 'activity', 'audit', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $a) => [
                     'event' => $a['event'] ?? null,
                     'description' => $a['description'] ?? null,
@@ -268,7 +316,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/analytics',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['revenue', 'how much are we making', 'billing analytics', 'sales figures', 'mrr', 'income'],
+                    tags: ['billing', 'analytics', 'revenue', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -280,7 +332,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/categories',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['product categories', 'list categories', 'store categories'],
+                    tags: ['billing', 'catalogue', 'categories', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $c) => [
                     'id' => $c['id'] ?? null,
                     'uuid' => $c['uuid'] ?? null,
@@ -300,7 +356,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/categories/{category}/products',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['list products', 'what plans do we sell', 'store catalogue', 'pricing', 'list plans'],
+                    tags: ['billing', 'catalogue', 'products', 'pricing', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $p) => [
                     'id' => $p['id'] ?? null,
                     'uuid' => $p['uuid'] ?? null,
@@ -322,7 +382,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/categories/{category}/products/{product}',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['product details', 'plan details', 'what resources does this plan give', 'product limits'],
+                    tags: ['billing', 'catalogue', 'products', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -337,7 +401,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/categories/{category}/products/{product}/billing-cycles',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['billing cycles', 'monthly or yearly', 'payment periods', 'billing periods'],
+                    tags: ['billing', 'cycles', 'periods', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $c) => [
                     'id' => $c['id'] ?? null,
                     'cycle' => $c['billing_cycle'] ?? ($c['cycle'] ?? null),
@@ -375,7 +443,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_PRODUCTS_CREATE],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['create a product', 'add a plan', 'new plan', 'list a new tier', 'add to the store'],
+                    tags: ['billing', 'catalogue', 'products', 'create', 'write'],
+                ),
                 bodyFields: [
                     'category_uuid', 'name', 'description', 'icon', 'price', 'visible',
                     'cpu_limit', 'memory_limit', 'disk_limit', 'backup_limit',
@@ -418,7 +490,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_PRODUCTS_UPDATE],
-                group: self::GROUP_BILLING,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BILLING,
+                    aliases: ['edit a product', 'change a price', 'update a plan', 'raise prices', 'change plan limits', 'rename a plan'],
+                    tags: ['billing', 'catalogue', 'products', 'pricing', 'update', 'write'],
+                ),
                 bodyFields: [
                     'name', 'description', 'icon', 'price', 'visible',
                     'cpu_limit', 'memory_limit', 'disk_limit', 'backup_limit',
@@ -448,7 +524,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/coupons',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['list coupons', 'discount codes', 'promo codes', 'what coupons are active'],
+                    tags: ['commerce', 'coupons', 'discounts', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $c) => [
                     'id' => $c['id'] ?? null,
                     'code' => $c['code'] ?? null,
@@ -471,7 +551,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/coupons/{coupon}',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['coupon details', 'how many times has this code been used', 'discount code details'],
+                    tags: ['commerce', 'coupons', 'discounts', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -498,7 +582,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_UPDATE],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['create a coupon', 'make a discount code', 'new promo code', 'black friday code'],
+                    tags: ['commerce', 'coupons', 'discounts', 'create', 'write'],
+                ),
                 bodyFields: [
                     'code', 'type', 'value', 'allowed_for', 'expires_at',
                     'max_uses', 'max_uses_per_user', 'min_order_total', 'is_active',
@@ -526,7 +614,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_UPDATE],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['edit a coupon', 'disable a coupon', 'change a discount', 'extend a promo code'],
+                    tags: ['commerce', 'coupons', 'discounts', 'update', 'write'],
+                ),
                 bodyFields: [
                     'code', 'type', 'value', 'allowed_for', 'expires_at',
                     'max_uses', 'max_uses_per_user', 'min_order_total', 'is_active',
@@ -544,7 +636,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/orders',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_ORDERS],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['list orders', 'recent purchases', 'who bought what', 'sales', 'order history'],
+                    tags: ['commerce', 'orders', 'sales', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $o) => [
                     'id' => $o['id'] ?? null,
                     'user_id' => $o['user_id'] ?? null,
@@ -564,7 +660,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/billing/node-pricing',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_READ],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['node pricing', 'price multipliers', 'location pricing', 'why is this node more expensive'],
+                    tags: ['commerce', 'nodes', 'pricing', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $n) => [
                     'id' => $n['id'] ?? ($n['node_id'] ?? null),
                     'name' => $n['name'] ?? null,
@@ -585,7 +685,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::BILLING_UPDATE],
-                group: self::GROUP_COMMERCE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_COMMERCE,
+                    aliases: ['change node pricing', 'set a price multiplier', 'make a location cheaper'],
+                    tags: ['commerce', 'nodes', 'pricing', 'update', 'write'],
+                ),
                 bodyFields: ['price_multiplier'],
             ),
         ];
@@ -623,7 +727,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/tickets',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::TICKETS_READ],
-                group: self::GROUP_SUPPORT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SUPPORT,
+                    aliases: ['list tickets', 'open tickets', 'support queue', 'unanswered tickets', 'who needs help'],
+                    tags: ['support', 'tickets', 'queue', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $t) => [
                     'id' => $t['id'] ?? null,
                     'title' => $t['title'] ?? null,
@@ -656,7 +764,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/tickets/{ticket}',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::TICKETS_READ],
-                group: self::GROUP_SUPPORT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SUPPORT,
+                    aliases: ['ticket details', 'what is this ticket about', 'ticket subject', 'ticket status'],
+                    tags: ['support', 'tickets', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -669,7 +781,12 @@ class AdminTools
                 uriTemplate: self::BASE . '/tickets/{ticket}/messages',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::TICKETS_READ],
-                group: self::GROUP_SUPPORT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SUPPORT,
+                    aliases: ['ticket conversation', 'read the ticket replies', 'what did the customer say', 'ticket history'],
+                    tags: ['support', 'tickets', 'messages', 'read'],
+                    prerequisites: [Prerequisite::TICKET_CONTEXT],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $m) => [
                     // As on the listing, the author arrives nested. The username
                     // is kept rather than only the id because a ticket thread
@@ -707,7 +824,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SERVERS_ASSIST],
-                group: self::GROUP_SUPPORT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_ASSIST,
+                    aliases: ['look at a customer server', 'open a session on their server', 'diagnose their server', 'access a customer server', 'see what the owner sees', 'read their files'],
+                    tags: ['assist', 'servers', 'session', 'access', 'write'],
+                ),
                 hostHandled: true,
             ),
 
@@ -725,7 +846,11 @@ class AdminTools
                 risk: ToolDefinition::RISK_WRITE,
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SERVERS_ASSIST],
-                group: self::GROUP_SUPPORT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_ASSIST,
+                    aliases: ['ask for write access', 'allow changes', 'escalate the session', 'let me fix it', 'writable session'],
+                    tags: ['assist', 'servers', 'session', 'escalate', 'write'],
+                ),
                 hostHandled: true,
             ),
         ];
@@ -752,7 +877,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/settings/features',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SETTINGS_READ],
-                group: self::GROUP_PANEL,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_PANEL,
+                    aliases: ['feature toggles', 'what modules are enabled', 'is billing turned on', 'panel features'],
+                    tags: ['panel', 'features', 'settings', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -763,7 +892,11 @@ class AdminTools
                 uriTemplate: self::BASE . '/servers/presets',
                 scope: ToolDefinition::SCOPE_ADMIN,
                 permissions: [AdminRole::SERVER_PRESETS_READ],
-                group: self::GROUP_PANEL,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_PANEL,
+                    aliases: ['server presets', 'preset templates', 'what presets exist', 'create-server templates'],
+                    tags: ['panel', 'presets', 'templates', 'read'],
+                ),
                 resultShaper: fn (mixed $data) => self::mapList($data, fn (array $p) => [
                     'id' => $p['id'] ?? null,
                     'name' => $p['name'] ?? null,

@@ -4,15 +4,15 @@ namespace Everest\Tests\Unit\Services\AI;
 
 use Everest\Models\User;
 use Everest\Models\Server;
-use Everest\Models\AiPendingAction;
 use Everest\Tests\TestCase;
-use Everest\Services\AI\Agent\AssistBinding;
+use Everest\Models\AiPendingAction;
 use Everest\Services\AI\Agent\AgentContext;
-use Everest\Services\AI\Agent\ApprovalPreview;
+use Everest\Services\AI\Agent\AssistBinding;
 use Everest\Services\AI\Tools\ToolDefinition;
+use Everest\Services\AI\Agent\ApprovalPreview;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Everest\Http\Controllers\Api\Application\AiAgentController;
 use Everest\Http\Requests\Api\Application\Intelligence\AgentDecisionRequest;
-use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AdminDestructiveConfirmationTest extends TestCase
 {

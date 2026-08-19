@@ -549,7 +549,7 @@ class AiAgentController extends ApplicationApiController
                 'name' => $definition->name,
                 'description' => $definition->description,
                 'scope' => $definition->scope,
-                'group' => $definition->group,
+                'category' => $definition->category(),
                 'method' => $definition->method,
                 'default_risk' => $definition->risk,
                 'risk' => $overrides[$definition->name] ?? $definition->risk,
@@ -566,7 +566,7 @@ class AiAgentController extends ApplicationApiController
 
         return response()->json([
             'data' => $tools,
-            'groups' => $this->registry->groupDescriptions(),
+            'categories' => $this->registry->categoryDescriptions(),
             'risks' => ToolDefinition::RISKS,
             'console' => [
                 // The built-in list is returned separately from the additions so

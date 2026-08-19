@@ -4,7 +4,6 @@ namespace Everest\Services\AI\Agent;
 
 use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\ProviderFactory;
-use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
@@ -67,8 +66,8 @@ class SystemPromptBuilder
             $sections[] = $privacy;
         }
 
-        if (($groups = $this->groupRule($offered)) !== null) {
-            $sections[] = $groups;
+        if (($discovery = $this->discoveryRule($offered)) !== null) {
+            $sections[] = $discovery;
         }
 
         if (($question = $this->questionRule($offered)) !== null) {
@@ -87,30 +86,42 @@ class SystemPromptBuilder
     }
 
     /**
-     * That the toolset can be widened at all.
+     * That the tool list is a working set, not the catalogue.
      *
-     * Nothing said this before, on either surface. The mechanism was described
-     * only in the meta-tool's own description, which is the one place a model
-     * that has decided it lacks a capability has already stopped reading — so
-     * the usual outcome was an apology for being unable to do something that
-     * was one call away. Stated only when the tool is actually on offer, since
-     * on a narrow assist session it is not.
+     * The single most important paragraph in the prompt now, and it is aimed at
+     * one specific failure: a model concluding from an absent tool that the
+     * capability does not exist. From the inside those are the same observation,
+     * and the usual outcome is a confident apology for something that was one
+     * search away — which is worse than an error, because the user believes it.
+     *
+     * The second half is the counterweight. A model told it can search will
+     * search before answering anything, so it is told just as plainly when not
+     * to: the tools in front of it are the ones its task usually needs, and a
+     * search for something already on the list costs a step and finds it again.
      *
      * @param string[] $offered
      */
-    protected function groupRule(array $offered): ?string
+    protected function discoveryRule(array $offered): ?string
     {
-        if (!in_array(ToolRegistry::META_ACTIVATE_GROUP, $offered, true)) {
+        if (!in_array(SharedTools::SEARCH_TOOLS, $offered, true)) {
             return null;
         }
 
-        return 'The tools you can see are not all the tools there are. When a task needs a '
-            . 'capability none of your current tools covers, call activate_tool_group to load '
-            . 'the group that has it, then carry on in the same turn — it lists what each group '
-            . 'contains. Do not tell the user you are unable to do something until you have '
-            . 'checked that list. Equally, do not load a group on the chance it might help: '
-            . 'everything you need to read or inspect is already in front of you, and the '
-            . 'groups hold the tools that change or remove things.';
+        $rule = 'Your tool list is a working set, not everything you are allowed to do. When no '
+            . 'tool in front of you fits the task, call search_tools with a plain description of '
+            . 'what you are trying to do — "read the startup command", "make a backup" — and what '
+            . 'it finds becomes available immediately. Never tell the user something is impossible '
+            . 'without searching for it first. Equally, do not search for something you can '
+            . 'already see: the tools you have are the ones this kind of task usually needs.';
+
+        if (in_array(SharedTools::LOAD_TOOLS, $offered, true)) {
+            $rule .= ' If you already know a tool\'s exact name, load_tools is quicker than '
+                . 'searching, and it is also how you drop tools you have finished with.';
+        }
+
+        return $rule . ' A search result may say a tool needs something first, such as an approved '
+            . 'session on a customer\'s server. That is a real requirement, not a suggestion: do '
+            . 'what it names, then carry on.';
     }
 
     protected function role(): string

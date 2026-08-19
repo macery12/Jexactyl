@@ -3,6 +3,7 @@
 namespace Everest\Services\AI\Tools\Definitions;
 
 use Everest\Models\Permission;
+use Everest\Services\AI\Tools\ToolDiscovery;
 use Everest\Services\AI\Tools\ToolDefinition;
 
 /**
@@ -13,53 +14,53 @@ use Everest\Services\AI\Tools\ToolDefinition;
  * prompt-injected one has nowhere to land — that structural property, not a
  * validation rule, is what confines the agent to one server.
  *
- * Tools without a group form the base set that is always offered. The rest sit
- * behind groups the agent activates on demand, because small local models
- * degrade sharply once too many tools are in play.
+ * None of these are offered all at once any more. The model sees a small working
+ * set — `WorkingSetPlanner` decides which — and reaches the rest through
+ * `search_tools`, so what matters about a tool here is no longer where it sits in
+ * a list but how well its `discovery` metadata answers the words a person would
+ * use. "What port am I on" has to reach `allocations_list`; "back up the config
+ * before you edit it" has to reach `files_rename`. Without embeddings, that only
+ * works because the aliases were written down.
  *
- * The split is by *what a tool does to the server*, not by feature area. An
- * earlier arrangement grouped by area — backups, databases, network, mods — and
- * the effect was that reading the port list needed an activation step while
- * deleting a directory did not: nine of the fourteen always-offered tools wrote
- * to the server, and seven of the twelve read-only ones were gated. Most
- * questions a user actually asks ("what port am I on", "do I have backups",
- * "which plugins are installed") are answered by a single cheap read, so a read
- * is never worth a round trip to unlock. Reads are also the tools whose results
- * make the following write correct, and an agent that cannot look is left
- * guessing at exactly the moment it is about to change something.
- *
- * So: every read is always offered, along with the writes common enough that
- * gating them would cost a step on most turns. What is left behind a group is
- * the rarer, heavier writes — and those already stop for an approval, so the
- * activation call lands on a turn that was going to pause anyway.
+ * Aliases are operator-controlled metadata, never model-generated, and never
+ * executable: matching one puts a tool in the working set, where it is still
+ * subject to the same permission check, risk tier and approval card it always
+ * was.
  */
 class ServerTools
 {
     use DefinesToolSchemas;
 
-    public const GROUP_FILES_EDIT = 'files_edit';
-    public const GROUP_BACKUPS = 'backups';
+    public const CATEGORY_DIAGNOSTICS = 'diagnostics';
+    public const CATEGORY_POWER = 'power';
+    public const CATEGORY_STARTUP = 'startup';
+    public const CATEGORY_FILES = 'files';
+    public const CATEGORY_BACKUPS = 'backups';
+    public const CATEGORY_NETWORK = 'network';
+    public const CATEGORY_DATABASES = 'databases';
+    public const CATEGORY_SCHEDULES = 'schedules';
 
     /**
-     * Each description says what the group does *not* cover, because the
-     * failure mode is not a model that misses a group — it is one that spends a
-     * step activating "backups" to answer "do I have any", which it could
-     * already do.
+     * What each category covers, for the operator's tool catalogue.
+     *
+     * Unlike the group descriptions these replace, nothing reads these at
+     * inference time — a category gates nothing and the model is never shown the
+     * list. It organises the admin page and contributes one retrieval token.
      */
-    public const GROUP_DESCRIPTIONS = [
-        self::GROUP_FILES_EDIT => 'Create, rename, copy, delete, compress and extract files. '
-            . 'Not needed to list, read or edit a file — those tools you already have.',
-        self::GROUP_BACKUPS => 'Create, restore and delete backups. '
-            . 'Not needed to list them — backups_list you already have.',
+    public const CATEGORY_DESCRIPTIONS = [
+        self::CATEGORY_DIAGNOSTICS => 'State, resource usage, activity, and what is installed.',
+        self::CATEGORY_POWER => 'Power signals and console commands.',
+        self::CATEGORY_STARTUP => 'Startup command, startup variables, and the Docker image.',
+        self::CATEGORY_FILES => 'Reading, editing, moving and archiving files.',
+        self::CATEGORY_BACKUPS => 'Listing, creating, restoring and deleting backups.',
+        self::CATEGORY_NETWORK => 'Addresses and ports.',
+        self::CATEGORY_DATABASES => 'Databases and their connection details.',
+        self::CATEGORY_SCHEDULES => 'Scheduled tasks.',
     ];
 
     private const BASE = '/api/client/servers/{server}';
 
     /**
-     * Ordered most-useful-first: an operator who lowers `max_tools` for a small
-     * model truncates the tail, so the tail is where the least-reached-for tools
-     * belong.
-     *
      * @return ToolDefinition[]
      */
     public static function all(): array
@@ -92,6 +93,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/resources',
                 permissions: [Permission::ACTION_WEBSOCKET_CONNECT],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DIAGNOSTICS,
+                    aliases: ['server status', 'is the server online', 'cpu usage', 'memory usage', 'ram usage', 'disk usage', 'resource usage', 'uptime', 'is it running', 'lag'],
+                    tags: ['server', 'status', 'health', 'read'],
+                ),
                 resultShaper: static function (mixed $data) {
                     $attrs = $data['attributes'] ?? [];
                     $resources = $attrs['resources'] ?? [];
@@ -127,6 +133,11 @@ class ServerTools
                     Permission::ACTION_CONTROL_STOP,
                     Permission::ACTION_CONTROL_RESTART,
                 ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_POWER,
+                    aliases: ['restart the server', 'start the server', 'stop the server', 'reboot', 'kill the server', 'shut down', 'power on', 'power off', 'bring it back up'],
+                    tags: ['server', 'power', 'control', 'write'],
+                ),
                 bodyFields: ['signal'],
                 resultShaper: static fn () => ['sent' => true],
             ),
@@ -144,6 +155,11 @@ class ServerTools
                 // everything else escalates to typed confirmation.
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_CONTROL_CONSOLE],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_POWER,
+                    aliases: ['run a command', 'console command', 'send a command', 'execute a command', 'reload a plugin', 'say something in chat', 'op a player', 'whitelist'],
+                    tags: ['server', 'console', 'command', 'control', 'write'],
+                ),
                 bodyFields: ['command'],
                 resultShaper: static fn () => ['sent' => true],
             ),
@@ -155,6 +171,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/activity',
                 permissions: [Permission::ACTION_ACTIVITY_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DIAGNOSTICS,
+                    aliases: ['activity log', 'audit log', 'recent changes', 'who changed what', 'history', 'what happened', 'when did this break'],
+                    tags: ['server', 'activity', 'audit', 'history', 'read'],
+                ),
                 resultShaper: static fn (mixed $data) => self::mapList(
                     $data,
                     static fn (array $a) => [
@@ -173,6 +194,14 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/startup',
                 permissions: [Permission::ACTION_STARTUP_READ],
+                // The worked example from the design doc, and the one that has to
+                // land: "read the startup command" is how an administrator asks
+                // for this, and none of those three words appear in the tool name.
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_STARTUP,
+                    aliases: ['startup command', 'launch command', 'startup variables', 'startup settings', 'docker image', 'java version', 'server jar', 'memory allocation', 'boot command'],
+                    tags: ['server', 'startup', 'configuration', 'read'],
+                ),
                 resultShaper: static function (mixed $data) {
                     $variables = self::mapList(
                         $data,
@@ -211,6 +240,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/startup/variable',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_STARTUP_UPDATE],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_STARTUP,
+                    aliases: ['change a startup variable', 'set a startup variable', 'edit startup settings', 'change the memory allocation', 'change the server jar', 'change the world name'],
+                    tags: ['server', 'startup', 'configuration', 'write'],
+                ),
                 bodyFields: ['key', 'value'],
                 resultShaper: static fn (mixed $data) => [
                     'key' => $data['attributes']['env_variable'] ?? null,
@@ -231,6 +265,11 @@ class ServerTools
                 // who may edit variables is not thereby allowed to change the
                 // runtime out from under the server.
                 permissions: [Permission::ACTION_STARTUP_DOCKER_IMAGE],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_STARTUP,
+                    aliases: ['change the docker image', 'change the java version', 'change the runtime', 'switch image', 'wrong java version', 'unsupported class version'],
+                    tags: ['server', 'startup', 'docker', 'runtime', 'java', 'write'],
+                ),
                 bodyFields: ['docker_image'],
                 // 204, so there is no body to shape.
                 resultShaper: static fn () => ['updated' => true],
@@ -259,6 +298,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/files/list',
                 permissions: [Permission::ACTION_FILE_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['list files', 'browse files', 'directory listing', 'what files are there', 'look in a folder', 'find a config file', 'ls'],
+                    tags: ['server', 'files', 'directory', 'read'],
+                ),
                 queryFields: ['directory'],
                 // A directory can hold ten thousand entries; unshaped, one call
                 // would consume the entire context window.
@@ -283,6 +327,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/files/contents',
                 permissions: [Permission::ACTION_FILE_READ_CONTENT],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['read a file', 'open a file', 'view file contents', 'show me the config', 'check the logs', 'read server.properties', 'cat'],
+                    tags: ['server', 'files', 'configuration', 'logs', 'read'],
+                ),
                 queryFields: ['file'],
             ),
 
@@ -298,6 +347,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/write-with-diff',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_CREATE, Permission::ACTION_FILE_UPDATE],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['edit a file', 'write a file', 'change a config', 'save a file', 'update the config', 'fix the config', 'set a property'],
+                    tags: ['server', 'files', 'configuration', 'edit', 'write'],
+                ),
                 bodyFields: ['file', 'content', 'original_content'],
                 // Behind the file.diff named limiter, which stays in force for
                 // agent traffic — a runaway write loop should be capped.
@@ -317,9 +371,9 @@ class ServerTools
     | Inspection
     |--------------------------------------------------------------------------
     |
-    | Read-only lookups, always offered. Each is one call with a shaped result,
-    | and between them they answer most of what is ever asked without the agent
-    | having to unlock anything first.
+    | Read-only lookups. Each is one call with a shaped result, and between them
+    | they answer most of what is ever asked. They carry the broadest aliases in
+    | the file for that reason: these are the tools a vague question should find.
     */
 
     /**
@@ -335,6 +389,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/mods/server-config',
                 permissions: [Permission::ACTION_FILE_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DIAGNOSTICS,
+                    aliases: ['minecraft version', 'what version is this', 'mod loader', 'forge or fabric', 'paper or spigot', 'game version', 'platform'],
+                    tags: ['server', 'minecraft', 'version', 'modloader', 'read'],
+                ),
             ),
 
             new ToolDefinition(
@@ -344,6 +403,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/plugins/installed',
                 permissions: [Permission::ACTION_FILE_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DIAGNOSTICS,
+                    aliases: ['installed mods', 'installed plugins', 'list plugins', 'what mods are installed', 'jar files', 'is a mod installed'],
+                    tags: ['server', 'mods', 'plugins', 'read'],
+                ),
                 resultShaper: static fn (mixed $data) => self::mapList(
                     is_array($data['data'] ?? null) ? $data : ['data' => $data],
                     static fn (array $a) => [
@@ -361,6 +425,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/backups',
                 permissions: [Permission::ACTION_BACKUP_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BACKUPS,
+                    aliases: ['list backups', 'do i have a backup', 'show backups', 'backup history', 'when was the last backup'],
+                    tags: ['server', 'backups', 'read'],
+                ),
                 resultShaper: static fn (mixed $data) => self::mapList(
                     $data,
                     static fn (array $a) => [
@@ -382,6 +451,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/network/allocations',
                 permissions: [Permission::ACTION_ALLOCATION_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_NETWORK,
+                    aliases: ['ip address', 'what port am i on', 'server address', 'connection details', 'how do i connect', 'allocations', 'port number'],
+                    tags: ['server', 'network', 'ip', 'port', 'read'],
+                ),
                 resultShaper: static fn (mixed $data) => self::mapList(
                     $data,
                     static fn (array $a) => [
@@ -401,6 +475,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/databases',
                 permissions: [Permission::ACTION_DATABASE_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DATABASES,
+                    aliases: ['databases', 'database credentials', 'mysql', 'database connection', 'db host', 'database username'],
+                    tags: ['server', 'databases', 'mysql', 'read'],
+                ),
                 resultShaper: static fn (mixed $data) => self::mapList(
                     $data,
                     static fn (array $a) => [
@@ -420,6 +499,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/schedules',
                 permissions: [Permission::ACTION_SCHEDULE_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SCHEDULES,
+                    aliases: ['scheduled tasks', 'cron jobs', 'automation', 'when does it restart', 'schedules', 'automatic restarts'],
+                    tags: ['server', 'schedules', 'cron', 'automation', 'read'],
+                ),
                 resultShaper: static fn (mixed $data) => self::mapList(
                     $data,
                     static fn (array $a) => [
@@ -441,6 +525,11 @@ class ServerTools
                 method: 'GET',
                 uriTemplate: self::BASE . '/files/download',
                 permissions: [Permission::ACTION_FILE_READ_CONTENT],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['download link', 'download a file', 'export a file', 'send me the file', 'get the world folder'],
+                    tags: ['server', 'files', 'download', 'read'],
+                ),
                 queryFields: ['file'],
                 resultShaper: static fn (mixed $data) => ['url' => $data['attributes']['url'] ?? null],
             ),
@@ -449,13 +538,13 @@ class ServerTools
 
     /*
     |--------------------------------------------------------------------------
-    | Groups
+    | Filesystem writes
     |--------------------------------------------------------------------------
     |
-    | Writes the agent pulls in when it needs them. Everything here either
-    | destroys something or rearranges the filesystem, and every one of them
-    | stops for an approval before it runs — so the activation step costs
-    | nothing on a turn that was already going to pause and ask.
+    | Everything here either destroys something or rearranges the filesystem, and
+    | every one of them stops for an approval before it runs. Retrieval decides
+    | whether the model is shown them; the approval card decides whether they
+    | happen, and that has not changed.
     */
 
     /**
@@ -475,7 +564,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/create-folder',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_CREATE],
-                group: self::GROUP_FILES_EDIT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['create a folder', 'make a directory', 'new folder', 'mkdir'],
+                    tags: ['server', 'files', 'directory', 'write'],
+                ),
                 bodyFields: ['root', 'name'],
                 resultShaper: static fn () => ['created' => true],
             ),
@@ -498,7 +591,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/rename',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_UPDATE],
-                group: self::GROUP_FILES_EDIT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['rename a file', 'move a file', 'rename a folder', 'take a copy of the config first', 'back up a file before editing'],
+                    tags: ['server', 'files', 'rename', 'move', 'write'],
+                ),
                 bodyFields: ['root', 'files'],
                 resultShaper: static fn () => ['renamed' => true],
             ),
@@ -513,7 +610,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/copy',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_CREATE],
-                group: self::GROUP_FILES_EDIT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['copy a file', 'duplicate a file'],
+                    tags: ['server', 'files', 'copy', 'write'],
+                ),
                 bodyFields: ['location'],
                 resultShaper: static fn () => ['copied' => true],
             ),
@@ -533,7 +634,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/delete',
                 risk: ToolDefinition::RISK_DESTRUCTIVE,
                 permissions: [Permission::ACTION_FILE_DELETE],
-                group: self::GROUP_FILES_EDIT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['delete a file', 'remove a file', 'delete a folder', 'clear out', 'wipe the world', 'rm'],
+                    tags: ['server', 'files', 'delete', 'destructive'],
+                ),
                 bodyFields: ['root', 'files'],
                 resultShaper: static fn () => ['deleted' => true],
             ),
@@ -553,7 +658,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/compress',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_FILE_ARCHIVE],
-                group: self::GROUP_FILES_EDIT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['zip files', 'compress', 'make an archive', 'package the world folder', 'tar it up'],
+                    tags: ['server', 'files', 'archive', 'zip', 'write'],
+                ),
                 bodyFields: ['root', 'files'],
                 resultShaper: static fn (mixed $data) => [
                     'archive' => $data['attributes']['name'] ?? null,
@@ -572,7 +681,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/files/decompress',
                 risk: ToolDefinition::RISK_DESTRUCTIVE,
                 permissions: [Permission::ACTION_FILE_CREATE, Permission::ACTION_FILE_UPDATE],
-                group: self::GROUP_FILES_EDIT,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_FILES,
+                    aliases: ['unzip', 'extract an archive', 'decompress', 'install a modpack zip', 'unpack'],
+                    tags: ['server', 'files', 'archive', 'extract', 'destructive'],
+                ),
                 bodyFields: ['root', 'file'],
                 resultShaper: static fn () => ['extracted' => true],
             ),
@@ -595,7 +708,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/backups',
                 risk: ToolDefinition::RISK_WRITE,
                 permissions: [Permission::ACTION_BACKUP_CREATE],
-                group: self::GROUP_BACKUPS,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BACKUPS,
+                    aliases: ['make a backup', 'create a backup', 'back up the server', 'new backup', 'snapshot', 'save a restore point'],
+                    tags: ['server', 'backups', 'write'],
+                ),
                 bodyFields: ['name'],
                 resultShaper: static fn (mixed $data) => [
                     'uuid' => $data['attributes']['uuid'] ?? null,
@@ -615,7 +732,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/backups/{backup}/restore',
                 risk: ToolDefinition::RISK_DESTRUCTIVE,
                 permissions: [Permission::ACTION_BACKUP_RESTORE],
-                group: self::GROUP_BACKUPS,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BACKUPS,
+                    aliases: ['restore a backup', 'roll back', 'revert the server', 'recover from a backup', 'undo everything', 'go back to yesterday'],
+                    tags: ['server', 'backups', 'restore', 'destructive'],
+                ),
                 bodyFields: ['truncate'],
                 resultShaper: static fn () => ['restore_started' => true],
             ),
@@ -630,7 +751,11 @@ class ServerTools
                 uriTemplate: self::BASE . '/backups/{backup}',
                 risk: ToolDefinition::RISK_DESTRUCTIVE,
                 permissions: [Permission::ACTION_BACKUP_DELETE],
-                group: self::GROUP_BACKUPS,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_BACKUPS,
+                    aliases: ['delete a backup', 'remove a backup', 'free up backup space', 'out of backup slots'],
+                    tags: ['server', 'backups', 'delete', 'destructive'],
+                ),
                 resultShaper: static fn () => ['deleted' => true],
             ),
         ];

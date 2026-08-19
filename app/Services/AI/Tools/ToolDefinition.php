@@ -61,7 +61,11 @@ class ToolDefinition
      *                                `control.restart` is offered signals the endpoint
      *                                will refuse. The endpoint is still the boundary; this
      *                                only decides what appears in the catalogue.
-     * @param string|null $group null means part of the always-available base set
+     * @param ToolDiscovery|null $discovery how the tool is found — aliases, tags, the
+     *                                      category it files under. Absent means the tool
+     *                                      is only reachable by its exact registered name,
+     *                                      which for anything a user might ask for in their
+     *                                      own words is a bug rather than a choice.
      * @param callable|null $resultShaper trims a raw response down to what the model needs
      * @param bool $sharesHumanThrottle set for endpoints behind a literal `throttle:n,m`,
      *                                  which no limiter callback can exempt
@@ -80,7 +84,7 @@ class ToolDefinition
         public readonly string $scope = self::SCOPE_SERVER,
         public readonly array $permissions = [],
         public readonly array $anyPermission = [],
-        public readonly ?string $group = null,
+        public readonly ?ToolDiscovery $discovery = null,
         public readonly mixed $resultShaper = null,
         public readonly bool $sharesHumanThrottle = false,
         public readonly array $bodyFields = [],
@@ -95,6 +99,65 @@ class ToolDefinition
     public function inScope(string $scope): bool
     {
         return $this->scope === $scope || $this->scope === self::SCOPE_SHARED;
+    }
+
+    /**
+     * The domain this tool files under, for the operator's catalogue and as one
+     * more token for retrieval to match on. `uncategorised` rather than null so
+     * callers never have to special-case a tool whose author forgot.
+     */
+    public function category(): string
+    {
+        return $this->discovery === null ? 'uncategorised' : $this->discovery->category;
+    }
+
+    /**
+     * The words a person would use for this tool.
+     *
+     * @return string[]
+     */
+    public function aliases(): array
+    {
+        return $this->discovery === null ? [] : $this->discovery->aliases;
+    }
+
+    /**
+     * Coarse facets that broaden a query without answering it.
+     *
+     * @return string[]
+     */
+    public function tags(): array
+    {
+        return $this->discovery === null ? [] : $this->discovery->tags;
+    }
+
+    /**
+     * The one-line description a search result carries. Never the full schema —
+     * that is what entering the working set buys.
+     */
+    public function summary(): string
+    {
+        if ($this->discovery !== null) {
+            return $this->discovery->summary($this->description);
+        }
+
+        return preg_split('/(?<=[.!?])\s+/', trim($this->description), 2)[0] ?? $this->description;
+    }
+
+    /**
+     * Prerequisites declared on the tool itself.
+     *
+     * Nearly always empty. The cross-surface chain — a server tool needing an
+     * assist session on an admin turn — is *derived* by `PrerequisiteResolver`
+     * from scope and risk, because it is a rule about the two surfaces rather
+     * than a fact about any one tool, and writing it out fifty-five times is how
+     * it would come to disagree with itself.
+     *
+     * @return string[]
+     */
+    public function prerequisites(): array
+    {
+        return $this->discovery === null ? [] : $this->discovery->prerequisites;
     }
 
     /**

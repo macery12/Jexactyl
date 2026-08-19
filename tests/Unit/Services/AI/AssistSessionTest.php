@@ -9,6 +9,8 @@ use Everest\Tests\TestCase;
 use Everest\Models\AdminRole;
 use Everest\Models\Permission;
 use Everest\Services\AI\Tools\RiskGate;
+use Everest\Services\AI\Agent\ToolBudget;
+use Everest\Services\AI\Agent\WorkingSet;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AssistGrant;
 use Everest\Services\AI\Agent\AgentContext;
@@ -17,12 +19,13 @@ use Everest\Services\AI\Agent\AssistBinding;
 use Everest\Services\AI\Agent\AssistSession;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Agent\AssistAuthorizer;
+use Everest\Services\AI\Agent\WorkingSetPlanner;
 use Everest\Services\AI\Support\SchemaValidator;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
 use Everest\Services\AI\Agent\SystemPromptBuilder;
+use Everest\Services\AI\Agent\PrerequisiteResolver;
 use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
-use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
  * An administrator's audited session inside a customer's server.
@@ -248,56 +251,77 @@ class AssistSessionTest extends TestCase
     {
         $context = new AgentContext(User::factory()->make(['id' => 3]), null, 'turn-1');
         $context->bindAssist($binding, $this->server());
-        // Every group active, which is the case that matters: the companion
-        // tools all sit in `support`, so measuring with no groups active would
-        // measure a set that has already shed the tools most likely to be cut.
-        $context->activeGroups = array_keys(AdminTools::GROUP_DESCRIPTIONS);
 
-        // `assistOfferings()` reads nothing but the registry, so the runner's
-        // other constructor dependencies are not worth standing up to ask it
-        // what a session is offered.
-        $runner = (new \ReflectionClass(AgentRunner::class))->newInstanceWithoutConstructor();
-        (new \ReflectionProperty(AgentRunner::class, 'registry'))->setValue($runner, $registry);
+        // Everything the session may run, rather than the subset one step
+        // happens to offer. The two were the same thing when a session's tools
+        // were composed by `assistOfferings()` and then capped; now the phase
+        // decides what is worth a schema slot, and these tests are about the
+        // *grant* — what a binding permits at all — which is what `callable()`
+        // answers.
+        $planner = new WorkingSetPlanner($registry, new PrerequisiteResolver());
 
-        return array_map(
-            fn (ToolDefinition $d) => $d->name,
-            (new \ReflectionMethod(AgentRunner::class, 'assistOfferings'))->invoke($runner, $context)
-        );
+        return array_keys($planner->callable($context));
     }
 
     /**
-     * `capTools()` truncates the tail, and the tail here is the companion admin
-     * tools — so an offering over the cap quietly removes the ability to re-read
-     * the ticket at the exact point the session starts changing things. It now
-     * says so in the log, but a session that only works because someone reads
-     * the log is still a session that does not work.
+     * A session's reserved tools fit the smallest model we support.
+     *
+     * The predecessor of this test asserted that the *whole* session offering fit
+     * under `max_tools`, because the cap truncated a tail and the tail was the
+     * companion admin tools — so an over-cap session silently lost the ability to
+     * re-read the ticket at the exact point it started changing things.
+     *
+     * Nothing truncates now, so that failure is gone and the invariant that
+     * replaces it is narrower and stricter: whatever a phase *reserves* has to
+     * fit the smallest profile outright, because reserved tools are spent before
+     * anything is searched. A reserved set that overran would leave a small model
+     * with no room at all for the tool it went looking for.
      */
-    public function testASessionFitsInsideTheToolCap(): void
+    public function testAnAssistPhaseReservesLessThanTheSmallestBudget(): void
+    {
+        $smallest = min(array_column(ToolBudget::profiles(), 'schemas'));
+
+        foreach ([WorkingSet::PHASE_READ_ASSIST, WorkingSet::PHASE_WRITE_ASSIST] as $phase) {
+            $reserved = WorkingSet::RESERVED[$phase];
+
+            $this->assertLessThan(
+                $smallest,
+                count($reserved),
+                sprintf(
+                    'The %s phase reserves %d tools against a smallest budget of %d, leaving nothing '
+                        . 'for what the session actually goes looking for: %s.',
+                    $phase,
+                    count($reserved),
+                    $smallest,
+                    implode(', ', $reserved),
+                )
+            );
+        }
+    }
+
+    /**
+     * Everything a phase reserves has to be something the session may run.
+     *
+     * A reserved name that is not in the grant is invisible — the planner drops
+     * it silently, because reserving decides priority and never authority — so
+     * the failure is a phase that looks like it opens with five reads and opens
+     * with three.
+     */
+    public function testEveryReservedAssistToolIsInsideTheGrant(): void
     {
         $registry = $this->registry($this->authorizer([], owner: true));
 
-        $cap = (int) config('modules.ai.agent.max_tools');
-
         foreach ([false, true] as $writable) {
-            // `ask_user` rides along in the offering but is exempt from the cap,
-            // as is the `activate_tool_group` the loop appends — so neither is
-            // counted here. See AgentRunner::UNCAPPED_TOOLS.
-            $offered = array_values(array_diff(
-                $this->offerings($registry, $this->binding(writable: $writable)),
-                [SharedTools::ASK_USER]
-            ));
+            $callable = $this->offerings($registry, $this->binding(writable: $writable));
+            $phase = $writable ? WorkingSet::PHASE_WRITE_ASSIST : WorkingSet::PHASE_READ_ASSIST;
 
-            $this->assertLessThanOrEqual(
-                $cap,
-                count($offered),
-                sprintf(
-                    '%s assist offers %d scoped tools against a cap of %d; %s would be dropped.',
-                    $writable ? 'A writable' : 'A read-only',
-                    count($offered),
-                    $cap,
-                    implode(', ', array_slice($offered, $cap)) ?: 'nothing'
-                )
-            );
+            foreach (WorkingSet::RESERVED[$phase] as $name) {
+                $this->assertContains(
+                    $name,
+                    $callable,
+                    sprintf('%s reserves %s, which the binding does not permit.', $phase, $name),
+                );
+            }
         }
     }
 

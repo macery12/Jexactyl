@@ -150,7 +150,19 @@ class AgentToolExecutorTest extends ClientApiIntegrationTestCase
         $this->assertNotContains('files_write', $offered);
     }
 
-    public function testAServerOwnerIsOfferedTheFullBaseSet(): void
+    /**
+     * An owner's catalogue is everything they may do, with nothing withheld.
+     *
+     * This used to assert the opposite for grouped tools — `backup_create` was
+     * hidden until the model asked for the "backups" group. Groups are gone: the
+     * registry now answers "what may this user do", and `WorkingSetPlanner`
+     * separately decides how much of that is worth a schema slot this step. The
+     * two questions were conflated while every permitted tool was offered at
+     * once, and keeping them conflated is what made a tool the user held a
+     * permission for look, from the model's side, like a capability the panel
+     * lacked.
+     */
+    public function testAServerOwnersCatalogueHoldsEverythingTheyMayDo(): void
     {
         [$user, $server] = $this->generateTestAccount();
 
@@ -162,15 +174,12 @@ class AgentToolExecutorTest extends ClientApiIntegrationTestCase
         $this->assertContains('files_read', $offered);
         $this->assertContains('files_write', $offered);
         $this->assertContains('server_power', $offered);
+        $this->assertContains('backup_create', $offered);
+        $this->assertContains('files_delete', $offered);
 
-        // Grouped tools stay hidden until the agent asks for the group.
-        $this->assertNotContains('backup_create', $offered);
-
-        $withGroup = array_map(
-            fn (ToolDefinition $d) => $d->name,
-            $this->registry->forServer($user, $server, ['backups'])
-        );
-        $this->assertContains('backup_create', $withGroup);
+        // Still bounded by scope: the admin surface is not reachable from here,
+        // whatever the acting user happens to be on the panel.
+        $this->assertNotContains('admin_overview', $offered);
     }
 
     /*

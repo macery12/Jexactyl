@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\OpenAIService;
+use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Services\AI\Privacy\PiiRedactor;
@@ -24,6 +25,7 @@ class IntelligenceController extends ApplicationApiController
     public function __construct(
         private OpenAIService $aiService,
         private PiiRedactor $redactor,
+        private ToolBudget $budget,
     ) {
         parent::__construct();
     }
@@ -70,9 +72,22 @@ class IntelligenceController extends ApplicationApiController
                 'max_tool_seconds' => (int) config('modules.ai.agent.max_tool_seconds', 90),
                 'tool_result_bytes' => (int) config('modules.ai.agent.tool_result_bytes', 12288),
                 'max_repairs' => (int) config('modules.ai.agent.max_repairs', 2),
-                'max_tools' => (int) config('modules.ai.agent.max_tools', 32),
+                // Null means auto. Kept null rather than resolved, so the form
+                // can tell "the operator chose 12" from "the panel worked out 12"
+                // — the second has to keep tracking the model when it changes.
+                'max_tools' => config('modules.ai.agent.max_tools') === null
+                    ? null
+                    : (int) config('modules.ai.agent.max_tools'),
                 'max_batch_calls' => (int) config('modules.ai.agent.max_batch_calls', 25),
                 'allow_destructive_batches' => boolval(config('modules.ai.agent.allow_destructive_batches', false)),
+
+                // What the budget actually resolved to, so an operator can see
+                // the consequence of leaving it on auto without having to guess.
+                'tool_budget' => [
+                    'profile' => $this->budget->profile(),
+                    'schemas' => $this->budget->schemas(),
+                    'results' => $this->budget->results(),
+                ],
             ],
 
             'concurrency' => [

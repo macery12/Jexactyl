@@ -1,6 +1,7 @@
 import { Bot, Layers, Timer } from 'lucide-react';
-import { m } from '@/i18n';
+import { m, td } from '@/i18n';
 import { Input } from '@/components/ui/Input';
+import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
 import { FieldGrid, FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
@@ -18,7 +19,9 @@ export default function AgentPage() {
             max_tool_seconds: settings.agent?.max_tool_seconds ?? 90,
             tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
             max_repairs: settings.agent?.max_repairs ?? 2,
-            max_tools: settings.agent?.max_tools ?? 32,
+            // Null is meaningful here — it is "auto" — so it must not be
+            // coalesced to a number the operator never chose.
+            max_tools: settings.agent?.max_tools ?? null,
             max_batch_calls: settings.agent?.max_batch_calls ?? 25,
             allow_destructive_batches: settings.agent?.allow_destructive_batches ?? false,
         }),
@@ -27,6 +30,7 @@ export default function AgentPage() {
 
     const { value, patch } = form;
     const capabilities = useAiCapabilities();
+    const budget = form.settings?.agent?.tool_budget;
 
     if (form.isLoading || !value) {
         return (
@@ -115,14 +119,38 @@ export default function AgentPage() {
                             onChange={event => patch({ max_tool_seconds: Number(event.target.value) })}
                         />
                     </FieldRow>
-                    <FieldRow label={m['admin.ai.settings.maxTools']()} desc={m['admin.ai.settings.maxToolsHint']()}>
-                        <Input
-                            type="number"
-                            min={4}
-                            max={64}
-                            value={value.max_tools}
-                            onChange={event => patch({ max_tools: Number(event.target.value) })}
-                        />
+                    <FieldRow
+                        label={m['admin.ai.settings.maxTools']()}
+                        desc={
+                            value.max_tools === null && budget
+                                ? m['admin.ai.settings.maxToolsAutoHint']({
+                                      profile: td(`admin.ai.settings.profile.${budget.profile}`, budget.profile),
+                                      schemas: String(budget.schemas),
+                                  })
+                                : m['admin.ai.settings.maxToolsHint']()
+                        }
+                    >
+                        <div className="flex items-center gap-3">
+                            <Switch
+                                label={m['admin.ai.settings.maxToolsAuto']()}
+                                checked={value.max_tools === null}
+                                // Switching back to manual seeds the field with
+                                // whatever auto had settled on, so the operator
+                                // adjusts from the working value rather than from
+                                // a number nothing chose.
+                                onChange={auto => patch({ max_tools: auto ? null : (budget?.schemas ?? 12) })}
+                            />
+                            {value.max_tools !== null && (
+                                <Input
+                                    type="number"
+                                    min={4}
+                                    max={64}
+                                    className="w-24"
+                                    value={value.max_tools}
+                                    onChange={event => patch({ max_tools: Number(event.target.value) })}
+                                />
+                            )}
+                        </div>
                     </FieldRow>
                     <FieldRow
                         label={m['admin.ai.settings.toolResultBytes']()}

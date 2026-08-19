@@ -23,10 +23,24 @@ export interface AiAgentSettings {
     max_tool_seconds: number;
     tool_result_bytes: number;
     max_repairs: number;
-    max_tools: number;
+    /**
+     * Complete tool schemas offered per step, or null for "work it out from the
+     * model". Null is the default: the agent reaches the rest of the catalogue
+     * through search_tools either way, so this only trades a step spent searching
+     * against how well the model chooses between options.
+     */
+    max_tools: number | null;
     /** How many calls one approval may cover. */
     max_batch_calls: number;
     allow_destructive_batches: boolean;
+    /** What the budget resolved to. Read-only — derived from max_tools and the model. */
+    tool_budget?: AiToolBudget;
+}
+
+export interface AiToolBudget {
+    profile: 'small' | 'medium' | 'large' | 'frontier' | 'manual';
+    schemas: number;
+    results: number;
 }
 
 export interface AiConcurrencySettings {
@@ -102,8 +116,9 @@ export type AiRiskTier = 'safe' | 'write' | 'destructive';
 export interface AiToolDefinition {
     name: string;
     description: string;
-    scope: 'server' | 'admin';
-    group: string | null;
+    scope: 'server' | 'admin' | 'shared';
+    /** The area of the panel this tool belongs to. Organises this page; gates nothing. */
+    category: string;
     method: string;
     default_risk: AiRiskTier;
     risk: AiRiskTier;
@@ -114,7 +129,7 @@ export interface AiToolDefinition {
 
 export interface AiToolCatalogue {
     data: AiToolDefinition[];
-    groups: Record<string, string>;
+    categories: Record<string, string>;
     risks: AiRiskTier[];
     console: { defaults: string[]; extra: string[] };
 }

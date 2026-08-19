@@ -27,8 +27,59 @@ class AgentContext
     /** @var AiMessage[] */
     public array $messages = [];
 
-    /** @var string[] */
-    public array $activeGroups = [];
+    /**
+     * Tools this turn is holding on to, in the order they were pinned.
+     *
+     * A pin survives steps and survives an approval. It is set by the user naming
+     * a tool, by a search selecting one, by `load_tools`, and by a pinned tool
+     * needing a gateway — and it is *not* silently released, which is the whole
+     * difference from the cumulative groups this replaced. A pin is a name and
+     * nothing more: it is re-filtered through the live permission check on every
+     * step, so holding one grants nothing and outlives no authority.
+     *
+     * @var string[]
+     */
+    public array $pinned = [];
+
+    /**
+     * Why each pin is held, keyed by tool name.
+     *
+     * Not decoration. When the budget forces something out, the model is told
+     * what went and why it was there, and "you asked for it in step 2" is
+     * actionable in a way that a bare name is not.
+     *
+     * @var array<string, string>
+     */
+    public array $pinReasons = [];
+
+    /**
+     * Secondary search results — offered if there is room, dropped without
+     * ceremony if there is not.
+     *
+     * The one evictable tier. A search returns the tool the model wanted plus a
+     * few neighbours; the neighbours are a suggestion rather than a commitment,
+     * and treating them as pins would let one broad query fill the working set
+     * with things the turn never used.
+     *
+     * @var string[]
+     */
+    public array $retrieved = [];
+
+    /**
+     * What the conversation is currently for.
+     *
+     * Replaces the cumulative group list, and behaves the opposite way: groups
+     * only ever grew, so a turn that browsed billing and then opened a session on
+     * a customer's server was still carrying the product catalogue. A phase is
+     * exchanged, not accumulated.
+     *
+     * Derived state, never authority. `enterPhase()` is called *after*
+     * `AssistAuthorizer` has recorded and approved the transition, and a restored
+     * turn recomputes it rather than trusting what was stored. Set from
+     * {@see resolvePhase()} in the constructor, so it is never wrong for a turn
+     * that has not started yet.
+     */
+    public string $phase = WorkingSet::PHASE_ADMIN;
 
     public int $step = 0;
 
@@ -54,6 +105,25 @@ class AgentContext
      * that is unsure will happily spend the turn asking instead of looking.
      */
     public int $questions = 0;
+
+    /**
+     * How many times the turn has changed state in a way that makes repeating a
+     * call worthwhile again.
+     *
+     * Part of the no-progress signature: a second `server_status` right after the
+     * first is a wasted step, but the same call after a restart is the correct
+     * thing to do. Bumped by successful mutations, phase transitions, working-set
+     * changes and answered questions — the four things that can make an identical
+     * call return something different.
+     */
+    public int $stateVersion = 0;
+
+    /**
+     * Signatures of calls already made, in order, for repeat detection.
+     *
+     * @var string[]
+     */
+    public array $callSignatures = [];
 
     /** The current request phase stopped for a human decision. */
     public bool $suspended = false;
@@ -156,6 +226,7 @@ class AgentContext
         public readonly ?string $consoleBuffer = null,
     ) {
         $this->redactions = new RedactionMap();
+        $this->phase = $this->resolvePhase();
     }
 
     /**
@@ -190,6 +261,104 @@ class AgentContext
     {
         $this->assist = $binding;
         $this->assistServer = $server;
+
+        $this->enterPhase($binding->writable
+            ? WorkingSet::PHASE_WRITE_ASSIST
+            : WorkingSet::PHASE_READ_ASSIST);
+    }
+
+    /**
+     * Work out which phase this turn belongs in from what is actually true of it.
+     *
+     * Recomputed rather than restored, on every resume, for the same reason the
+     * assist binding comes back inert: a phase read from stored state would be a
+     * claim about authority made by the state blob, and the state blob is
+     * model-derived JSON. Deriving it from the binding the caller has just
+     * re-authorized keeps the phase downstream of the decision rather than
+     * alongside it.
+     */
+    public function resolvePhase(): string
+    {
+        if ($this->server !== null) {
+            return WorkingSet::PHASE_SERVER;
+        }
+
+        if ($this->assist === null || $this->assistServer === null) {
+            return WorkingSet::PHASE_ADMIN;
+        }
+
+        return $this->assist->writable
+            ? WorkingSet::PHASE_WRITE_ASSIST
+            : WorkingSet::PHASE_READ_ASSIST;
+    }
+
+    /**
+     * Move to a new phase, releasing the pins that belonged to the old one.
+     *
+     * The exchange is the point. Entering a session on a customer's server means
+     * the billing lookup three steps ago is no longer what the conversation is
+     * about, and carrying it costs a schema slot that the session's own tools
+     * need. What is *not* released is anything whose scope survives the move —
+     * the target the turn has been working toward, and the shared tools — because
+     * a phase change is usually the moment that target finally becomes reachable.
+     */
+    public function enterPhase(string $phase): void
+    {
+        if ($this->phase === $phase) {
+            return;
+        }
+
+        $this->phase = $phase;
+        ++$this->stateVersion;
+
+        // Secondary search results are scoped to the task that produced them and
+        // are the cheapest thing to re-find.
+        $this->retrieved = [];
+    }
+
+    /**
+     * Hold a tool for later steps.
+     *
+     * Idempotent, and it keeps the *first* reason: "the user asked for this by
+     * name" outranks "a later search happened to return it", and a pin that
+     * quietly changed its own justification would make the eviction report lie.
+     */
+    public function pin(string $name, string $reason): void
+    {
+        if (in_array($name, $this->pinned, true)) {
+            return;
+        }
+
+        $this->pinned[] = $name;
+        $this->pinReasons[$name] = $reason;
+        ++$this->stateVersion;
+    }
+
+    /**
+     * Release a pin the turn is done with.
+     *
+     * Called when a tool has run and has no downstream use, when the model drops
+     * it explicitly, and when a phase transition supersedes it. Never called to
+     * make room — that is what {@see WorkingSetPlanner::propose()} refuses to do.
+     */
+    public function unpin(string $name): void
+    {
+        if (!in_array($name, $this->pinned, true)) {
+            return;
+        }
+
+        $this->pinned = array_values(array_diff($this->pinned, [$name]));
+        unset($this->pinReasons[$name]);
+        ++$this->stateVersion;
+    }
+
+    /**
+     * @param string[] $names
+     */
+    public function setRetrieved(array $names): void
+    {
+        $this->retrieved = array_values(array_diff($names, $this->pinned));
+        ++$this->stateVersion;
     }
 
     /**
@@ -282,12 +451,24 @@ class AgentContext
      * deliberately does not rebuild the server: the caller re-reads the row and
      * re-checks the administrator's capability before calling `bindAssist()`,
      * which is why a binding cannot outlive the permission that created it.
+     *
+     * The working set travels as names only, and the phase does not travel at
+     * all. Both are re-derived on resume: a pin is re-filtered through the live
+     * permission check before it can be offered, and the phase is recomputed from
+     * the binding the caller has just re-authorized. An approval can sit on
+     * screen for half an hour, and in that time an operator can narrow an Access
+     * Profile or disable a tool — so what comes back has to be a request to
+     * reconsider, not a decision already made.
      */
     public function toState(): array
     {
         return [
             'messages' => array_map(fn (AiMessage $m) => $m->toArray(), $this->messages),
-            'active_groups' => $this->activeGroups,
+            'pinned' => $this->pinned,
+            'pin_reasons' => $this->pinReasons,
+            'retrieved' => $this->retrieved,
+            'state_version' => $this->stateVersion,
+            'call_signatures' => $this->callSignatures,
             'step' => $this->step,
             'repairs' => $this->repairs,
             'questions' => $this->questions,
@@ -313,10 +494,22 @@ class AgentContext
             fn (array $m) => AiMessage::fromArray($m),
             is_array($state['messages'] ?? null) ? $state['messages'] : []
         );
-        $context->activeGroups = array_values(array_filter(
-            is_array($state['active_groups'] ?? null) ? $state['active_groups'] : [],
+        $strings = static fn (mixed $value) => array_values(array_filter(
+            is_array($value) ? $value : [],
             'is_string'
         ));
+
+        $context->pinned = $strings($state['pinned'] ?? null);
+        $context->retrieved = $strings($state['retrieved'] ?? null);
+        $context->callSignatures = $strings($state['call_signatures'] ?? null);
+        $context->stateVersion = max(0, (int) ($state['state_version'] ?? 0));
+
+        foreach (is_array($state['pin_reasons'] ?? null) ? $state['pin_reasons'] : [] as $name => $reason) {
+            if (is_string($name) && is_string($reason) && in_array($name, $context->pinned, true)) {
+                $context->pinReasons[$name] = $reason;
+            }
+        }
+
         $context->step = (int) ($state['step'] ?? 0);
         $context->repairs = (int) ($state['repairs'] ?? 0);
         $context->questions = (int) ($state['questions'] ?? 0);
@@ -328,6 +521,12 @@ class AgentContext
         // still returns null and no server-scoped tool can resolve a URI until
         // the caller has re-read the server and re-checked the capability.
         $context->assist = AssistBinding::fromArray($state['assist'] ?? null);
+
+        // Derived from what is true right now, not from what was stored. With the
+        // binding still inert this is the admin phase even for a turn that
+        // suspended mid-session; `bindAssist()` moves it on once the caller has
+        // re-checked the capability and re-attached the server.
+        $context->phase = $context->resolvePhase();
 
         return $context;
     }

@@ -15,8 +15,10 @@ use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Agent\ApprovalPreview;
+use Everest\Services\AI\Agent\WorkingSetPlanner;
 use Everest\Services\AI\Support\SchemaValidator;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
+use Everest\Services\AI\Agent\PrerequisiteResolver;
 use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
@@ -85,11 +87,12 @@ class BatchToolTest extends TestCase
      */
     private function offered(): array
     {
-        return $this->registry()->forServer(
-            $this->user(),
-            $this->server(),
-            array_keys($this->registry()->availableGroups($this->user(), $this->server())),
-        );
+        // The whole permitted catalogue, not a working set. A batch's children
+        // are checked against what the *step* offered, and this harness is about
+        // the plan-time gate rather than about retrieval — passing everything
+        // keeps a batch test from failing for a reason that has nothing to do
+        // with batching.
+        return $this->registry()->forServer($this->user(), $this->server());
     }
 
     /**
@@ -145,22 +148,23 @@ class BatchToolTest extends TestCase
 
     /**
      * Like `ask_user`, a batch is a mechanism rather than a capability: spending
-     * cap budget on it would let a small model lose the one tool that lets it
-     * make more than one change without asking twenty times.
+     * budget on it would let a small model lose the one tool that lets it make
+     * more than one change without asking twenty times.
+     *
+     * Asked at a budget of zero, which is below anything an operator can
+     * configure, so the assertion is about the tier rather than about whether the
+     * number happened to leave room.
      */
-    public function testTheBatchToolIsExemptFromTheToolCap(): void
+    public function testTheBatchToolIsExemptFromTheToolBudget(): void
     {
-        config()->set('modules.ai.agent.max_tools', 4);
+        $planner = new WorkingSetPlanner(app(ToolRegistry::class), new PrerequisiteResolver());
 
-        $context = $this->context();
-        $method = new \ReflectionMethod(AgentRunner::class, 'capDefinitions');
+        $offered = $planner->plan($this->context(), 0)->names();
 
-        $capped = array_map(
-            fn (ToolDefinition $d) => $d->name,
-            $method->invoke(app(AgentRunner::class), $context, $this->offered())
-        );
-
-        $this->assertContains(SharedTools::BATCH, $capped);
+        $this->assertContains(SharedTools::BATCH, $offered);
+        $this->assertContains(SharedTools::ASK_USER, $offered);
+        $this->assertContains(SharedTools::SEARCH_TOOLS, $offered);
+        $this->assertContains(SharedTools::LOAD_TOOLS, $offered);
     }
 
     /*

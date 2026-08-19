@@ -6,6 +6,7 @@ use Everest\Models\Setting;
 use Everest\Facades\LogBatch;
 use Everest\Models\AiToolCall;
 use Everest\Models\AiPendingAction;
+use Everest\Models\AiToolDiscovery;
 use Illuminate\Support\Facades\Log;
 use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\Data\AiMessage;
@@ -30,10 +31,16 @@ use Everest\Services\AI\Data\AiToolCall as ToolCallData;
 /**
  * Drives one agent turn: model call, tool calls, repeat.
  *
- * The loop is bounded three ways — steps, wall clock, and the inference gate's
- * lease — because an agent that misjudges a task can otherwise spend a GPU
- * indefinitely. It ends when the model stops asking for tools, when a bound is
- * hit, or when it needs a human decision, which suspends rather than blocks.
+ * The loop is bounded four ways — steps, wall clock, the inference gate's lease,
+ * and repetition — because an agent that misjudges a task can otherwise spend a
+ * GPU indefinitely. It ends when the model stops asking for tools, when a bound
+ * is hit, or when it needs a human decision, which suspends rather than blocks.
+ *
+ * What the model is offered each step is a *working set*, not the catalogue.
+ * `WorkingSetPlanner` builds it in priority order and `search_tools` is how the
+ * model reaches everything else. The runner's job in all of that is narrow: keep
+ * the offered set and the executable set the same thing. A call is runnable only
+ * if it is in this step's offered list, and that check has not moved.
  */
 class AgentRunner
 {
@@ -49,6 +56,12 @@ class AgentRunner
         private AssistAuthorizer $assist,
         private DaemonFileRepository $files,
         private TurnCancellations $cancellations,
+        private WorkingSetPlanner $planner,
+        private ToolDiscoveryService $discovery,
+        private PrerequisiteResolver $prerequisites,
+        private ProgressGuard $progress,
+        private DiscoveryRecorder $discoveryLog,
+        private ToolBudget $budget,
     ) {
     }
 
@@ -72,6 +85,12 @@ class AgentRunner
             // produces traces back to the conversation that caused it.
             LogBatch::start();
 
+            // Before the first inference, not after it. A user who typed a tool's
+            // registered name has already done the retrieval; making the model
+            // spend a step rediscovering it is the most annoying failure this
+            // whole mechanism can produce, and it costs nothing to avoid.
+            $this->discovery->pinNamedTools($context, $this->lastUserMessage($context));
+
             $this->loop($context, $emit, $startedAt);
         } catch (\Throwable $e) {
             Log::error('AI agent turn failed: ' . $e->getMessage(), ['turn' => $context->turnId]);
@@ -86,6 +105,24 @@ class AgentRunner
             $elapsed = (int) round(($this->now() - $startedAt) * 1000);
             $this->gate->recordTurnDuration($elapsed);
         }
+    }
+
+    /**
+     * The text of the most recent thing the user actually said.
+     *
+     * Walked backwards rather than tracked, because a resumed turn re-enters here
+     * with the same transcript and no new user message — and re-scanning the one
+     * that started it is harmless. Pinning is idempotent.
+     */
+    protected function lastUserMessage(AgentContext $context): string
+    {
+        foreach (array_reverse($context->messages) as $message) {
+            if ($message->role === AiMessage::ROLE_USER) {
+                return (string) $message->content;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -121,13 +158,9 @@ class AgentRunner
             ++$context->step;
             $emit(AgentEvent::step($context->step, $maxSteps));
 
-            // Capped before conversion, not after: the cap has to tell a base
-            // tool from a grouped one, and an AiTool has dropped that by the
-            // time it is wire-shaped. `toAiTools()` appends the group meta-tool
-            // afterwards, which is what keeps it out of the budget.
-            [$definitions, $groups] = $this->offerings($context);
-            $definitions = $this->capDefinitions($context, $definitions);
-            $tools = $this->registry->toAiTools($definitions, $groups);
+            $set = $this->offerings($context);
+            $definitions = $set->definitions;
+            $tools = $this->registry->toAiTools($definitions);
 
             if (!$this->hasTime($context)) {
                 $emit(AgentEvent::done('time_limit'));
@@ -254,154 +287,32 @@ class AgentRunner
     }
 
     /**
-     * The tools and groups on offer this step, for whichever surface the turn
-     * is bound to.
+     * The working set for this step.
      *
-     * @return array{0: ToolDefinition[], 1: array<string, string>}
+     * All the surface-specific reasoning that used to live here — which groups
+     * count as active, how an assist session narrows the admin catalogue, what
+     * fits — has moved to `WorkingSetPlanner`, which is the only thing that needs
+     * to hold all of it at once. What is left is the part the runner owns: ask
+     * for a set, and log what was offered.
      */
-    protected function offerings(AgentContext $context): array
+    protected function offerings(AgentContext $context): WorkingSet
     {
-        if ($context->server !== null) {
-            $groups = $this->groupsInPlay(
-                $context,
-                fn (array $active) => $this->registry->forServer($context->user, $context->server, $active),
-                array_keys($this->registry->availableGroups($context->user, $context->server)),
-            );
+        // Recomputed rather than trusted. An assist session can be dropped
+        // between steps by `AssistAuthorizer::reauthorize()`, and a phase that
+        // outlived its binding would keep offering a customer's server tools.
+        $context->phase = $context->resolvePhase();
 
-            return [
-                $this->registry->forServer($context->user, $context->server, $groups),
-                $this->registry->availableGroups($context->user, $context->server, $groups),
-            ];
-        }
+        $set = $this->planner->plan($context, $this->maxTools());
 
-        // Nothing to widen until a session exists, and a tool the model cannot
-        // use is a tool it will try anyway.
-        $offer = fn (array $active) => array_values(array_filter(
-            $this->registry->forAdmin($context->user, $active),
-            fn (ToolDefinition $d) => $d->name !== AdminTools::ASSIST_ALLOW_WRITES
-        ));
-
-        if ($context->assist !== null && $context->targetServer() !== null) {
-            // A session names its tools outright, so there is no group
-            // indirection left to flatten — `assistOfferings()` has already
-            // settled what this session is for.
-            return [
-                $this->assistOfferings($context),
-                $this->registry->availableAdminGroups($context->user, $context->activeGroups),
-            ];
-        }
-
-        $groups = $this->groupsInPlay(
+        $this->discoveryLog->offer(
             $context,
-            $offer,
-            array_keys($this->registry->availableAdminGroups($context->user)),
+            $set,
+            count($this->planner->catalogue($context)),
+            $this->maxTools(),
+            $this->budget->profile(),
         );
 
-        return [$offer($groups), $this->registry->availableAdminGroups($context->user, $groups)];
-    }
-
-    /**
-     * Which groups count as active this step.
-     *
-     * Groups exist because small local models degrade sharply once too many
-     * schemas are in play, and the way out of that is to show fewer. But the
-     * indirection is not free, and it is paid on every turn that needs a grouped
-     * tool: the model has to infer from a one-line description which group holds
-     * what it wants, spend a step loading it, and only then make the call it
-     * meant to make in the first place. It also has to decide it needs a tool it
-     * cannot see, which is the part models are worst at — a tool that is absent
-     * and a tool that does not exist look identical from the inside, and the
-     * usual outcome is the model saying it cannot do something it can.
-     *
-     * So the indirection is now a *fallback* rather than the architecture. When
-     * the whole catalogue fits inside the cap, every group is treated as already
-     * active: the model sees every tool by name and simply calls the one it
-     * wants. `availableGroups()` then returns nothing left to load, so
-     * `toAiTools()` never appends the meta-tool and the system prompt drops its
-     * paragraph about it — nothing anywhere mentions a mechanism this turn does
-     * not use. Only when the catalogue genuinely does not fit — an operator who
-     * lowered `max_tools` for a 7B model — do groups come back, and then they are
-     * doing the job they were designed for rather than taxing turns that never
-     * needed them.
-     *
-     * @param callable(string[]): ToolDefinition[] $offer the tools on offer with a given set of groups active
-     * @param string[] $everyGroup every group this user could reach on this surface
-     *
-     * @return string[]
-     */
-    private function groupsInPlay(AgentContext $context, callable $offer, array $everyGroup): array
-    {
-        if ($everyGroup === []) {
-            return $context->activeGroups;
-        }
-
-        $budget = 0;
-        foreach ($offer($everyGroup) as $definition) {
-            if (!in_array($definition->name, self::UNCAPPED_TOOLS, true)) {
-                ++$budget;
-            }
-        }
-
-        return $budget <= $this->maxTools() ? $everyGroup : $context->activeGroups;
-    }
-
-    /**
-     * The tools on offer once an assist session is open.
-     *
-     * Narrower than "admin tools plus server tools", and deliberately so. The
-     * offered set is capped because local models degrade past roughly fifteen
-     * tools, and the two sets together comfortably exceed it — so rather than
-     * let the cap truncate an arbitrary tail, this states what a diagnostic
-     * session is actually for. The server's own tools come first because they
-     * are the point; the handful of admin tools that survive are the ones that
-     * answer a question *about* this server or the person who reported it.
-     * Panel-wide browsing is not part of the job and comes back the moment the
-     * session is not the subject.
-     *
-     * Escalating narrows it further, because the server side grows and the cap
-     * does not. The two assist tools go first, having run out of meaning — there
-     * is no wider grant left to ask for, and the tool that opens a session is
-     * noise while one is open on the very server the turn is about — and the
-     * panel records go with them, for the reason given on
-     * `AssistBinding::WRITABLE_COMPANION_TOOLS`. `AssistSessionTest` fails if
-     * either phase outgrows the cap, because the alternative is the cap silently
-     * dropping the tail at exactly the point a session starts changing things.
-     *
-     * @return ToolDefinition[]
-     */
-    protected function assistOfferings(AgentContext $context): array
-    {
-        $binding = $context->assist;
-
-        $companions = $binding->writable
-            ? AssistBinding::WRITABLE_COMPANION_TOOLS
-            : array_merge(
-                AssistBinding::COMPANION_TOOLS,
-                [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES]
-            );
-
-        // A binding opened without a ticket has no ticket subject. Keeping the
-        // panel-wide ticket readers in that phase would leave any model-chosen
-        // ticket id looking like an ordinary automatic read.
-        if ($binding->ticketId === null) {
-            $companions = array_values(array_diff($companions, [
-                'admin_ticket_view',
-                'admin_ticket_messages',
-            ]));
-        }
-
-        $offered = array_filter(
-            $this->registry->forAdmin($context->user, $context->activeGroups),
-            fn (ToolDefinition $d) => in_array($d->name, $companions, true)
-                // A session that cannot ask which of two fixes to apply will
-                // pick one, on someone else's server.
-                || $d->scope === ToolDefinition::SCOPE_SHARED
-        );
-
-        return array_merge(
-            $this->registry->forAssist($binding->tools(), $binding->abilities),
-            array_values($offered),
-        );
+        return $set;
     }
 
     /**
@@ -566,24 +477,12 @@ class AgentRunner
             return 'continued';
         }
 
-        // The group meta-tool is handled in-process: it changes what the next
-        // step is offered rather than touching the panel at all.
-        if ($call->name === ToolRegistry::META_ACTIVATE_GROUP) {
-            $group = (string) ($call->arguments['group'] ?? '');
-            if ($group !== '' && !in_array($group, $context->activeGroups, true)) {
-                $context->activeGroups[] = $group;
-            }
-
-            $this->pushToolResult($context, $call, ToolResult::ok($this->activationReport($context, $group)));
-
-            return 'continued';
-        }
-
         $definition = $this->registry->find($call->name);
 
-        // Only tools offered this turn are runnable. A name that resolves in
-        // the registry but was filtered out for this user must not slip
-        // through on a hallucinated call.
+        // Only tools offered this step are runnable. A name that resolves in the
+        // registry but was filtered out for this user must not slip through on a
+        // hallucinated call. This check has not moved and does not move: it is
+        // the boundary, and retrieval only decides what is on the list it reads.
         $offered = false;
         foreach ($definitions as $candidate) {
             if ($candidate->name === $call->name) {
@@ -593,10 +492,7 @@ class AgentRunner
         }
 
         if ($definition === null || !$offered) {
-            $this->pushToolResult($context, $call, ToolResult::error(
-                'unknown_tool',
-                sprintf('There is no tool called "%s" available here.', $call->name),
-            ));
+            $this->pushToolResult($context, $call, $this->unofferedCall($context, $call, $definition));
 
             return 'continued';
         }
@@ -679,9 +575,160 @@ class AgentRunner
             $result->outcome,
         ));
 
-        $this->pushToolResult($context, $call, $result);
+        // A mutation moves the world, so an identical call after it is a
+        // different call. Bumped before the guard sees this one, on the tool's
+        // declared tier rather than on whether it happened to succeed — a failed
+        // write can still have changed something.
+        if ($result->ok && $risk !== ToolDefinition::RISK_SAFE) {
+            $this->progress->stateChanged($context);
+        }
+
+        $verdict = $this->progress->evaluate($context, $definition->name, $arguments, $result);
+
+        // The real result is still emitted above — the user sees what came back —
+        // and only the model's copy is replaced. Feeding it the same payload a
+        // third time is what it has already twice failed to act on.
+        $this->pushToolResult($context, $call, $verdict['result']);
+
+        $this->releasePin($context, $definition, $result);
+
+        if ($verdict['halt']) {
+            $context->push(AiMessage::assistant(
+                'I stopped because I was repeating the same step without getting anywhere.'
+            ));
+            $emit(AgentEvent::done('no_progress'));
+
+            return 'suspended';
+        }
 
         return 'continued';
+    }
+
+    /**
+     * Let go of a pin whose work is done.
+     *
+     * A pin that never releases is a slow leak: by step eight a small budget is
+     * full of tools the turn finished with four steps ago, and the tool it
+     * actually needs next has nowhere to go. Released only on success, and only
+     * for reads — a write that succeeded may still be part of a sequence, and a
+     * read that failed is one the model is likely to retry.
+     *
+     * A gateway is never released this way. `admin_assist_server` succeeding is
+     * the moment the session exists, which is exactly when the tools behind it
+     * become reachable; dropping it there would undo the transition it just made.
+     */
+    protected function releasePin(AgentContext $context, ToolDefinition $definition, ToolResult $result): void
+    {
+        if (!$result->ok || !$definition->isRead()) {
+            return;
+        }
+
+        if (in_array($definition->name, WorkingSet::RESERVED[$context->phase] ?? [], true)) {
+            return;
+        }
+
+        $context->unpin($definition->name);
+    }
+
+    /**
+     * Explain a call for a tool that was not on this step's list.
+     *
+     * This used to be one message — "there is no tool called X" — for four
+     * genuinely different situations, and it was the wrong message for three of
+     * them. A model told a tool does not exist stops trying; told it exists but
+     * needs a session, it opens one. So the cases are separated, and the most
+     * common of them is *recovered from* rather than merely reported:
+     *
+     * A permitted, enabled tool the model reached for from memory is **pinned and
+     * the model told to try again**. Loading is not executing — the permission
+     * check happened a line above, the tool still has to pass validation, and a
+     * write still stops at its approval card — so the only thing this skips is a
+     * round trip through `search_tools` for a name the model already had right.
+     * That is the single most common retrieval failure and the cheapest to undo.
+     *
+     * What it does not do is trust the model's memory as authority. A name that
+     * resolves but is not permitted, or that an operator disabled, is refused
+     * here and stays refused; nothing about being remembered makes it reachable.
+     */
+    protected function unofferedCall(AgentContext $context, ToolCallData $call, ?ToolDefinition $definition): ToolResult
+    {
+        if ($definition === null) {
+            $this->discoveryLog->unreachable(
+                $context,
+                $call->name,
+                AiToolDiscovery::EVENT_UNAVAILABLE,
+                'Called a name that is not registered.',
+            );
+
+            return ToolResult::error(
+                'tool_not_found',
+                sprintf(
+                    'There is no tool called "%s". Use search_tools to find what you need by description.',
+                    $call->name,
+                ),
+                retryable: true,
+            );
+        }
+
+        if ($this->registry->isDisabled($definition->name)) {
+            return ToolResult::error(
+                'tool_disabled',
+                sprintf('%s has been turned off by an administrator. Say so and stop.', $definition->name),
+            );
+        }
+
+        $callable = $this->planner->callable($context);
+
+        if (!isset($callable[$definition->name])) {
+            $unmet = $this->prerequisites->unmet($context, $definition);
+
+            if ($unmet !== []) {
+                $this->discoveryLog->unreachable(
+                    $context,
+                    $definition->name,
+                    AiToolDiscovery::EVENT_UNAVAILABLE,
+                    'Called before its prerequisite was met.',
+                );
+
+                return ToolResult::error(
+                    'prerequisite_required',
+                    sprintf('%s is not usable yet. %s Call %s first.', $definition->name, $unmet[0]['reason'], $unmet[0]['tool']),
+                    retryable: true,
+                    fields: ['requires' => $unmet],
+                );
+            }
+
+            $this->discoveryLog->unreachable(
+                $context,
+                $definition->name,
+                AiToolDiscovery::EVENT_UNAVAILABLE,
+                'Called without the permission it needs.',
+            );
+
+            return ToolResult::error(
+                'tool_not_permitted',
+                sprintf(
+                    '%s exists, but this account cannot use it here. Tell the user what permission it needs '
+                        . 'rather than looking for another way round.',
+                    $definition->name,
+                ),
+            );
+        }
+
+        // Reachable and permitted, just not loaded. Pin it and say so.
+        $context->pin($definition->name, 'called before it was loaded');
+        $this->discoveryLog->unreachable(
+            $context,
+            $definition->name,
+            AiToolDiscovery::EVENT_NOT_LOADED,
+            'Called before it was loaded; pinned for the next step.',
+        );
+
+        return ToolResult::error(
+            'tool_not_loaded',
+            sprintf('%s was not loaded yet. It is now — call it again.', $definition->name),
+            retryable: true,
+        );
     }
 
     /**
@@ -775,8 +822,20 @@ class AgentRunner
             AdminTools::ASSIST_SERVER => $this->openAssist($context, $arguments, $emit),
             AdminTools::ASSIST_ALLOW_WRITES => $this->escalateAssist($context, $arguments, $emit),
             SharedTools::BATCH => $this->runBatch($context, $call, $arguments, $approvedRisk, $emit),
+            // Discovery runs here rather than being intercepted earlier, so it
+            // goes through validation and the disable list like everything else.
+            // An operator who turns off `search_tools` gets an agent with a fixed
+            // working set, which is a coherent thing to want and would not be
+            // possible if the runner special-cased it.
+            SharedTools::SEARCH_TOOLS => $this->discovery->search(
+                $context,
+                $arguments,
+                $this->maxTools(),
+                $this->budget->results(),
+            ),
+            SharedTools::LOAD_TOOLS => $this->discovery->load($context, $arguments, $this->maxTools()),
             default => ToolResult::error(
-                'unknown_tool',
+                'tool_not_found',
                 sprintf('There is no tool called "%s" available here.', $definition->name),
             ),
         };
@@ -983,8 +1042,9 @@ class AgentRunner
             // that is itself waiting to be approved, and the assist tools would
             // let one click both open a session on a customer's server and change
             // things on it, where those changes were written before the model had
-            // seen anything on that server. `activate_tool_group` never resolves
-            // here at all, so it is caught above as an unknown name.
+            // seen anything on that server. The discovery tools are excluded for a
+            // duller reason: a batch is fixed when the card is drawn, so loading a
+            // tool inside one could not affect any of its siblings anyway.
             if ($definition->hostHandled) {
                 return ToolResult::error('not_batchable', sprintf(
                     'Call %d (%s) cannot go in a batch — it needs the user before it can do anything. '
@@ -1728,162 +1788,6 @@ class AgentRunner
         );
     }
 
-    /**
-     * Tools that are never subject to the cap.
-     *
-     * `ask_user` is the agent's way out of a position it cannot otherwise leave,
-     * and `batch` is how it makes more than one change without asking the user
-     * twenty times; neither is a capability, so spending cap budget on them
-     * defeats the mechanism the budget exists to serve. `activate_tool_group`
-     * needs no entry here: the registry appends it after the cap has already
-     * run, in `toAiTools()`.
-     *
-     * Ordering these last and letting `array_slice()` take the tail meant that
-     * on a server turn with a fully-permissioned user the offered set came to
-     * exactly one over the cap, and the tool that was dropped was
-     * `activate_tool_group` — so every grouped tool became unreachable, on the
-     * surface where most of them live. It failed upward, too: a user with fewer
-     * permissions offered fewer tools, came in under the cap, and kept the
-     * meta-tool the owner had lost.
-     */
-    private const UNCAPPED_TOOLS = [
-        SharedTools::ASK_USER,
-        SharedTools::BATCH,
-    ];
-
-    /**
-     * Keep the offered set small. Local models degrade sharply once too many
-     * tools are in play — a 3B model given twenty schemas tends to call the
-     * first one that parses rather than the one that fits.
-     *
-     * Inert on a default install, and that is the intent: `groupsInPlay()` only
-     * withholds a group once the catalogue has already overrun the cap, so by
-     * the time anything reaches here under normal settings it fits. What follows
-     * is the behaviour after an operator has lowered `max_tools` far enough that
-     * something genuinely has to go.
-     *
-     * **The base set is reserved; only groups are capped.** Those two halves
-     * fail differently and that asymmetry is the whole design. A missing read is
-     * indistinguishable to the model from a capability the panel does not have,
-     * so it stops and says it cannot help — while a group that only partly
-     * loaded is a fact the model can be *told*, and `activationReport()` tells
-     * it. One failure is silent and terminal, the other is legible and
-     * recoverable, so the budget is spent on the side that can recover.
-     *
-     * The base set overrunning the cap on its own is a real configuration — an
-     * operator who set `max_tools` to 8 for a small model — and there is no good
-     * answer to it, so it truncates and warns rather than quietly exceeding what
-     * the operator asked for.
-     *
-     * @param ToolDefinition[] $definitions
-     *
-     * @return ToolDefinition[]
-     */
-    protected function capDefinitions(AgentContext $context, array $definitions): array
-    {
-        $max = $this->maxTools();
-
-        $reserved = [];
-        $base = [];
-        $grouped = [];
-
-        foreach ($definitions as $definition) {
-            if (in_array($definition->name, self::UNCAPPED_TOOLS, true)) {
-                $reserved[] = $definition;
-            } elseif ($definition->group === null) {
-                $base[] = $definition;
-            } else {
-                $grouped[] = $definition;
-            }
-        }
-
-        if (count($base) > $max) {
-            $this->warnCap($context, $max, array_slice($base, $max));
-
-            return array_merge(array_slice($base, 0, $max), $reserved);
-        }
-
-        $room = $max - count($base);
-
-        if (count($grouped) > $room) {
-            $this->warnCap($context, $max, array_slice($grouped, $room));
-        }
-
-        return array_merge($base, array_slice($grouped, 0, $room), $reserved);
-    }
-
-    /**
-     * Say once per turn that the cap bit, and on what.
-     *
-     * Latched on the context because `capDefinitions()` runs per step: an
-     * over-cap turn would otherwise write the same warning up to twelve times.
-     * Silence is not an option either — it is how the truncation went unnoticed
-     * in the first place, since the model simply behaves as though a capability
-     * does not exist, which reads exactly like it not being configured.
-     *
-     * @param ToolDefinition[] $dropped
-     */
-    private function warnCap(AgentContext $context, int $max, array $dropped): void
-    {
-        $names = array_map(fn (ToolDefinition $d) => $d->name, $dropped);
-        $signature = implode(',', $names);
-
-        if (in_array($signature, $context->capWarnings, true)) {
-            return;
-        }
-
-        $context->capWarnings[] = $signature;
-
-        Log::warning(sprintf(
-            'AI agent tool cap reached (max_tools=%d): dropped %d tool(s) — %s',
-            $max,
-            count($names),
-            implode(', ', $names)
-        ));
-    }
-
-    /**
-     * What activating a group actually loaded.
-     *
-     * The model is told rather than left to infer, because the alternative is
-     * indistinguishable from the activation having failed: it asks for
-     * "backups", the next step offers no backup tools, and the only conclusion
-     * available to it is that the panel is broken. Naming what did not fit also
-     * gives it something to act on — dropping a group it no longer needs is a
-     * move it can make, and cannot make blind.
-     *
-     * @return array<string, mixed>
-     */
-    protected function activationReport(AgentContext $context, string $group): array
-    {
-        [$definitions] = $this->offerings($context);
-        $capped = $this->capDefinitions($context, $definitions);
-
-        $loaded = [];
-        foreach ($capped as $definition) {
-            if ($definition->group === $group) {
-                $loaded[] = $definition->name;
-            }
-        }
-
-        $missing = [];
-        foreach ($definitions as $definition) {
-            if ($definition->group === $group && !in_array($definition->name, $loaded, true)) {
-                $missing[] = $definition->name;
-            }
-        }
-
-        $report = ['activated' => $group, 'tools' => $loaded];
-
-        if ($missing !== []) {
-            $report['not_loaded'] = $missing;
-            $report['note'] = 'This turn is at its tool limit, so those did not fit. Use what loaded, or '
-                . 'say which one you need and why.';
-        }
-
-        return $report;
-    }
-
     /*
     |--------------------------------------------------------------------------
     | Limits
@@ -1977,9 +1881,18 @@ class AgentRunner
         return microtime(true);
     }
 
+    /**
+     * How many complete tool schemas the model may be offered in one step.
+     *
+     * Delegated to `ToolBudget`, which reads `agent:max_tools` when an operator
+     * has set one and otherwise works it out from the model. The setting used to
+     * default to 32 for everybody, which was a guess made once on behalf of every
+     * deployment — and a bad one for the small local models the panel is most
+     * often run against.
+     */
     protected function maxTools(): int
     {
-        return max(4, (int) $this->setting('agent:max_tools', config('modules.ai.agent.max_tools', 32)));
+        return $this->budget->schemas();
     }
 
     /**
