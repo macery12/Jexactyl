@@ -9,6 +9,9 @@ Route::middleware([AdminSubject::class])->group(function () {
 
     Route::get('/overview', [Application\OverviewController::class, 'index']);
     Route::get('/queues', [Application\QueueHealthController::class, 'index']);
+    Route::get('/queues/failed', [Application\QueueHealthController::class, 'failed']);
+    Route::get('/queues/failed/{uuid}', [Application\QueueHealthController::class, 'show']);
+    Route::post('/queues/failed/{uuid}/retry', [Application\QueueHealthController::class, 'retry']);
 
     Route::get('/activity', Application\ActivityLogController::class);
     Route::get('/activity/users', [Application\ActivityLogController::class, 'users']);

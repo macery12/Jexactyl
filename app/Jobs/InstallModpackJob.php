@@ -697,7 +697,12 @@ BASH;
     }
 
     /** Stream-download a URL to a local path. */
-    private function downloadFile(string $url, string $destPath): void
+    /**
+     * Protected rather than private so the resume test can substitute a fixture:
+     * `Http::fake()` does not honour `sink()`, so a faked download writes an
+     * empty file and the manifest read fails before any resume logic runs.
+     */
+    protected function downloadFile(string $url, string $destPath): void
     {
         $handle = fopen($destPath, 'w');
         if (!$handle) {

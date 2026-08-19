@@ -40,6 +40,7 @@ class QueueHealthService
         private QueueTopology $topology,
         private QueueWorkerHeartbeat $heartbeat,
         private HorizonEnvironmentGuard $guard,
+        private QueueWaitEstimator $waits,
         private CacheRepository $cache,
     ) {
     }
@@ -106,19 +107,40 @@ class QueueHealthService
         $workload = $this->workloadByQueue();
         $consumed = $this->heartbeat->consumedQueues();
         $masters = $this->masters();
+        $supervisors = $this->supervisors();
 
         $lanes = [];
         $totalDepth = 0;
+        $clearMs = [];
 
         foreach ($this->topology->lanes() as $lane => $queue) {
             $entry = $workload[$queue] ?? [];
 
-            // Horizon derives workload from its running supervisors, so it
-            // reports nothing at all when Horizon is down -- which is exactly
-            // when an operator most needs to see how much work is piling up.
-            // Fall back to asking the driver directly.
-            $depth = $entry['length'] ?? $this->depthFromDriver($lane, $queue);
+            // Depth is always asked of the driver, so the number means one
+            // thing. Horizon reports `readyNow` -- jobs available this instant
+            // -- while the driver's size() also counts delayed and reserved
+            // ones, so taking whichever happened to be present made the column
+            // silently change meaning when Horizon restarted. Report both:
+            // `depth` is everything on the lane, `ready` is what a worker could
+            // pick up right now, and the gap between them is work that is
+            // either in flight or not due yet.
+            $depth = $this->depthFromDriver($lane, $queue);
+            $ready = $entry['length'] ?? null;
             $totalDepth += max(0, (int) $depth);
+
+            $metrics = $this->windowed('queue', $queue, true);
+
+            // Milliseconds to drain what is queued, before priority ordering
+            // and process count are applied. Null means *unknowable*, not zero:
+            // a lane holding work with no runtime sample yet cannot be
+            // estimated, and reporting 0s there is precisely how the previous
+            // figure hid real backlogs.
+            $pending = max(0, (int) ($ready ?? $depth));
+            $clearMs[$queue] = match (true) {
+                $pending === 0 => 0.0,
+                $metrics['avgRuntimeMs'] === null => null,
+                default => $pending * (float) $metrics['avgRuntimeMs'],
+            };
 
             $lanes[] = [
                 'lane' => $lane,
@@ -129,10 +151,17 @@ class QueueHealthService
                 'expected' => $this->topology->isExpected($lane),
                 'consumed' => in_array($queue, $consumed, true),
                 'depth' => $depth,
-                'waitSeconds' => $entry['wait'] ?? null,
+                'ready' => $ready,
                 'processes' => $entry['processes'] ?? null,
-                ...$this->windowed('queue', $queue),
+                'waitThresholdSeconds' => $this->waits->thresholdFor($lane, $queue),
+                ...$metrics,
             ];
+        }
+
+        $waits = $this->waits->estimate($clearMs, $supervisors);
+
+        foreach ($lanes as $index => $lane) {
+            $lanes[$index]['waitSeconds'] = $waits[$lane['queue']] ?? null;
         }
 
         return [
@@ -145,7 +174,7 @@ class QueueHealthService
                 'running' => $masters !== [],
                 'paused' => $masters !== [] && collect($masters)->every(fn ($m) => ($m['status'] ?? null) === 'paused'),
                 'masters' => $masters,
-                'supervisors' => $this->supervisors(),
+                'supervisors' => $supervisors,
             ],
             // How far back the throughput figures reach, so the page can label
             // them rather than implying they are all-time totals.
@@ -190,17 +219,38 @@ class QueueHealthService
         }
 
         foreach ($lanes as $lane) {
-            if ($lane['consumed'] || !$lane['expected']) {
+            if (!$lane['expected']) {
                 continue;
             }
 
-            $warnings[] = [
-                'code' => 'lane_without_consumer',
-                'severity' => ((int) $lane['depth']) > 0 ? 'critical' : 'warning',
-                'message' => ((int) $lane['depth']) > 0
-                    ? "The [{$lane['lane']}] queue has {$lane['depth']} job(s) waiting and no worker consuming it."
-                    : "No worker is consuming the [{$lane['lane']}] queue. Work routed there would never run.",
-            ];
+            if (!$lane['consumed']) {
+                $warnings[] = [
+                    'code' => 'lane_without_consumer',
+                    'severity' => ((int) $lane['depth']) > 0 ? 'critical' : 'warning',
+                    'message' => ((int) $lane['depth']) > 0
+                        ? "The [{$lane['lane']}] queue has {$lane['depth']} job(s) waiting and no worker consuming it."
+                        : "No worker is consuming the [{$lane['lane']}] queue. Work routed there would never run.",
+                ];
+
+                continue;
+            }
+
+            // A lane can have a live worker and still be losing ground, which
+            // queue depth alone does not say -- ten jobs is nothing on `mail`
+            // and a serious backlog on `mods`. `horizon.waits` already carries a
+            // per-lane target for exactly this, and it is only a warning: a busy
+            // lane is not a broken one, and must not fail a monitoring check.
+            if ($lane['waitThresholdSeconds'] === null || $lane['waitSeconds'] === null) {
+                continue;
+            }
+
+            if ($lane['waitSeconds'] > $lane['waitThresholdSeconds']) {
+                $warnings[] = [
+                    'code' => 'lane_backing_up',
+                    'severity' => 'warning',
+                    'message' => "The [{$lane['lane']}] queue needs an estimated {$lane['waitSeconds']}s to clear, past its {$lane['waitThresholdSeconds']}s target. Work routed there is being delayed.",
+                ];
+            }
         }
 
         return $warnings;
@@ -342,9 +392,14 @@ class QueueHealthService
      * These reads hit Redis and can fail independently of the rest of the
      * snapshot; a missing number must not cost the whole page.
      *
-     * @return array{processed: ?int, avgRuntimeMs: ?float, windowMinutes: ?int}
+     * The same snapshots also carry the shape of the window, not just its total,
+     * so `$withSeries` returns them as a plain time series for the page to draw.
+     * They are already fetched either way -- summing them and throwing the
+     * points away was wasting the more useful half.
+     *
+     * @return array{processed: ?int, avgRuntimeMs: ?float, windowMinutes: ?int, series?: list<array{time: int, throughput: int, runtimeMs: float}>}
      */
-    private function windowed(string $type, string $name): array
+    private function windowed(string $type, string $name, bool $withSeries = false): array
     {
         try {
             $metrics = app(MetricsRepository::class);
@@ -355,10 +410,11 @@ class QueueHealthService
         } catch (\Throwable $e) {
             Log::debug('QueueHealthService: could not read Horizon metrics', ['name' => $name, 'error' => $e->getMessage()]);
 
-            return ['processed' => null, 'avgRuntimeMs' => null, 'windowMinutes' => null];
+            return ['processed' => null, 'avgRuntimeMs' => null, 'windowMinutes' => null] + ($withSeries ? ['series' => []] : []);
         }
 
         $earliest = null;
+        $series = [];
 
         foreach ($snapshots as $snapshot) {
             $count = (int) ($snapshot->throughput ?? 0);
@@ -370,13 +426,21 @@ class QueueHealthService
             if ($time > 0 && ($earliest === null || $time < $earliest)) {
                 $earliest = $time;
             }
+
+            $series[] = [
+                'time' => $time,
+                'throughput' => $count,
+                'runtimeMs' => round((float) ($snapshot->runtime ?? 0), 2),
+            ];
         }
+
+        usort($series, fn (array $a, array $b) => $a['time'] <=> $b['time']);
 
         return [
             'processed' => $processed,
             'avgRuntimeMs' => $processed > 0 ? round($runtimeSum / $processed, 2) : null,
             'windowMinutes' => $earliest === null ? null : max(1, (int) round((time() - $earliest) / 60)),
-        ];
+        ] + ($withSeries ? ['series' => $series] : []);
     }
 
     /**

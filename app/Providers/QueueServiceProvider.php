@@ -10,6 +10,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Everest\Services\Queue\QueueTopology;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\RateLimiter;
+use Everest\Services\Queue\QueueWaitEstimator;
 use Illuminate\Console\Events\CommandStarting;
 use Everest\Services\Queue\QueueWorkerHeartbeat;
 use Everest\Services\Queue\HorizonEnvironmentGuard;
@@ -39,6 +40,8 @@ class QueueServiceProvider extends ServiceProvider
         $this->app->singleton(HorizonEnvironmentGuard::class, fn ($app) => new HorizonEnvironmentGuard($app['config'], $app['cache']->store()));
 
         $this->app->singleton(QueueWorkerHeartbeat::class, fn ($app) => new QueueWorkerHeartbeat($app['cache']->store()));
+
+        $this->app->singleton(QueueWaitEstimator::class, fn ($app) => new QueueWaitEstimator($app['config'], $app->make(QueueTopology::class)));
     }
 
     public function boot(): void

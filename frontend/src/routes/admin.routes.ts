@@ -126,7 +126,7 @@ export const adminRoutes: RouteDef[] = [
 
     // Background work. Sits under Management rather than General because it is
     // about the machinery, not the panel's own settings.
-    route('queues', { name: 'Queues', icon: ListOrdered, category: 'management', permission: 'overview.read', end: true, element: QueuesPage }),
+    route('queues', { name: 'Queues', icon: ListOrdered, category: 'management', permission: 'queues.read', end: true, element: QueuesPage }),
     // Legacy paths redirect into the merged Infrastructure section (hidden from nav).
     route('nodes/*', { element: NodesRedirect }),
     route('servers/*', { element: ServersRedirect }),

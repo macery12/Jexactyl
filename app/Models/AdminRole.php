@@ -74,6 +74,9 @@ class AdminRole extends Model
 
     public const ACTIVITY_READ = 'activity.read';
 
+    public const QUEUES_READ = 'queues.read';
+    public const QUEUES_RETRY = 'queues.retry';
+
     public const API_READ = 'api.read';
     public const API_CREATE = 'api.create';
     public const API_DELETE = 'api.delete';
@@ -232,6 +235,13 @@ class AdminRole extends Model
             'description' => 'Permissions to allow admins to see activity logs.',
             'keys' => [
                 'read' => 'View the admin activity logs.',
+            ],
+        ],
+        'queues' => [
+            'description' => 'Permissions to inspect background workers and recover failed jobs.',
+            'keys' => [
+                'read' => 'View queue health, worker status, and the failed-job list.',
+                'retry' => 'Re-dispatch a failed job onto its queue.',
             ],
         ],
         'api' => [

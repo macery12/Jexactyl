@@ -159,6 +159,36 @@ class ProcessDeferredEmailsJobTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
+    /**
+     * The acceptance criterion stated directly: two runs over the same rows,
+     * each email out exactly once. The claim tests above simulate a concurrent
+     * holder; this one runs the job for real, twice, which is what the
+     * `everyFiveMinutes()` schedule does when one tick overruns the next.
+     */
+    public function testTwoRunsOverTheSameRowsDispatchEachEmailExactlyOnce(): void
+    {
+        Bus::fake();
+
+        foreach (['one@example.com', 'two@example.com', 'three@example.com'] as $recipient) {
+            DeferredEmail::create([
+                'user_id' => 1,
+                'template_key' => 'auth.password_reset',
+                'recipient' => $recipient,
+                'data' => ['token' => $recipient],
+                'correlation_id' => (string) Str::uuid(),
+                'reason' => 'daily_limit',
+                'scheduled_at' => now()->subMinute(),
+                'attempts' => 0,
+            ]);
+        }
+
+        (new ProcessDeferredEmailsJob())->handle(app(EmailDeliveryTracker::class));
+        (new ProcessDeferredEmailsJob())->handle(app(EmailDeliveryTracker::class));
+
+        Bus::assertDispatchedTimes(SendEmailJob::class, 3);
+        $this->assertSame(0, DeferredEmail::query()->whereNull('sent_at')->count());
+    }
+
     public function testAnExpiredClaimIsReclaimedSoTheEmailIsNotStranded(): void
     {
         Bus::fake();
