@@ -723,7 +723,8 @@ class SchemaReconciler
     /**
      * Render a column back into SQL from the structured facts the baseline
      * parsed out of the dump. Clause order follows MySQL's column definition
-     * grammar: type, collation, nullability, default, attributes, comment.
+     * grammar: type, collation, nullability, default, attributes, comment,
+     * check.
      */
     private function columnDefinition(string $column, array $definition): string
     {
@@ -745,6 +746,13 @@ class SchemaReconciler
 
         if ($definition['comment'] !== '') {
             $sql .= " COMMENT '" . str_replace("'", "''", $definition['comment']) . "'";
+        }
+
+        // Carried through on all three paths that use this — creating a table,
+        // adding a column, correcting one — because MariaDB accepts an inline
+        // CHECK on each, and a JSON column is only a JSON column because of it.
+        if (($definition['check'] ?? '') !== '') {
+            $sql .= ' CHECK (' . $definition['check'] . ')';
         }
 
         return $sql;
