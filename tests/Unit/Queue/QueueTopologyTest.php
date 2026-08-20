@@ -26,6 +26,78 @@ use Illuminate\Contracts\Queue\ShouldQueue;
  */
 class QueueTopologyTest extends TestCase
 {
+    /**
+     * Jobs here are dispatched two ways: statically, `SomeJob::dispatch(...)`,
+     * which needs `Dispatchable`; and as an instance, `dispatch(new SomeJob)`,
+     * which needs nothing. `Everest\Jobs\Job` supplies `Queueable` only, so the
+     * first style fails on a job that never took the trait — and it fails at
+     * the call site, at runtime, with "call to undefined method", long after
+     * every other check in this file has passed the job as sound.
+     *
+     * Asserted against the call sites rather than against every job, because
+     * the trait is not universally correct: `RunTaskJob` dispatches its
+     * successor through `DispatchesJobs::dispatch()`, an instance method of the
+     * same name that `Dispatchable` would collide with.
+     */
+    public function testEveryStaticDispatchCallSiteNamesADispatchableJob(): void
+    {
+        $sites = $this->staticDispatchCallSites();
+
+        $this->assertNotEmpty($sites, 'No static dispatch call sites were found — the test is not actually checking anything.');
+
+        foreach ($sites as [$job, $file, $method]) {
+            $reflection = new \ReflectionClass($job);
+
+            $this->assertTrue(
+                $reflection->hasMethod($method) && $reflection->getMethod($method)->isStatic(),
+                "{$file} calls {$job}::{$method}(), which does not exist. Add `use Illuminate\\Foundation\\Bus\\Dispatchable;` to the job, or dispatch it as an instance."
+            );
+        }
+    }
+
+    /**
+     * Every `SomeJob::dispatch*()` in app/, resolved through the calling file's
+     * own imports so a short name is never guessed at.
+     *
+     * @return list<array{0: class-string, 1: string, 2: string}>
+     */
+    private function staticDispatchCallSites(): array
+    {
+        $sites = [];
+
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator(base_path('app')));
+
+        foreach ($iterator as $file) {
+            if (!$file->isFile() || $file->getExtension() !== 'php') {
+                continue;
+            }
+
+            $source = (string) file_get_contents($file->getPathname());
+            $relative = Str::of($file->getPathname())->after(base_path() . '/')->toString();
+
+            preg_match_all('/^use ([^\s;]+);$/m', $source, $imports);
+
+            $resolved = [];
+            foreach ($imports[1] as $import) {
+                $resolved[Str::afterLast($import, '\\')] = $import;
+            }
+
+            preg_match_all('/(?<![\w\\$>])([A-Z]\w+)::(dispatch\w*)\(/', $source, $calls, PREG_SET_ORDER);
+
+            foreach ($calls as [, $short, $method]) {
+                $class = $resolved[$short] ?? null;
+
+                if ($class !== null && class_exists($class) && is_subclass_of($class, ShouldQueue::class)) {
+                    $sites[] = [$class, $relative, $method];
+                }
+            }
+        }
+
+        sort($sites);
+
+        return $sites;
+    }
+
     public function testEveryQueuedJobIsRoutedToAKnownLane(): void
     {
         $lanes = array_keys($this->topology()->lanes());

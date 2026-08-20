@@ -17,6 +17,7 @@ use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
 use Everest\Services\AI\Agent\AgentEventLog;
 use Everest\Services\AI\Agent\TurnAuthority;
 use Everest\Services\AI\Inference\InferenceGate;
@@ -54,6 +55,7 @@ use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
  */
 class RunAgentTurnJob extends Job implements ShouldQueue
 {
+    use Dispatchable;
     use HandlesAgentTurns;
     use InteractsWithQueue;
     use SerializesModels;
