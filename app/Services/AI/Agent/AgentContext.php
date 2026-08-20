@@ -141,6 +141,30 @@ class AgentContext
      */
     public bool $cancelled = false;
 
+    /**
+     * The turn stopped because the authority behind it lapsed, not because the
+     * user pressed Stop.
+     *
+     * Distinguished from `$cancelled` only in what it is called, because the two
+     * want identical handling and opposite wording: both end the turn cleanly at
+     * a boundary, and one of them is the user's own decision while the other is
+     * the panel withdrawing a session that is no longer signed in. Reporting a
+     * revocation as "you stopped this" would be a lie the transcript keeps.
+     */
+    public bool $revoked = false;
+
+    /**
+     * Re-derives whether this turn may still act, or null when nothing can
+     * revoke it.
+     *
+     * Only a durable turn carries one. A request-bound turn cannot outlive the
+     * session that authorized it — the request *is* the session — so there is
+     * nothing to re-check and the closure is absent rather than trivially true.
+     *
+     * @var (\Closure(): bool)|null
+     */
+    public ?\Closure $authorityCheck = null;
+
     /** Tool-call events emitted across every suspension leg of this turn. */
     public int $toolCalls = 0;
 

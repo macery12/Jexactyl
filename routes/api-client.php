@@ -228,6 +228,11 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
         Route::post('/ai/agent/decide', [Client\Servers\AgentController::class, 'decide']);
         Route::get('/ai/agent/pending', [Client\Servers\AgentController::class, 'pending']);
         Route::get('/ai/agent/turns/{turnId}', [Client\Servers\AgentController::class, 'turnStatus']);
+        // Rejoining a durable turn. `active` is what a freshly loaded page asks
+        // to discover there is one at all; `stream` replays from the cursor the
+        // client presents and then follows the turn live.
+        Route::get('/ai/agent/active', [Client\Servers\AgentController::class, 'activeTurn']);
+        Route::get('/ai/agent/turns/{turnId}/stream', [Client\Servers\AgentController::class, 'stream']);
         // Stopping a turn and giving up a queue place are separate because the
         // two states are: a queued turn has a ticket and no turn id, and
         // nothing of it has run.

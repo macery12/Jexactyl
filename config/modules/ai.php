@@ -138,6 +138,29 @@ return [
         'max_wall_seconds' => env('AI_AGENT_MAX_WALL_SECONDS', 180),
 
         /*
+         * Run turns on a queue worker instead of inside the request that
+         * started them.
+         *
+         * With this off, a turn lives and dies with its HTTP request: closing
+         * the tab ends it, and whether it survives a navigation at all depends
+         * on when the proxy propagates the disconnect. With it on, the request
+         * only starts the turn and hands back a turn id; execution, the event
+         * log and every terminal transition belong to `RunAgentTurnJob`, and
+         * the browser reads the turn through a relay it can rejoin.
+         *
+         * On by default. It needs a staffed `agent` queue lane, which
+         * `QueueServiceProvider` sizes from this very flag, so a default
+         * install staffs itself -- but Horizon has to be running the current
+         * config for that to be true. After an upgrade that means restarting
+         * it; a lane nobody drains accepts turns and never runs them.
+         *
+         * Turn this off if the install genuinely runs no queue worker. Turns
+         * then live and die with their HTTP request again, which is worse but
+         * not broken.
+         */
+        'durable' => env('AI_AGENT_DURABLE', true),
+
+        /*
          * Ceiling on a single tool call.
          *
          * The wall clock above is checked between steps, which is no help at all

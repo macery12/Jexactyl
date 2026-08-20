@@ -411,7 +411,7 @@ class InferenceGateTest extends TestCase
     {
         $oldLock = Cache::lock('ai:test:owned-slot', 1);
         $this->assertTrue($oldLock->get());
-        $oldLease = TurnLease::held(0, $oldLock, fn () => null);
+        $oldLease = TurnLease::held(0, $oldLock, ['ownerKey' => '', 'token' => ''], fn () => null);
 
         $this->travel(2)->seconds();
         $replacement = Cache::lock('ai:test:owned-slot', 30);

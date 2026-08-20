@@ -138,6 +138,7 @@ return [
         'mail' => env('QUEUE_MAIL', 'mail'),
         'dns' => env('QUEUE_DNS', 'dns'),
         'mods' => env('QUEUE_MODS', 'mods'),
+        'agent' => env('QUEUE_AGENT', 'agent'),
         'standard' => env('QUEUE_STANDARD', 'standard'),
     ],
 
@@ -148,7 +149,7 @@ return [
     | short `retry_after` and hand a still-running job to a second worker.
     */
 
-    'long_lanes' => ['mods'],
+    'long_lanes' => ['mods', 'agent'],
 
     /*
     | Lanes that only need a worker when a module is switched on. The mods
@@ -161,6 +162,12 @@ return [
 
     'lane_requires' => [
         'mods' => 'modules.mods.enabled',
+
+        // Durable agent turns, not the agent itself. On an install that has
+        // deliberately switched execution back to request-bound, nothing is ever
+        // dispatched here and an unstaffed lane is the correct state rather
+        // than a fault to report.
+        'agent' => 'modules.ai.agent.durable',
     ],
 
     /*
@@ -196,6 +203,8 @@ return [
 
         Everest\Jobs\InstallModpackJob::class => 'mods',
         Everest\Jobs\DownloadModJob::class => 'mods',
+
+        Everest\Jobs\AI\RunAgentTurnJob::class => 'agent',
     ],
 
     /*

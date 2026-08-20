@@ -15,12 +15,36 @@ class AiBudgetReservation
     private function __construct(
         public readonly bool $passthrough,
         private ?\Closure $onRelease = null,
+        private ?int $userId = null,
+        private ?string $token = null,
     ) {
     }
 
-    public static function held(\Closure $onRelease): self
+    public static function held(\Closure $onRelease, ?int $userId = null, ?string $token = null): self
     {
-        return new self(false, $onRelease);
+        return new self(false, $onRelease, $userId, $token);
+    }
+
+    /**
+     * A description of this reservation that survives leaving the process.
+     *
+     * A durable turn reserves budget in the request and releases it in a worker,
+     * so the closure above cannot be the thing that travels. The token can:
+     * release is already token-qualified, which is what stops a late cleanup
+     * from an expired worker deleting the replacement reservation — the same
+     * property that makes releasing from another process safe.
+     *
+     * Null for a passthrough reservation, which holds no row to delete.
+     *
+     * @return array{user_id: int, token: string}|null
+     */
+    public function handle(): ?array
+    {
+        if ($this->passthrough || $this->userId === null || $this->token === null) {
+            return null;
+        }
+
+        return ['user_id' => $this->userId, 'token' => $this->token];
     }
 
     public static function passthrough(): self

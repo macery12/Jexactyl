@@ -143,7 +143,7 @@ class QueueServiceProvider extends ServiceProvider
     }
 
     /**
-     * Staff the mods supervisor only when mods are actually enabled.
+     * Staff the conditional supervisors only when their lane can receive work.
      *
      * This has to happen in a `booted` callback rather than in
      * config/horizon.php. Module flags can be toggled by an admin at runtime,
@@ -159,10 +159,37 @@ class QueueServiceProvider extends ServiceProvider
     private function sizeConditionalSupervisors(): void
     {
         $this->app->booted(function () {
-            $expected = $this->app->make(QueueTopology::class)->isExpected('mods');
+            $topology = $this->app->make(QueueTopology::class);
 
-            config(['horizon.defaults.supervisor-mods.processes' => $expected ? 1 : 0]);
+            config([
+                'horizon.defaults.supervisor-mods.processes' => $topology->isExpected('mods') ? 1 : 0,
+
+                // Agent turns are long and mostly blocked, so one process is one
+                // concurrent turn. Sized against the inference concurrency the
+                // gate already enforces rather than against CPU: staffing more
+                // workers than there are inference slots only moves the queue
+                // from Redis into the provider.
+                'horizon.defaults.supervisor-agent.processes' => $topology->isExpected('agent')
+                    ? $this->agentProcesses()
+                    : 0,
+            ]);
         });
+    }
+
+    /**
+     * How many agent workers to run.
+     *
+     * `concurrency.slots` is nullable and means "derive it from the model
+     * probe", which cannot be done here — a queue worker must not depend on the
+     * inference backend being reachable at boot. When it is unset, one process
+     * is the honest floor: turns still run, they just queue against each other
+     * through the gate the same way they already do.
+     */
+    private function agentProcesses(): int
+    {
+        $slots = config('modules.ai.concurrency.slots');
+
+        return is_numeric($slots) ? max(1, min(8, (int) $slots)) : 1;
     }
 
     /**

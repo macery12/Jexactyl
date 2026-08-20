@@ -1,11 +1,20 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import { m } from '@/i18n';
-import type { AgentEvent, AgentStreamCallbacks, AiApprovalPreview, AiRisk } from '@/lib/aiStream';
+import type {
+    ActiveAgentTurn,
+    AgentEvent,
+    AgentStreamCallbacks,
+    AiApprovalPreview,
+    AiRisk,
+} from '@/lib/aiStream';
 import {
     cancelAgentTurn,
+    getActiveAgentTurn,
     getAgentTurnStatus,
+    loadConversation,
     releaseAgentQueue,
     streamAgentDecision,
+    streamAgentRelay,
     streamAgentTurn,
     type AgentTurnStatus,
     type StoredMessage,
@@ -181,6 +190,27 @@ export interface AgentChatAdapter {
     cancelTurn: (target: string, turnId: string) => Promise<void>;
     /** Hand back a queue place instead of letting it lapse. */
     releaseQueue: (target: string, ticket: string) => Promise<void>;
+    /**
+     * Read a durable turn from a cursor, live.
+     *
+     * Distinct from `startTurn` because it starts nothing: the turn is already
+     * running somewhere else, and this is a view of it that can be opened and
+     * closed freely.
+     */
+    relayTurn: (
+        target: string,
+        turnId: string,
+        after: number,
+        callbacks: AgentStreamCallbacks,
+        signal: AbortSignal,
+    ) => void;
+    /** The turn this user already has in flight, if any. */
+    activeTurn: (target: string) => Promise<ActiveAgentTurn | null>;
+    /** The stored transcript of a conversation, for rejoining one mid-turn. */
+    fetchTranscript: (
+        target: string,
+        conversationId: number,
+    ) => Promise<{ messages: StoredMessage[]; redactions?: Record<string, string> }>;
 }
 
 export interface AgentChatState {
@@ -207,6 +237,15 @@ export interface AgentChatState {
     toggleDrawer: () => void;
 
     newChat: () => void;
+    /**
+     * Rejoin a turn that is still running from an earlier visit.
+     *
+     * Called when a surface mounts. Does nothing when there is no turn in
+     * flight, which is the common case — the cost of asking is one query, and
+     * the cost of not asking was a page that looked idle while the assistant
+     * was working.
+     */
+    resumeActive: () => void;
     beginTranscriptLoad: (target: string, conversationId: number) => number;
     loadTranscript: (
         target: string,
@@ -230,6 +269,15 @@ export interface AgentChatState {
 
 // No token arriving within this window means a cold model load, not a hang.
 const SLOW_HINT_MS = 5000;
+
+/**
+ * How many times a dropped relay is reopened before the client stops trusting
+ * it and falls back to reconciling against stored state.
+ */
+const RELAY_MAX_RETRIES = 5;
+
+/** Backoff between relay reconnects, multiplied by the attempt number. */
+const RELAY_RETRY_MS = 750;
 
 /**
  * How long the stream may go completely silent before the turn is abandoned.
@@ -277,6 +325,29 @@ export function createAgentChatStore(
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
     let idleLimitMs = STALL_MS;
     let activeTurnId: string | null = null;
+
+    /**
+     * The highest event sequence this client has seen for the active turn.
+     *
+     * A durable turn is read from a log rather than from a socket, so "where am
+     * I" becomes the client's own fact rather than the connection's. It is what
+     * a reconnect presents in order to be sent only what it actually missed.
+     */
+    let cursor = 0;
+
+    /**
+     * Whether the live stream is a relay onto a durable turn rather than the
+     * request that started one.
+     *
+     * The difference only matters when it breaks. A request-bound stream that
+     * drops has taken the turn with it, so the honest response is to reconcile
+     * against stored state. A relay that drops has taken nothing — the turn is
+     * still running — so the honest response is simply to open it again.
+     */
+    let relaying = false;
+
+    /** Reconnect attempts spent on the current relay. */
+    let relayRetries = 0;
     let streamAccepted = false;
     // The queue place this conversation holds, and the attempt that will
     // present it. The panel no longer holds a request open while a turn waits
@@ -873,6 +944,16 @@ export function createAgentChatStore(
             }, idleLimitMs);
         };
 
+        /**
+         * Open a view onto a turn that is already running.
+         *
+         * Assigned rather than declared because `streamCallbacks` closes over it
+         * while being the thing the relay is opened *with* — the two are
+         * mutually recursive by nature, since reconnecting is only ever opening
+         * the same kind of stream again.
+         */
+        let attachRelay: (turnId: string, after: number) => void = () => undefined;
+
         /** Shared teardown for both the start and resume streams. */
         const streamCallbacks = (
             overrides: Partial<Pick<AgentStreamCallbacks, 'onAccepted' | 'onError'>> = {},
@@ -885,6 +966,23 @@ export function createAgentChatStore(
             },
             onTurnId: turnId => {
                 activeTurnId = turnId;
+            },
+            onCursor: seq => {
+                cursor = seq;
+            },
+            onDurable: accepted => {
+                // The turn was handed to a worker: this request is finished and
+                // the turn is not. The stream it is read through is therefore
+                // opened separately, and can be dropped and reopened for the
+                // rest of the turn's life without the turn ever noticing.
+                activeTurnId = accepted.turn_id;
+                streamAccepted = true;
+
+                if (typeof accepted.conversation_id === 'number') {
+                    set({ conversationId: accepted.conversation_id });
+                }
+
+                attachRelay(accepted.turn_id, 0);
             },
             onAccepted: () => {
                 streamAccepted = true;
@@ -912,6 +1010,23 @@ export function createAgentChatStore(
             },
             onError: (error: Error) => {
                 overrides.onError?.(error);
+
+                // A dropped relay is a dropped *reader*. Reopening it from the
+                // cursor is not a retry of anything the turn did — it is the
+                // same read, resumed, which is why closing a laptop mid-turn
+                // costs nothing. Bounded, so a turn whose relay cannot be
+                // opened at all still resolves against stored state rather than
+                // reconnecting forever.
+                if (relaying && activeTurnId !== null && relayRetries < RELAY_MAX_RETRIES) {
+                    ++relayRetries;
+                    const turnId = activeTurnId;
+                    const after = cursor;
+
+                    setTimeout(() => attachRelay(turnId, after), RELAY_RETRY_MS * relayRetries);
+
+                    return;
+                }
+
                 if (streamAccepted && activeTurnId !== null) {
                     reconcileLostStream(error.message);
                 } else if (overrides.onError) {
@@ -921,6 +1036,26 @@ export function createAgentChatStore(
                 }
             },
         });
+
+        attachRelay = (turnId, after) => {
+            const target = get().target;
+
+            if (!target) return;
+
+            cursor = after;
+            activeTurnId = turnId;
+            streamAccepted = true;
+            relaying = true;
+
+            // The start request's controller has already settled; replacing it
+            // is what makes Stop, and a later navigation, abort the *relay*.
+            controller?.abort();
+            controller = new AbortController();
+
+            armStall();
+
+            adapter.relayTurn(target, turnId, after, streamCallbacks(), controller.signal);
+        };
 
         /**
          * Come back for the slot we are queued for.
@@ -957,6 +1092,9 @@ export function createAgentChatStore(
             controller = new AbortController();
             activeTurnId = null;
             streamAccepted = false;
+            relaying = false;
+            relayRetries = 0;
+            cursor = 0;
 
             clearSlowTimer();
             slowTimer = setTimeout(() => set({ slowHint: true }), SLOW_HINT_MS);
@@ -1039,6 +1177,71 @@ export function createAgentChatStore(
 
             setDrawer: open => set({ drawerOpen: open }),
             toggleDrawer: () => set(state => ({ drawerOpen: !state.drawerOpen })),
+
+            resumeActive: () => {
+                const { target, loading } = get();
+
+                if (!target || loading) return;
+
+                void adapter
+                    .activeTurn(target)
+                    .then(active => {
+                        // The surface may have been unbound, or the user may
+                        // have started something else, while this was in flight.
+                        if (!active || get().target !== target || get().loading) return;
+
+                        const attach = () => {
+                            set({
+                                loading: true,
+                                slowHint: false,
+                                queue: null,
+                                step: null,
+                                activity: { phase: 'waiting', startedAt: Date.now() },
+                            });
+
+                            // From the very beginning of the turn rather than
+                            // from its current position: the log holds every
+                            // frame, including the half-written sentence the
+                            // transcript has not stored yet, and joining at the
+                            // end would show its second half without its first.
+                            attachRelay(active.turn_id, 0);
+                        };
+
+                        if (active.conversation_id === null) {
+                            set({ entries: [] });
+                            attach();
+
+                            return;
+                        }
+
+                        const generation = ++transcriptGeneration;
+
+                        adapter
+                            .fetchTranscript(target, active.conversation_id)
+                            .then(({ messages, redactions }) => {
+                                if (generation !== transcriptGeneration || get().target !== target) return;
+
+                                set({
+                                    conversationId: active.conversation_id,
+                                    // Everything after the last thing the user
+                                    // said belongs to the turn that is still
+                                    // running, and the replay is about to
+                                    // produce all of it. Keeping both copies
+                                    // would show the answer twice.
+                                    entries: untilLastUserMessage(fromStored(messages)),
+                                    redactions: redactions ?? {},
+                                });
+
+                                attach();
+                            })
+                            .catch(() => undefined);
+                    })
+                    .catch(() => {
+                        // Not knowing whether a turn is running is not itself
+                        // worth an error in the transcript. The composer stays
+                        // usable, which is the honest fallback.
+                    });
+            },
 
             newChat: () => {
                 if (get().loading) return;
@@ -1316,6 +1519,25 @@ export { restoreRedactions, restoreRedactionsDeep };
  * and their outcome on the tool message that answered, so the two are stitched
  * back together by call id.
  */
+/**
+ * Everything up to and including the last thing the user said.
+ *
+ * Rejoining a live turn means the stored transcript and the replayed event log
+ * overlap: storage has whatever the turn has already finished saying, and the
+ * log is about to say all of it again from the start. This is the seam between
+ * them — the user's own message is the last thing that certainly predates the
+ * turn, so the log owns everything after it.
+ */
+function untilLastUserMessage(entries: ChatEntry[]): ChatEntry[] {
+    for (let index = entries.length - 1; index >= 0; --index) {
+        if (entries[index]?.kind === 'user') {
+            return entries.slice(0, index + 1);
+        }
+    }
+
+    return entries;
+}
+
 function fromStored(messages: StoredMessage[]): ChatEntry[] {
     const pendingArgs = new Map<
         string,
@@ -1411,6 +1633,10 @@ export const useAgentChat = createAgentChatStore({
     reconcileTurn: (uuid, turnId) => getAgentTurnStatus(uuid, turnId),
     cancelTurn: (uuid, turnId) => cancelAgentTurn(uuid, turnId),
     releaseQueue: (uuid, ticket) => releaseAgentQueue(uuid, ticket),
+    relayTurn: (uuid, turnId, after, callbacks, signal) =>
+        streamAgentRelay(uuid, turnId, after, callbacks, signal),
+    activeTurn: uuid => getActiveAgentTurn(uuid),
+    fetchTranscript: (uuid, conversationId) => loadConversation(uuid, conversationId),
 });
 
 /**
@@ -1430,6 +1656,17 @@ export const useAdminAgentChat = createAgentChatStore(
         reconcileTurn: (_target, turnId) => getAdminAgentTurnStatus(turnId),
         cancelTurn: (_target, turnId) => cancelAdminAgentTurn(turnId),
         releaseQueue: (_target, ticket) => releaseAdminAgentQueue(ticket),
+
+        // The admin assistant is still request-bound. Durable execution went to
+        // the customer surface first deliberately: it is the one people leave
+        // and come back to, and assist sessions — an admin acting on someone
+        // else's server under a signed, audited grant — are the part of this
+        // subsystem where moving the authority boundary deserves its own pass.
+        // `activeTurn` answering "none" is what keeps `resumeActive()` inert
+        // here rather than requiring a branch at every call site.
+        relayTurn: () => undefined,
+        activeTurn: () => Promise.resolve(null),
+        fetchTranscript: () => Promise.resolve({ messages: [] }),
     },
     ADMIN_AGENT_TARGET,
 );

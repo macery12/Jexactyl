@@ -4,6 +4,7 @@ namespace Everest\Services\AI\Inference;
 
 use Everest\Models\Setting;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Data\ProviderConfig;
@@ -413,13 +414,49 @@ class InferenceGate
             $lock = Cache::lock(self::SLOT_KEY . $slot, $ttl);
 
             if ($lock->get()) {
-                return TurnLease::held($slot, $lock, function () use ($reservation) {
+                return TurnLease::held($slot, $lock, $reservation, function () use ($reservation) {
                     $this->releaseUser($reservation);
                 });
             }
         }
 
         return null;
+    }
+
+    /**
+     * Release a lease this process never acquired.
+     *
+     * The durable path splits admission from execution: a request takes the
+     * slot so it can turn the caller away before anything has happened, and a
+     * worker gives it back when the turn ends. `Cache::restoreLock()` rebuilds
+     * the lock from its name and owner token, and the owner token is what makes
+     * this safe to call late — a lease that already expired and was retaken
+     * belongs to somebody else, and restoring it with the old owner releases
+     * nothing rather than stealing the new holder's slot.
+     *
+     * Idempotent and never throws: it is called from job teardown, including
+     * the failure paths, where raising would replace the real error.
+     *
+     * @param array{slot: int, owner: string, reservation: array{ownerKey: string, token: string}} $handle
+     */
+    public function releaseHandle(array $handle): void
+    {
+        try {
+            $slot = $handle['slot'] ?? null;
+            $owner = (string) ($handle['owner'] ?? '');
+
+            if (is_int($slot) && $owner !== '') {
+                Cache::restoreLock(self::SLOT_KEY . $slot, $owner)->release();
+            }
+
+            $reservation = $handle['reservation'] ?? null;
+
+            if (is_array($reservation)) {
+                $this->releaseUser($reservation);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Failed to release an AI inference lease handle: ' . $e->getMessage());
+        }
     }
 
     /*

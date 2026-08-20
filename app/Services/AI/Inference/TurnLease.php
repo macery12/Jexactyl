@@ -21,12 +21,49 @@ class TurnLease
         public readonly bool $passthrough,
         private ?Lock $lock = null,
         private ?\Closure $onRelease = null,
+        /** @var array{ownerKey: string, token: string}|null */
+        private ?array $reservation = null,
     ) {
     }
 
-    public static function held(int $slot, Lock $lock, \Closure $onRelease): self
+    /**
+     * @param array{ownerKey: string, token: string} $reservation the per-user
+     *                                                            fairness
+     *                                                            reservation
+     *                                                            this lease
+     *                                                            also owns
+     */
+    public static function held(int $slot, Lock $lock, array $reservation, \Closure $onRelease): self
     {
-        return new self($slot, false, $lock, $onRelease);
+        return new self($slot, false, $lock, $onRelease, $reservation);
+    }
+
+    /**
+     * A description of this lease that survives leaving the process.
+     *
+     * A durable turn is admitted by a request and released by a worker, so the
+     * two halves cannot share a `Lock` object. What they can share is the lock's
+     * *name and owner token*, which is exactly what `Cache::restoreLock()` needs
+     * to rebuild a releasable handle elsewhere — and the owner token is what
+     * keeps it honest, because a restored lock whose owner no longer matches
+     * releases nothing. A lease that expired and was retaken by someone else
+     * therefore cannot be released out from under its new holder.
+     *
+     * Null for a passthrough lease, which owns nothing to hand over.
+     *
+     * @return array{slot: int, owner: string, reservation: array{ownerKey: string, token: string}}|null
+     */
+    public function handle(): ?array
+    {
+        if ($this->passthrough || $this->lock === null || $this->slot === null) {
+            return null;
+        }
+
+        return [
+            'slot' => $this->slot,
+            'owner' => $this->lock->owner(),
+            'reservation' => $this->reservation ?? ['ownerKey' => '', 'token' => ''],
+        ];
     }
 
     /**

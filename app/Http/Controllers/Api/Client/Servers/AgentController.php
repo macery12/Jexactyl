@@ -79,7 +79,7 @@ class AgentController extends ClientApiController
     /**
      * Start a turn.
      */
-    public function start(Request $request, Server $server): StreamedResponse
+    public function start(Request $request, Server $server): StreamedResponse|JsonResponse
     {
         $this->assertAgentAvailable($request);
 
@@ -132,6 +132,20 @@ class AgentController extends ClientApiController
             $context->redactions = $this->recorder->loadRedactions($conversation);
 
             $context->push(AiMessage::user($query));
+
+            // With durable execution on, the request's job is finished here: the
+            // turn has been admitted, the conversation exists and what the user
+            // said is recorded, so a worker can pick it up knowing everything a
+            // request knew. The response carries the turn id the client reads
+            // the turn back through.
+            if ($this->agentDurable()) {
+                return $this->dispatchDurableTurn(
+                    $context,
+                    conversation: $conversation,
+                    budgetReservation: $reservation,
+                    lease: $admission->lease,
+                );
+            }
 
             return $this->streamTurn(
                 $context,
@@ -188,6 +202,46 @@ class AgentController extends ClientApiController
         $this->assertAgentEnabled($request);
 
         return $this->agentTurnStatus($request->user(), $turnId, $server, ToolDefinition::SCOPE_SERVER);
+    }
+
+    /**
+     * Read a running turn as an event stream, resuming from a cursor.
+     *
+     * The reconnect path. A client that lost its stream — navigated away,
+     * reloaded, came back on a different device — reopens the turn here with the
+     * last sequence it saw, and gets the frames it missed followed by the live
+     * ones. Nothing about the turn depends on anyone being connected.
+     */
+    public function stream(Request $request, Server $server, string $turnId): StreamedResponse
+    {
+        $this->assertAgentEnabled($request);
+
+        return $this->relayTurn(
+            $request->user(),
+            $turnId,
+            $server,
+            ToolDefinition::SCOPE_SERVER,
+            (int) $request->query('after', 0),
+        );
+    }
+
+    /**
+     * The turn this user currently has in flight, if any.
+     *
+     * What a freshly loaded page asks so it can rejoin. Until now nothing could
+     * answer it: `turnStatus` needs a turn id the reloaded page no longer has,
+     * and `pending` only knows about turns that already stopped for a decision.
+     * A page that could not tell a working turn from no turn at all is exactly
+     * why leaving the tab looked like nothing was happening.
+     *
+     * Singular by construction — `concurrency.per_user` admits one turn at a
+     * time — so this is "the" active turn rather than a list to choose from.
+     */
+    public function activeTurn(Request $request, Server $server): JsonResponse
+    {
+        $this->assertAgentEnabled($request);
+
+        return $this->activeAgentTurn($request->user(), $server);
     }
 
     /** Stop a turn that is still running. */

@@ -1,5 +1,11 @@
 import http from '@/lib/http';
-import { streamAgentRequest, type AgentStreamCallbacks, type AiApprovalPreview, type AiRisk } from '@/lib/aiStream';
+import {
+    streamAgentRequest,
+    type ActiveAgentTurn,
+    type AgentStreamCallbacks,
+    type AiApprovalPreview,
+    type AiRisk,
+} from '@/lib/aiStream';
 
 // Client-side AI surface for a server: POST /ai/agent for the tool-calling
 // agent, which can suspend mid-turn and be resumed by /ai/agent/decide, plus the
@@ -96,6 +102,43 @@ export function streamAgentTurn(
             // turned away. Without it the turn rejoins at the back.
             ticket: opts.ticket ?? undefined,
         },
+        callbacks,
+        signal,
+    );
+}
+
+/**
+ * The turn this user currently has in flight on this server, if any.
+ *
+ * What a freshly mounted page asks so it can rejoin one. Nothing could answer
+ * this before: the status endpoint needs a turn id a reloaded page no longer
+ * has, and the pending endpoint only knows about turns that already stopped for
+ * a decision — so a page that came back mid-turn had no way to tell a working
+ * assistant from an idle one, and showed the idle one.
+ */
+export async function getActiveAgentTurn(uuid: string): Promise<ActiveAgentTurn | null> {
+    const { data } = await http.get(`/api/client/servers/${uuid}/ai/agent/active`);
+    return (data.data ?? null) as ActiveAgentTurn | null;
+}
+
+/**
+ * Read a durable turn, resuming from a cursor.
+ *
+ * `after` is the last sequence this client saw. Reconnecting replays only what
+ * was missed, so leaving the page and coming back costs the gap rather than the
+ * whole transcript — and several tabs can watch one turn without competing,
+ * because the relay holds nothing the turn needs.
+ */
+export function streamAgentRelay(
+    uuid: string,
+    turnId: string,
+    after: number,
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        `/api/client/servers/${uuid}/ai/agent/turns/${turnId}/stream?after=${Math.max(0, after)}`,
+        null,
         callbacks,
         signal,
     );

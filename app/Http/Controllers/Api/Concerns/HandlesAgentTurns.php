@@ -3,6 +3,7 @@
 namespace Everest\Http\Controllers\Api\Concerns;
 
 use Everest\Models\Server;
+use Everest\Models\Setting;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Everest\Models\AiToolCall;
@@ -11,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
 use Illuminate\Support\Facades\Log;
+use Everest\Jobs\AI\RunAgentTurnJob;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\ProviderFactory;
@@ -20,6 +22,8 @@ use Everest\Services\AI\Agent\AssistGrant;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\AI\Agent\AgentEventLog;
+use Everest\Services\AI\Agent\TurnAuthority;
 use Everest\Services\AI\Inference\Admission;
 use Everest\Services\AI\Inference\TurnLease;
 use Everest\Services\AI\Privacy\RedactionMap;
@@ -75,6 +79,322 @@ trait HandlesAgentTurns
         ?AiBudgetReservation $budgetReservation = null,
         ?TurnLease $lease = null,
     ): StreamedResponse {
+        $turnId = $context->turnId;
+        $idleSeconds = $this->agentRunner()->streamIdleSeconds();
+
+        return response()->stream(
+            fn () => $this->executeTurn($context, $resuming, $conversation, $budgetReservation, $lease),
+            200,
+            [
+                'Content-Type' => 'text/event-stream',
+                'Cache-Control' => 'no-cache',
+                'X-Accel-Buffering' => 'no',
+                'X-Agent-Turn-Id' => $turnId,
+                'X-Agent-Idle-Seconds' => (string) $idleSeconds,
+            ]
+        );
+    }
+
+    /**
+     * Read a durable turn as an event stream, from a cursor.
+     *
+     * The relay is not the turn. It holds no lease, executes nothing, and can be
+     * dropped and reopened as often as the reader likes — which is the entire
+     * point: a browser that navigates away, reloads, or comes back on another
+     * device asks for the same turn again from wherever it got to, and the turn
+     * itself never knows. Several readers can watch one turn at once for the
+     * same reason.
+     *
+     * `after` is the client's own high-water mark. Replay is therefore exact
+     * rather than "roughly from the top", and a reconnect costs the frames it
+     * actually missed instead of a duplicate transcript.
+     *
+     * Terminality is read from the usage row rather than from a sentinel in the
+     * log, because a reader may well arrive after the turn finished and there
+     * would be no sentinel left to wait for. The worker writes that row before
+     * it stops, so a relay that sees a finished turn is guaranteed a complete
+     * log — it drains what remains and closes.
+     */
+    protected function relayTurn(
+        $user,
+        string $turnId,
+        ?Server $server,
+        string $scope,
+        int $after,
+    ): StreamedResponse {
+        if (!Str::isUuid($turnId)) {
+            abort(404);
+        }
+
+        // Authorization is the same question the status endpoint asks, and it is
+        // asked here rather than inside the stream because a 404 must be a 404
+        // rather than a 200 whose body says so.
+        $usage = $this->ownedTurnUsage($user, $turnId, $server);
+        $events = app(AgentEventLog::class);
+        $idleSeconds = $this->agentRunner()->streamIdleSeconds();
+
+        return response()->stream(function () use ($usage, $turnId, $events, $after): void {
+            $cursor = max(0, $after);
+
+            // A reader that is already up to date would otherwise sit silent
+            // until the first new frame, which is indistinguishable from a
+            // stream that never opened.
+            $this->sendComment('keep-alive');
+
+            // Bounded by the turn's own persisted deadline plus a margin, so a
+            // relay cannot outlive the thing it is relaying even if the worker
+            // vanished without writing a terminal row. The sweep in
+            // `agentTurnStatus()` closes that row out; this just stops waiting.
+            $stopAt = ($usage->deadline_at?->timestamp ?? (time() + 900)) + 60;
+
+            while (true) {
+                $cursor = $this->drainFrames($events, $turnId, $cursor);
+
+                if ($this->turnIsTerminal($turnId)) {
+                    // Drain once more before stopping. The worker writes the
+                    // terminal row after its final frame, so a read that
+                    // straddles the two would otherwise truncate the answer.
+                    $this->drainFrames($events, $turnId, $cursor);
+
+                    break;
+                }
+
+                if (time() >= $stopAt) {
+                    break;
+                }
+
+                // Sleeps until something is appended, or the interval elapses.
+                // The return value is deliberately ignored: the loop re-reads
+                // the log either way, so a spurious wake costs one indexed
+                // query and a missed one costs a single interval.
+                $events->awaitChange($turnId, $cursor, 5.0);
+
+                $this->sendComment('keep-alive');
+            }
+
+            $this->sendTerminal();
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'X-Accel-Buffering' => 'no',
+            'X-Agent-Turn-Id' => $turnId,
+            'X-Agent-Idle-Seconds' => (string) $idleSeconds,
+        ]);
+    }
+
+    /**
+     * Write every frame past the cursor, returning the new cursor.
+     *
+     * Each frame carries its sequence as the SSE `id`, which is what a client
+     * reconnecting later presents as `after` — so the resume point is the
+     * reader's own, not something the server has to remember per reader.
+     */
+    protected function drainFrames(AgentEventLog $events, string $turnId, int $cursor): int
+    {
+        foreach ($events->replay($turnId, $cursor) as $frame) {
+            $cursor = $frame['seq'];
+            $this->write('id: ' . $cursor);
+            $this->write('data: ' . json_encode($frame['event']));
+        }
+
+        return $cursor;
+    }
+
+    /**
+     * The caller's in-flight turn, or `null` when they have none.
+     *
+     * Deliberately thin. It answers "is something running, and where do I read
+     * it" and nothing else — the transcript comes from the conversation
+     * endpoint, the frames come from the relay, and the terminal detail comes
+     * from the status endpoint. Duplicating any of those here would give a
+     * reconnecting client two sources for the same fact.
+     *
+     * A row whose worker died is not reported as running. The same deadline
+     * sweep the status endpoint applies runs first, so a reload during an outage
+     * shows a failed turn rather than a spinner that never resolves.
+     */
+    protected function activeAgentTurn($user, ?Server $server): JsonResponse
+    {
+        $query = AiUsageLog::query()
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['running', 'suspended']);
+
+        if ($server !== null) {
+            $query->where('server_uuid', $server->uuid)->where('source', 'agent');
+        } else {
+            $query->whereNull('server_uuid')->where('source', 'admin-agent');
+        }
+
+        /** @var AiUsageLog|null $usage */
+        $usage = $query->latest('id')->first();
+
+        if ($usage === null) {
+            return response()->json(['data' => null]);
+        }
+
+        if (
+            $usage->status === 'running'
+            && $usage->deadline_at !== null
+            && $usage->deadline_at->copy()->addSeconds(30)->isPast()
+        ) {
+            AiUsageLog::whereKey($usage->id)
+                ->where('status', 'running')
+                ->update([
+                    'status' => 'error',
+                    'error_message' => 'The agent worker did not finalize before its persisted deadline.',
+                    'heartbeat_at' => now(),
+                ]);
+
+            return response()->json(['data' => null]);
+        }
+
+        return response()->json(['data' => [
+            'turn_id' => $usage->turn_id,
+            'conversation_id' => $usage->conversation_id,
+            'status' => $usage->status,
+            'step' => (int) $usage->step,
+            'started_at' => $usage->created_at?->toIso8601String(),
+            'heartbeat_at' => $usage->heartbeat_at?->toIso8601String(),
+            'deadline_at' => $usage->deadline_at?->toIso8601String(),
+            // The relay's cursor origin. A client that has seen nothing asks for
+            // everything; one that is resuming presents its own high-water mark.
+            'latest_seq' => app(AgentEventLog::class)->latestSequence((string) $usage->turn_id),
+        ]]);
+    }
+
+    /** Whether the turn has reached a state nothing more will be appended to. */
+    protected function turnIsTerminal(string $turnId): bool
+    {
+        return AiUsageLog::query()
+            ->where('turn_id', $turnId)
+            ->where('status', 'running')
+            ->doesntExist();
+    }
+
+    /**
+     * The caller's own usage row for a turn, or a 404.
+     *
+     * Scoped exactly as `agentTurnStatus()` scopes it — same user, same server,
+     * same source — so a turn cannot be read from a different server's chat or
+     * from the admin surface.
+     */
+    protected function ownedTurnUsage($user, string $turnId, ?Server $server): AiUsageLog
+    {
+        $query = AiUsageLog::query()
+            ->where('turn_id', $turnId)
+            ->where('user_id', $user->id);
+
+        if ($server !== null) {
+            $query->where('server_uuid', $server->uuid)->where('source', 'agent');
+        } else {
+            $query->whereNull('server_uuid')->where('source', 'admin-agent');
+        }
+
+        return $query->firstOrFail();
+    }
+
+    /**
+     * Whether turns run on a queue worker rather than inside the request.
+     *
+     * A runtime setting rather than a deploy-time constant, so an operator who
+     * finds durable execution misbehaving can put it back without shipping code
+     * — and so an install whose `agent` queue lane is not staffed can be moved
+     * off it immediately, rather than accepting turns nothing will ever run.
+     */
+    protected function agentDurable(): bool
+    {
+        return filter_var(
+            Setting::get('settings::modules:ai:agent:durable', config('modules.ai.agent.durable')),
+            FILTER_VALIDATE_BOOLEAN
+        );
+    }
+
+    /**
+     * Hand a turn to a worker and answer the request immediately.
+     *
+     * The usage row is written *here*, before the job is dispatched, and that
+     * ordering is the point rather than an optimisation. It is what makes the
+     * turn discoverable in the window between being accepted and being picked
+     * up: without it a client that reloaded in that gap would find no turn and
+     * conclude nothing was happening, which is the exact failure durable
+     * execution exists to remove.
+     *
+     * `deadline_at` is deliberately generous at this stage. It is the sweep's
+     * only evidence that a worker died, and counting queue wait against a turn's
+     * execution budget would fail healthy turns during a backlog. The worker
+     * replaces it with the real deadline the moment it starts.
+     */
+    protected function dispatchDurableTurn(
+        AgentContext $context,
+        ?AiConversation $conversation,
+        ?AiBudgetReservation $budgetReservation,
+        ?TurnLease $lease,
+    ): JsonResponse {
+        $runner = $this->agentRunner();
+        $serverUuid = $context->server?->uuid;
+        $grace = $runner->maxWallSeconds() + 300;
+
+        app(AiTurnUsageRecorder::class)->record($context->turnId, [
+            'user_id' => $context->user->id,
+            'server_uuid' => $serverUuid,
+            'conversation_id' => $context->conversationId,
+            'step' => 0,
+            'tool_calls_count' => 0,
+            'model' => $this->providerFactory()->model(ProviderFactory::TASK_AGENT) ?: 'unknown',
+            'source' => $serverUuid === null ? 'admin-agent' : 'agent',
+            'prompt_tokens' => 0,
+            'completion_tokens' => 0,
+            'total_tokens' => 0,
+            'latency_ms' => 0,
+            'status' => 'running',
+            'error_message' => null,
+            'heartbeat_at' => now(),
+            'deadline_at' => now()->addSeconds($grace),
+        ]);
+
+        // Dispatched after the row above is committed, so a worker that starts
+        // instantly cannot find the turn it was given no trace of.
+        RunAgentTurnJob::dispatch(
+            $context->turnId,
+            TurnAuthority::capture(request(), $context->user)->toArray(),
+            $serverUuid,
+            $context->conversationId,
+            $context->consoleBuffer,
+            $lease?->handle(),
+            $budgetReservation?->handle(),
+        )->afterCommit();
+
+        return response()->json(['data' => array_filter([
+            'turn_id' => $context->turnId,
+            'conversation_id' => $conversation?->id,
+            'conversation_title' => $conversation?->title,
+            'durable' => true,
+        ], fn ($value) => $value !== null)]);
+    }
+
+    /**
+     * Run a turn to a terminal state, emitting as it goes.
+     *
+     * Extracted from the streaming response so that *where* a turn runs is not
+     * the same decision as *what* running one means. A request-bound turn calls
+     * this inside `response()->stream()`; a durable turn calls it from a queue
+     * worker with `send()` pointed at the event log. Everything that makes a
+     * turn correct — the running usage row, the heartbeat, resolving a resumed
+     * pending action, failing open tool calls when it throws, and the ordering
+     * of terminal persistence before the sentinel — lives here once, because
+     * every one of those was a live bug at some point and a second copy would be
+     * a second place for the next one to hide.
+     *
+     * Releases the lease and the budget reservation on every path out, including
+     * the ones that throw before the loop runs.
+     */
+    protected function executeTurn(
+        AgentContext $context,
+        ?AiPendingAction $resuming = null,
+        ?AiConversation $conversation = null,
+        ?AiBudgetReservation $budgetReservation = null,
+        ?TurnLease $lease = null,
+    ): void {
         $runner = $this->agentRunner();
         $recorder = $this->turnRecorder();
         $userId = $context->user->id;
@@ -82,14 +402,149 @@ trait HandlesAgentTurns
         $turnId = $context->turnId;
         $conversationId = $context->conversationId;
         $model = $this->providerFactory()->model(ProviderFactory::TASK_AGENT);
-        $idleSeconds = $runner->streamIdleSeconds();
 
-        return response()->stream(function () use ($runner, $recorder, $context, $resuming, $conversation, $userId, $serverUuid, $turnId, $conversationId, $model, $budgetReservation, $lease) {
-            $usageReconciled = $budgetReservation?->passthrough ?? true;
+        $usageReconciled = $budgetReservation?->passthrough ?? true;
+
+        try {
+            $startedAt = microtime(true);
+            $deadlineAt = now()->setTimestamp((int) ceil($runner->beginDeadline($context)));
+            app(AiTurnUsageRecorder::class)->record($turnId, [
+                'user_id' => $userId,
+                'server_uuid' => $serverUuid,
+                'conversation_id' => $conversationId,
+                'step' => $context->step,
+                'tool_calls_count' => $context->toolCalls,
+                'model' => $model ?: 'unknown',
+                'source' => $serverUuid === null ? 'admin-agent' : 'agent',
+                'prompt_tokens' => $context->usage['prompt_tokens'],
+                'completion_tokens' => $context->usage['completion_tokens'],
+                'total_tokens' => $context->usage['total_tokens'],
+                'latency_ms' => 0,
+                'status' => 'running',
+                'error_message' => null,
+                'heartbeat_at' => now(),
+                'deadline_at' => $deadlineAt,
+            ]);
+
+            // Flush a comment immediately so proxies do not 504 while the model
+            // is still thinking or the turn is queued.
+            $this->sendComment('keep-alive');
+
+            if ($conversation !== null) {
+                $this->send(AgentEvent::conversation($conversation->id, (string) $conversation->title));
+            }
+
+            // Re-announced at the top of every turn that carries one, so the
+            // banner naming the customer's server is on screen before the first
+            // token arrives rather than only on the turn that opened it.
+            if ($context->assist !== null && $context->targetServer() !== null) {
+                $this->send(AgentEvent::assist(
+                    $context->assist->serverUuid,
+                    $context->assist->serverName,
+                    $context->assist->writable,
+                    $context->assist->reason,
+                ));
+            }
+
+            $status = 'success';
+            $error = null;
+            $lastHeartbeat = microtime(true);
+            $emit = function (AgentEvent $event) use ($context, $turnId, &$lastHeartbeat): void {
+                if ($event->type === AgentEvent::TYPE_TOOL_CALL) {
+                    ++$context->toolCalls;
+                }
+
+                if (microtime(true) - $lastHeartbeat >= 15) {
+                    AiUsageLog::where('turn_id', $turnId)
+                        ->where('status', 'running')
+                        ->update(['heartbeat_at' => now()]);
+                    $lastHeartbeat = microtime(true);
+                }
+
+                $this->send($event);
+            };
 
             try {
-                $startedAt = microtime(true);
-                $deadlineAt = now()->setTimestamp((int) ceil($runner->beginDeadline($context)));
+                // Approval execution, any following queue wait and the resumed
+                // loop share one allowance. This must happen before the
+                // approved tool; otherwise a batch and its follow-up inference
+                // each receive a full clock.
+                $runner->beginDeadline($context);
+
+                if ($resuming !== null) {
+                    $this->resumeSuspendedCall($runner, $context, $resuming, $emit);
+                }
+
+                $runner->run($context, $emit);
+                $status = match (true) {
+                    $context->suspended => 'suspended',
+                    // A stop is a clean ending, not a failure: whatever ran
+                    // ran and reported, and the transcript is answerable.
+                    // It is its own terminal state because "the user
+                    // stopped it" and "it broke" are different facts, and
+                    // an operator reading a usage row is entitled to know
+                    // which one happened.
+                    $context->cancelled => 'cancelled',
+                    default => 'success',
+                };
+
+                if ($resuming !== null) {
+                    AiPendingAction::whereKey($resuming->id)
+                        ->where('status', AiPendingAction::STATUS_EXECUTING)
+                        ->update([
+                            'status' => AiPendingAction::STATUS_COMPLETED,
+                            'resolved_at' => now(),
+                        ]);
+                }
+            } catch (\Throwable $e) {
+                $status = 'error';
+
+                if ($resuming !== null) {
+                    AiPendingAction::whereKey($resuming->id)
+                        ->where('status', AiPendingAction::STATUS_EXECUTING)
+                        ->update([
+                            'status' => AiPendingAction::STATUS_FAILED,
+                            'resolved_at' => now(),
+                            'failure_reason' => 'Execution stopped before completion.',
+                        ]);
+                }
+
+                // A call that was marked running and never resolved is the
+                // one thing an audit trail must not leave open: it reads as
+                // work still in flight forever. The transition is
+                // conditional, so a turn that suspended again on its way
+                // out keeps its fresh approval row untouched.
+                AiToolCall::where('turn_id', $turnId)
+                    ->where('status', AiToolCall::STATUS_RUNNING)
+                    ->update([
+                        'status' => AiToolCall::STATUS_FAILED,
+                        'result_summary' => 'The turn ended before this call reported a result.',
+                        'resolved_at' => now(),
+                    ]);
+
+                Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
+
+                // Only our own messages are quotable. Anything else can
+                // carry SQL, absolute paths or internal detail — which
+                // APP_DEBUG makes routine — and both the SSE frame and the
+                // stored row are read by a browser.
+                $error = $e instanceof AIServiceException
+                    ? $e->getMessage()
+                    : 'The AI ran into a problem. Please try again.';
+                $this->send(AgentEvent::error($error));
+            }
+
+            // Rolls the conversation's expiry forward the same way a manual
+            // append does, so an active chat is not reaped mid-use, and banks
+            // the turn's redaction tokens and assist session against the
+            // conversation so neither has to be re-established on the next turn.
+            $persistenceFailed = !$recorder->touch($conversation, $context);
+            if ($persistenceFailed) {
+                $status = 'error';
+                $error = 'The turn finished, but its conversation state could not be persisted.';
+            }
+
+            try {
                 app(AiTurnUsageRecorder::class)->record($turnId, [
                     'user_id' => $userId,
                     'server_uuid' => $serverUuid,
@@ -98,202 +553,56 @@ trait HandlesAgentTurns
                     'tool_calls_count' => $context->toolCalls,
                     'model' => $model ?: 'unknown',
                     'source' => $serverUuid === null ? 'admin-agent' : 'agent',
+                    // Summed across every model call the turn made, not just
+                    // the last one. Without these the monthly token budget has
+                    // nothing to count on precisely the workload that spends
+                    // the most — an agent turn is many calls, a chat is one.
                     'prompt_tokens' => $context->usage['prompt_tokens'],
                     'completion_tokens' => $context->usage['completion_tokens'],
                     'total_tokens' => $context->usage['total_tokens'],
-                    'latency_ms' => 0,
-                    'status' => 'running',
-                    'error_message' => null,
+                    'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                    'status' => $status,
+                    'error_message' => $error,
                     'heartbeat_at' => now(),
                     'deadline_at' => $deadlineAt,
                 ]);
+                $usageReconciled = true;
+            } catch (\Throwable $e) {
+                Log::warning('Failed to write AI usage log: ' . $e->getMessage());
+                $this->send(AgentEvent::error(
+                    'The turn ended, but its terminal state could not be persisted. Reload before retrying.'
+                ));
 
-                // Flush a comment immediately so proxies do not 504 while the model
-                // is still thinking or the turn is queued.
-                $this->write(': keep-alive');
-
-                if ($conversation !== null) {
-                    $this->write('data: ' . json_encode(
-                        AgentEvent::conversation($conversation->id, (string) $conversation->title)->toArray()
-                    ));
-                }
-
-                // Re-announced at the top of every turn that carries one, so the
-                // banner naming the customer's server is on screen before the first
-                // token arrives rather than only on the turn that opened it.
-                if ($context->assist !== null && $context->targetServer() !== null) {
-                    $this->write('data: ' . json_encode(AgentEvent::assist(
-                        $context->assist->serverUuid,
-                        $context->assist->serverName,
-                        $context->assist->writable,
-                        $context->assist->reason,
-                    )->toArray()));
-                }
-
-                $status = 'success';
-                $error = null;
-                $lastHeartbeat = microtime(true);
-                $emit = function (AgentEvent $event) use ($context, $turnId, &$lastHeartbeat): void {
-                    if ($event->type === AgentEvent::TYPE_TOOL_CALL) {
-                        ++$context->toolCalls;
-                    }
-
-                    if (microtime(true) - $lastHeartbeat >= 15) {
-                        AiUsageLog::where('turn_id', $turnId)
-                            ->where('status', 'running')
-                            ->update(['heartbeat_at' => now()]);
-                        $lastHeartbeat = microtime(true);
-                    }
-
-                    $this->write('data: ' . json_encode($event->toArray()));
-                };
-
-                try {
-                    // Approval execution, any following queue wait and the resumed
-                    // loop share one allowance. This must happen before the
-                    // approved tool; otherwise a batch and its follow-up inference
-                    // each receive a full clock.
-                    $runner->beginDeadline($context);
-
-                    if ($resuming !== null) {
-                        $this->resumeSuspendedCall($runner, $context, $resuming, $emit);
-                    }
-
-                    $runner->run($context, $emit);
-                    $status = match (true) {
-                        $context->suspended => 'suspended',
-                        // A stop is a clean ending, not a failure: whatever ran
-                        // ran and reported, and the transcript is answerable.
-                        // It is its own terminal state because "the user
-                        // stopped it" and "it broke" are different facts, and
-                        // an operator reading a usage row is entitled to know
-                        // which one happened.
-                        $context->cancelled => 'cancelled',
-                        default => 'success',
-                    };
-
-                    if ($resuming !== null) {
-                        AiPendingAction::whereKey($resuming->id)
-                            ->where('status', AiPendingAction::STATUS_EXECUTING)
-                            ->update([
-                                'status' => AiPendingAction::STATUS_COMPLETED,
-                                'resolved_at' => now(),
-                            ]);
-                    }
-                } catch (\Throwable $e) {
-                    $status = 'error';
-
-                    if ($resuming !== null) {
-                        AiPendingAction::whereKey($resuming->id)
-                            ->where('status', AiPendingAction::STATUS_EXECUTING)
-                            ->update([
-                                'status' => AiPendingAction::STATUS_FAILED,
-                                'resolved_at' => now(),
-                                'failure_reason' => 'Execution stopped before completion.',
-                            ]);
-                    }
-
-                    // A call that was marked running and never resolved is the
-                    // one thing an audit trail must not leave open: it reads as
-                    // work still in flight forever. The transition is
-                    // conditional, so a turn that suspended again on its way
-                    // out keeps its fresh approval row untouched.
-                    AiToolCall::where('turn_id', $turnId)
-                        ->where('status', AiToolCall::STATUS_RUNNING)
-                        ->update([
-                            'status' => AiToolCall::STATUS_FAILED,
-                            'result_summary' => 'The turn ended before this call reported a result.',
-                            'resolved_at' => now(),
-                        ]);
-
-                    Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
-
-                    // Only our own messages are quotable. Anything else can
-                    // carry SQL, absolute paths or internal detail — which
-                    // APP_DEBUG makes routine — and both the SSE frame and the
-                    // stored row are read by a browser.
-                    $error = $e instanceof AIServiceException
-                        ? $e->getMessage()
-                        : 'The AI ran into a problem. Please try again.';
-                    $this->write('data: ' . json_encode(AgentEvent::error($error)->toArray()));
-                }
-
-                // Rolls the conversation's expiry forward the same way a manual
-                // append does, so an active chat is not reaped mid-use, and banks
-                // the turn's redaction tokens and assist session against the
-                // conversation so neither has to be re-established on the next turn.
-                $persistenceFailed = !$recorder->touch($conversation, $context);
-                if ($persistenceFailed) {
-                    $status = 'error';
-                    $error = 'The turn finished, but its conversation state could not be persisted.';
-                }
-
-                try {
-                    app(AiTurnUsageRecorder::class)->record($turnId, [
-                        'user_id' => $userId,
-                        'server_uuid' => $serverUuid,
-                        'conversation_id' => $conversationId,
-                        'step' => $context->step,
-                        'tool_calls_count' => $context->toolCalls,
-                        'model' => $model ?: 'unknown',
-                        'source' => $serverUuid === null ? 'admin-agent' : 'agent',
-                        // Summed across every model call the turn made, not just
-                        // the last one. Without these the monthly token budget has
-                        // nothing to count on precisely the workload that spends
-                        // the most — an agent turn is many calls, a chat is one.
-                        'prompt_tokens' => $context->usage['prompt_tokens'],
-                        'completion_tokens' => $context->usage['completion_tokens'],
-                        'total_tokens' => $context->usage['total_tokens'],
-                        'latency_ms' => (int) round((microtime(true) - $startedAt) * 1000),
-                        'status' => $status,
-                        'error_message' => $error,
-                        'heartbeat_at' => now(),
-                        'deadline_at' => $deadlineAt,
-                    ]);
-                    $usageReconciled = true;
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to write AI usage log: ' . $e->getMessage());
-                    $this->write('data: ' . json_encode(AgentEvent::error(
-                        'The turn ended, but its terminal state could not be persisted. Reload before retrying.'
-                    )->toArray()));
-
-                    return;
-                }
-
-                if ($persistenceFailed) {
-                    $this->write('data: ' . json_encode(AgentEvent::error(
-                        'The turn ended, but its conversation state could not be persisted. Reload before retrying.'
-                    )->toArray()));
-
-                    return;
-                }
-
-                // The sentinel acknowledges both execution and terminal
-                // persistence. EOF before it is therefore always uncertain and
-                // triggers the client's authoritative status reconciliation.
-                $this->write('data: [DONE]');
-            } finally {
-                // The inference slot belongs to the stream rather than to the
-                // runner: it is taken before the turn is built — early enough
-                // that a queued turn can be turned away having changed nothing
-                // — so it has to be given back here, on every path out
-                // including the ones that threw before the loop ever ran.
-                $lease?->release();
-
-                // Admission remains held until the cumulative row above has
-                // replaced the previous suspension leg. The next request can
-                // therefore never observe stale spend at the boundary.
-                if ($usageReconciled) {
-                    $budgetReservation?->release();
-                }
+                return;
             }
-        }, 200, [
-            'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
-            'X-Accel-Buffering' => 'no',
-            'X-Agent-Turn-Id' => $turnId,
-            'X-Agent-Idle-Seconds' => (string) $idleSeconds,
-        ]);
+
+            if ($persistenceFailed) {
+                $this->send(AgentEvent::error(
+                    'The turn ended, but its conversation state could not be persisted. Reload before retrying.'
+                ));
+
+                return;
+            }
+
+            // The sentinel acknowledges both execution and terminal
+            // persistence. EOF before it is therefore always uncertain and
+            // triggers the client's authoritative status reconciliation.
+            $this->sendTerminal();
+        } finally {
+            // The inference slot belongs to the stream rather than to the
+            // runner: it is taken before the turn is built — early enough
+            // that a queued turn can be turned away having changed nothing
+            // — so it has to be given back here, on every path out
+            // including the ones that threw before the loop ever ran.
+            $lease?->release();
+
+            // Admission remains held until the cumulative row above has
+            // replaced the previous suspension leg. The next request can
+            // therefore never observe stale spend at the boundary.
+            if ($usageReconciled) {
+                $budgetReservation?->release();
+            }
+        }
     }
 
     /**
@@ -349,16 +658,16 @@ trait HandlesAgentTurns
         $queued = $admission->toArray();
 
         return response()->stream(function () use ($queued): void {
-            $this->write(': keep-alive');
-            $this->write('data: ' . json_encode(AgentEvent::queued(
+            $this->sendComment('keep-alive');
+            $this->send(AgentEvent::queued(
                 $queued['position'],
                 $queued['ahead'],
                 $queued['eta_seconds'],
                 $queued['ticket'],
                 $queued['retry_after_ms'],
-            )->toArray()));
-            $this->write('data: ' . json_encode(AgentEvent::done('queued')->toArray()));
-            $this->write('data: [DONE]');
+            ));
+            $this->send(AgentEvent::done('queued'));
+            $this->sendTerminal();
         }, 200, [
             'Content-Type' => 'text/event-stream',
             'Cache-Control' => 'no-cache',
@@ -908,7 +1217,7 @@ trait HandlesAgentTurns
         }
 
         $call = new ToolCallData($callId, $definition->name, $pending->arguments);
-        $emit ??= fn (AgentEvent $event) => $this->write('data: ' . json_encode($event->toArray()));
+        $emit ??= fn (AgentEvent $event) => $this->send($event);
 
         $startedAt = microtime(true);
         if ($definition->hostHandled && $audit !== null) {
@@ -1206,8 +1515,8 @@ trait HandlesAgentTurns
         $status = $pending->status;
 
         return response()->stream(function () use ($status): void {
-            $this->write('data: ' . json_encode(AgentEvent::done('existing_' . $status)->toArray()));
-            $this->write('data: [DONE]');
+            $this->send(AgentEvent::done('existing_' . $status));
+            $this->sendTerminal();
         }, 200, [
             'Content-Type' => 'text/event-stream',
             'Cache-Control' => 'no-cache',
@@ -1282,5 +1591,38 @@ trait HandlesAgentTurns
         }
 
         flush();
+    }
+
+    /**
+     * Emit one event to whoever is consuming this turn.
+     *
+     * The seam that lets a turn run somewhere other than inside a request.
+     * Everything above emits through here rather than formatting SSE inline, so
+     * a queue worker can take the same execution path and send its frames to
+     * the durable event log instead of to a socket. There is deliberately one
+     * body of turn logic; only its destination varies.
+     */
+    protected function send(AgentEvent $event): void
+    {
+        $this->write('data: ' . json_encode($event->toArray()));
+    }
+
+    /**
+     * A non-event keep-alive. Meaningful only to a transport that can time out,
+     * which is why it is separate from `send()` and why a worker discards it.
+     */
+    protected function sendComment(string $text): void
+    {
+        $this->write(': ' . $text);
+    }
+
+    /**
+     * The sentinel acknowledging that execution *and* terminal persistence
+     * finished. EOF before it is always uncertain, which is what triggers the
+     * client's authoritative status reconciliation.
+     */
+    protected function sendTerminal(): void
+    {
+        $this->write('data: [DONE]');
     }
 }

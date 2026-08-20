@@ -152,17 +152,55 @@ return [
             'timeout' => 3600,
             'nice' => 5,
         ],
+
+        /*
+        | Durable agent turns.
+        |
+        | Isolated for the same reason mods are, and then for one more. A turn
+        | is allowed up to `AgentRunner::MAX_WALL_SECONDS` (900) of wall clock,
+        | so on the interactive supervisor it would sit in front of invoices and
+        | scheduled tasks for a quarter of an hour. It also cannot share those
+        | processes for a subtler reason: an agent turn spends nearly all of its
+        | life blocked on a model or a tool, so it occupies a worker without
+        | using one, which is exactly the shape of work that starves a lane
+        | sized by throughput.
+        |
+        | `tries => 1` is not tuning, it is correctness. A turn executes real
+        | side effects through the panel's own API, and the queue cannot know
+        | which of them already happened when a worker died. Replaying one would
+        | re-run tool calls the user already saw succeed. A turn that fails is
+        | finished, and `RunAgentTurnJob::failed()` records that.
+        |
+        | Sized from the durable-execution flag rather than from the agent flag:
+        | with the agent on and execution still request-bound, nothing is ever
+        | dispatched here. QueueServiceProvider sets the real value once the
+        | runtime setting overrides have been layered onto config.
+        */
+        'supervisor-agent' => [
+            'connection' => 'redis-long',
+            'queue' => ['agent'],
+            'balance' => 'simple',
+            'processes' => 0,
+            'maxTime' => 3600,
+            'maxJobs' => 0,
+            'memory' => 512,
+            'tries' => 1,
+            'timeout' => 1020,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
         'production' => [
             'supervisor-interactive' => ['maxProcesses' => 6],
             'supervisor-mods' => [],
+            'supervisor-agent' => [],
         ],
 
         'local' => [
             'supervisor-interactive' => ['maxProcesses' => 3],
             'supervisor-mods' => [],
+            'supervisor-agent' => [],
         ],
 
         // Staging and any custom APP_ENV, so an unexpected environment gets
@@ -170,6 +208,7 @@ return [
         '*' => [
             'supervisor-interactive' => ['maxProcesses' => 3],
             'supervisor-mods' => [],
+            'supervisor-agent' => [],
         ],
     ],
 ];

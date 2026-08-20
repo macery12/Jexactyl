@@ -105,6 +105,7 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:agent:reasoning',
         'modules:ai:agent:max_steps',
         'modules:ai:agent:max_wall_seconds',
+        'modules:ai:agent:durable',
         'modules:ai:agent:max_tool_seconds',
         'modules:ai:agent:tool_result_bytes',
         'modules:ai:agent:max_repairs',

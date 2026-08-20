@@ -66,6 +66,14 @@ class AgentRunner
     }
 
     /**
+     * When the turn's authority was last re-derived.
+     *
+     * Per-runner rather than per-context because it is a rate limit on a query,
+     * not a fact about the turn, and the runner is resolved once per turn.
+     */
+    private ?float $authorityCheckedAt = null;
+
+    /**
      * Run a turn, emitting events as it goes.
      *
      * The inference slot is not acquired here. Admission is the caller's
@@ -144,7 +152,7 @@ class AgentRunner
 
         while ($context->step < $maxSteps) {
             if ($this->stopRequested($context)) {
-                $emit(AgentEvent::done('cancelled'));
+                $emit(AgentEvent::done($context->revoked ? 'revoked' : 'cancelled'));
 
                 return;
             }
@@ -227,7 +235,7 @@ class AgentRunner
                 // must not run the other three.
                 if ($this->stopRequested($context)) {
                     $this->answerUnrunCalls($context);
-                    $emit(AgentEvent::done('cancelled'));
+                    $emit(AgentEvent::done($context->revoked ? 'revoked' : 'cancelled'));
 
                     return;
                 }
@@ -244,11 +252,18 @@ class AgentRunner
     }
 
     /**
-     * Whether the user has asked for this turn to stop.
+     * Whether this turn should stop at the boundary it has just reached.
+     *
+     * Two reasons, deliberately answered by one question. The user asked it to
+     * stop, or the authority it runs under stopped being valid — a durable turn
+     * outlives its request, so "is this person still signed in" is no longer
+     * something the request answered on the way in. Both end the turn the same
+     * clean way: nothing is half-done at a boundary, and the caller answers the
+     * calls the stop left unrun so the transcript stays one a provider accepts.
      *
      * Latched on the context the first time it is true, so every later
-     * checkpoint agrees without asking again, and so the stream owner can tell
-     * a cancelled turn from a completed one after the loop has returned.
+     * checkpoint agrees without asking again, and so the stream owner can tell a
+     * stopped turn from a completed one after the loop has returned.
      */
     protected function stopRequested(AgentContext $context): bool
     {
@@ -256,7 +271,45 @@ class AgentRunner
             return true;
         }
 
-        return $context->cancelled = $this->cancellations->requested($context->turnId);
+        if ($this->cancellations->requested($context->turnId)) {
+            return $context->cancelled = true;
+        }
+
+        if (!$this->authorityHeld($context)) {
+            $context->revoked = true;
+
+            return $context->cancelled = true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the turn's authority is still in force.
+     *
+     * Rate limited rather than asked at every checkpoint. `stopRequested()` is
+     * called between steps *and* before each call in a multi-call response *and*
+     * between the children of a batch, so an unthrottled check would put two
+     * indexed queries between every child of a twenty-call batch to answer a
+     * question whose answer changes at human speed. The interval is the honest
+     * cost of "at the next boundary": a revocation lands within it, and within
+     * it nothing has escalated — the authority was valid when the step began.
+     */
+    protected function authorityHeld(AgentContext $context): bool
+    {
+        if ($context->authorityCheck === null) {
+            return true;
+        }
+
+        $now = $this->now();
+
+        if ($this->authorityCheckedAt !== null && ($now - $this->authorityCheckedAt) < self::AUTHORITY_RECHECK_SECONDS) {
+            return true;
+        }
+
+        $this->authorityCheckedAt = $now;
+
+        return ($context->authorityCheck)();
     }
 
     /**
@@ -1806,6 +1859,9 @@ class AgentRunner
      */
     public const MIN_WALL_SECONDS = 30;
     public const MAX_WALL_SECONDS = 900;
+
+    /** How often a durable turn re-derives that it is still authorized. */
+    public const AUTHORITY_RECHECK_SECONDS = 5.0;
 
     public function maxSteps(): int
     {

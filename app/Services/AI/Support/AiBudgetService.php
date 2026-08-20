@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use Everest\Models\AiUsageLog;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Monthly token budgets.
@@ -122,12 +123,40 @@ class AiBudgetService
             ]);
         }, 3);
 
-        return AiBudgetReservation::held(function () use ($user, $token): void {
+        return AiBudgetReservation::held(
+            fn () => $this->releaseHandle(['user_id' => $user->id, 'token' => $token]),
+            $user->id,
+            $token,
+        );
+    }
+
+    /**
+     * Release a reservation this process never took.
+     *
+     * The durable path reserves in the request and releases in the worker that
+     * finishes the turn. Safe to call late and safe to call twice: the delete is
+     * qualified by the token, so a reservation that expired and was replaced
+     * belongs to a different token and is left alone.
+     *
+     * @param array{user_id: int, token: string} $handle
+     */
+    public function releaseHandle(array $handle): void
+    {
+        $userId = (int) ($handle['user_id'] ?? 0);
+        $token = (string) ($handle['token'] ?? '');
+
+        if ($userId === 0 || $token === '') {
+            return;
+        }
+
+        try {
             DB::table('ai_budget_reservations')
-                ->where('user_id', $user->id)
+                ->where('user_id', $userId)
                 ->where('token', $token)
                 ->delete();
-        });
+        } catch (\Throwable $e) {
+            Log::warning('Failed to release an AI budget reservation: ' . $e->getMessage());
+        }
     }
 
     protected function reservationTtlSeconds(): int

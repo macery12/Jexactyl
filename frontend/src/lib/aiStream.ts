@@ -152,12 +152,50 @@ export type AgentEvent =
     | { type: 'done'; reason: string }
     | { type: 'error'; error: string; retryable?: boolean };
 
+/** What a durable turn's start endpoint answers instead of a stream. */
+export interface AgentTurnAccepted {
+    turn_id: string;
+    conversation_id?: number;
+    conversation_title?: string;
+    durable: true;
+}
+
+/** A turn the caller has in flight, discovered on page load. */
+export interface ActiveAgentTurn {
+    turn_id: string;
+    conversation_id: number | null;
+    status: 'running' | 'suspended';
+    step: number;
+    started_at: string | null;
+    heartbeat_at: string | null;
+    deadline_at: string | null;
+    /** Highest sequence the turn has emitted, for a client joining from scratch. */
+    latest_seq: number;
+}
+
 export interface AgentStreamCallbacks {
     onEvent: (event: AgentEvent) => void;
     onComplete: () => void;
     onError: (error: Error) => void;
     /** The endpoint accepted the request and opened its event stream. */
     onAccepted?: () => void;
+    /**
+     * The turn was accepted for durable execution and there is no stream on this
+     * response.
+     *
+     * The panel decides between durable and request-bound execution server-side,
+     * so the client does not carry the flag — it reads which one happened from
+     * the response it actually got. With this called, nothing further arrives
+     * here and the caller reattaches through the relay instead.
+     */
+    onDurable?: (accepted: AgentTurnAccepted) => void;
+    /**
+     * Sequence number of the frame just delivered, on transports that carry one.
+     *
+     * Only the relay does. It is the client's resume point: reconnecting with it
+     * replays exactly what was missed rather than the whole turn.
+     */
+    onCursor?: (seq: number) => void;
     /** Effective maximum healthy silence advertised by the backend. */
     onIdleLimit?: (milliseconds: number) => void;
     /** Stable server turn id used to reconcile an accepted lost stream. */
@@ -182,23 +220,27 @@ export interface AgentStreamCallbacks {
  */
 async function readEventStream(
     url: string,
-    body: Record<string, unknown>,
+    body: Record<string, unknown> | null,
     signal: AbortSignal | undefined,
     onFrame: (payload: string) => boolean,
     onActivity?: () => void,
     onAccepted?: () => void,
     onIdleLimit?: (milliseconds: number) => void,
     onTurnId?: (turnId: string) => void,
+    onDurable?: (accepted: AgentTurnAccepted) => void,
+    onCursor?: (seq: number) => void,
 ): Promise<void> {
+    // A null body is a GET: the relay is a read of an existing turn, not a
+    // request to start one.
     const response = await fetch(url, {
-        method: 'POST',
+        method: body === null ? 'GET' : 'POST',
         headers: {
-            'Content-Type': 'application/json',
+            ...(body === null ? {} : { 'Content-Type': 'application/json' }),
             Accept: 'text/event-stream',
             'X-Requested-With': 'XMLHttpRequest',
             'X-CSRF-TOKEN': readCsrfToken(),
         },
-        body: JSON.stringify({ ...body, stream: true }),
+        body: body === null ? undefined : JSON.stringify({ ...body, stream: true }),
         credentials: 'same-origin',
         signal,
     });
@@ -220,6 +262,21 @@ async function readEventStream(
             /* keep the status message */
         }
         throw new Error(message);
+    }
+
+    // A durable turn answers with JSON rather than a stream: the request's job
+    // was to accept the turn, and a worker runs it. There is nothing to read
+    // here, so the caller is told where to reattach and this returns.
+    if ((response.headers.get('Content-Type') ?? '').includes('application/json')) {
+        const accepted = (await response.json())?.data;
+
+        if (accepted?.durable && typeof accepted.turn_id === 'string') {
+            onDurable?.(accepted as AgentTurnAccepted);
+
+            return;
+        }
+
+        throw new Error('The assistant returned an unexpected response.');
     }
 
     const idleSeconds = Number(response.headers.get('X-Agent-Idle-Seconds'));
@@ -251,6 +308,14 @@ async function readEventStream(
             // the frame separators and the keep-alive comments below.
             onActivity?.();
 
+            // The relay stamps each frame with its sequence, which is what the
+            // client presents to resume from exactly where it left off.
+            if (line.startsWith('id: ')) {
+                const seq = Number(line.slice(4));
+                if (Number.isFinite(seq)) onCursor?.(seq);
+                continue;
+            }
+
             // `:` lines are keep-alive comments the backend sends so proxies
             // don't time out while the model is still thinking.
             if (!line.startsWith('data: ')) continue;
@@ -267,8 +332,8 @@ async function readEventStream(
  */
 export function streamAgentRequest(
     url: string,
-    body: Record<string, unknown>,
-    { onEvent, onComplete, onError, onActivity, onAccepted, onIdleLimit, onTurnId }: AgentStreamCallbacks,
+    body: Record<string, unknown> | null,
+    { onEvent, onComplete, onError, onActivity, onAccepted, onIdleLimit, onTurnId, onDurable, onCursor }: AgentStreamCallbacks,
     signal?: AbortSignal,
 ): void {
     let finished = false;
@@ -303,6 +368,13 @@ export function streamAgentRequest(
         onAccepted,
         onIdleLimit,
         onTurnId,
+        accepted => {
+            // Not a lost stream: the turn was handed to a worker on purpose, so
+            // the caller reattaches rather than reconciling a failure.
+            finished = true;
+            onDurable?.(accepted);
+        },
+        onCursor,
     )
         .then(() => {
             if (!finished) {
