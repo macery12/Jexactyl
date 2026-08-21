@@ -12,15 +12,11 @@ use Everest\Services\AI\Tools\ToolDefinition;
 /**
  * Everything one turn needs, and the state that has to survive a suspension.
  *
- * For a server turn the server is bound here from the route the turn was opened
- * on. Nothing in the turn can change it — that binding is what confines the
- * agent to a single server regardless of what the model asks for.
- *
- * An admin turn has no server: it acts on the panel itself through the
- * Application API, where authorization is by AdminRole capability rather than
- * by subuser permission on a subject. A null server is therefore the
- * discriminator between the two surfaces, and `scope()` is the only thing that
- * should read it as such.
+ * A server turn binds its server from the route it was opened on and nothing in
+ * the turn can change it, which is what confines the agent to one server. An
+ * admin turn has no server: it acts on the panel through the Application API,
+ * authorized by AdminRole capability. A null server is the discriminator between
+ * the two surfaces, and `scope()` is the only thing that should read it as such.
  */
 class AgentContext
 {
@@ -28,13 +24,9 @@ class AgentContext
     public array $messages = [];
 
     /**
-     * Tools this turn is holding on to, in the order they were pinned.
-     *
-     * A pin survives steps and survives an approval. It is set by the user naming
-     * a tool, by a search selecting one, by `load_tools`, and by a pinned tool
-     * needing a gateway — and it is *not* silently released, which is the whole
-     * difference from the cumulative groups this replaced. A pin is a name and
-     * nothing more: it is re-filtered through the live permission check on every
+     * Tools this turn is holding on to, in the order they were pinned. A pin
+     * survives steps and approvals, and is never silently released. It is a name
+     * and nothing more — re-filtered through the live permission check on every
      * step, so holding one grants nothing and outlives no authority.
      *
      * @var string[]
@@ -53,31 +45,23 @@ class AgentContext
     public array $pinReasons = [];
 
     /**
-     * Secondary search results — offered if there is room, dropped without
-     * ceremony if there is not.
-     *
-     * The one evictable tier. A search returns the tool the model wanted plus a
-     * few neighbours; the neighbours are a suggestion rather than a commitment,
-     * and treating them as pins would let one broad query fill the working set
-     * with things the turn never used.
+     * Secondary search results — offered if there is room, dropped if not. The
+     * one evictable tier: a search returns the wanted tool plus neighbours, and
+     * treating those neighbours as pins would let one broad query fill the
+     * working set with things the turn never used.
      *
      * @var string[]
      */
     public array $retrieved = [];
 
     /**
-     * What the conversation is currently for.
+     * What the conversation is currently for. A phase is exchanged, not
+     * accumulated — unlike the group list it replaces, which meant a turn that
+     * browsed billing then opened a customer session still carried the catalogue.
      *
-     * Replaces the cumulative group list, and behaves the opposite way: groups
-     * only ever grew, so a turn that browsed billing and then opened a session on
-     * a customer's server was still carrying the product catalogue. A phase is
-     * exchanged, not accumulated.
-     *
-     * Derived state, never authority. `enterPhase()` is called *after*
-     * `AssistAuthorizer` has recorded and approved the transition, and a restored
-     * turn recomputes it rather than trusting what was stored. Set from
-     * {@see resolvePhase()} in the constructor, so it is never wrong for a turn
-     * that has not started yet.
+     * Derived state, never authority: `enterPhase()` runs only *after*
+     * `AssistAuthorizer` approved the transition, and a restored turn recomputes
+     * it from {@see resolvePhase()} rather than trusting what was stored.
      */
     public string $phase = WorkingSet::PHASE_ADMIN;
 
@@ -86,14 +70,10 @@ class AgentContext
     public int $repairs = 0;
 
     /**
-     * Tool-cap truncations already reported this turn, keyed by what was
-     * dropped.
-     *
-     * The cap is recomputed every step, so an over-cap turn would otherwise
-     * write the same warning twelve times. Deliberately not carried through
-     * {@see toState()}: a resumed turn is a fresh process with a fresh log, and
-     * a truncation that is still happening after an approval is worth saying
-     * again.
+     * Tool-cap truncations already reported this turn, keyed by what was dropped,
+     * so a recomputed cap does not write the same warning twelve times. Not
+     * carried through {@see toState()}: a resumed turn is a fresh process, and a
+     * truncation still happening after an approval is worth saying again.
      *
      * @var string[]
      */
@@ -110,10 +90,10 @@ class AgentContext
      * How many times the turn has changed state in a way that makes repeating a
      * call worthwhile again.
      *
-     * Part of the no-progress signature: a second `server_status` right after the
-     * first is a wasted step, but the same call after a restart is the correct
-     * thing to do. Bumped by successful mutations, phase transitions, working-set
-     * changes and answered questions — the four things that can make an identical
+     * Part of the no-progress signature: a second `server_status` right after
+     * the first is a wasted step, but the same call after a restart is correct.
+     * Bumped by successful mutations, phase transitions, working-set changes,
+     * and answered questions — the four things that can make an identical
      * call return something different.
      */
     public int $stateVersion = 0;
@@ -131,13 +111,11 @@ class AgentContext
     /**
      * The user asked for this turn to stop, and it did.
      *
-     * A sibling of `$suspended` rather than an exception, because cancellation
-     * ends a turn cleanly: whatever ran, ran and reported, and the transcript
-     * has to stay answerable — an assistant message whose tool calls were never
-     * answered is one no provider will accept on the next turn. Unwinding
-     * through the loop would leave exactly that. Deliberately not serialised
-     * with the rest of the state: a cancelled turn is over, so there is nothing
-     * for a later leg to restore.
+     * A sibling of `$suspended`, not an exception — cancellation ends a turn
+     * cleanly, and the transcript has to stay answerable (an assistant
+     * message with unanswered tool calls is one no provider accepts next).
+     * Not serialised with the rest of the state: a cancelled turn is over,
+     * so there's nothing for a later leg to restore.
      */
     public bool $cancelled = false;
 
@@ -145,11 +123,11 @@ class AgentContext
      * The turn stopped because the authority behind it lapsed, not because the
      * user pressed Stop.
      *
-     * Distinguished from `$cancelled` only in what it is called, because the two
-     * want identical handling and opposite wording: both end the turn cleanly at
-     * a boundary, and one of them is the user's own decision while the other is
-     * the panel withdrawing a session that is no longer signed in. Reporting a
-     * revocation as "you stopped this" would be a lie the transcript keeps.
+     * Distinguished from `$cancelled` only in wording — both end the turn
+     * cleanly at a boundary, but one is the user's own decision and the
+     * other is the panel withdrawing a session no longer signed in.
+     * Reporting a revocation as "you stopped this" would be a lie the
+     * transcript keeps.
      */
     public bool $revoked = false;
 
@@ -169,34 +147,26 @@ class AgentContext
     public int $toolCalls = 0;
 
     /**
-     * What the turn has cost so far, summed across every model call it made.
+     * What the turn has cost so far, summed across every model call it made. A
+     * turn is many calls — one per step, plus repairs — and the caller writes one
+     * usage row when the stream closes, so a budget counting rows would not be
+     * counting what it is charged for.
      *
-     * A turn is many calls — one per step, plus repairs — and each reports its
-     * own usage. Accumulating here rather than logging per call is what makes a
-     * turn's cost answerable at all: the caller writes one usage row when the
-     * stream closes, and a token budget that counts rows would otherwise be
-     * counting turns while being charged for calls.
-     *
-     * Carried through {@see toState()} because a turn that suspends for an
-     * approval and resumes is still one turn. Dropping it there would bill the
-     * operator for the steps after the approval and nothing before it.
+     * Carried through {@see toState()}: a turn that suspends and resumes is still
+     * one turn, and dropping this would bill only the steps after the approval.
      *
      * @var array{prompt_tokens: int, completion_tokens: int, total_tokens: int}
      */
     public array $usage = ['prompt_tokens' => 0, 'completion_tokens' => 0, 'total_tokens' => 0];
 
     /**
-     * When this turn's wall clock runs out, as a `microtime(true)` stamp.
+     * When this turn's wall clock runs out, as a `microtime(true)` stamp. Set
+     * once at request-phase entry and shared by queueing, provider calls, tools,
+     * batch children and the post-approval loop — a batch holds many dispatches
+     * inside one step, so checking only between steps would not enforce it.
      *
-     * Established once at request-phase entry and shared by queueing, provider
-     * calls, ordinary tools, batch children, and the loop that follows an
-     * approved action. A batch can hold many dispatches inside one model step,
-     * so checking only between steps would not enforce the configured limit.
-     *
-     * Null until a turn starts, and deliberately absent from {@see toState()} —
-     * a resumed turn is a fresh request phase with a fresh clock. Time spent
-     * waiting for a human decision is not execution time and must not consume
-     * the allowance for the approved work.
+     * Null until a turn starts, and absent from {@see toState()}: a resumed turn
+     * gets a fresh clock, since waiting for a human is not execution time.
      */
     public ?float $deadline = null;
 
@@ -294,12 +264,11 @@ class AgentContext
     /**
      * Work out which phase this turn belongs in from what is actually true of it.
      *
-     * Recomputed rather than restored, on every resume, for the same reason the
-     * assist binding comes back inert: a phase read from stored state would be a
-     * claim about authority made by the state blob, and the state blob is
-     * model-derived JSON. Deriving it from the binding the caller has just
-     * re-authorized keeps the phase downstream of the decision rather than
-     * alongside it.
+     * Recomputed on every resume, for the same reason the assist binding
+     * comes back inert: a phase read from stored state would be a claim
+     * about authority made by model-derived JSON. Deriving it from the
+     * binding the caller has just re-authorized keeps the phase downstream
+     * of the decision, not alongside it.
      */
     public function resolvePhase(): string
     {
@@ -422,14 +391,9 @@ class AgentContext
 
     /**
      * The tool calls from the most recent assistant turn that still have no
-     * result.
-     *
-     * Every provider requires each tool call to be answered before the
-     * conversation can continue — Anthropic rejects the request outright if a
-     * `tool_use` block has no matching `tool_result`. A turn that suspends
-     * partway through a batch of parallel calls leaves exactly that gap: the
-     * calls after the one awaiting approval never ran, so on resume they have
-     * to be closed out rather than silently dropped.
+     * result. Every provider requires each call to be answered — Anthropic
+     * rejects a request whose `tool_use` block has no matching `tool_result` — so
+     * calls stranded by a suspension must be closed out on resume.
      *
      * @return AiToolCall[]
      */
@@ -463,26 +427,18 @@ class AgentContext
     }
 
     /**
-     * Serialise the resumable parts of the turn.
-     *
-     * Only the model-visible conversation and the loop counters: the user and
-     * server are re-resolved and re-authorized on resume rather than trusted
-     * from stored state.
+     * Serialise the resumable parts of the turn: only the model-visible
+     * conversation and the loop counters. The user and server are re-resolved and
+     * re-authorized on resume, never trusted from stored state.
      *
      * The assist binding is the one thing here that grants access rather than
-     * describing it, so what is written is a uuid and a list of ability names —
-     * never a resolved model, never a capability decision. `fromState()`
-     * deliberately does not rebuild the server: the caller re-reads the row and
-     * re-checks the administrator's capability before calling `bindAssist()`,
-     * which is why a binding cannot outlive the permission that created it.
+     * describing it, so only a uuid and ability names are written — never a
+     * resolved model or a capability decision. `fromState()` deliberately leaves
+     * the server unbuilt, so a binding cannot outlive the permission that made it.
      *
-     * The working set travels as names only, and the phase does not travel at
-     * all. Both are re-derived on resume: a pin is re-filtered through the live
-     * permission check before it can be offered, and the phase is recomputed from
-     * the binding the caller has just re-authorized. An approval can sit on
-     * screen for half an hour, and in that time an operator can narrow an Access
-     * Profile or disable a tool — so what comes back has to be a request to
-     * reconsider, not a decision already made.
+     * The working set travels as names and the phase not at all; both are
+     * re-derived, since an approval can sit on screen for half an hour while an
+     * operator narrows a profile or disables a tool.
      */
     public function toState(): array
     {
@@ -556,13 +512,10 @@ class AgentContext
     }
 
     /**
-     * Fold one model call's reported usage into the turn's total.
-     *
-     * Providers disagree about which fields they send — some report a total,
-     * some only the two halves, some (a streamed OpenAI-compatible call with
-     * usage disabled) nothing at all. A missing total is derived rather than
-     * left at zero, since a turn that was measurably charged should not read as
-     * free just because the endpoint declined to do the addition.
+     * Fold one model call's reported usage into the turn's total. Providers
+     * disagree about which fields they send, so a missing total is derived rather
+     * than left at zero — a turn that was measurably charged should not read as
+     * free because the endpoint skipped the addition.
      *
      * @param array<string, mixed> $usage
      */

@@ -9,25 +9,18 @@ use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
- * Builds the agent's system prompt.
+ * Builds the agent's system prompt. Two jobs: ground the model in what it is
+ * working on — a server's egg, state and limits, or the administrator's access
+ * level — so it stops guessing at what it could look up, and set the operating
+ * rules that keep a tool-calling loop useful rather than chatty.
  *
- * Two jobs. First, ground the model in what it is working on — a server's egg,
- * state and limits, or the acting administrator's access level — so it stops
- * guessing at things it can look up. Second, set the operating rules that keep
- * a tool-calling loop useful rather than chatty: read before you write, one
- * step at a time, say what you found.
- *
- * The two surfaces get separate sections rather than one prompt with caveats.
- * A server turn should never be told about the product catalogue, and an admin
- * turn should never be told to look in /plugins — a rule a model cannot act on
- * still costs tokens on every step and still occasionally gets tried.
+ * The two surfaces get separate sections rather than one prompt with caveats: a
+ * rule a model cannot act on still costs tokens every step and still gets tried.
  *
  * The behavioural section asks for a line of narration before each tool call and
- * forbids ending a turn on one. Those are close enough to be worth stating
- * separately: an earlier revision said only "act, don't narrate", which did stop
- * the model burning a step on an announcement — and also stripped out every
- * word explaining why a step was being taken, leaving a user watching rows
- * appear with no account of what the assistant thought it was doing.
+ * forbids ending a turn on one. Both are needed — "act, don't narrate" alone
+ * stopped the wasted announcement step but also stripped every word explaining
+ * why a step was being taken.
  */
 class SystemPromptBuilder
 {
@@ -86,18 +79,13 @@ class SystemPromptBuilder
     }
 
     /**
-     * That the tool list is a working set, not the catalogue.
+     * That the tool list is a working set, not the catalogue. Aimed at one
+     * failure: a model concluding from an absent tool that the capability does
+     * not exist, and apologising confidently for something one search away.
      *
-     * The single most important paragraph in the prompt now, and it is aimed at
-     * one specific failure: a model concluding from an absent tool that the
-     * capability does not exist. From the inside those are the same observation,
-     * and the usual outcome is a confident apology for something that was one
-     * search away — which is worse than an error, because the user believes it.
-     *
-     * The second half is the counterweight. A model told it can search will
-     * search before answering anything, so it is told just as plainly when not
-     * to: the tools in front of it are the ones its task usually needs, and a
-     * search for something already on the list costs a step and finds it again.
+     * The second half is the counterweight — a model told it can search will
+     * search before answering anything, so it is told just as plainly not to look
+     * for what is already in front of it.
      *
      * @param string[] $offered
      */
@@ -133,20 +121,15 @@ class SystemPromptBuilder
     }
 
     /**
-     * One interpolated fact value, filtered the same way a tool result is.
+     * One interpolated fact value, filtered the same way a tool result is. Values
+     * concatenated into this prompt reach the provider exactly as a tool result
+     * does, and several are customer-authored — a server named
+     * `someone@example.com` must not go verbatim when the same string arriving
+     * through `admin_server_view` is tokenised.
      *
-     * Every value the panel concatenates into this prompt reaches the provider
-     * exactly as a tool result does, and several of them are customer-authored:
-     * a customer names their own server, and a server called
-     * `someone@example.com` used to be sent verbatim while the identical string
-     * arriving through `admin_server_view` was tokenised. A boundary that holds
-     * on one path and not the other is not a boundary.
-     *
-     * `redactText()` and not the structural walker on purpose — these are bare
-     * strings with no field name to read, so what applies is exactly what
-     * applies to prose in a file or a console line. Tokens minted here go into
-     * the turn's map like any other, so the same value reads as the same token
-     * in the prompt, in a tool result and on screen.
+     * `redactText()` rather than the structural walker, since these are bare
+     * strings with no field name. Tokens minted here join the turn's map, so a
+     * value reads the same in the prompt, in a tool result and on screen.
      */
     protected function fact(AgentContext $context, string $value): string
     {
@@ -353,17 +336,13 @@ class SystemPromptBuilder
     }
 
     /**
-     * When to put a question to the user.
+     * When to put a question to the user. Stated as a permission, not a warning:
+     * prohibitions alone left the tool unused, and the model picked a candidate
+     * and acted instead — a wrong guess touches a live server, while a question
+     * costs a step.
      *
-     * Previously three prohibitions and no permission, which read as a warning
-     * rather than a capability and left the tool essentially unused — the model
-     * would instead pick one of the candidates and act, which is the worse
-     * failure of the two, because a wrong guess acts on someone's live server
-     * while a question merely costs a step.
-     *
-     * The cases are named concretely for the same reason the rules elsewhere
-     * name paths: "when it is ambiguous" is a judgement a small model makes
-     * badly, and "when two files match" is one it makes well.
+     * The cases are named concretely, since "when it's ambiguous" is a judgement
+     * a small model makes badly and "when two files match" is one it makes well.
      *
      * @param string[] $offered
      */
@@ -391,19 +370,14 @@ class SystemPromptBuilder
     }
 
     /**
-     * When to make several changes at once.
+     * When to make several changes at once. Permission first, as in
+     * `questionRule()`: told only what the tool is, a model answers "twenty of
+     * something" by making the first and asking whether to continue.
      *
-     * Stated as permission first, for the same reason `questionRule()` is: a
-     * model that has only been told what a tool is will use it for the case the
-     * description happened to name and no other, and the case here — "the user
-     * asked for twenty of something" — is one it will otherwise answer by making
-     * the first one and asking whether to continue.
-     *
-     * The prohibition matters more than usual, though, so it is stated twice,
-     * here and in the tool's own description. A batch is fixed when the card is
-     * drawn; a model that batches a create and then an update against the id
-     * that create returns has written a call whose argument does not exist yet,
-     * and will get a validation error it cannot understand from the inside.
+     * The prohibition is stated twice, here and in the tool's own description. A
+     * batch is fixed when the card is drawn, so batching a create and an update
+     * against the id it returns writes an argument that does not exist yet — and
+     * yields a validation error the model cannot understand from the inside.
      *
      * @param string[] $offered
      */
@@ -462,19 +436,13 @@ class SystemPromptBuilder
     /**
      * The operator's own system prompt, appended after the packaged guidance.
      *
-     * Append order is a convention, not a control, and the comment that used to
-     * sit here said otherwise — that placing this last meant it "cannot remove
-     * the safety-relevant guidance above it". Nothing enforces that. Both halves
-     * are the same role in the same message, and a model reading "ignore the
-     * preceding instructions" has no mechanism telling it not to.
-     *
-     * It does not need one. Nothing above is load-bearing: every rule whose
-     * violation would matter is enforced in code the model cannot address — the
-     * registry allowlist, the risk gate and its approval cards, the endpoint's
-     * own permission checks, the assist grant's MAC. An operator prompt that
-     * talks the model out of the prose here changes what it says it will do and
-     * not one thing about what the panel will let it do. What it genuinely is,
-     * then, is customizable policy: tone, house rules, what to prioritise.
+     * Append order is a convention, not a control: both halves are the same role
+     * in the same message, so nothing stops a model reading "ignore the preceding
+     * instructions." It does not need to. Nothing above is load-bearing — every
+     * rule whose violation would matter is enforced in code the model cannot
+     * address (the registry allowlist, the risk gate and its approval cards, the
+     * endpoint's permission checks, the assist grant's MAC). This is customizable
+     * policy: tone, house rules, what to prioritise.
      */
     protected function operatorPrompt(): ?string
     {

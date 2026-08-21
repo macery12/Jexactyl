@@ -16,19 +16,15 @@ use Laravel\Horizon\Contracts\MasterSupervisorRepository;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 
 /**
- * One snapshot of worker-queue health, assembled for /admin/queues.
+ * One snapshot of worker-queue health for /admin/queues — the infrastructure
+ * view of what is queued, what is draining it and what is wrong. Distinct from
+ * `OverviewController::queues()`, which reports *business* backlog.
  *
- * Deliberately distinct from OverviewController::queues(), which reports
- * *business* backlog -- open tickets, billing exceptions. This is the
- * infrastructure view: what is queued, what is draining it, and what is wrong.
+ * Horizon supplies depth, wait, throughput and runtime; the worker heartbeat
+ * supplies what it cannot — whether a process is genuinely consuming a lane
+ * right now. Together they separate "busy" from "nobody is listening".
  *
- * Horizon supplies depth, wait, throughput and runtime. The worker heartbeat
- * supplies the thing Horizon cannot: whether a process is genuinely consuming a
- * lane right now. Together they distinguish "busy" from "nobody is listening",
- * which is the difference between a slow queue and a silently broken one.
- *
- * Cached briefly behind a lock so a room full of admins polling the dashboard
- * computes it once, following InferenceGate's single-flight discipline.
+ * Cached briefly behind a lock so a room full of admins computes it once.
  */
 class QueueHealthService
 {
@@ -377,25 +373,16 @@ class QueueHealthService
     /**
      * Throughput and average runtime over the retained snapshot window.
      *
-     * Horizon's live counters cannot be read on their own. `horizon:snapshot`
-     * rolls them into a time series every five minutes and *deletes* them on the
-     * way past (RedisMetricsRepository::baseSnapshotData does an hmget followed
-     * by a del), so anything reading the counters directly shows a number that
-     * keeps collapsing back to zero -- which made a perfectly busy panel look
-     * like nothing had ever run.
+     * Horizon's live counters cannot be read alone: `horizon:snapshot` rolls them
+     * into a time series every five minutes and *deletes* them on the way past,
+     * so reading them directly shows a number that keeps collapsing to zero. So
+     * the retained snapshots are summed with the live counter added on top.
+     * Runtime is weighted by throughput — a straight mean would let one idle
+     * window count as much as a busy one.
      *
-     * So the retained snapshots are summed, with the live counter added on top
-     * to cover the minutes since the last one. Runtime is averaged weighted by
-     * throughput; a straight mean of the per-snapshot averages would let one
-     * idle five-minute window count as much as a busy one.
-     *
-     * These reads hit Redis and can fail independently of the rest of the
-     * snapshot; a missing number must not cost the whole page.
-     *
-     * The same snapshots also carry the shape of the window, not just its total,
-     * so `$withSeries` returns them as a plain time series for the page to draw.
-     * They are already fetched either way -- summing them and throwing the
-     * points away was wasting the more useful half.
+     * These reads hit Redis and can fail independently, so a missing number must
+     * not cost the whole page. `$withSeries` returns the same snapshots as a
+     * plain time series, since they are fetched either way.
      *
      * @return array{processed: ?int, avgRuntimeMs: ?float, windowMinutes: ?int, series?: list<array{time: int, throughput: int, runtimeMs: float}>}
      */

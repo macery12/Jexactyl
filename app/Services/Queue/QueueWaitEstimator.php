@@ -7,20 +7,16 @@ use Illuminate\Contracts\Config\Repository as Config;
 /**
  * How long each lane will take to clear, and when that is too long.
  *
- * Horizon models this as `readyNow(queue) * runtimeForQueue(queue)`, but
- * `runtimeForQueue` reads the live counter that `horizon:snapshot` deletes
- * every five minutes -- so its own figure collapses to zero for minutes at a
- * time no matter how deep the queue is. The caller supplies a runtime drawn
- * from the retained snapshots instead, and this applies the rest of the model.
+ * Horizon models this as `readyNow(queue) * runtimeForQueue(queue)`, but the
+ * latter reads a live counter `horizon:snapshot` deletes every five minutes, so
+ * it collapses to zero however deep the queue is. The caller supplies a runtime
+ * from the retained snapshots instead; this applies the rest of the model,
+ * keeping two of its properties:
  *
- * Two properties of that model are kept deliberately:
- *
- *  - The estimate is **cumulative** in the supervisor's declared queue order.
- *    Under `balance => false` a job on a low-priority lane genuinely does wait
- *    for every lane above it to drain first, so reporting each lane in
- *    isolation would understate every lane but the first.
- *  - It is divided by the supervisor's process count, because those processes
- *    drain the group in parallel.
+ *  - **Cumulative** in the supervisor's declared queue order — under
+ *    `balance => false` a low-priority lane really does wait for those above it,
+ *    so reporting lanes in isolation would understate all but the first.
+ *  - Divided by the supervisor's process count, since those drain in parallel.
  */
 class QueueWaitEstimator
 {
@@ -33,10 +29,8 @@ class QueueWaitEstimator
 
     /**
      * Queue name => estimated seconds to clear, or null when it cannot be known.
-     *
-     * A null entry is not the same as zero. A lane holding work the panel has no
-     * runtime sample for is genuinely unknowable, and reporting it as instant is
-     * how a real backlog would hide.
+     * Null is not zero: a lane holding work with no runtime sample is genuinely
+     * unknowable, and reporting it as instant is how a real backlog hides.
      *
      * @param array<string, ?float> $clearMs queue name => ms to drain, null when unknowable
      * @param list<array<string, mixed>> $supervisors each with `queues` in priority order and a `processes` count

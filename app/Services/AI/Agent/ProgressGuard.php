@@ -7,33 +7,26 @@ use Everest\Services\AI\Tools\ToolResult;
 /**
  * Stops a turn that is going round in circles.
  *
- * Step and wall-clock limits already bound a turn, but they bound it *badly* for
- * this failure: a model repeating one call twelve times burns the whole budget
- * and then reports a timeout, which tells the user nothing and tells the operator
- * to raise a limit that was never the problem. What actually happened is that the
- * model asked the same question twelve times and got the same answer.
+ * Step and wall-clock limits bound a turn badly for this failure: a model
+ * repeating one call twelve times burns the budget and reports a timeout, which
+ * tells the operator to raise a limit that was never the problem. Retrieval
+ * makes it likelier — a model that cannot find a tool searches again in almost
+ * the same words, and an unsatisfiable prerequisite is a wall it walks into
+ * repeatedly.
  *
- * Retrieval makes this more likely, not less. A model that cannot find a tool
- * tends to search for it again in almost the same words, and a prerequisite it
- * cannot satisfy is a wall it will walk into repeatedly. So the guard is part of
- * this change rather than a separate hardening pass.
- *
- * **What counts as identical.** The tool, its arguments, the outcome, a digest of
- * the result, and the turn's state version. That last term is what keeps
- * legitimate repetition working: polling `server_status` through a restart
- * returns different bytes, and a call made after an approval, a phase change or a
- * new pin is a different call even when it looks the same. Pagination is fine
- * without any of that, because its arguments differ.
+ * **What counts as identical:** the tool, its arguments, the outcome, a digest
+ * of the result, and the turn's state version. That last term keeps legitimate
+ * repetition working — polling through a restart returns different bytes, and a
+ * call after an approval or phase change is a different call. Pagination differs
+ * by arguments alone.
  */
 class ProgressGuard
 {
     /**
-     * How many identical calls before the turn is stopped.
-     *
-     * One repeat earns a warning the model can act on; the second is proof it
-     * cannot. A single strike would be wrong — a model that repeats a call once
-     * and then does something sensible is common, and killing that turn would
-     * trade a rare loop for a frequent misfire.
+     * How many identical calls before the turn is stopped. One repeat earns a
+     * warning the model can act on; the second is proof it cannot. A single
+     * strike would trade a rare loop for a frequent misfire, since repeating
+     * once and then recovering is common.
      */
     private const STRIKES = 2;
 
@@ -72,10 +65,9 @@ class ProgressGuard
     }
 
     /**
-     * Decide what to do about a call that has just produced a result.
-     *
-     * Returns the result to feed back — either the real one, or a `repeated_call`
-     * error in its place — and whether the loop should stop.
+     * Decide what to do about a call that has just produced a result: the result
+     * to feed back (the real one, or a `repeated_call` error in its place) and
+     * whether the loop should stop.
      *
      * @return array{result: ToolResult, halt: bool}
      */
@@ -121,11 +113,10 @@ class ProgressGuard
 
     /**
      * Bump the state version, so identical calls stop counting as repetition.
-     *
-     * Called wherever the world may have moved: a successful mutation, a phase
-     * transition, an answered question. Being generous here is the safe
-     * direction — a missed bump stops a legitimate retry, which is a visible
-     * failure, while an extra bump merely lets one redundant call through.
+     * Called wherever the world may have moved — a successful mutation, a phase
+     * transition, an answered question. Generosity is the safe direction: a
+     * missed bump blocks a legitimate retry, an extra one lets a redundant call
+     * through.
      */
     public function stateChanged(AgentContext $context): void
     {
@@ -133,12 +124,10 @@ class ProgressGuard
     }
 
     /**
-     * The identity of one call-and-result.
-     *
-     * Arguments are canonicalised — keys sorted, recursively — so that a model
-     * writing the same call with its fields in a different order is recognised as
-     * the same call. Without that the guard is trivially defeated by a
-     * re-serialisation nobody intended.
+     * The identity of one call-and-result. Arguments are canonicalised (keys
+     * sorted, recursively) so the same call written with its fields reordered is
+     * still recognised — otherwise an unintended re-serialisation defeats the
+     * guard.
      */
     private function signature(AgentContext $context, string $tool, array $arguments, ToolResult $result): string
     {

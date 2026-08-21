@@ -45,12 +45,10 @@ class AgentEvent
     }
 
     /**
-     * The turn is waiting for an inference slot, and holds a place in line.
-     *
-     * The ticket is the place, and the client presents it on the next attempt
-     * to keep it. This is the whole of the queueing contract: the panel does
-     * not hold the turn open while it waits — that cost a PHP worker per waiter
-     * — so a queued turn is one the client is responsible for coming back for.
+     * The turn is waiting for an inference slot, and holds a place in line. The
+     * ticket *is* the place, presented again on the next attempt: the panel does
+     * not hold the turn open while it waits, so coming back is the client's
+     * responsibility.
      *
      * @param string|null $ticket null on a turn that was admitted immediately,
      *                            where the frame is informational only
@@ -194,16 +192,13 @@ class AgentEvent
 
     /**
      * Personal data that was kept out of the request, and what it really was.
+     * Runs the opposite way to every other event here — the model got the token,
+     * the browser gets the value. Redaction exists so the inference provider
+     * never sees a customer's address, not to hide it from an administrator who
+     * can already read it in the user table.
      *
-     * This runs the opposite way to every other event here: the model got the
-     * token and the browser gets the value. That is the whole design — the point
-     * of redaction is that the inference provider never sees a customer's
-     * address, not that the administrator is kept from seeing it. They can read
-     * it in the user table already, and a transcript full of `[email_1]` with no
-     * way to resolve it would just get the feature switched off.
-     *
-     * Sent as a delta of what is newly minted, so a long turn does not repeat
-     * the whole map on every tool result.
+     * Sent as a delta of what is newly minted, so a long turn does not repeat the
+     * whole map on every tool result.
      *
      * @param array<string, string> $values token => original
      */

@@ -14,23 +14,16 @@ class ProviderCapabilities
 {
     /**
      * @param bool $supportsSampling whether `temperature` and its siblings are
-     *                               accepted at all. False on the models that
-     *                               reject them outright — the driver drops the
-     *                               parameter there, so a panel that goes on
-     *                               presenting a temperature control is
-     *                               offering a knob attached to nothing.
+     *                               accepted at all. False where the driver drops
+     *                               the parameter, so the panel does not present a
+     *                               control attached to nothing.
      * @param bool $supportsReasoning whether the driver can *ask* for reasoning,
-     *                                which is narrower than whether the model
-     *                                does any. Only Anthropic has a request-side
-     *                                switch (`thinking: adaptive`); the Ollama
-     *                                and OpenAI-compatible drivers read thinking
-     *                                off the response if it is there and send
-     *                                nothing to cause it. On those, the panel's
-     *                                reasoning toggle changes nothing in either
-     *                                direction — turning it off does not stop a
-     *                                reasoning model reasoning — and a control
-     *                                that cannot do what its label says is worse
-     *                                than an absent one.
+     *                                narrower than whether the model does any.
+     *                                Only Anthropic has a request-side switch;
+     *                                the other drivers read thinking off the
+     *                                response and send nothing to cause it, so the
+     *                                toggle would change nothing in either
+     *                                direction.
      * @param bool $selfHosted whether inference runs on hardware we own, and
      *                         therefore needs slot-based admission control
      * @param string[] $warnings admin-facing problems that do not block use
@@ -58,18 +51,13 @@ class ProviderCapabilities
     }
 
     /**
-     * The wire shape the admin UI reads.
+     * The wire shape the admin UI reads, and the only serialiser — add a field
+     * here and in the `AiInferenceState` type in `adminAi.ts` and it arrives.
+     * Hand-picking fields in the controller instead left this uncalled and four
+     * capabilities write-only.
      *
-     * This is the only serialiser. `AiAgentController::inference()` used to
-     * hand-pick fields into an array literal instead, which left this method
-     * with no callers and four of the fields above write-only — set by every
-     * driver, serialised by nothing, read by no one. Adding a capability then
-     * meant editing five places and silently failing if you missed the
-     * controller. Add a field here and in the `AiInferenceState` type in
-     * `adminAi.ts`, and it arrives.
-     *
-     * `model` is not included: it is what the caller asked *about*, not
-     * something the probe discovered, and the controller is where it is known.
+     * `model` is excluded: it is what the caller asked *about* rather than
+     * something the probe discovered, and the controller already knows it.
      */
     public function toArray(): array
     {

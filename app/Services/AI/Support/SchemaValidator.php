@@ -4,18 +4,16 @@ namespace Everest\Services\AI\Support;
 
 /**
  * Validates and coerces model-produced tool arguments against a tool's JSON
- * Schema.
+ * Schema. A focused subset rather than a general engine — the panel authors
+ * every schema it publishes.
  *
- * Deliberately a focused subset rather than a general JSON Schema engine: the
- * panel authors every schema it publishes, so only the keywords actually used
- * need supporting. What it adds beyond validation is **coercion** — small local
- * models routinely emit `"5"` for an integer, `"true"` for a boolean, or a bare
- * string where an array of one was wanted. Those are formatting slips, not
- * intent errors, so correcting them silently avoids burning a repair round on
- * something the model already got right.
+ * Beyond validation it adds **coercion**: small local models routinely emit
+ * `"5"` for an integer or a bare string where an array of one was wanted. Those
+ * are formatting slips, not intent errors, so correcting them silently avoids a
+ * repair round on something the model already got right.
  *
- * Error messages are written to be fed straight back to the model, so they name
- * the field and say what was expected.
+ * Error messages are fed straight back to the model, naming the field and what
+ * was expected.
  */
 class SchemaValidator
 {

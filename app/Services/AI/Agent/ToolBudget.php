@@ -8,17 +8,14 @@ use Everest\Services\AI\ProviderFactory;
 /**
  * How many complete tool schemas this model can choose between in one step.
  *
- * A context window says how much a model can *hold*; it says nothing about how
- * many similar options it can *discriminate between*, and the second is what
- * decides whether a turn works. A 3B model with a 128K window will still call the
- * first tool whose schema parses when handed twenty of them. So the budget is
- * derived from model size first and window second, and neither is treated as a
- * capability claim — the profile table is a starting point to be measured, which
- * is why an operator can always overrule it.
+ * A context window says how much a model can *hold*, not how many similar
+ * options it can *discriminate between* — a 3B model with a 128K window still
+ * calls the first tool whose schema parses when handed twenty. So the budget
+ * comes from model size first and window second, and the profile table is a
+ * starting point to be measured rather than a capability claim.
  *
- * `agent:max_tools` is that override. Left unset it means "work it out", which is
- * the useful default: an operator installing a panel does not know their model's
- * tool ceiling, and until now the setting silently assumed 32 for everyone.
+ * `agent:max_tools` overrides it. Left unset it means "work it out," the useful
+ * default: an operator installing a panel does not know their model's ceiling.
  */
 class ToolBudget
 {

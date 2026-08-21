@@ -26,32 +26,22 @@ use Everest\Services\AI\Agent\WorkerRequestScope;
 use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 
 /**
- * Runs one agent turn outside the request that asked for it.
+ * Runs one agent turn outside the request that asked for it — the whole of
+ * "durable execution". The request does what only a request can (admit against
+ * the inference gate, reserve budget, open the conversation) and then ends;
+ * what takes minutes, and what a closed tab used to kill, happens here.
  *
- * This is the whole of "durable execution". The request that starts a turn now
- * does the things only a request can do — admit it against the inference gate,
- * reserve budget, open the conversation, record what the user said — and then
- * ends. What is left is execution, which belongs here, because execution is the
- * part that takes minutes and the part a closed tab used to kill.
+ * Three properties make that safe:
  *
- * Three properties make that safe rather than merely possible.
- *
- * **One execution path.** The turn body is `HandlesAgentTurns::executeTurn()`,
- * the same method the streaming controller calls. This job supplies a different
- * destination for its events and nothing else. A turn does not behave
- * differently for having been queued, and there is no second implementation to
- * drift.
- *
- * **Authority is re-derived, not inherited.** `WorkerRequestScope` rebuilds the
- * request context every tool call needs, presenting the user exactly as a
- * browser session does. `TurnAuthority::stillHeld()` is then re-asked at every
- * step boundary, so signing out, revoking the device or suspending the account
- * stops the turn rather than being noticed next time.
- *
- * **It is never retried.** A turn executes real side effects through the panel's
- * own API and the queue cannot know which of them already happened when a worker
- * died. Re-running one would repeat tool calls the user already watched succeed,
- * so `$tries = 1` and `failed()` records the terminal state instead.
+ * - **One execution path.** The body is `HandlesAgentTurns::executeTurn()`, the
+ *   same method the streaming controller calls; this job only changes where the
+ *   events go. No second implementation to drift.
+ * - **Authority is re-derived, not inherited.** `WorkerRequestScope` rebuilds
+ *   the request context, and `TurnAuthority::stillHeld()` is re-asked at every
+ *   step boundary, so signing out or suspending the account stops the turn.
+ * - **It is never retried.** The queue cannot know which side effects landed
+ *   before a worker died, so `$tries = 1` and `failed()` records the terminal
+ *   state rather than repeating calls the user watched succeed.
  */
 class RunAgentTurnJob extends Job implements ShouldQueue
 {
@@ -175,12 +165,10 @@ class RunAgentTurnJob extends Job implements ShouldQueue
     }
 
     /**
-     * Release what the request handed over and close the turn out.
-     *
-     * Called from every path that ends the turn without `executeTurn()` having
-     * done it — including `failed()`, which is the one place a `finally` cannot
-     * reach, because a job killed by its timeout unwinds through the queue
-     * rather than through PHP.
+     * Release what the request handed over and close the turn out. Called from
+     * every path that ends the turn without `executeTurn()` having done it,
+     * including `failed()` — a job killed by its timeout unwinds through the
+     * queue rather than PHP, so no `finally` reaches it.
      */
     private function finishWithoutRunning(string $status, string $message): void
     {
@@ -207,14 +195,10 @@ class RunAgentTurnJob extends Job implements ShouldQueue
     }
 
     /**
-     * Give back the inference slot and the budget reservation the *request*
-     * took.
-     *
-     * Neither can travel as an object — both close over their own release — so
-     * each crosses as a token the holder can be rebuilt from. Both are
-     * owner-qualified, which is what makes releasing them from here safe even
-     * long after they expired: a slot that was retaken belongs to somebody else
-     * and is left alone.
+     * Give back the inference slot and budget reservation the *request* took.
+     * Neither travels as an object, so each crosses as a token the holder is
+     * rebuilt from. Both are owner-qualified, which makes a late release safe: a
+     * slot already retaken belongs to somebody else and is left alone.
      */
     private function releaseHeldResources(): void
     {
@@ -253,14 +237,10 @@ class RunAgentTurnJob extends Job implements ShouldQueue
     }
 
     /**
-     * Terminality is not a frame in the durable model.
-     *
-     * A reader can join at any point, including after the turn ended, so "is it
-     * over" has to be a question about state rather than about having seen a
-     * sentinel go past. The relay asks the usage row, which is already the
-     * authority the status endpoint uses — and because the terminal row is
-     * written before this is reached, a reader that sees it finished is
-     * guaranteed the log is complete.
+     * Terminality is not a frame in the durable model. A reader can join after
+     * the turn ended, so "is it over" is a question about state, not about
+     * having seen a sentinel. The relay asks the usage row — written before this
+     * is reached, so a reader seeing it finished is guaranteed a complete log.
      */
     protected function sendTerminal(): void
     {

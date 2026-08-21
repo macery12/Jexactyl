@@ -8,25 +8,20 @@ use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
- * Decides which tools the model sees this step.
+ * Decides which tools the model sees this step. Two rules do the work:
  *
- * Two rules do the work, and both are reactions to how the old cap failed.
+ * - **Priority, not order.** Built from the top: discovery and safety exits, the
+ *   phase's reserved reads, what the turn has pinned, the gateways those pins
+ *   need, then whatever a search turned up. The old cap sliced a tail off a
+ *   statically-ordered list, so what got dropped depended on where a tool
+ *   happened to be written down.
+ * - **Refuse rather than truncate.** A set that cannot hold what a turn requires
+ *   is a planning failure naming the missing tools, not a shorter set — to a
+ *   model, a missing tool and a nonexistent one are the same observation.
  *
- * **Priority, not order.** The set is built from the top: discovery and safety
- * exits, then the phase's reserved reads, then what the turn has pinned, then the
- * gateways those pins need, then whatever else a search turned up. The old cap
- * took a tail — `array_slice` on a list whose order was a static declaration —
- * so what got dropped was decided by where a tool happened to be written down.
- *
- * **Refuse rather than truncate.** A set that cannot hold what a turn requires is
- * a planning failure with the names in it, not a shorter set. Silent truncation
- * is uniquely bad here because of how it reads from the inside: a tool that is
- * missing and a tool that does not exist are the same observation to a model, so
- * it stops and reports that the panel cannot do something it can.
- *
- * Nothing here decides authority. Every candidate has already been through
- * `ToolRegistry`'s permission filter, every pin is re-filtered against it on
- * every step, and being reserved buys a tool nothing but a place in the queue.
+ * Nothing here decides authority: candidates have already passed
+ * `ToolRegistry`'s permission filter, pins are re-filtered every step, and being
+ * reserved buys only a place in the queue.
  */
 class WorkingSetPlanner
 {
@@ -38,14 +33,11 @@ class WorkingSetPlanner
 
     /**
      * Everything reachable on this surface, whether or not it can be called yet.
-     *
-     * This is what search looks through, and it is deliberately wider than what
-     * can be offered: on an admin turn it includes the customer-server tools that
-     * an approved session would unlock, so that "read their startup command"
-     * finds `startup_list` and is told what stands in the way. Advertising them
-     * is safe precisely because they are not callable — the offered set is built
-     * from `callable()` below, and `AgentRunner` still refuses anything absent
-     * from it.
+     * What search looks through, deliberately wider than what can be offered: an
+     * admin turn includes the customer-server tools an approved session would
+     * unlock, so "read their startup command" finds `startup_list` and is told
+     * what stands in the way. Safe because they are not callable — the offered
+     * set comes from `callable()`, and `AgentRunner` refuses anything absent.
      *
      * @return ToolDefinition[]
      */
@@ -82,13 +74,11 @@ class WorkingSetPlanner
     }
 
     /**
-     * What the acting user may run right now, on this surface, in this phase.
-     *
-     * The one place the assist narrowing lives. During a session the admin half
-     * of the catalogue collapses to the companion tools — the ones that answer a
-     * question *about* this server or the person who reported it — because
-     * panel-wide browsing is not part of diagnosing somebody's server, and the
-     * budget spent carrying it is budget the session's own tools do not get.
+     * What the acting user may run right now, on this surface, in this phase, and
+     * the one place assist narrowing lives. During a session the admin half of
+     * the catalogue collapses to the companion tools — those answering a question
+     * *about* this server or its reporter — since panel-wide browsing is not part
+     * of diagnosing a server, and its budget belongs to the session's own tools.
      *
      * @return array<string, ToolDefinition>
      */
@@ -234,14 +224,11 @@ class WorkingSetPlanner
     }
 
     /**
-     * Test a proposed set of new pins without committing it.
-     *
-     * The atomic half of the design. A load either happens whole or not at all:
-     * resolve the names, expand what they need, add them to what is already
-     * pinned, and check the total against the budget *before* anything changes.
-     * Appending and then trimming would let a billing lookup evict the assist
-     * session a turn had been building toward, which is exactly the eviction the
-     * doc forbids.
+     * Test a proposed set of new pins without committing it — the atomic half of
+     * the design. A load happens whole or not at all: resolve the names, expand
+     * what they need, add to what is pinned, and check the total against the
+     * budget *before* anything changes. Appending then trimming would let a
+     * billing lookup evict the assist session a turn was building toward.
      *
      * @param string[] $names tools the model asked for
      * @param string[] $drop tools it is finished with
@@ -314,12 +301,10 @@ class WorkingSetPlanner
     }
 
     /**
-     * Pinned tools that can be called right now.
-     *
-     * A pin whose prerequisites are unmet stays pinned and is not offered: it is
-     * what the turn is working toward, and offering a schema the panel would
-     * refuse teaches the model that the tool is broken rather than that the
-     * session is missing.
+     * Pinned tools that can be called right now. A pin whose prerequisites are
+     * unmet stays pinned but unoffered — it is what the turn is working toward,
+     * and offering a schema the panel would refuse teaches the model the tool is
+     * broken rather than that the session is missing.
      *
      * @param array<string, ToolDefinition> $callable
      *

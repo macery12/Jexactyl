@@ -232,18 +232,13 @@ final class Handler extends ExceptionHandler
     }
 
     /**
-     * Whether this response may carry APP_DEBUG's exception detail.
+     * Whether this response may carry APP_DEBUG's exception detail. Not for an
+     * agent tool call: that response goes to an inference provider and is echoed
+     * over SSE, so the message, source path and trace would leave the machine.
      *
-     * It may not when the request is an agent tool call. Debug output is
-     * addressed to a developer reading their own browser; a tool response is
-     * addressed to an inference provider and then echoed onto a user's screen
-     * over SSE, so the message, the source path and the whole trace would leave
-     * the machine. An operator running with APP_DEBUG on — which on this panel
-     * is common enough — should not thereby be exporting their schema.
-     *
-     * The rest of the envelope is unchanged: the tool layer still gets its
-     * status, its stable code and the generic detail, which is everything it can
-     * actually act on. The original exception is reported to the log either way.
+     * The rest of the envelope is unchanged — status, stable code and generic
+     * detail are everything the tool layer can act on, and the exception is
+     * logged either way.
      */
     private function debugDetailPermitted(): bool
     {

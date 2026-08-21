@@ -7,24 +7,20 @@ use Illuminate\Http\Request;
 use Everest\Models\UserSession;
 
 /**
- * Who a durable turn runs as, and for how long that stays true.
+ * Who a durable turn runs as, and for how long that stays true. A request-bound
+ * turn ended with its request; once execution moves to a worker the two come
+ * apart, and a turn that keeps its authority after the user logged out is a
+ * credential with no owner.
  *
- * A request-bound turn never needed this: the authority was the request, and
- * when the request ended so did the turn. Once execution moves to a worker the
- * two come apart, and the gap is the whole security question — a turn that
- * keeps its authority after the user logged out is a credential with no owner.
+ * The identity is **session-equivalent**: the worker presents the user as the
+ * browser did, holding a `TransientToken` rather than replaying an API
+ * credential. Every durable turn starts from the panel UI by a logged-in human,
+ * and re-presenting a token would evaluate an API key's IP allowlist against a
+ * stored address rather than a real peer — enforcement in name only.
  *
- * The identity is deliberately **session-equivalent**: the worker presents the
- * user exactly as the browser did, holding a `TransientToken`. It does not
- * replay an API credential. That is not laziness about scope, it is the honest
- * shape of the thing — every durable turn is started from the panel UI by a
- * logged-in human, and re-presenting a token would mean evaluating an API key's
- * IP allowlist against a stored address rather than a real peer, which is a
- * check that reads as enforcement while being unable to enforce anything.
- *
- * Validity is re-derived, never cached. `stillHeld()` is asked again at every
- * step boundary, so logging out, revoking the device, or suspending the account
- * stops the turn at the next safe point rather than at the next turn.
+ * Validity is re-derived, never cached: `stillHeld()` is re-asked at every step
+ * boundary, so logging out or suspending the account stops the turn at the next
+ * safe point.
  */
 final class TurnAuthority
 {
@@ -85,17 +81,14 @@ final class TurnAuthority
     }
 
     /**
-     * Whether the authority that started this turn is still in force.
+     * Whether the authority that started this turn is still in force. Three ways
+     * it lapses, all deliberate acts: the account was deleted or suspended, or
+     * the originating device was signed out or revoked. A password reset arrives
+     * through the third, since revoking sessions is how the panel expresses it.
      *
-     * Three ways it can lapse, and all three are things a person did on purpose:
-     * the account was deleted, the account was suspended, or the device the turn
-     * was started from was signed out or revoked. A password reset reaches this
-     * through the third — revoking sessions is how the panel already expresses
-     * "everything that was logged in is not any more".
-     *
-     * Deliberately silent about *which* one failed. The caller turns this into a
-     * cancelled turn, and a user watching a transcript does not need the turn to
-     * explain the state of their own account back to them.
+     * Deliberately silent about *which* failed — the caller turns this into a
+     * cancelled turn, and a user does not need their own account state explained
+     * back to them in a transcript.
      */
     public function stillHeld(): bool
     {

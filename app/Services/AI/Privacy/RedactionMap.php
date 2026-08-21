@@ -7,53 +7,34 @@ use Illuminate\Support\Str;
 /**
  * The tokens minted for one conversation, and what they stand for.
  *
- * A redactor that replaced every address with the same placeholder would keep
- * the data out of the model and take the meaning with it: two customers would
- * become indistinguishable, and the model would confidently merge them. So each
- * distinct value gets its own stable token — `[email_3f9c1a]` — and the same
- * value seen again in a later tool result resolves to the same one.
+ * Each distinct value gets its own stable token — `[email_3f9c1a]` — so the
+ * model can still reason about "the same user who filed both tickets" while the
+ * real address never leaves the process. A single shared placeholder would take
+ * the meaning with the data and let the model merge two customers.
  *
- * The map is the panel's, not the model's. It is what lets the assistant reason
- * about "the same user who filed both tickets" while the actual address never
- * leaves the process, and it is what lets the panel put the real value back on
- * screen for the administrator, who is entitled to see it.
+ * Tokens are hashes rather than `[email_1]` because two maps for one
+ * conversation both start counting at one, and merging them would put two
+ * people behind one token with no safe way to resolve it afterwards. Deriving
+ * from the value makes identical token mean identical value by construction.
  *
- * **Why the tokens are hashes rather than `[email_1]`, `[email_2]`.** Sequential
- * numbering reads better and is wrong. Two maps for the same conversation — a
- * resumed turn and the stored copy, say — both start their count at one, so
- * merging them puts two different people behind one token, and the panel then
- * confidently shows the wrong address next to the right sentence. There is no
- * safe way to resolve that collision after the fact: renumbering rewrites a
- * transcript that has already been read, and dropping the newcomer leaves its
- * token resolving to somebody else. Deriving the token from the value removes
- * the possibility instead of handling it — identical token now means identical
- * value, by construction, so merging is trivially correct.
- *
- * The hash is salted **per map**, which is the privacy-relevant half. An
- * unsalted digest would be a stable pseudonym for that customer across every
- * conversation on the install, and those tokens are the thing that actually
- * reaches the inference provider — so the provider could correlate one person's
- * appearances even though it never learns who they are. A per-conversation salt
- * makes the same address a different token in the next conversation.
+ * The hash is salted **per map**: an unsalted digest would be a stable
+ * pseudonym letting the inference provider correlate one person across every
+ * conversation on the install.
  */
 class RedactionMap
 {
     /**
-     * Distinct values one conversation may carry.
-     *
-     * A single listing mints twenty-five tokens quite legitimately; a file read
-     * gone wrong could mint thousands and take the conversation row with it.
-     * Past the cap values still get redacted, they just stop being told apart.
+     * Distinct values one conversation may carry. A listing legitimately mints
+     * twenty-five; a bad file read could mint thousands and take the
+     * conversation row with it. Past the cap values are still redacted, just no
+     * longer told apart.
      */
     public const MAX_ENTRIES = 250;
 
     /**
-     * Hex characters of digest in a token.
-     *
-     * Six gives roughly a one-in-five-hundred chance of a collision across a
-     * full 250-entry map, which is why `tokenFor()` probes for a longer one
-     * rather than trusting it. Longer by default would only make every token
-     * harder for a model to copy back verbatim.
+     * Hex characters of digest in a token. Six collides about one time in five
+     * hundred across a full map, hence `tokenFor()`'s probe for a longer one;
+     * more by default would only make tokens harder to copy back verbatim.
      */
     private const TOKEN_CHARS = 6;
 
@@ -69,14 +50,10 @@ class RedactionMap
     private string $salt;
 
     /**
-     * Whether the salt was generated here rather than restored.
-     *
-     * A conversation's salt has to settle on one value and stay there. Before
-     * this, an empty stored map minted a *fresh* salt on every load, so the
-     * first turn's tokens were derived under one salt and everything after it
-     * under another — one map, two derivations, and a value's token depending
-     * on which turn happened to see it first. A provisional salt yields to the
-     * first real one it meets in {@see merge()}; a restored one never does.
+     * Whether the salt was generated here rather than restored. A conversation's
+     * salt must settle on one value, or a value's token would depend on which
+     * turn saw it first. A provisional salt yields to the first real one it
+     * meets in {@see merge()}; a restored one never does.
      */
     private bool $provisionalSalt;
 
@@ -124,12 +101,10 @@ class RedactionMap
     }
 
     /**
-     * Derive this value's token, lengthening it until it is unclaimed.
-     *
-     * A token already in `$values` here belongs to a *different* value — the
-     * same one would have short-circuited above — so taking it would put two
-     * people behind one name. Probing is deterministic, so the same value in the
-     * same map always lands on the same token however many times it is derived.
+     * Derive this value's token, lengthening it until unclaimed. A token already
+     * in `$values` belongs to a *different* value — the same one short-circuits
+     * above — so taking it would put two people behind one name. Probing is
+     * deterministic, so a value always lands on the same token.
      */
     private function mint(string $kind, string $value): string
     {
@@ -147,10 +122,8 @@ class RedactionMap
     }
 
     /**
-     * Tokens minted since this was last called.
-     *
-     * Drained rather than re-sent so a long turn does not repeat the whole map
-     * on every tool result.
+     * Tokens minted since this was last called. Drained rather than re-sent so a
+     * long turn does not repeat the whole map on every tool result.
      *
      * @return array<string, string>
      */
@@ -183,23 +156,15 @@ class RedactionMap
     /**
      * Fold another map in.
      *
-     * Almost always trivial, because both maps normally share a salt: the same
-     * value derives the same token on both sides and there is nothing to
-     * reconcile. What this cannot do is *assume* that. A token is six hex
-     * characters — twenty-four bits — and two independently-salted maps of a
-     * couple of hundred entries each collide with probability in the fractions
-     * of a percent, which over an install's lifetime is not never. Skipping a
-     * token that is already present, as this used to, resolves such a collision
-     * by silently discarding the incoming value and leaving its token pointing
-     * at somebody else's data. That is the one outcome the whole token scheme
-     * exists to prevent.
+     * Usually trivial, since both maps share a salt and derive the same tokens.
+     * But two independently-salted maps of a couple hundred entries collide at
+     * 24 bits often enough to matter, and skipping an already-present token
+     * would leave it pointing at somebody else's data.
      *
-     * So a collision is detected rather than assumed away, and resolved in the
-     * only direction that is safe: the token that is already here keeps its
-     * meaning — a stored transcript already refers to it — and the incoming
-     * value is reminted into a free token under this map's salt. Deterministic,
-     * so the same merge always lands the same way, and the value stays
-     * addressable for everything minted afterwards.
+     * So a collision is detected and resolved the only safe way: the existing
+     * token keeps its meaning, since a stored transcript already refers to it,
+     * and the incoming value is reminted under this map's salt. Deterministic,
+     * so the same merge always lands the same way.
      */
     public function merge(self $other): void
     {

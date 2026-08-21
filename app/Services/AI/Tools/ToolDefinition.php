@@ -51,21 +51,16 @@ class ToolDefinition
      *                              endpoint's own gate remains authoritative. For an
      *                              admin-scoped tool these are AdminRole capabilities
      *                              rather than subuser permissions.
-     * @param string[] $anyPermission holding *one* of these is enough to be offered the
-     *                                tool. For an endpoint that authorises per argument
-     *                                — `server_power` maps start/stop/restart onto three
-     *                                separate permissions — a flat `$permissions` list
-     *                                has to name one of them and gets both halves wrong:
-     *                                a user with only `control.start` is never offered a
-     *                                tool they can legitimately use, and a user with only
-     *                                `control.restart` is offered signals the endpoint
-     *                                will refuse. The endpoint is still the boundary; this
-     *                                only decides what appears in the catalogue.
-     * @param ToolDiscovery|null $discovery how the tool is found — aliases, tags, the
-     *                                      category it files under. Absent means the tool
-     *                                      is only reachable by its exact registered name,
-     *                                      which for anything a user might ask for in their
-     *                                      own words is a bug rather than a choice.
+     * @param string[] $anyPermission holding *one* of these is enough to be offered
+     *                                the tool, for endpoints that authorise per
+     *                                argument (`server_power` maps start/stop/restart
+     *                                onto three permissions). A flat list would either
+     *                                hide the tool or offer signals the endpoint
+     *                                refuses. Shapes the catalogue only; the endpoint
+     *                                remains the boundary.
+     * @param ToolDiscovery|null $discovery how the tool is found — aliases, tags,
+     *                                      category. Absent means it is reachable only
+     *                                      by its exact registered name.
      * @param callable|null $resultShaper trims a raw response down to what the model needs
      * @param bool $sharesHumanThrottle set for endpoints behind a literal `throttle:n,m`,
      *                                  which no limiter callback can exempt
@@ -145,13 +140,9 @@ class ToolDefinition
     }
 
     /**
-     * Prerequisites declared on the tool itself.
-     *
-     * Nearly always empty. The cross-surface chain — a server tool needing an
-     * assist session on an admin turn — is *derived* by `PrerequisiteResolver`
-     * from scope and risk, because it is a rule about the two surfaces rather
-     * than a fact about any one tool, and writing it out fifty-five times is how
-     * it would come to disagree with itself.
+     * Prerequisites declared on the tool itself. Nearly always empty: the
+     * cross-surface chain is *derived* by `PrerequisiteResolver` from scope and
+     * risk, being a rule about the two surfaces rather than about any one tool.
      *
      * @return string[]
      */

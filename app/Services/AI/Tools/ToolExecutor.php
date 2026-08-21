@@ -22,40 +22,28 @@ use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
  * Runs a tool by dispatching an internal sub-request through the panel's real
  * HTTP pipeline.
  *
- * This is the core security decision of the agent. Rather than re-implementing
- * authorization for the agent — which would drift from the browser's the first
- * time a permission changed — every tool call traverses the exact middleware
- * stack a browser request does: `AuthenticateServerAccess` (404s a server the
- * user cannot reach), `ResourceBelongsToServer` (404s cross-server resources),
- * the endpoint's own FormRequest `permission()` gate, and its validation rules.
- * There is deliberately no second code path to get wrong.
+ * The core security decision of the agent: every tool call traverses the exact
+ * middleware a browser request does — `AuthenticateServerAccess`,
+ * `ResourceBelongsToServer`, the endpoint's FormRequest `permission()` gate and
+ * its validation — so there is no second authorization path to drift.
  *
- * Six things this has to get right, each a real failure rather than a
- * theoretical one:
+ * Six constraints, each a real failure:
  *
- * 1. **Send no cookies.** They have already been decrypted in place on the
- *    parent request; re-sending them makes EncryptCookies fail to decrypt,
- *    which nulls the session cookie, which regenerates the id on the *shared*
- *    session store, which makes UpdateUserSessionActivity find no tracking
- *    record and log the user out mid-stream. Auth propagates without them
- *    because the guard has already resolved and cached the user.
- * 2. **Clear the matched route's cached controller.** Routes are shared across
- *    the process and `Route::getController()` memoises onto them; the API
- *    controllers snapshot the request and call Fractal's `parseIncludes()`,
- *    which *accumulates* — so one tool's `?include=` would leak into every
- *    later call on that route.
- * 3. **Refuse streamed and binary responses.** Their bodies can only be read
- *    by sending them, which would echo straight into the live SSE stream.
- * 4. **Send `Accept: application/json`.** Without it a ValidationException
- *    becomes a 302 with flashed errors and an HttpException renders an HTML
- *    view, instead of the structured envelope the model can act on.
- * 5. **Never dispatch inside a transaction.** The exception handler rolls back
- *    to level 0 when it renders, which would take the caller's transaction
- *    with it.
- * 6. **Bound how long it may block.** A sub-request inherits the panel's own
- *    node timeouts, and some of those are a quarter of an hour — fine for a
- *    person who clicked "compress" and can see a progress bar, useless inside a
- *    turn whose whole wall-clock budget is three minutes.
+ * 1. **Send no cookies.** Re-sending already-decrypted ones makes EncryptCookies
+ *    fail, nulling the session cookie and regenerating the id on the *shared*
+ *    store, which logs the user out mid-stream. Auth propagates anyway: the
+ *    guard has already cached the user.
+ * 2. **Clear the matched route's cached controller.** Routes are process-wide and
+ *    `Route::getController()` memoises onto them, so Fractal's accumulating
+ *    `parseIncludes()` would leak one tool's `?include=` into later calls.
+ * 3. **Refuse streamed and binary responses.** Reading their bodies means sending
+ *    them, straight into the live SSE stream.
+ * 4. **Send `Accept: application/json`**, or a ValidationException becomes a 302
+ *    and an HttpException renders HTML instead of a structured envelope.
+ * 5. **Never dispatch inside a transaction.** The exception handler rolls back to
+ *    level 0 when it renders, taking the caller's transaction with it.
+ * 6. **Bound how long it may block.** Inherited node timeouts run to a quarter of
+ *    an hour, against a turn budget of three minutes.
  */
 class ToolExecutor
 {
@@ -140,20 +128,15 @@ class ToolExecutor
     }
 
     /**
-     * Hold the node timeouts down for the duration of one tool call, returning
-     * what they were so the caller can put them back.
+     * Hold the node timeouts down for one tool call, returning what they were
+     * so the caller can restore them.
      *
-     * Lowered rather than replaced: an operator who has already tightened
-     * `GUZZLE_TIMEOUT` meant it, and this has no business relaxing it. What it
-     * does mean is that the archive timeout — fifteen minutes, and correct for a
-     * person watching a progress bar — cannot be inherited by a model that will
-     * simply sit there. A tool that overruns comes back as a failed tool call the
-     * model can report or route around, which is strictly better than a turn that
-     * looks identical to a crash.
-     *
-     * Config rather than a parameter because the value has to reach a repository
-     * several layers down the sub-request, and threading a timeout through the
-     * HTTP kernel is not a thing that can be done.
+     * Lowered, never raised — an operator who tightened `GUZZLE_TIMEOUT` meant
+     * it. The point is that the fifteen-minute archive timeout cannot be
+     * inherited by a model that will simply sit there; an overrun becomes a
+     * failed tool call the model can route around. Config rather than a
+     * parameter because the value must reach a repository several layers into
+     * the sub-request.
      *
      * @return array<string, int> the previous values, shaped for `config()`
      */
@@ -226,14 +209,11 @@ class ToolExecutor
     }
 
     /**
-     * Build the sub-request.
-     *
-     * Deliberately carries no `Cookie`, `Authorization`, `Referer`, or `Origin`
-     * header. Without a session cookie the stateful-request path is skipped
-     * entirely, so CSRF and session handling never run — and the guard's cached
-     * user means the sub-request still authenticates as exactly the same
-     * identity, with the same token instance. The failure mode is closed: if
-     * that cache were somehow cold the request 401s, never escalates.
+     * Build the sub-request. Carries no `Cookie`, `Authorization`, `Referer` or
+     * `Origin` header: without a session cookie the stateful path is skipped, so
+     * CSRF and session handling never run, while the guard's cached user keeps
+     * the identity and token instance identical. Fails closed — a cold cache
+     * 401s rather than escalating.
      */
     protected function buildSubRequest(ToolInvocation $invocation, Request $parent): Request
     {
@@ -381,20 +361,16 @@ class ToolExecutor
     /**
      * Build the message the model sees.
      *
-     * `convertExceptionToArray()` injects `source.file`, `source.line`, and a
-     * full `meta.trace` when APP_DEBUG is on. None of that may reach the model
-     * context — it would be echoed to the user's screen over SSE — so only the
-     * detail string is ever read, never the surrounding envelope.
+     * Only the detail string is ever read, never the envelope:
+     * `convertExceptionToArray()` injects `source.file`, `source.line` and a
+     * full `meta.trace` under APP_DEBUG, none of which may reach the model and
+     * thence the user's screen over SSE.
      *
-     * A 5xx detail is not read either, in any mode. With APP_DEBUG on it is the
-     * raw exception message, which routinely carries SQL, table names and
-     * absolute paths; with it off, controllers that wrap their failures
-     * (`'Failed to update a product: ' . $ex->getMessage()`) put the same thing
-     * through the same door. Nothing in it is actionable to a model anyway: a
-     * 5xx means wait and retry, and the original exception is already in the
-     * server's own log, where it belongs. The 5xx statuses the *node* raises
-     * are answered from the table below for the same reason — Wings has already
-     * flattened those to generic prose before the panel sees them.
+     * 5xx details are dropped in every mode. Debug-on they carry SQL, table
+     * names and paths; debug-off, controllers that wrap failures leak the same
+     * through the same door. None of it is actionable anyway — a 5xx means wait
+     * and retry, and the exception is already in the log. Node-raised 5xx use
+     * the table below for the same reason.
      */
     protected function errorDetail(int $status, array $first): string
     {
@@ -416,13 +392,10 @@ class ToolExecutor
     }
 
     /**
-     * Unwrap the daemon's error envelope.
-     *
-     * `DaemonConnectionException` wraps whatever the node reported in prose and
-     * appends a request id, so a plain "no such directory" reaches the model as
-     * "An error occurred on the remote host: … (request id: <nil>)". The
-     * wrapper is noise the model has to reason past and the request id means
-     * nothing to it — both cost tokens on every subsequent step of the turn.
+     * Unwrap the daemon's error envelope. `DaemonConnectionException` wraps the
+     * node's prose and appends a request id, turning "no such directory" into
+     * "An error occurred on the remote host: … (request id: <nil>)" — noise the
+     * model reasons past, at a token cost on every later step of the turn.
      */
     protected function unwrapDaemonMessage(string $detail): string
     {

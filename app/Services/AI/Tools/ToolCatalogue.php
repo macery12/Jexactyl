@@ -5,23 +5,20 @@ namespace Everest\Services\AI\Tools;
 /**
  * Finds tools by name or by what someone is trying to do.
  *
- * Deliberately dumb. No embeddings, no vector store, no database — a normalised
- * in-memory index over fifty-odd tools that changes only when the panel is
- * deployed. The catalogue is small enough that the interesting failure is never
- * recall, it is a *wrong* first result, and an exact name losing to a semantic
- * near-miss is the specific wrongness that would matter most: a model that asked
- * for `startup_list` by name and got `startup_set` would go on to change the
- * thing it was asked to read.
+ * Deliberately dumb: no embeddings, no vector store, no database — a normalised
+ * in-memory index over fifty-odd tools that changes only on deploy. At this size
+ * the interesting failure is never recall but a *wrong* first result, and the
+ * worst of those is an exact name losing to a near-miss: asking for
+ * `startup_list` and getting `startup_set` changes what it meant to read.
  *
- * So the ranking is tiered rather than blended. An exact name beats an exact
- * alias, which beats a prefix, which beats every lexical score there is, and no
- * amount of accumulated token overlap can climb a tier. Ties break on the tool
- * name, so the same query asked twice returns the same answer in the same order.
+ * So ranking is tiered rather than blended — exact name beats exact alias beats
+ * prefix beats every lexical score, and no accumulated token overlap climbs a
+ * tier. Ties break on tool name, so the same query always returns the same order.
  *
- * This class knows nothing about users, surfaces, sessions or permissions. It
- * ranks the candidates it is handed. Deciding *which* tools are candidates is
- * `ToolDiscoveryService`'s job, and keeping that out of here is what stops a
- * search index from quietly becoming a second, weaker authorization path.
+ * Knows nothing about users, surfaces, sessions or permissions; it ranks the
+ * candidates it is handed. Choosing *which* tools are candidates is
+ * `ToolDiscoveryService`'s job, kept out so a search index cannot become a
+ * second, weaker authorization path.
  */
 class ToolCatalogue
 {
@@ -79,14 +76,10 @@ class ToolCatalogue
     }
 
     /**
-     * Rank candidates against a query.
-     *
-     * `$exactName` wins outright when it resolves to a candidate, per the doc's
-     * rule that semantic search must never outrank an exact tool-name match. It
-     * is not treated as a filter, though: an exact name that is *not* among the
-     * candidates falls through to the query rather than returning nothing, so a
-     * model naming a tool it cannot reach still gets told what it should have
-     * asked for.
+     * Rank candidates against a query. `$exactName` wins outright when it resolves
+     * to a candidate, but is not a filter: one *not* among the candidates falls
+     * through to the query rather than returning nothing, so a model naming a
+     * tool it cannot reach still learns what it should have asked for.
      *
      * @param ToolDefinition[] $candidates already reduced to what this user could
      *                                     reach on this surface, directly or after
@@ -229,17 +222,14 @@ class ToolCatalogue
     }
 
     /**
-     * How much a token is worth, given how many tools carry it.
+     * How much a token is worth, given how many tools carry it. A word half the
+     * catalogue uses is barely evidence, while one only a single tool claims is
+     * nearly conclusive — without this, "panel revenue" ranked `admin_activity`
+     * above `admin_billing_analytics`, the common token scoring as much as the
+     * rare one that was the point of the query.
      *
-     * A word that half the catalogue uses is barely evidence — "panel" tags six
-     * admin tools and tells you nothing about which — while a word only one tool
-     * claims is nearly conclusive. Without this, "panel revenue" ranked
-     * `admin_activity` above `admin_billing_analytics`, because a common token
-     * matched at full weight scored the same as the rare token that was the
-     * entire point of the query.
-     *
-     * Scaled to 1.0 for a token unique to one tool, so the weights above keep
-     * meaning what they say and rarity only ever discounts.
+     * Scaled to 1.0 for a unique token, so the weights above keep meaning what
+     * they say and rarity only ever discounts.
      */
     private function rarity(string $token): float
     {
@@ -345,17 +335,14 @@ class ToolCatalogue
     }
 
     /**
-     * Fold a trailing plural `s`, applied to index and query alike.
+     * Fold a trailing plural `s`, applied to index and query alike. Deliberately
+     * not a stemmer — at this size one costs more than it returns and introduces
+     * unpredictable collisions. This fixes the gap that actually bit: the alias
+     * "discount codes" against a user typing "discount code", which put the
+     * *create* tool ahead of the *list* tool for a read-shaped query.
      *
-     * Not a stemmer, and deliberately not: at this catalogue size a real one
-     * costs more than it returns and introduces collisions nobody can predict.
-     * What this fixes is the one gap that actually bit — an operator writing the
-     * alias "discount codes" while a user types "discount code", which put the
-     * *create* tool ahead of the *list* tool for a plainly read-shaped query.
-     *
-     * The exclusions matter more than the rule. `status`, `address` and
-     * `analysis` all end in `s` and none of them is a plural, and folding them
-     * would break the tools those words are the whole point of.
+     * The exclusions matter more than the rule: `status`, `address` and
+     * `analysis` end in `s` without being plurals.
      */
     private function singular(string $word): string
     {

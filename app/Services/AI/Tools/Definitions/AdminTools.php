@@ -10,33 +10,20 @@ use Everest\Services\AI\Tools\ToolDefinition;
 /**
  * The admin-scoped toolset: the panel itself, through the Application API.
  *
- * **How this differs from ServerTools, and why it is written down here.** A
- * server-scoped schema accepts no server identifier, because the uuid is bound
- * from the route the turn was opened on — a hallucinated one has nowhere to
- * land. That trick is not available on the admin surface: an administrator acts
- * across every user, product and category by definition, so there is no route
- * context to bind an identifier from, and the ids below genuinely do come from
- * model output.
+ * Unlike ServerTools, the identifiers here genuinely come from model output —
+ * an administrator acts across every user, product and category, so there is no
+ * route context to bind them from. Containment is different in kind:
  *
- * The containment is therefore different in kind rather than absent:
- *
- * 1. This file is an explicit allowlist. Nothing outside it is reachable,
- *    whatever the acting administrator's own capabilities allow.
- * 2. Every call re-checks the declared AdminRole capability twice on the way in
- *    — `AuthorizeApplicationUser`, then the endpoint's own
- *    `ApplicationApiRequest::authorize()` — so a capability the administrator
- *    lacks fails closed regardless of what the model asked for.
- * 3. A child resource that does not belong to the parent named in the URI 404s.
- *    `scopeBindings()` is declared on the route groups but only governs bound
- *    models, and the billing routes pass scalars the controller resolves —
- *    which meant a product was found by id alone and the category in the URI
- *    was decorative. Those controllers now resolve the child through the parent
- *    themselves, which is what makes the claim true for the identifiers a model
- *    supplies.
+ * 1. This file is an explicit allowlist; nothing outside it is reachable.
+ * 2. Every call re-checks the declared AdminRole capability twice —
+ *    `AuthorizeApplicationUser`, then `ApplicationApiRequest::authorize()`.
+ * 3. A child that does not belong to the parent named in the URI 404s. The
+ *    billing controllers resolve the child *through* the parent themselves,
+ *    since `scopeBindings()` only governs bound models and those routes pass
+ *    scalars.
  * 4. **No tool here is DESTRUCTIVE.** Deletes, suspensions, reinstalls and
- *    transfers are deliberately not registered, so the worst outcome of a
- *    wrong identifier is a recoverable edit that the administrator already read
- *    on an approval card.
+ *    transfers are unregistered, so the worst case is a recoverable edit the
+ *    administrator already read on an approval card.
  *
  * Every capability below was read from the endpoint's own
  * `ApplicationApiRequest::permission()`, not inferred from the route name.
@@ -54,14 +41,10 @@ class AdminTools
     public const CATEGORY_ASSIST = 'assist';
 
     /**
-     * What each category covers, for the operator's tool catalogue.
-     *
-     * These describe an area of the panel and nothing more. The group
-     * descriptions they replace had to be written for a *model* to choose
-     * between — they said what a group did not cover, because a model that spent
-     * a step activating "backups" to answer "do I have any" was the failure mode
-     * — and none of that is needed now that the model searches for a tool
-     * instead of guessing which drawer it is in.
+     * What each category covers, for the operator's tool catalogue. These
+     * describe an area of the panel and nothing more — the model searches for a
+     * tool rather than choosing between these, so they need no model-facing
+     * wording.
      */
     public const CATEGORY_DESCRIPTIONS = [
         self::CATEGORY_PANEL => 'Panel-wide totals, feature toggles and server presets.',

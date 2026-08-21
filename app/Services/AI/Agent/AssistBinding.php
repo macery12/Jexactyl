@@ -5,27 +5,19 @@ namespace Everest\Services\AI\Agent;
 use Everest\Models\Permission;
 
 /**
- * An administrator's audited session on a customer's server.
+ * An administrator's audited session on a customer's server — the way past a
+ * boundary that otherwise makes "my server won't start" the one request the
+ * admin assistant cannot help with. Deliberately narrow:
  *
- * The admin assistant works on the panel's own records and cannot see inside a
- * server. That is the right default and stays the default — but it makes the
- * commonest support request in the building ("my server won't start") the one
- * thing the assistant cannot help with, because everything that would answer it
- * is behind a boundary it has no way through.
- *
- * A binding is that way through, and it is deliberately narrow:
- *
- * 1. It is created only by an approved tool call, so an administrator has read
- *    what is about to happen and to whose server, and accepted it by name.
- * 2. It names the abilities it grants, and they start read-only. Widening it is
- *    a second approval, not a flag the model can set.
- * 3. It is the *only* thing `AuthenticateServerAccess` and `ServerPolicy` will
- *    accept from a non-owner administrator, and it is ambient for the duration
- *    of a single dispatched sub-request rather than for the request as a whole
- *    — see {@see AssistSession}.
- * 4. Opening one writes an activity row against the server itself, so it lands
- *    in the customer's own activity feed. Support access a customer cannot see
- *    is not support access, it is surveillance.
+ * 1. Created only by an approved tool call, so an administrator has read what is
+ *    about to happen and to whose server, and accepted it by name.
+ * 2. Names the abilities it grants, starting read-only. Widening is a second
+ *    approval, not a flag the model can set.
+ * 3. The *only* thing `AuthenticateServerAccess` and `ServerPolicy` accept from
+ *    a non-owner administrator, ambient for one dispatched sub-request rather
+ *    than the whole request — see {@see AssistSession}.
+ * 4. Opening one writes an activity row against the server, landing in the
+ *    customer's own feed. Support access a customer cannot see is surveillance.
  */
 class AssistBinding
 {
@@ -46,17 +38,13 @@ class AssistBinding
     ];
 
     /**
-     * What escalation adds.
+     * What escalation adds. Deletion is absent and stays absent — an assist
+     * session exists to fix a server, not destroy part of it; the customer's own
+     * assistant can delete files they own.
      *
-     * Deletion is absent, and stays absent: an assist session exists to fix a
-     * server, and nothing about fixing one requires destroying part of it. The
-     * customer's own assistant can delete files, because the customer owns them.
-     *
-     * `startup.docker-image` is here rather than in with `startup.update`
-     * because the panel keeps it apart too, and the distinction is real: the
-     * image is the runtime, not a setting the runtime reads. It also happens to
-     * be the answer to the commonest form of "it used to start and now it
-     * doesn't", so a session without it can reach the diagnosis and stop there.
+     * `startup.docker-image` sits apart from `startup.update` as the panel keeps
+     * it apart: the image is the runtime, not a setting the runtime reads, and it
+     * answers the commonest form of "it used to start and now it doesn't."
      */
     public const WRITE_ABILITIES = [
         Permission::ACTION_FILE_CREATE,
@@ -115,15 +103,11 @@ class AssistBinding
     ];
 
     /**
-     * What survives escalation.
-     *
-     * The server side grows when a session becomes writable, and the offered set
-     * is capped, so something has to give. Panel records are the right thing to
-     * give: by the time an administrator has approved a change, the ticket, the
-     * customer and the server's record have all been read and are sitting in the
-     * transcript. What is worth being able to re-read mid-fix is the one thing
-     * that cannot be reconstructed from the panel — what the customer actually
-     * said.
+     * What survives escalation. The server side grows when a session becomes
+     * writable and the offered set is capped, so panel records give way: by
+     * approval time the ticket, customer and server record are already in the
+     * transcript. What is worth re-reading mid-fix is the one thing the panel
+     * cannot reconstruct — what the customer actually said.
      */
     public const WRITABLE_COMPANION_TOOLS = [
         'admin_ticket_messages',

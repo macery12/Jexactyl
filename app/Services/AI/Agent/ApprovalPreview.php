@@ -10,16 +10,13 @@ use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
- * Extra detail an approval card renders in place of the raw arguments.
+ * Extra detail an approval card renders in place of the raw arguments. The card
+ * otherwise lists arguments as labelled rows, which reads fine for the
+ * self-describing ones; this covers those where the honest rendering is not the
+ * argument itself.
  *
- * The card falls back to listing arguments as labelled rows, which is readable
- * for most tools because most arguments are self-describing — a path, a signal, a
- * sentence. This exists for the ones that are not, where the honest rendering of
- * the argument is not the argument itself.
- *
- * Kept out of the runner because a pending action outlives the turn that created
- * it: the preview has to be rebuildable from the stored tool name and arguments
- * alone when the user comes back to an approval minutes later.
+ * Kept out of the runner because a pending action outlives its turn: the preview
+ * must be rebuildable from the stored tool name and arguments alone.
  */
 class ApprovalPreview
 {
@@ -51,24 +48,18 @@ class ApprovalPreview
     }
 
     /**
-     * The calls a batch will make, as a list rather than a nested blob.
+     * The calls a batch will make, as a list rather than a nested blob. The most
+     * important preview here: a batch is the one card whose arguments are
+     * themselves tool calls, and rendering them as arguments gives a wall of JSON
+     * nobody reads — losing the review quality batching was meant to preserve.
      *
-     * The single most important preview here, because a batch is the one card
-     * whose arguments are themselves tool calls: rendered as arguments they are
-     * a wall of nested JSON, and a wall of JSON is a card nobody reads — which
-     * would give back exactly the review quality that batching one approval
-     * instead of twenty was meant to preserve.
+     * Each call's arguments pass through untouched for the frontend's usual
+     * renderer, and each carries its own tier, which tells the card what must be
+     * read before approving. Tiers are resolved live rather than stored, since an
+     * operator may have hardened a tool since the card was drawn.
      *
-     * Each call's arguments are passed through untouched for the frontend to lay
-     * out with the same renderer a single-call card uses, and each carries its
-     * own tier. The tier is not decoration: it is what tells the card which
-     * children must be read before the set can be approved, and it is resolved
-     * live here rather than stored, because the preview is rebuilt when the user
-     * comes back to an approval and an operator may have hardened a tool since.
-     *
-     * `summary` travels but is explicitly the model's own words. The card labels
-     * it as such — a batch approved on the strength of a sentence its subject
-     * wrote is not a reviewed batch.
+     * `summary` travels but is the model's own words, and the card labels it as
+     * such.
      *
      * @return array{kind: string, summary: string, count: int, requires_review: int, calls: array<int, array{tool: string, arguments: array, risk: string}>}|null
      */
@@ -130,18 +121,13 @@ class ApprovalPreview
     }
 
     /**
-     * Whose server this actually is.
+     * Whose server this actually is. The argument arrives as `"2"` or a bare
+     * uuid, and an id is not something anyone can weigh — so it is resolved once
+     * into the name and owner the decision is really about, since the
+     * administrator is being asked to enter a paying customer's server.
      *
-     * The model names a server by whatever identifier it happened to read off a
-     * listing, so the argument arrives as `"2"` or a bare uuid. That is the one
-     * fact the approval turns on — the administrator is being asked to enter a
-     * paying customer's server, and an id is not something anyone can weigh. So
-     * it is resolved here, once, into the name and owner the decision is really
-     * about.
-     *
-     * A reference that resolves to nothing returns null rather than an error:
-     * the card falls back to showing the raw argument, and the call itself fails
-     * the same way it always did, with a message the model can act on.
+     * An unresolvable reference returns null rather than erroring: the card falls
+     * back to the raw argument, and the call fails as it always did.
      *
      * @return array{kind: string, name: string, owner: ?string, identifier: string}|null
      */

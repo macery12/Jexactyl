@@ -83,18 +83,13 @@ class ToolRegistry
     }
 
     /**
-     * The tools offered for one turn on one server.
+     * The tools offered for one turn on one server, filtered by what the acting
+     * user may do so the model is never shown a capability it would be refused
+     * on. That filter is UX and token efficiency, not the security boundary — the
+     * endpoint's own permission gate stays authoritative.
      *
-     * Filtered by what the acting user may actually do, so the model is never
-     * shown a capability it would only be refused on. That filtering is a UX
-     * and token-efficiency measure, not the security boundary — the endpoint's
-     * own permission gate remains authoritative on every call.
-     *
-     * Returns the whole permitted catalogue for the surface, not the set the
-     * model is shown — `WorkingSetPlanner` decides that, and it needs to see
-     * everything reachable in order to decide. The two were the same thing while
-     * every permitted tool was offered at once, which is exactly the arrangement
-     * this stopped being.
+     * Returns the whole permitted catalogue, not the set the model is shown:
+     * `WorkingSetPlanner` decides that, and needs to see everything reachable.
      *
      * @return ToolDefinition[]
      */
@@ -107,14 +102,11 @@ class ToolRegistry
     }
 
     /**
-     * The tools offered for one turn on the panel itself.
-     *
-     * The admin surface has no subject model to authorize against — an admin
-     * acts across every user, server and product — so the filter is the acting
-     * administrator's own AdminRole capabilities. As on the server side this is
-     * a UX and token-efficiency measure: `AuthorizeApplicationUser` and the
-     * endpoint's own `ApplicationApiRequest::authorize()` both re-check the
-     * identical capability on every call.
+     * The tools offered for one turn on the panel itself. The admin surface has
+     * no subject model to authorize against, so the filter is the administrator's
+     * own AdminRole capabilities — again UX and token efficiency, since
+     * `AuthorizeApplicationUser` and `ApplicationApiRequest::authorize()` both
+     * re-check the identical capability on every call.
      *
      * @return ToolDefinition[]
      */
@@ -127,23 +119,17 @@ class ToolRegistry
     }
 
     /**
-     * The server-scoped tools an administrator's assist session may use.
+     * The server-scoped tools an administrator's assist session may use. Takes
+     * plain arrays rather than the binding object, so a catalogue need not know
+     * what an assist session is to describe one.
      *
-     * Takes plain arrays rather than the binding object so this file stays free
-     * of any dependency on the agent loop — the registry is a catalogue, and it
-     * should not need to know what an assist session is to describe one.
+     * Both lists must agree, checked independently: names decide what the model
+     * is *shown*, abilities decide what the panel will *run* — the same strings
+     * `ServerPolicy` sees at dispatch. A tool in one list but not the other is
+     * offered then refused, ugly but safe; the reverse cannot happen, since the
+     * ability list is the boundary.
      *
-     * Both lists have to agree for a tool to appear, and they are checked
-     * independently on purpose. The names decide what the model is *shown*; the
-     * abilities decide what the panel will actually *run*, and are the same
-     * strings `ServerPolicy` is asked about at dispatch. A tool that appeared in
-     * one list but not the other would be offered and then refused, which is
-     * ugly but safe; the reverse cannot happen, because the ability list is
-     * still the boundary.
-     *
-     * Returns everything the grant covers, not what the session is shown. The
-     * read and write assist phases decide the latter, and a binding naming a tool
-     * is the outer bound on both.
+     * Returns everything the grant covers, not what the session is shown.
      *
      * @param string[] $toolNames
      * @param string[] $abilities
@@ -218,15 +204,9 @@ class ToolRegistry
 
     /**
      * Everything in scope that this user may use and the operator has not
-     * disabled, in declaration order.
-     *
-     * Declaration order carries no meaning any more. It used to: the base set
-     * came first and grouped tools second, so that a cap could take the tail
-     * without inspecting every definition twice, and the whole arrangement was
-     * built around which half a truncation should eat. Nothing truncates a tail
-     * now — `WorkingSetPlanner` builds a set in priority order and refuses
-     * outright if the required part does not fit — so the order here is simply
-     * whatever the definition files say.
+     * disabled, in declaration order — which carries no meaning: nothing
+     * truncates a tail now, since `WorkingSetPlanner` builds in priority order
+     * and refuses outright if the required part does not fit.
      *
      * @param callable(ToolDefinition): bool $permitted
      *
@@ -313,12 +293,9 @@ class ToolRegistry
     }
 
     /**
-     * Build the model-facing tool list.
-     *
-     * The group meta-tool used to be appended here, after the cap had already
-     * run, which is what kept it out of the budget. There is no meta-tool and no
-     * cap now: the planner hands over a set that already fits, and every tool in
-     * it is a real registered definition the operator can see and disable.
+     * Build the model-facing tool list. The planner hands over a set that already
+     * fits, and every tool in it is a real registered definition the operator can
+     * see and disable — there is no meta-tool appended after a cap any more.
      *
      * @param ToolDefinition[] $definitions
      *
@@ -363,15 +340,12 @@ class ToolRegistry
     }
 
     /**
-     * The identifiers an admin-scoped tool interpolates into its URI.
-     *
-     * Unlike the server surface, these are model-supplied — an administrator
-     * legitimately acts across every user, product and category, so there is no
-     * route context to bind them from and no honest way to pretend otherwise.
-     * The containment is different in kind rather than absent: the registry is
-     * an explicit allowlist, capabilities gate the class of action on every
-     * call, a child that is not under the named parent 404s at the endpoint,
-     * and no admin tool is registered at DESTRUCTIVE tier.
+     * The identifiers an admin-scoped tool interpolates into its URI. Unlike the
+     * server surface these are model-supplied — an administrator legitimately
+     * acts across every user, product and category, so there is no route context
+     * to bind from. Containment is different in kind rather than absent: an
+     * explicit allowlist, capabilities gating every call, a 404 for a child not
+     * under the named parent, and no admin tool at DESTRUCTIVE tier.
      */
     public function adminContext(array $arguments = []): array
     {

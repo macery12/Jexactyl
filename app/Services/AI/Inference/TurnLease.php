@@ -39,15 +39,11 @@ class TurnLease
     }
 
     /**
-     * A description of this lease that survives leaving the process.
-     *
-     * A durable turn is admitted by a request and released by a worker, so the
-     * two halves cannot share a `Lock` object. What they can share is the lock's
-     * *name and owner token*, which is exactly what `Cache::restoreLock()` needs
-     * to rebuild a releasable handle elsewhere — and the owner token is what
-     * keeps it honest, because a restored lock whose owner no longer matches
-     * releases nothing. A lease that expired and was retaken by someone else
-     * therefore cannot be released out from under its new holder.
+     * A description of this lease that survives leaving the process. A durable
+     * turn is admitted by a request and released by a worker, which cannot share
+     * a `Lock` object — but can share its name and owner token, exactly what
+     * `Cache::restoreLock()` needs. The owner token keeps it honest: a lease
+     * expired and retaken cannot be released out from under its new holder.
      *
      * Null for a passthrough lease, which owns nothing to hand over.
      *

@@ -10,16 +10,13 @@ use Everest\Services\Authorization\AdminAuthorizer;
 
 /**
  * Decides whether an administrator may open an assist session, and records it.
+ * Kept out of {@see AgentRunner} so this feature's whole security decision — who
+ * is allowed in, into which server, and what gets written down — sits in one
+ * place a reviewer can find.
  *
- * Kept out of {@see AgentRunner} because it is the security decision of this
- * feature and deserves to be somewhere a reviewer can find all of it: who is
- * allowed in, which server they are allowed into, and what gets written down
- * about it. The runner's job is only to ask.
- *
- * The capability is checked here on the way in *and* again on every resume, and
- * the answer is never read from stored turn state — an administrator whose
- * Access Profile is narrowed while an approval sits on screen must not be able
- * to complete it by clicking Approve.
+ * The capability is checked on the way in *and* again on every resume, never
+ * read from stored turn state: an administrator whose Access Profile narrowed
+ * while an approval sat on screen must not complete it by clicking Approve.
  */
 class AssistAuthorizer
 {
@@ -30,11 +27,9 @@ class AssistAuthorizer
     }
 
     /**
-     * Run one dispatched tool call with the binding in force.
-     *
-     * The runner asks this rather than the session directly so there is a single
-     * object that owns "may they, and while they do" — and so the window stays
-     * as short as the call it wraps.
+     * Run one dispatched tool call with the binding in force. Asked here rather
+     * than of the session directly, so one object owns "may they, and while they
+     * do" and the window stays as short as the call it wraps.
      *
      * @template T
      *
@@ -99,17 +94,13 @@ class AssistAuthorizer
     }
 
     /**
-     * Write the session into the server's own activity feed.
+     * Write the session into the server's own activity feed, so the customer sees
+     * — beside their own logins and file edits — that a named member of staff
+     * looked inside their server, when, and why.
      *
-     * This is the part that makes the feature defensible rather than merely
-     * convenient. The customer can see, in the same place they see their own
-     * logins and file edits, that a named member of staff looked inside their
-     * server, when, and why. Support access nobody can audit is not support
-     * access.
-     *
-     * Failure is authorization failure. The binding is not activated until the
-     * customer-visible record exists, so callers deliberately let exceptions
-     * escape and mark the pending execution terminally failed.
+     * Failure here is authorization failure: the binding is not activated until
+     * the customer-visible record exists, so callers let exceptions escape and
+     * mark the pending execution terminally failed.
      */
     public function record(User $admin, Server $server, AssistBinding $binding, bool $escalation = false): void
     {

@@ -43,16 +43,14 @@ use Symfony\Component\HttpKernel\Exception\ServiceUnavailableHttpException;
 /**
  * Running an agent turn over SSE, and resuming one that suspended.
  *
- * Shared between the server assistant and the admin assistant because the hard
- * parts are identical and were expensive to get right: answering a suspended
- * call with the id the model actually issued, closing the sibling calls a
- * suspension stranded, and re-checking authorization on resume rather than
- * trusting what was stored. Every one of those was a live bug at some point. A
- * second copy would be a second place for the next one to hide.
+ * Shared between the server and admin assistants because the hard parts are
+ * identical: answering a suspended call with the id the model actually issued,
+ * closing the sibling calls a suspension stranded, and re-checking authorization
+ * on resume rather than trusting what was stored.
  *
- * The using class supplies its own dependencies through the accessors below;
- * the two controllers sit in different hierarchies (client versus application
- * API), so a shared base class is not available.
+ * A trait rather than a base class because the two controllers sit in different
+ * hierarchies (client versus application API); the using class supplies its
+ * dependencies through the accessors below.
  */
 trait HandlesAgentTurns
 {
@@ -98,22 +96,16 @@ trait HandlesAgentTurns
     /**
      * Read a durable turn as an event stream, from a cursor.
      *
-     * The relay is not the turn. It holds no lease, executes nothing, and can be
-     * dropped and reopened as often as the reader likes — which is the entire
-     * point: a browser that navigates away, reloads, or comes back on another
-     * device asks for the same turn again from wherever it got to, and the turn
-     * itself never knows. Several readers can watch one turn at once for the
-     * same reason.
+     * The relay is not the turn: it holds no lease, executes nothing, and can be
+     * dropped and reopened freely, so a browser that navigates away or returns on
+     * another device resumes from wherever it got to. Several readers can watch
+     * one turn for the same reason.
      *
-     * `after` is the client's own high-water mark. Replay is therefore exact
-     * rather than "roughly from the top", and a reconnect costs the frames it
-     * actually missed instead of a duplicate transcript.
-     *
-     * Terminality is read from the usage row rather than from a sentinel in the
-     * log, because a reader may well arrive after the turn finished and there
-     * would be no sentinel left to wait for. The worker writes that row before
-     * it stops, so a relay that sees a finished turn is guaranteed a complete
-     * log — it drains what remains and closes.
+     * `after` is the client's own high-water mark, so a reconnect costs only the
+     * frames it actually missed. Terminality comes from the usage row rather than
+     * a sentinel, since a reader may arrive after the turn finished; the worker
+     * writes that row before stopping, so a finished turn guarantees a complete
+     * log.
      */
     protected function relayTurn(
         $user,
@@ -201,17 +193,14 @@ trait HandlesAgentTurns
     }
 
     /**
-     * The caller's in-flight turn, or `null` when they have none.
+     * The caller's in-flight turn, or `null` when they have none. Deliberately
+     * thin — the transcript, frames and terminal detail each have their own
+     * endpoint, and duplicating them here would give a reconnecting client two
+     * sources for one fact.
      *
-     * Deliberately thin. It answers "is something running, and where do I read
-     * it" and nothing else — the transcript comes from the conversation
-     * endpoint, the frames come from the relay, and the terminal detail comes
-     * from the status endpoint. Duplicating any of those here would give a
-     * reconnecting client two sources for the same fact.
-     *
-     * A row whose worker died is not reported as running. The same deadline
-     * sweep the status endpoint applies runs first, so a reload during an outage
-     * shows a failed turn rather than a spinner that never resolves.
+     * A row whose worker died is not reported as running: the status endpoint's
+     * deadline sweep runs first, so a reload during an outage shows a failed turn
+     * rather than a spinner that never resolves.
      */
     protected function activeAgentTurn($user, ?Server $server): JsonResponse
     {
@@ -312,17 +301,14 @@ trait HandlesAgentTurns
     /**
      * Hand a turn to a worker and answer the request immediately.
      *
-     * The usage row is written *here*, before the job is dispatched, and that
-     * ordering is the point rather than an optimisation. It is what makes the
-     * turn discoverable in the window between being accepted and being picked
-     * up: without it a client that reloaded in that gap would find no turn and
-     * conclude nothing was happening, which is the exact failure durable
-     * execution exists to remove.
+     * The usage row is written *here*, before the job dispatches, and that
+     * ordering is the point: it makes the turn discoverable between acceptance
+     * and pickup, so a client reloading in that gap does not conclude nothing was
+     * happening.
      *
-     * `deadline_at` is deliberately generous at this stage. It is the sweep's
-     * only evidence that a worker died, and counting queue wait against a turn's
-     * execution budget would fail healthy turns during a backlog. The worker
-     * replaces it with the real deadline the moment it starts.
+     * `deadline_at` is deliberately generous — it is the sweep's only evidence a
+     * worker died, and counting queue wait against the execution budget would
+     * fail healthy turns during a backlog. The worker replaces it on start.
      */
     protected function dispatchDurableTurn(
         AgentContext $context,
@@ -375,18 +361,16 @@ trait HandlesAgentTurns
     /**
      * Run a turn to a terminal state, emitting as it goes.
      *
-     * Extracted from the streaming response so that *where* a turn runs is not
-     * the same decision as *what* running one means. A request-bound turn calls
-     * this inside `response()->stream()`; a durable turn calls it from a queue
-     * worker with `send()` pointed at the event log. Everything that makes a
-     * turn correct — the running usage row, the heartbeat, resolving a resumed
-     * pending action, failing open tool calls when it throws, and the ordering
-     * of terminal persistence before the sentinel — lives here once, because
-     * every one of those was a live bug at some point and a second copy would be
-     * a second place for the next one to hide.
+     * Extracted from the streaming response so *where* a turn runs is a separate
+     * decision from *what* running one means: request-bound turns call this inside
+     * `response()->stream()`, durable ones from a worker with `send()` pointed at
+     * the event log. Everything that makes a turn correct lives here once — the
+     * running usage row, the heartbeat, resolving a resumed pending action,
+     * failing open tool calls on throw, and persisting terminal state before the
+     * sentinel.
      *
-     * Releases the lease and the budget reservation on every path out, including
-     * the ones that throw before the loop runs.
+     * Releases the lease and budget reservation on every path out, including ones
+     * that throw before the loop runs.
      */
     protected function executeTurn(
         AgentContext $context,
@@ -606,22 +590,13 @@ trait HandlesAgentTurns
     }
 
     /**
-     * Ask for an inference slot before the turn changes anything.
+     * Ask for an inference slot before the turn changes anything. Asking here,
+     * before the user's message is recorded or an approved action is claimed, is
+     * what makes "come back shortly" a safe answer — a caller cannot be turned
+     * away once effects have landed.
      *
-     * Placed ahead of every effect on purpose. Admission used to happen deep
-     * inside the run loop, which was survivable only because it blocked: by the
-     * time it could have said "not yet", the user's message had been recorded
-     * and — on a resume — an approved action had been claimed and executed.
-     * Turning a caller away at that point is not possible, so the old gate
-     * parked a PHP worker on a sleep loop instead. Asking here, before anything
-     * has been claimed or written, is what makes "come back shortly" a safe
-     * answer.
-     *
-     * @throws AIServiceException when the queue is
-     *                            full, the caller
-     *                            already has a turn
-     *                            in flight, or a
-     *                            ticket has lapsed
+     * @throws AIServiceException when the queue is full, the caller already has
+     *                             a turn in flight, or a ticket has lapsed
      */
     protected function admitTurn(Request $request, $user, string $lane): Admission
     {
@@ -692,18 +667,14 @@ trait HandlesAgentTurns
     }
 
     /**
-     * Ask a running turn to stop.
-     *
-     * Scoped exactly as the status endpoint is, because they answer questions
-     * about the same row and a turn one user may read is precisely the turn
-     * that user may stop.
+     * Ask a running turn to stop. Scoped exactly as the status endpoint is, since
+     * a turn one user may read is the turn that user may stop.
      *
      * The response reports that the request was *recorded*, not that the turn
-     * has ended — those are different moments, and the client finds out about
-     * the second by reconciling. A tool already in flight always finishes;
-     * there is no point at which an HTTP call through the panel's own
-     * middleware can be un-started, so the honest thing is to stop scheduling
-     * work rather than to pretend the last thing can be recalled.
+     * ended; the client learns the second by reconciling. A tool in flight always
+     * finishes — an HTTP call through the panel's own middleware cannot be
+     * un-started — so this stops scheduling work rather than pretending to recall
+     * the last of it.
      */
     protected function cancelAgentTurn(
         $user,
@@ -885,18 +856,14 @@ trait HandlesAgentTurns
     }
 
     /**
-     * Re-attach an assist session to its server, or drop it.
+     * Re-attach an assist session to its server, or drop it. `fromState()`
+     * rebuilds a binding inert; it becomes real again only if the server still
+     * exists and the administrator still holds `servers.assist`. Neither answer
+     * is read from the stored blob, whose Access Profile may have narrowed while
+     * the approval sat on screen.
      *
-     * `fromState()` deliberately rebuilds a binding without its server, leaving
-     * it inert. This is where it becomes real again — and it becomes real only
-     * if the server still exists and the administrator still holds
-     * `servers.assist`. Neither answer is read from the stored blob, because the
-     * blob was written before the administrator went to lunch and their Access
-     * Profile may have been narrowed while the approval sat on screen.
-     *
-     * A binding that fails either check is simply dropped: the turn resumes on
-     * the admin surface with no access to the customer's server, which is what
-     * an administrator without the capability should have had all along.
+     * A binding failing either check is dropped, and the turn resumes on the
+     * admin surface with no access to the customer's server.
      */
     protected function restoreAssist(AgentContext $context, ?AiPendingAction $pending = null): void
     {
@@ -999,13 +966,12 @@ trait HandlesAgentTurns
     /**
      * The conversation a resume may bank its state into, if there is one.
      *
-     * Three outcomes rather than two, because "gone" and "not yours" are
-     * different facts. A conversation is reaped when a user exceeds their
-     * unsaved-chat cap, and an approval outliving its transcript is ordinary —
-     * the turn still runs, it simply has nowhere to write the tokens it mints.
-     * A conversation that is *there* but belongs to another user, another
-     * surface, or another server is a boundary failure, and the resume stops
-     * rather than writing across it.
+     * Three outcomes, not two — "gone" and "not yours" are different facts. A
+     * conversation is reaped when a user exceeds their unsaved-chat cap, and
+     * an approval outliving its transcript is ordinary: the turn still runs,
+     * it just has nowhere to write the tokens it mints. A conversation
+     * that's *there* but belongs to another user, surface, or server is a
+     * boundary failure, and the resume stops rather than writing across it.
      */
     protected function ownedPendingConversation(
         AiPendingAction $pending,
@@ -1035,16 +1001,14 @@ trait HandlesAgentTurns
     }
 
     /**
-     * Which decisions a pending action will accept.
+     * Which decisions a pending action will accept. A question and an approval
+     * are not interchangeable: `ask_user` accepting `decision=approve` resumes the
+     * turn with no tool result for the call the model made, a transcript no
+     * provider accepts. Both kinds can still be refused — dismissing a question is
+     * a real answer.
      *
-     * A question and an approval are not interchangeable, and treating them as
-     * though they were left `ask_user` accepting `decision=approve`: the row was
-     * marked approved and the turn resumed with no tool result for the call the
-     * model actually made, which is a transcript no provider will accept. Both
-     * kinds can still be refused — dismissing a question is a real answer to it.
-     *
-     * Checked before anything is claimed, so an invalid combination costs the
-     * user nothing and leaves the action exactly as it was.
+     * Checked before anything is claimed, so an invalid combination leaves the
+     * action exactly as it was.
      */
     protected function assertDecisionMatchesPending(AiPendingAction $pending, string $decision): void
     {
@@ -1062,12 +1026,12 @@ trait HandlesAgentTurns
     /**
      * The answer as it will actually be written, or a 422.
      *
-     * Validated against the options as they were *persisted*, not as the client
-     * reports them — the client could otherwise write anything into the
-     * transcript the model reads next. Separate from `applyAnswer()` so the
-     * refusal happens before the row is claimed: claiming first meant a
-     * mistyped answer left the action stuck in `executing` until its lease
-     * expired, with the user unable to answer it again.
+     * Validated against the options as they were *persisted*, not as the
+     * client reports them — otherwise the client could write anything into
+     * the transcript the model reads next. Separate from `applyAnswer()` so
+     * the refusal happens before the row is claimed: claiming first left a
+     * mistyped answer stuck in `executing` until its lease expired, unable
+     * to be answered again.
      */
     protected function assertAnswerAcceptable(AiPendingAction $pending, string $answer): string
     {
@@ -1354,15 +1318,13 @@ trait HandlesAgentTurns
 
     /**
      * Reconcile a claim whose request failed before the stream was handed back.
-     *
-     * The window between `claimPending()` and returning the response is short
-     * but not empty, and anything thrown inside it used to leave the row in
-     * `executing` with no writer — indistinguishable from work in flight, and
-     * unreachable until its ten-minute lease expired. Nothing has run at that
-     * point, so this closes the row and the audit rows it would have driven.
+     * Anything thrown between `claimPending()` and the response would otherwise
+     * leave the row `executing` with no writer, indistinguishable from work in
+     * flight until its lease expired. Nothing has run at that point, so this
+     * closes the row and the audit rows it would have driven.
      *
      * Conditional on the execution key, so it is idempotent and cannot touch a
-     * claim that has since progressed, completed, or been re-suspended.
+     * claim that has since progressed, completed or been re-suspended.
      */
     protected function abandonClaim(AiPendingAction $pending, ?AiBudgetReservation $reservation = null): void
     {
@@ -1425,12 +1387,10 @@ trait HandlesAgentTurns
     }
 
     /**
-     * Do the same sweep across everything a listing is about to report on.
-     *
-     * Deciding is not the only way an action ends — most lapsed ones are simply
-     * never returned to — so the listing endpoints settle expiry too rather than
-     * filtering lapsed rows out of the response and leaving them `pending` in
-     * the database for good.
+     * Do the same sweep across everything a listing is about to report on. Most
+     * lapsed actions are simply never returned to, so listing endpoints settle
+     * expiry rather than filtering lapsed rows out and leaving them `pending`
+     * forever.
      *
      * @param \Illuminate\Database\Eloquent\Builder $scope already narrowed to the
      *                                                     caller's own rows

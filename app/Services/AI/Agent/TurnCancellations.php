@@ -6,44 +6,31 @@ use Everest\Models\AiUsageLog;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Stopping a turn that is already running.
+ * Stopping a turn that is already running. Two properties pull in opposite
+ * directions:
  *
- * Pressing Stop used to abort the browser's `fetch` and nothing else. The turn
- * went on thinking, went on spending the user's budget, and — the part that
- * actually matters — went on running tools, against a reader who had said they
- * wanted it to stop. "Stop watching" is not "stop".
+ * 1. **A stop must survive the request that asked for it.** Asker and turn are
+ *    different PHP processes, so the record is a column on the turn's usage row
+ *    rather than a flag in memory.
+ * 2. **A stop must never arrive mid-effect.** Tools are HTTP calls that cannot
+ *    be un-started, so cancellation is only *observed* where nothing is
+ *    half-done: between steps, before a dispatch, and between batch children. A
+ *    tool in flight always finishes and reports.
  *
- * Two properties this has to hold, and they pull in opposite directions:
+ * So a cancel is a request, not an instruction, and the columns say so:
+ * `cancel_requested_at` is when the user asked, the `cancelled` status is when
+ * the turn actually stopped.
  *
- * 1. **A stop must survive the request that asked for it.** The asking request
- *    and the running turn are different PHP processes; a flag in memory reaches
- *    nobody. The record is a column on the turn's own usage row, which is
- *    already the durable, ownership-qualified account of the turn.
- * 2. **A stop must never arrive mid-effect.** Tools are HTTP calls through the
- *    panel's own middleware, several of them against a remote node. There is no
- *    point at which one can be un-started, so cancellation is only ever
- *    *observed* at a boundary where nothing is half-done: between steps, before
- *    a call is dispatched, and between the children of a batch. A tool already
- *    in flight always finishes and always reports.
- *
- * The consequence is that a cancel is a request, not an instruction, and the
- * two columns say so: `cancel_requested_at` is when the user asked, and the
- * `cancelled` status is when the turn actually stopped. An operator reading a
- * turn that took nine more seconds to stop can see why.
- *
- * Reads are throttled rather than cached in the request container, because the
- * whole point is to observe a write made by a *different* process — memoising a
- * negative would make the flag unobservable for the life of the turn. Only the
- * positive is memoised, since cancellation does not un-happen.
+ * Reads are throttled rather than memoised, since the point is to observe a
+ * write from a *different* process; only the positive is cached, as
+ * cancellation does not un-happen.
  */
 class TurnCancellations
 {
     /**
-     * How stale an unobserved cancellation may be.
-     *
-     * A turn checks at boundaries that are usually seconds apart, so this is
-     * rarely the binding constraint; it exists so a fast batch of small calls
-     * cannot turn one flag into a query per child.
+     * How stale an unobserved cancellation may be. Rarely the binding constraint
+     * — boundaries are seconds apart — but it stops a fast batch of small calls
+     * turning one flag into a query per child.
      */
     private const RECHECK_SECONDS = 1.0;
 
@@ -54,13 +41,10 @@ class TurnCancellations
     private array $lastReadAt = [];
 
     /**
-     * Ask a running turn to stop.
-     *
-     * Conditional on the row still being `running`, so two people racing the
-     * button produce one request, and a turn that finished on its own in the
-     * meantime is not retroactively marked as cancelled. A suspended turn is
-     * deliberately not cancellable here: nothing is executing, and the decision
-     * the user actually wants is to decline the approval that is on screen.
+     * Ask a running turn to stop. Conditional on the row still being `running`,
+     * so racing clicks produce one request and a turn that already finished is
+     * not retroactively cancelled. A suspended turn is not cancellable here —
+     * nothing is executing, and the user wants to decline the card on screen.
      *
      * @return bool whether this call is the one that recorded the request
      */

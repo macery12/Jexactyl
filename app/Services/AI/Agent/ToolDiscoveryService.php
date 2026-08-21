@@ -11,19 +11,16 @@ use Everest\Services\AI\Tools\Definitions\SharedTools;
 /**
  * The two host tools that make retrieval usable: `search_tools` and `load_tools`.
  *
- * **Search loads what it finds.** The design doc left this open, and the choice
- * matters more than it looks: a strict search-then-load split costs an extra
- * inference step on every single task, out of a budget of twelve, on exactly the
- * small models the whole change exists to serve. So a search commits its matches
- * — they have already been through the same permission filter that decides what
- * is offered, and putting a tool in front of the model is not the same as running
- * it. `load_tools` remains for the case search is wrong for: a name the model
- * already knows, and dropping what it is finished with.
+ * **Search loads what it finds.** A strict search-then-load split would cost an
+ * extra inference step per task, out of twelve, on exactly the small models this
+ * exists to serve. Matches have already passed the permission filter that
+ * decides what is offered, and putting a tool in front of the model is not
+ * running it. `load_tools` covers what search is wrong for: a name the model
+ * already knows, and dropping what it has finished with.
  *
  * **Exact names never lose to a guess.** `exact_name` wins outright, and a
- * registered name typed by the *user* is pinned before the first inference of the
- * turn. A model should not have to spend a step proving that a tool somebody just
- * named by hand exists.
+ * registered name typed by the *user* is pinned before the turn's first
+ * inference.
  */
 class ToolDiscoveryService
 {

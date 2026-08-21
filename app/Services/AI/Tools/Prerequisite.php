@@ -3,19 +3,15 @@
 namespace Everest\Services\AI\Tools;
 
 /**
- * The workflow conditions a tool needs before it can run.
+ * The workflow conditions a tool needs before it can run. These name states the
+ * *turn* is in, not permissions the user holds: a prerequisite makes a tool
+ * discoverable and says what to do next, granting nothing. The gateway it names
+ * still goes through the risk gate, the approval card and `AssistAuthorizer`.
  *
- * These name states the *turn* is in, not permissions the user holds — a
- * prerequisite makes a tool discoverable and tells the model what to do next; it
- * never grants anything. The gateway a prerequisite names still goes through the
- * risk gate, the approval card, and `AssistAuthorizer` exactly as it would if the
- * model had found it on its own.
- *
- * Represented explicitly rather than left for the model to infer, because the
- * cross-scope transitions are the part it gets wrong: an administrator asking to
- * read a customer's startup command needs a resolved server, an approved assist
- * session, and only then the tool they actually wanted, and no amount of prompt
- * text reliably teaches a 7B model that chain.
+ * Explicit rather than left for the model to infer, since cross-scope
+ * transitions are the part it gets wrong — no amount of prompt text reliably
+ * teaches a 7B model that reading a startup command needs a resolved server,
+ * then an approved session, then the tool it wanted.
  */
 class Prerequisite
 {

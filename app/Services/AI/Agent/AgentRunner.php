@@ -31,16 +31,10 @@ use Everest\Services\AI\Data\AiToolCall as ToolCallData;
 /**
  * Drives one agent turn: model call, tool calls, repeat.
  *
- * The loop is bounded four ways — steps, wall clock, the inference gate's lease,
- * and repetition — because an agent that misjudges a task can otherwise spend a
- * GPU indefinitely. It ends when the model stops asking for tools, when a bound
- * is hit, or when it needs a human decision, which suspends rather than blocks.
- *
- * What the model is offered each step is a *working set*, not the catalogue.
- * `WorkingSetPlanner` builds it in priority order and `search_tools` is how the
- * model reaches everything else. The runner's job in all of that is narrow: keep
- * the offered set and the executable set the same thing. A call is runnable only
- * if it is in this step's offered list, and that check has not moved.
+ * Bounded by steps, wall clock, the inference lease and repetition. Ends when
+ * the model stops requesting tools, a bound is hit, or a human decision is
+ * needed — which suspends rather than blocks. Each step offers a working set
+ * from `WorkingSetPlanner`, not the whole catalogue; only offered tools can run.
  */
 class AgentRunner
 {
@@ -74,12 +68,9 @@ class AgentRunner
     private ?float $authorityCheckedAt = null;
 
     /**
-     * Run a turn, emitting events as it goes.
-     *
-     * The inference slot is not acquired here. Admission is the caller's
-     * business now: a turn that cannot have a slot is handed a queue ticket and
-     * the request ends, rather than a PHP worker being parked on a sleep loop
-     * until one frees up. By the time this is reached the slot is already held.
+     * Run a turn, emitting events as it goes. Does not acquire the inference
+     * slot — admission is the caller's job, so the slot is already held by
+     * the time this runs (otherwise a queue ticket is issued instead).
      *
      * @param callable(AgentEvent): void $emit
      */
@@ -252,18 +243,14 @@ class AgentRunner
     }
 
     /**
-     * Whether this turn should stop at the boundary it has just reached.
+     * Whether this turn should stop at the boundary it has just reached: the
+     * user asked, or its authority lapsed (a durable turn outlives its request,
+     * so "still signed in" is no longer answered on the way in). Either way the
+     * caller answers the calls the stop left unrun, keeping the transcript one a
+     * provider accepts.
      *
-     * Two reasons, deliberately answered by one question. The user asked it to
-     * stop, or the authority it runs under stopped being valid — a durable turn
-     * outlives its request, so "is this person still signed in" is no longer
-     * something the request answered on the way in. Both end the turn the same
-     * clean way: nothing is half-done at a boundary, and the caller answers the
-     * calls the stop left unrun so the transcript stays one a provider accepts.
-     *
-     * Latched on the context the first time it is true, so every later
-     * checkpoint agrees without asking again, and so the stream owner can tell a
-     * stopped turn from a completed one after the loop has returned.
+     * Latched on first truth, so later checkpoints agree without re-asking and
+     * the stream owner can tell a stopped turn from a completed one.
      */
     protected function stopRequested(AgentContext $context): bool
     {
@@ -287,13 +274,12 @@ class AgentRunner
     /**
      * Whether the turn's authority is still in force.
      *
-     * Rate limited rather than asked at every checkpoint. `stopRequested()` is
-     * called between steps *and* before each call in a multi-call response *and*
-     * between the children of a batch, so an unthrottled check would put two
-     * indexed queries between every child of a twenty-call batch to answer a
-     * question whose answer changes at human speed. The interval is the honest
-     * cost of "at the next boundary": a revocation lands within it, and within
-     * it nothing has escalated — the authority was valid when the step began.
+     * Rate limited rather than checked at every boundary — `stopRequested()`
+     * runs between steps, before each call in a multi-call response, and
+     * between batch children, so an unthrottled check would run two indexed
+     * queries per child of a twenty-call batch to answer something that only
+     * changes at human speed. A revocation lands within the interval; nothing
+     * escalates faster than that.
      */
     protected function authorityHeld(AgentContext $context): bool
     {
@@ -342,11 +328,10 @@ class AgentRunner
     /**
      * The working set for this step.
      *
-     * All the surface-specific reasoning that used to live here — which groups
-     * count as active, how an assist session narrows the admin catalogue, what
-     * fits — has moved to `WorkingSetPlanner`, which is the only thing that needs
-     * to hold all of it at once. What is left is the part the runner owns: ask
-     * for a set, and log what was offered.
+     * Surface-specific reasoning — which groups are active, how an assist
+     * session narrows the admin catalogue, what fits — now lives in
+     * `WorkingSetPlanner`. What's left here is what the runner owns: ask for
+     * a set, and log what was offered.
      */
     protected function offerings(AgentContext $context): WorkingSet
     {
@@ -658,17 +643,13 @@ class AgentRunner
     }
 
     /**
-     * Let go of a pin whose work is done.
+     * Let go of a pin whose work is done. An unreleased pin is a slow leak — by
+     * step eight a small budget is full of tools finished with steps ago.
+     * Released only on success and only for reads: a successful write may be
+     * part of a sequence, a failed read is likely retried.
      *
-     * A pin that never releases is a slow leak: by step eight a small budget is
-     * full of tools the turn finished with four steps ago, and the tool it
-     * actually needs next has nowhere to go. Released only on success, and only
-     * for reads — a write that succeeded may still be part of a sequence, and a
-     * read that failed is one the model is likely to retry.
-     *
-     * A gateway is never released this way. `admin_assist_server` succeeding is
-     * the moment the session exists, which is exactly when the tools behind it
-     * become reachable; dropping it there would undo the transition it just made.
+     * Gateways are never released this way — `admin_assist_server` succeeding is
+     * the moment its tools become reachable.
      */
     protected function releasePin(AgentContext $context, ToolDefinition $definition, ToolResult $result): void
     {
@@ -684,24 +665,15 @@ class AgentRunner
     }
 
     /**
-     * Explain a call for a tool that was not on this step's list.
+     * Explain a call for a tool that was not on this step's list. Four distinct
+     * situations get four messages: told a tool does not exist a model stops
+     * trying, told it needs a session it opens one.
      *
-     * This used to be one message — "there is no tool called X" — for four
-     * genuinely different situations, and it was the wrong message for three of
-     * them. A model told a tool does not exist stops trying; told it exists but
-     * needs a session, it opens one. So the cases are separated, and the most
-     * common of them is *recovered from* rather than merely reported:
-     *
-     * A permitted, enabled tool the model reached for from memory is **pinned and
-     * the model told to try again**. Loading is not executing — the permission
-     * check happened a line above, the tool still has to pass validation, and a
-     * write still stops at its approval card — so the only thing this skips is a
-     * round trip through `search_tools` for a name the model already had right.
-     * That is the single most common retrieval failure and the cheapest to undo.
-     *
-     * What it does not do is trust the model's memory as authority. A name that
-     * resolves but is not permitted, or that an operator disabled, is refused
-     * here and stays refused; nothing about being remembered makes it reachable.
+     * The commonest case is *recovered from* rather than reported — a permitted,
+     * enabled tool reached for from memory is pinned and the model told to retry,
+     * skipping a redundant `search_tools` round trip for a name it had right.
+     * Memory is never authority: a name that resolves but is not permitted, or
+     * that an operator disabled, stays refused.
      */
     protected function unofferedCall(AgentContext $context, ToolCallData $call, ?ToolDefinition $definition): ToolResult
     {
@@ -787,9 +759,9 @@ class AgentRunner
     /**
      * Hand the browser the values that were kept out of the request.
      *
-     * Runs after every call rather than at the end of the turn: the tool row it
-     * belongs to is on screen already, and a transcript that reads `[email_1]`
-     * for ten seconds before resolving is worse than one that never did.
+     * Runs after every call, not at the end of the turn — the tool row is
+     * already on screen, and a `[email_1]` placeholder sitting unresolved for
+     * ten seconds is worse than one that never appeared.
      *
      * @param callable(AgentEvent): void $emit
      */
@@ -846,17 +818,15 @@ class AgentRunner
     }
 
     /**
-     * Resolve a tool the runner owns rather than dispatching.
+     * Resolve a tool the runner owns rather than dispatching. Public because the
+     * resume path runs it too — a host tool that suspended for approval must
+     * complete after the click, as a dispatched one does.
      *
-     * Public because the resume path runs it too: a host tool that suspended for
-     * approval has to complete after the click, exactly as a dispatched one does.
-     *
-     * @param string $approvedRisk the tier this call was allowed to run at — freshly
-     *                             resolved on the immediate path, and read off the
-     *                             stored pending action on resume, which is the only
-     *                             record of what the user actually agreed to. Only
-     *                             the batch runner reads it, as the ceiling none of
-     *                             its calls may exceed.
+     * @param string $approvedRisk the tier this call may run at: resolved fresh
+     *                              immediately, or read off the stored pending
+     *                              action on resume, the only record of what the
+     *                              user agreed to. Used only by the batch runner,
+     *                              as the ceiling its children may not exceed.
      * @param callable(AgentEvent): void $emit
      */
     public function runHostTool(
@@ -897,14 +867,11 @@ class AgentRunner
     }
 
     /**
-     * Bind this turn to a customer's server.
-     *
-     * By the time this runs the administrator has already approved it — the tool
-     * is WRITE tier, so the call suspended and came back through the approval
-     * card. What is left is to check that the grant is still real: the
-     * capability is asked for again here rather than trusted from the offered
-     * tool list, because an Access Profile can be narrowed while a card sits on
-     * screen.
+     * Bind this turn to a customer's server. The administrator has already
+     * approved it — the tool is WRITE tier, so the call suspended through an
+     * approval card. What remains is checking the grant is still real: the
+     * capability is re-asked rather than trusted from the offered tool list,
+     * since an Access Profile can narrow while a card sits on screen.
      *
      * @param callable(AgentEvent): void $emit
      */
@@ -1024,25 +991,20 @@ class AgentRunner
     /**
      * Expand a batch into something that can be approved whole, or refuse it.
      *
-     * Everything is settled here, before `suspend()` is reached: every child is
-     * resolved, checked against what this step actually offered, and validated
-     * against its own schema. A batch that fails any of that is refused as a
-     * single retryable error and no card is drawn at all.
+     * Every child is resolved, checked against what this step offered, and
+     * validated against its schema before `suspend()` is reached; any failure
+     * refuses the whole batch as one retryable error and no card is drawn.
      *
-     * That all-or-nothing rule is the whole point. A card promising twenty
-     * products that fails on the seventh is worse than twenty cards, because by
-     * then the user has already spent the attention the card exists to collect —
-     * and has been told something happened that did not. So a card exists only
-     * for a batch that will run as shown, and a half-valid batch goes back to the
-     * model to be rewritten.
+     * The all-or-nothing rule is the point — a card promising twenty products
+     * that fails on the seventh has spent the user's attention on something that
+     * did not happen. A card exists only for a batch that will run as shown.
      *
-     * @param ToolDefinition[] $offered the tools on offer this step, so a name that
-     *                                  resolves in the registry but was filtered out
-     *                                  for this user cannot reach the card by being
-     *                                  nested inside a batch
+     * @param ToolDefinition[] $offered tools on offer this step, so a name that
+     *                                  resolves but was filtered out for this
+     *                                  user can't reach the card via a batch
      *
      * @return ToolResult|array{0: array, 1: string} the refusal, or the normalised
-     *                                               arguments and the tier the set runs at
+     *                                                arguments and the tier the set runs at
      */
     protected function planBatch(array $arguments, array $offered): ToolResult|array
     {
@@ -1155,20 +1117,16 @@ class AgentRunner
     }
 
     /**
-     * Run a batch the user has approved.
+     * Run a batch the user has approved, in two passes.
      *
-     * Two passes. The first re-asks every question that could have changed while
-     * the card sat on screen — the tool still exists, the user may still run it,
-     * and its tier has not been raised above what was approved — and refuses the
-     * whole batch if any of them has. Answering these per call as it went would
-     * mean a batch that half-ran because an operator hardened a tool at the wrong
-     * moment, which is the one outcome worse than not running.
+     * The first re-checks everything that could have changed while the card sat
+     * on screen — tool still exists, still runnable, tier not raised above what
+     * was approved — and refuses the whole batch rather than half-running it.
      *
-     * The second pass dispatches, emitting each call's own `tool_call` and
-     * `tool_result` under an id derived from the batch's. The transcript then
-     * reads as the individual calls it actually made, which is both what the
-     * existing tool rows already render and what an audit of this should show —
-     * `runTool()` writes one `AiToolCall` per child for the same reason.
+     * The second dispatches, emitting each call's own `tool_call` and
+     * `tool_result` under an id derived from the batch's, so the transcript reads
+     * as the individual calls it made. `runTool()` writes one `AiToolCall` per
+     * child for the same reason.
      *
      * @param callable(AgentEvent): void $emit
      */
@@ -1386,17 +1344,13 @@ class AgentRunner
     }
 
     /**
-     * Whether a tool may still be run in this turn.
-     *
-     * Asked again at the point of running rather than trusted from the moment it
-     * was offered, because an approval can sit on screen for minutes and an
-     * operator may have changed something in between.
+     * Whether a tool may still be run in this turn. Re-checked at the point of
+     * running rather than trusted from when it was offered, since an approval
+     * card can sit on screen for minutes.
      *
      * A server-scoped tool reached through an assist session is judged against
-     * the *binding* rather than the acting user's own access to that server —
-     * which they do not have, and which is the entire point of the binding. The
-     * capability behind the binding has already been re-checked by the time a
-     * turn resumes.
+     * the *binding*, not the acting user's own access to that server — which
+     * they do not have, and which is the point of the binding.
      */
     public function usable(AgentContext $context, ToolDefinition $definition): bool
     {
@@ -1850,12 +1804,11 @@ class AgentRunner
     /**
      * The bounds a turn's wall clock is settable between.
      *
-     * Public because they are the single definition three other places have to
-     * agree with: `UpdateIntelligenceSettingsRequest` validates against them,
-     * the admin form's number input uses the same pair, and the client's idle
-     * watchdog is derived from whatever this returns. When validation accepted
-     * 15 and this floored at 30, an operator could save a value the panel
-     * displayed back to them and the agent never used.
+     * Public because three other places must agree with this single
+     * definition: `UpdateIntelligenceSettingsRequest`'s validation, the admin
+     * form's number input, and the client's idle watchdog. When validation
+     * once accepted 15 and this floored at 30, an operator could save a value
+     * the agent never actually used.
      */
     public const MIN_WALL_SECONDS = 30;
     public const MAX_WALL_SECONDS = 900;
@@ -1890,10 +1843,10 @@ class AgentRunner
     /**
      * How many calls one batch may carry.
      *
-     * Floored at the minimum a batch is allowed to be rather than at 1: an
-     * operator who sets this to zero means "no batching", and the honest way to
-     * say that is to disable the tool in the catalogue, not to leave a tool
-     * offered that refuses every call it is given.
+     * Floored at the batch minimum, not at 1 — an operator setting this to
+     * zero means "no batching," and the honest way to say that is disabling
+     * the tool in the catalogue, not offering one that refuses every call it
+     * gets.
      */
     protected function maxBatchCalls(): int
     {
@@ -1940,11 +1893,11 @@ class AgentRunner
     /**
      * How many complete tool schemas the model may be offered in one step.
      *
-     * Delegated to `ToolBudget`, which reads `agent:max_tools` when an operator
-     * has set one and otherwise works it out from the model. The setting used to
-     * default to 32 for everybody, which was a guess made once on behalf of every
-     * deployment — and a bad one for the small local models the panel is most
-     * often run against.
+     * Delegated to `ToolBudget`, which reads `agent:max_tools` if an operator
+     * set one, and otherwise derives it from the model. This used to default
+     * to 32 for everyone — a guess made once on behalf of every deployment,
+     * and a bad one for the small local models the panel is often run
+     * against.
      */
     protected function maxTools(): int
     {

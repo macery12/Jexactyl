@@ -6,24 +6,19 @@ use Everest\Services\AI\Tools\ToolDiscovery;
 use Everest\Services\AI\Tools\ToolDefinition;
 
 /**
- * Tools offered on every surface.
+ * Tools offered on every surface. Host-handled: the runner resolves them itself
+ * rather than dispatching an HTTP sub-request, so they have no route, permission
+ * or scope of their own.
  *
- * These are host-handled: the runner resolves them itself rather than
- * dispatching an HTTP sub-request, so they have no route, no permission and no
- * scope of their own.
+ * Declared as real definitions rather than synthesised at prompt time, so they
+ * appear in the admin catalogue and obey the operator's disable list and risk
+ * overrides. The synthesised meta-tool they replace was invisible to the
+ * catalogue and impossible to disable or override.
  *
- * They are declared here as real definitions rather than synthesised at prompt
- * time, so they appear in the admin tool catalogue and obey the operator's
- * disable list and risk overrides like everything else. The meta-tool that used
- * to be synthesised — `activate_tool_group` — was the exception that proved the
- * rule: invisible to the catalogue, impossible to disable, and impossible to
- * override. `search_tools` and `load_tools` replace it and are declared properly.
- *
- * All four are exempt from the working-set budget. None of them is a capability:
+ * All four are exempt from the working-set budget, since none is a capability:
  * `ask_user` is the way out of a position the agent cannot otherwise leave,
- * `batch` is how it makes several changes without asking twenty times, and the
- * two discovery tools are how it reaches everything else at all. Spending budget
- * on them would defeat the mechanism the budget exists to serve.
+ * `batch` avoids asking twenty times, and the discovery tools are how it reaches
+ * anything else at all.
  */
 class SharedTools
 {
@@ -329,15 +324,13 @@ class SharedTools
     }
 
     /**
-     * Shape the call list the model supplied.
+     * Shape the call list the model supplied. Structural only: every entry gets a
+     * string `tool` and an array `arguments`, with no judgement about whether
+     * either is any good — that needs the named tool's schema and belongs to the
+     * runner.
      *
-     * Structural only — it guarantees every entry has a string `tool` and an
-     * array `arguments`, and nothing about whether either is any good. That
-     * judgement needs the named tool's own schema and belongs to the runner.
-     *
-     * Nothing is dropped, deliberately. A malformed entry silently removed here
-     * would run a batch of nineteen while the model believed it had asked for
-     * twenty, and the card would agree with the wrong one of them.
+     * Nothing is dropped, deliberately. A malformed entry removed here would run
+     * a batch of nineteen while the model believed it asked for twenty.
      *
      * @return array<int, array{tool: string, arguments: array}>
      */

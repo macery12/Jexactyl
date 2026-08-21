@@ -121,9 +121,8 @@ export interface QueuePosition {
  * transcript.
  *
  * `waiting` covers the stretch between sending and the model's first token,
- * which is where an agent looks most like it has hung. `startedAt` is what the
- * row counts up from — a wait is only unnerving when you cannot see it being
- * measured.
+ * where an agent looks most like it's hung. `startedAt` is what the row
+ * counts up from — a wait is only unnerving when you can't see it measured.
  */
 export interface Activity {
     phase: 'waiting' | 'reasoning' | 'writing' | 'calling' | 'running';
@@ -282,16 +281,13 @@ const RELAY_RETRY_MS = 750;
 /**
  * How long the stream may go completely silent before the turn is abandoned.
  *
- * Not a turn timeout — the backend owns those, and it has three (steps, wall
- * clock, and a ceiling on any single tool call). This catches the case those
- * cannot see: a connection that died without telling anyone. A slept laptop, a
- * proxy that dropped an idle stream, a worker killed mid-turn. `fetch` does not
- * reject for any of them; the reader simply never yields again, and the composer
- * stays locked behind a spinner for as long as the tab is open.
+ * Not a turn timeout — the backend owns those. This catches what they cannot
+ * see: a connection that died without telling anyone, such as a slept laptop or
+ * a worker killed mid-turn. `fetch` does not reject for those; the reader simply
+ * never yields again and the composer stays locked behind a spinner.
  *
- * Sized well above any legitimate gap rather than tuned close to one. The
- * longest silence a healthy turn can produce is one tool call, which the backend
- * now caps at 90 seconds, so anything approaching this is not slow — it is gone.
+ * Sized well above any legitimate gap, since the longest silence a healthy turn
+ * produces is one tool call, capped at 90 seconds server-side.
  */
 const STALL_MS = 300_000;
 
@@ -406,16 +402,12 @@ export function createAgentChatStore(
         };
 
         /**
-         * Close every open streaming block.
+         * Close every open streaming block. Every kind is swept, not just the
+         * tail: a step can emit reasoning and then prose, leaving the reasoning
+         * block no longer last but still streaming, pulsing a caret forever.
          *
-         * Every kind is swept rather than just the tail, because a step can emit
-         * reasoning and then prose: by the time the answer bubble opens, the
-         * reasoning block is no longer last but is still marked streaming, and
-         * would otherwise pulse a caret forever.
-         *
-         * An assistant bubble that received nothing is dropped; a reasoning block
-         * is kept regardless, since how long the model thought is worth showing
-         * even when the thought itself was brief.
+         * An empty assistant bubble is dropped; a reasoning block is kept
+         * regardless, since how long the model thought is worth showing.
          */
         const sealAssistant = () => {
             set(state => {
@@ -494,19 +486,14 @@ export function createAgentChatStore(
         const appendText = (delta: string) => appendDelta('assistant', delta);
 
         /**
-         * Close every tool row still spinning.
+         * Close every tool row still spinning. A row goes to `running` when
+         * announced and leaves it when its result arrives, so any path ending a
+         * turn without one strands it — a spinner that never stops is not a slow
+         * tool but one whose answer never comes.
          *
-         * A row goes to `running` when the call is announced and leaves it when
-         * its result arrives — so any path that ends a turn without one strands
-         * it, and a stranded row is indistinguishable from work still in
-         * progress. That is the spinner that never stops: not a tool taking a
-         * long time, a tool whose answer is never coming.
-         *
-         * There are more of those paths than there look to be. A stream that
-         * errors mid-call, a cancel, a declined approval, a tool that stopped
-         * being available while the approval sat on screen — none of them emit a
-         * result, and each one used to leave the row turning. Sealing here rather
-         * than at each site means the next path nobody thought of is covered too.
+         * There are more such paths than it looks: a stream erroring mid-call, a
+         * cancel, a declined approval, a tool that stopped being available.
+         * Sealing here rather than at each site covers the next one too.
          */
         const sealTools = (summary: string) => {
             set(state => {
@@ -1513,20 +1500,13 @@ export function createAgentChatStore(
 export { restoreRedactions, restoreRedactionsDeep };
 
 /**
- * Rebuild a transcript from stored messages.
- *
- * Tool rows carry their arguments on the assistant message that requested them
- * and their outcome on the tool message that answered, so the two are stitched
- * back together by call id.
- */
-/**
  * Everything up to and including the last thing the user said.
  *
- * Rejoining a live turn means the stored transcript and the replayed event log
- * overlap: storage has whatever the turn has already finished saying, and the
- * log is about to say all of it again from the start. This is the seam between
- * them — the user's own message is the last thing that certainly predates the
- * turn, so the log owns everything after it.
+ * Rejoining a live turn means the stored transcript and the replayed event
+ * log overlap — storage has whatever the turn already finished saying, and
+ * the log is about to say all of it again from the start. This is the seam
+ * between them: the user's own message is the last thing that certainly
+ * predates the turn, so the log owns everything after it.
  */
 function untilLastUserMessage(entries: ChatEntry[]): ChatEntry[] {
     for (let index = entries.length - 1; index >= 0; --index) {
@@ -1538,6 +1518,13 @@ function untilLastUserMessage(entries: ChatEntry[]): ChatEntry[] {
     return entries;
 }
 
+/**
+ * Rebuild a transcript from stored messages.
+ *
+ * Tool rows carry their arguments on the assistant message that requested
+ * them and their outcome on the tool message that answered, so the two are
+ * stitched back together by call id.
+ */
 function fromStored(messages: StoredMessage[]): ChatEntry[] {
     const pendingArgs = new Map<
         string,
@@ -1617,15 +1604,12 @@ function fromStored(messages: StoredMessage[]): ChatEntry[] {
 }
 
 /**
- * The server assistant: bound to one server.
+ * The server assistant: bound to one server, agent-only.
  *
- * It used to carry a plain advisory chat mode alongside the agent, chosen from a
- * toggle above the composer. That mode is gone. The argument that retired the
- * admin Playground applies here unchanged — a chat that cannot look anything up
- * is a worse version of an agent that can, and it is worse in the way that costs
- * most, by answering confidently about a server it never read. Keeping it also
- * meant a second persistence path, a second history reconstruction assembled
- * from what happened to be on screen, and a branch through every turn.
+ * The plain advisory chat mode that used to sit beside it is gone, for the same
+ * reason the admin Playground was retired: a chat that cannot look anything up
+ * answers confidently about a server it never read, and keeping it meant a
+ * second persistence path and a branch through every turn.
  */
 export const useAgentChat = createAgentChatStore({
     startTurn: (uuid, body, callbacks, signal) => streamAgentTurn(uuid, body, callbacks, signal),

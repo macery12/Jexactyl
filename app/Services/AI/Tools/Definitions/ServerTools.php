@@ -9,23 +9,20 @@ use Everest\Services\AI\Tools\ToolDefinition;
 /**
  * The server-scoped toolset.
  *
- * Every URI here interpolates `{server}` from the turn's bound context. None
- * of the argument schemas accept a server identifier, so a hallucinated or
- * prompt-injected one has nowhere to land — that structural property, not a
- * validation rule, is what confines the agent to one server.
+ * Every URI interpolates `{server}` from the turn's bound context, and no
+ * argument schema accepts a server identifier — so a hallucinated or
+ * prompt-injected one has nowhere to land. That structural property, not a
+ * validation rule, confines the agent to one server.
  *
- * None of these are offered all at once any more. The model sees a small working
- * set — `WorkingSetPlanner` decides which — and reaches the rest through
- * `search_tools`, so what matters about a tool here is no longer where it sits in
- * a list but how well its `discovery` metadata answers the words a person would
- * use. "What port am I on" has to reach `allocations_list`; "back up the config
- * before you edit it" has to reach `files_rename`. Without embeddings, that only
- * works because the aliases were written down.
+ * These are not offered all at once: the model sees a working set from
+ * `WorkingSetPlanner` and reaches the rest through `search_tools`. So what
+ * matters about a tool is how well its `discovery` metadata answers the words a
+ * person would use — "what port am I on" must reach `allocations_list` — and
+ * without embeddings that works only because the aliases were written down.
  *
- * Aliases are operator-controlled metadata, never model-generated, and never
- * executable: matching one puts a tool in the working set, where it is still
- * subject to the same permission check, risk tier and approval card it always
- * was.
+ * Aliases are operator-controlled metadata, never model-generated or executable:
+ * matching one puts a tool in the working set, still subject to the same
+ * permission check, risk tier and approval card.
  */
 class ServerTools
 {

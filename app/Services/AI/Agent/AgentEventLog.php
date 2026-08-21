@@ -7,29 +7,21 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
 /**
- * The durable tail of a running turn.
+ * The durable tail of a running turn. A turn that outlives its request has no
+ * reader to write to, so it writes here and readers catch up from a cursor —
+ * the stream becomes a *view* of the output, and losing a view costs nothing.
  *
- * A turn that outlives the request that started it has no reader to write to,
- * so it writes here instead and the reader catches up from a cursor. That
- * inverts the old contract in the one way that matters: the stream is no longer
- * the turn's output, it is a *view* of the turn's output, and losing a view
- * costs nothing.
+ * Two rules govern what gets written:
  *
- * Two rules govern what gets written.
- *
- * **Sequence is allocated by the writer, not the database.** One turn has
- * exactly one writer — the job that runs it — so an in-process counter seeded
- * from what is already stored is correct and costs no round trip per frame. The
- * unique index is the safety net rather than the mechanism: if a second worker
- * ever ran the same turn, the collision surfaces immediately instead of
- * producing an interleaved log that reads as plausible.
- *
- * **A replayed frame may not carry more than a reloaded transcript would.** The
- * shaped tool payload the model receives is deliberately live-only — it is
- * capped at kilobytes, it is never replayed from storage today, and persisting
- * it here would quietly create a second, larger copy of exactly the data the
- * redaction and shaping rules exist to bound. `strip()` enforces that, so
- * reattaching shows the same tool row a reload does.
+ * - **Sequence is allocated by the writer, not the database.** One turn has one
+ *   writer, so an in-process counter seeded from storage is correct and costs no
+ *   round trip per frame. The unique index is a safety net: a second worker on
+ *   the same turn collides immediately rather than producing a plausible
+ *   interleaved log.
+ * - **A replayed frame may not carry more than a reloaded transcript would.**
+ *   The shaped tool payload is live-only, so persisting it here would create the
+ *   larger second copy that redaction and shaping exist to bound. `strip()`
+ *   enforces it.
  */
 class AgentEventLog
 {
@@ -104,14 +96,10 @@ class AgentEventLog
 
     /**
      * Block until the turn emits something past `afterSeq`, or the timeout
-     * elapses.
-     *
-     * Returns true when there is probably new work to read. "Probably" is
-     * deliberate: the caller re-queries the log either way, so a spurious wake
-     * costs one indexed lookup and a missed wake costs at most the poll
-     * interval. That is what makes the Redis path an optimisation rather than a
-     * dependency — with Redis unavailable this degrades to polling instead of
-     * failing.
+     * elapses. Returns true when there is *probably* new work: the caller
+     * re-queries either way, so a spurious wake costs one indexed lookup and a
+     * missed one costs a poll interval. That makes Redis an optimisation rather
+     * than a dependency — without it this degrades to polling.
      */
     public function awaitChange(string $turnId, int $afterSeq, float $timeoutSeconds): bool
     {
@@ -176,16 +164,13 @@ class AgentEventLog
     }
 
     /**
-     * Remove anything a replay is not allowed to carry.
+     * Remove anything a replay is not allowed to carry:
      *
-     * Two exclusions, for two different reasons:
-     *
-     * - `result` on a tool result is the shaped payload the model was handed.
-     *   It is live-only by existing policy and a reloaded transcript has never
-     *   contained it; storing it here would create the larger second copy that
+     * - `result` on a tool result is the shaped payload, live-only by policy and
+     *   never in a reloaded transcript; storing it creates the second copy that
      *   policy exists to prevent.
-     * - `ticket` on a queue frame is a bearer credential for a place in line.
-     *   Replaying one to a second reader would hand that place away.
+     * - `ticket` on a queue frame is a bearer credential for a place in line, so
+     *   replaying it to a second reader would hand that place away.
      */
     private function strip(AgentEvent $event): array
     {
@@ -203,12 +188,10 @@ class AgentEventLog
     }
 
     /**
-     * Publish the new high-water mark.
-     *
-     * A plain key rather than a pub/sub message: a reader that connects between
-     * two frames needs to know where the turn has got to, and a message it was
-     * not subscribed for is gone. The key is expired rather than deleted on
-     * completion so a crashed turn cannot leave one behind forever.
+     * Publish the new high-water mark. A plain key rather than a pub/sub message,
+     * since a reader connecting between two frames needs to know where the turn
+     * got to and an unsubscribed message is gone. Expired rather than deleted, so
+     * a crashed turn cannot leave one behind forever.
      */
     private function publish(string $turnId, int $seq): void
     {

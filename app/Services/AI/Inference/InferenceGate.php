@@ -12,41 +12,19 @@ use Everest\Services\AI\Providers\OllamaProvider;
 use Everest\Exceptions\Service\AI\AIServiceException;
 
 /**
- * Admission control for self-hosted inference.
+ * Admission control for self-hosted inference: bounds concurrency against a
+ * GPU's fixed capacity and queues the overflow.
  *
- * A GPU serves a fixed number of concurrent requests. Past that point, adding
- * load does not add throughput — it slows every request in flight, which is
- * far worse for twenty users than making nineteen of them wait briefly. This
- * gate bounds concurrency and queues the overflow.
- *
- * It replaces the single global stream lock the AI module used to hold, which
- * serialised *all* users onto one request at a time. That was survivable when
- * a turn was one call; an agent turn is five to fifteen, so it would have
- * turned any concurrency at all into a stall.
- *
- * Design notes:
- *
- * - **Nobody waits in a worker.** A turn that cannot have a slot is given a
- *   ticket and the request ends. The old gate blocked here, sleeping in 250ms
- *   increments for up to two minutes — which meant every queued turn occupied
- *   one PHP worker doing nothing, and the queue consumed the very capacity it
- *   existed to protect. Queue depth had to be clamped against the deployment's
- *   worker pool to stop it exhausting the panel outright. It no longer competes
- *   for workers at all.
- * - **The ticket is the place in line.** Presenting it again keeps the
- *   position; presenting nothing joins at the back. A ticket that stops being
- *   presented is dropped, so a closed tab frees both its place and its per-user
- *   reservation without anyone reaping anything.
- * - **Slot-per-lock, not a ticket queue, for the slots themselves.** Which turn
- *   is *allowed* to try is decided by the queue; whether a slot is actually
- *   free is decided by taking it. Probing rather than counting means a crashed
- *   worker's slot returns on lock expiry with no reaper.
- * - **Two lanes.** A turn resuming after a human approved an action jumps ahead
- *   of brand-new turns: it is already half-finished, the user is actively
- *   waiting on it, and finishing it is what returns VRAM to the pool.
- * - **The lease is turn-scoped.** A turn is admitted once and holds through
- *   every model call and tool execution, rather than re-queueing per step —
- *   which would make a ten-step turn queue ten times.
+ * - Nobody waits in a worker. A turn with no slot gets a ticket and the request
+ *   ends, so queueing costs no PHP worker.
+ * - The ticket is the place in line. Presenting it again keeps the position;
+ *   dropping it frees the place and the per-user reservation, with no reaper.
+ * - Slots are locks, not queue entries. The queue decides who may try; taking
+ *   the lock decides if one is free, so a crashed worker's slot returns on
+ *   lock expiry.
+ * - Resumes outrank new turns — they are half-finished and hold VRAM.
+ * - The lease is turn-scoped: admitted once, held across every model call and
+ *   tool execution rather than re-queued per step.
  *
  * @phpstan-type Ticket array{
  *     token: string,
@@ -79,12 +57,9 @@ class InferenceGate
     protected const EWMA_KEY = 'ai:ewma_ms';
 
     /**
-     * How long a ticket survives without being presented again.
-     *
-     * Generous against the retry interval below — several missed attempts, not
-     * one — because dropping a ticket costs its holder their place in a queue
-     * they have already waited in. A tab that was closed frees up in seconds
-     * either way.
+     * How long a ticket survives without being presented again. Generous
+     * against the retry interval — several missed attempts, not one — since
+     * dropping a ticket costs its holder a place they already waited for.
      */
     protected const TICKET_IDLE_SECONDS = 20;
 
@@ -103,11 +78,8 @@ class InferenceGate
     }
 
     /**
-     * Ask to run a turn now.
-     *
-     * Returns either a held slot or a place in the queue; it never blocks and
-     * never sleeps. A caller holding a ticket presents it on the next attempt
-     * to keep its position.
+     * Ask to run a turn now. Returns a held slot or a place in the queue;
+     * never blocks or sleeps.
      *
      * @param string $ownerKey identity for per-user fairness (typically the user uuid)
      * @param string|null $ticket the place this caller already holds, if any
@@ -151,11 +123,8 @@ class InferenceGate
     }
 
     /**
-     * Give up a queue place.
-     *
-     * The idle timeout would collect it anyway, but a user who pressed Stop
-     * should not then be told they already have a request queued for the next
-     * twenty seconds.
+     * Give up a queue place. The idle timeout would collect it anyway, but a
+     * user who pressed Stop should not be told they still have one queued.
      */
     public function releaseTicket(string $ticket, string $ownerKey): bool
     {
@@ -305,12 +274,10 @@ class InferenceGate
     /**
      * Mutate the queue under the admission lock, pruning what has lapsed.
      *
-     * Reservations belonging to dropped tickets are collected here and released
-     * *after* the lock, because releasing takes the per-user lock and every
-     * other path takes that one first — acquiring them in the other order would
-     * be a lock inversion waiting to deadlock. They travel as a by-reference
-     * parameter rather than on `$this` so the collection has the same lifetime
-     * as the lock it belongs to, and cannot outlive a call that threw.
+     * Reservations from dropped tickets are released *after* the lock: every
+     * other path takes the per-user lock first, so the reverse order would be a
+     * lock inversion. They travel by reference rather than on `$this` so they
+     * cannot outlive a call that threw.
      *
      * @param \Closure(array<string, Ticket>, list<array{ownerKey: string, token: string}>): array<string, Ticket> $mutate
      */
@@ -336,11 +303,9 @@ class InferenceGate
     }
 
     /**
-     * Drop tickets nobody is presenting any more.
-     *
-     * Self-healing rather than reaped: a tab that closed, a client that lost
-     * its connection, and a browser that navigated away are all the same event
-     * from here, and none of them will ever tell us about it.
+     * Drop tickets nobody is presenting any more. Self-healing rather than
+     * reaped — a closed tab, a lost connection and a navigation away are all
+     * the same event from here, and none of them announce themselves.
      *
      * @param array<string, Ticket> $queue
      *
@@ -363,13 +328,9 @@ class InferenceGate
     }
 
     /**
-     * Whether one ticket is served before another.
+     * Whether one ticket is served before another: resumes outrank new turns,
+     * and within a lane it is arrival order.
      *
-     * Resumes outrank new turns outright — a half-finished turn a user is
-     * actively waiting on is what returns VRAM to the pool — and within a lane
-     * it is simply arrival order.
-     */
-    /**
      * @param Ticket|array{lane: string, seq: int} $a
      * @param Ticket|array{lane: string, seq: int} $b
      */
@@ -424,18 +385,13 @@ class InferenceGate
     }
 
     /**
-     * Release a lease this process never acquired.
+     * Release a lease this process never acquired — a request takes the slot,
+     * a worker gives it back. `Cache::restoreLock()` rebuilds the lock from its
+     * name and owner token, and that token is what keeps a late release honest:
+     * a lease already retaken by someone else releases nothing.
      *
-     * The durable path splits admission from execution: a request takes the
-     * slot so it can turn the caller away before anything has happened, and a
-     * worker gives it back when the turn ends. `Cache::restoreLock()` rebuilds
-     * the lock from its name and owner token, and the owner token is what makes
-     * this safe to call late — a lease that already expired and was retaken
-     * belongs to somebody else, and restoring it with the old owner releases
-     * nothing rather than stealing the new holder's slot.
-     *
-     * Idempotent and never throws: it is called from job teardown, including
-     * the failure paths, where raising would replace the real error.
+     * Idempotent and never throws; called from job teardown, where raising
+     * would replace the real error.
      *
      * @param array{slot: int, owner: string, reservation: array{ownerKey: string, token: string}} $handle
      */
@@ -548,10 +504,8 @@ class InferenceGate
     }
 
     /**
-     * The queue as it stands, without taking the lock.
-     *
-     * Read-only callers — the admin card, the ETA — do not need to serialise
-     * against admissions, and lapsed tickets are filtered rather than collected
+     * The queue as it stands, without taking the lock. Read-only callers need
+     * no serialisation, and lapsed tickets are filtered rather than collected
      * so a status read never mutates anything.
      *
      * @return array<string, Ticket>
@@ -691,16 +645,10 @@ class InferenceGate
     }
 
     /**
-     * How many turns may hold a queue place.
-     *
-     * Zero means no queue: a turn that cannot have a slot immediately is
-     * refused rather than made to wait. That is the sentinel the settings form
-     * and its validation both describe, and `place()` enforces it without a
-     * special case, since a depth of zero is never under the limit.
-     *
-     * No longer clamped against the deployment's worker pool. That clamp
-     * existed because every waiter occupied a PHP worker; queueing costs no
-     * worker now, so the operator's number is simply the operator's number.
+     * How many turns may hold a queue place. Zero means no queue — a turn that
+     * cannot have a slot immediately is refused rather than made to wait, which
+     * `place()` enforces without a special case since zero is never under the
+     * limit. Not clamped against the worker pool; queueing costs no worker.
      */
     public function maxQueueDepth(): int
     {
@@ -749,11 +697,9 @@ class InferenceGate
     }
 
     /**
-     * Wall clock, as a seam.
-     *
-     * Ticket ages are measured in real seconds rather than in Carbon, because
-     * they bound a wait a user is sitting through; travelling Laravel's clock
-     * would not move them. A test that needs a lapsed ticket overrides this.
+     * Wall clock, as a test seam. Ticket ages are real seconds rather than
+     * Carbon — they bound a wait a user is sitting through, so travelling
+     * Laravel's clock would not move them.
      */
     protected function now(): float
     {

@@ -59,18 +59,13 @@ class DeferredEmail extends Model
     public const CLAIM_LEASE_MINUTES = 15;
 
     /**
-     * Exclusively claim a batch of due deferred emails.
+     * Exclusively claim a batch of due deferred emails. Candidate ids are locked,
+     * stamped with a token and only then read back, so a row belongs to exactly
+     * one caller rather than being sent twice by concurrent runs.
      *
-     * This replaces a plain SELECT that let two concurrent runs read — and
-     * send — the same rows. The candidate ids are locked, stamped with a token,
-     * and only then read back, so a row belongs to exactly one caller.
-     *
-     * Rows whose lease has expired are reclaimed: the only way a claim outlives
-     * its holder is the holder dying, and those emails still need to go out.
-     *
-     * `lockForUpdate` rather than `SKIP LOCKED` deliberately — the test suite
-     * runs on SQLite, and this matches the locking idiom used throughout the
-     * billing and backup services.
+     * Expired leases are reclaimed — a claim only outlives its holder when the
+     * holder died, and those emails still need to go out. `lockForUpdate` rather
+     * than `SKIP LOCKED` because the test suite runs on SQLite.
      *
      * @return \Illuminate\Database\Eloquent\Collection<int, self>
      */

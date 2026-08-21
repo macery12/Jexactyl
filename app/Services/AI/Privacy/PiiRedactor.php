@@ -5,31 +5,22 @@ namespace Everest\Services\AI\Privacy;
 use Everest\Models\Setting;
 
 /**
- * Strips personal data out of everything on its way to the model.
+ * Strips personal data out of everything on its way to the model. Exact
+ * structural masking plus conservative patterns — not de-identification, and
+ * not a general named-entity detector.
  *
- * The panel knows a great deal about its customers, and an agent that can read
- * the user table and a ticket thread will put all of it into a request to an
- * inference provider unless something stops it. This filter reduces that
- * exposure with exact structural masking and conservative patterns; it is not
- * de-identification or a general named-entity detector.
+ * Runs on tool results and on context the panel attaches itself (a console
+ * buffer, a file the model read). Does *not* run on what the administrator
+ * types: "find the account for someone@example.com" needs that address to
+ * reach the filter.
  *
- * **What this covers, and what it deliberately does not.** It runs on tool
- * results and on context the panel attaches by itself — a console buffer, a file
- * the model read. It does *not* run on what the administrator types. They chose
- * to type it, and redacting it would break the most ordinary lookup there is:
- * "find the account for someone@example.com" needs that address to reach the
- * filter.
- *
- * Two mechanisms, because either alone is wrong. **Structural** redaction reads
- * the field name — an `email` key is an address whatever it contains — and is
- * exact. **Pattern** redaction sweeps free text, where a customer has pasted
- * their own address into the middle of a sentence, and is necessarily fuzzy. The
- * patterns are written conservatively: a false positive costs the model a fact
- * it needed, which is a worse failure than it sounds, so `payment` is Luhn-
- * checked and `phone` insists on an international prefix rather than matching
- * every run of digits. Names and postal addresses are structural-only: prose
- * can still contain them and must be covered by the operator's provider terms
- * or a separate DLP/NER system.
+ * Two mechanisms, since either alone is wrong. **Structural** redaction reads
+ * the field name and is exact — an `email` key is an address whatever it
+ * holds. **Pattern** redaction sweeps free text and is necessarily fuzzy, so it
+ * stays conservative: `payment` is Luhn-checked and `phone` demands an
+ * international prefix, because a false positive costs the model a fact it
+ * needed. Names and postal addresses are structural-only; prose containing them
+ * must be covered by provider terms or a separate DLP/NER system.
  */
 class PiiRedactor
 {
@@ -52,12 +43,9 @@ class PiiRedactor
     ];
 
     /**
-     * On unless an operator says otherwise.
-     *
-     * `secret` is the exception. Token-shaped strings overlap with things the
-     * agent legitimately needs — a backup uuid, a file hash, a docker digest —
-     * so switching it on trades a little capability for a little safety, and
-     * that is the operator's call rather than a default.
+     * On unless an operator says otherwise. `secret` is the exception:
+     * token-shaped strings overlap with backup uuids, file hashes and docker
+     * digests, so trading that capability for safety is the operator's call.
      */
     public const DEFAULT_KINDS = [
         self::KIND_EMAIL,
@@ -69,12 +57,9 @@ class PiiRedactor
     ];
 
     /**
-     * Field names whose *value* is personal whatever it looks like.
-     *
-     * Note what is absent from `name`: the bare key `name`. Half the panel uses
-     * it for a server, a category, a product or an egg, and matching it would
-     * replace the catalogue with tokens and make the agent useless. Only fields
-     * that can only be a person's name are listed.
+     * Field names whose *value* is personal whatever it looks like. The bare key
+     * `name` is deliberately absent — half the panel uses it for a server,
+     * category, product or egg, and matching it would tokenise the catalogue.
      *
      * @var array<string, string[]>
      */
@@ -89,13 +74,10 @@ class PiiRedactor
     ];
 
     /**
-     * Patterns swept over free text.
-     *
-     * `name` and `address` have none on purpose: there is no expression that
-     * recognises a person's name in prose without also eating every proper noun
-     * in the paragraph, and a redactor that mangles "the Paper plugin on the
-     * London node" has cost more than it saved. Enabling either category means
-     * exact field masking only, never that free text has been de-identified.
+     * Patterns swept over free text. `name` and `address` have none: no
+     * expression finds a person's name in prose without eating every proper noun
+     * around it. Enabling either means exact field masking only, never that free
+     * text has been de-identified.
      *
      * @var array<string, string>
      */
@@ -131,34 +113,22 @@ class PiiRedactor
     private const PUBLIC_IPS = ['127.0.0.1', '0.0.0.0', '255.255.255.255', '::1', '::'];
 
     /**
-     * Fields whose values are never swept by pattern.
+     * Fields whose values are never swept by the IP pattern.
      *
-     * This exists because of one specific and very expensive collision: a
-     * four-part version number is a syntactically perfect IPv4 address.
-     * `1.20.4.1` is a Minecraft build, and on a game server panel those appear
-     * in startup variables, docker tags, jar names and half the console output.
-     * Redacting them would leave the assistant unable to give version-specific
-     * advice — the single thing it is most often asked for — in exchange for
-     * hiding nothing at all.
+     * A four-part version number is a syntactically perfect IPv4 address, and
+     * `1.20.4.1` appears in startup variables, docker tags, jar names and half
+     * the console output of a game server panel. Redacting those would cost
+     * version-specific advice while hiding nothing. No expression separates the
+     * two, so the discrimination is made on the field name; structural rules
+     * still win where they apply.
      *
-     * There is no expression that separates the two, so the discrimination is
-     * made on the field name instead, where it can actually be made correctly.
-     * Structural rules still apply: a field named both `email` and `version`
-     * does not exist, and if one did, the structural rule would win.
+     * Residual case: a version in a generically-named field is still read as an
+     * address, which is the safe direction to be wrong in.
      *
-     * The residual case is honest and worth knowing: a four-part version sitting
-     * in a generically-named field — a startup variable called `value`, say —
-     * is still read as an address. It costs a token where a version was wanted,
-     * which is the safe direction to be wrong in.
-     *
-     * **The exemption is from the IP pattern and nothing else.** It used to skip
-     * `sweep()` outright, which meant a field merely *containing* one of these
-     * words — the match is on substrings, so `startup_command` and
-     * `minecraft_version` are both covered by one entry — also escaped the
-     * email, phone and payment patterns. A startup command is user-editable and
-     * routinely holds a webhook URL or an operator's own address, so the one
-     * collision this list exists to solve was buying a much larger hole than it
-     * was worth.
+     * **The exemption is from the IP pattern and nothing else.** Matching is on
+     * substrings, so exempting `sweep()` outright would also let a startup
+     * command — routinely holding a webhook URL or an address — past the email,
+     * phone and payment patterns.
      */
     private const NEVER_SWEPT = ['version', 'image', 'images', 'command', 'rules', 'hash', 'digest', 'checksum', 'tag'];
 
@@ -191,17 +161,11 @@ class PiiRedactor
     }
 
     /**
-     * Put the real values back.
-     *
-     * No production caller, and that is not an oversight: restoration happens in
-     * the browser at render time, which is the better place for it — one map
-     * serves prose, tool arguments and payloads alike, and a token that arrives
-     * after the text mentioning it still lands.
-     *
-     * Kept because it is the asserted inverse of `redact()`. The round trip is
-     * what proves every minted token is reversible and the map complete, and
-     * that property is much easier to state here than across the SSE seam.
-     * Never run on what the model reads.
+     * Put the real values back. No production caller by design — restoration
+     * happens in the browser at render time, where one map serves prose,
+     * arguments and payloads alike. Kept as the asserted inverse of `redact()`:
+     * the round trip proves every token reversible and the map complete. Never
+     * run on what the model reads.
      */
     public function restore(string $text, RedactionMap $map): string
     {
@@ -250,11 +214,9 @@ class PiiRedactor
     }
 
     /**
-     * Which kind of personal data a field name holds, if any.
-     *
-     * Compared on the name with separators stripped, so `lastLoginIp`,
-     * `last_login_ip` and `last-login-ip` are one field rather than three
-     * near-misses.
+     * Which kind of personal data a field name holds, if any. Separators are
+     * stripped, so `lastLoginIp`, `last_login_ip` and `last-login-ip` are one
+     * field rather than three near-misses.
      *
      * @param string[] $kinds
      */
@@ -274,13 +236,10 @@ class PiiRedactor
     }
 
     /**
-     * Whether a field's value is exempt from the IP pattern.
-     *
-     * Matched as a substring so `docker_image`, `startup_command` and
-     * `minecraft_version` are all covered without naming each one. That breadth
-     * is exactly why the exemption is per-kind: a substring rule wide enough to
-     * catch every version-shaped field is far too wide to hand a blanket pass
-     * from every other pattern.
+     * Whether a field's value is exempt from the IP pattern. Matched as a
+     * substring, so `docker_image`, `startup_command` and `minecraft_version`
+     * are covered without naming each — and that breadth is exactly why the
+     * exemption is per-kind rather than a blanket pass.
      */
     private function neverSwept(string $key): bool
     {
@@ -356,13 +315,10 @@ class PiiRedactor
     }
 
     /**
-     * Replace the address inside a candidate, returning whatever prose the
-     * candidate over-ran unchanged.
-     *
-     * The candidate pattern is wider than the address grammar on purpose, so
-     * that nothing an address can legally look like is missed. Narrowing back
-     * down happens here, where a parser is available and the answer can be
-     * exact.
+     * Replace the address inside a candidate, returning any over-run prose
+     * unchanged. The candidate pattern is deliberately wider than the address
+     * grammar so nothing legal is missed; narrowing happens here, where a parser
+     * can be exact.
      */
     private function maskAddress(string $candidate, RedactionMap $map): string
     {
@@ -376,13 +332,10 @@ class PiiRedactor
     }
 
     /**
-     * The longest leading run of a candidate that is a real address.
-     *
-     * Trimming from the right is what makes the loose candidate safe. A log line
-     * reading `2001:db8::1: connection refused` produces the candidate
-     * `2001:db8::1:` — one character too long — and a grammar strict enough to
-     * refuse that is also strict enough to miss the address entirely. Here the
-     * trailing colon is simply given back as prose.
+     * The longest leading run of a candidate that is a real address. Trimming
+     * from the right is what makes the loose candidate safe: `2001:db8::1:
+     * connection refused` yields a candidate one character too long, and a
+     * grammar strict enough to refuse it would miss the address entirely.
      *
      * @return array{0: string|null, 1: string} the address as written, and the text after it
      */
@@ -481,9 +434,8 @@ class PiiRedactor
 
     /**
      * The categories in force, stored as a JSON list alongside the tool policy.
-     *
-     * An unset setting means "the defaults", not "none" — an operator who has
-     * never opened the privacy panel should still be protected.
+     * An unset setting means the defaults, not "none" — an operator who never
+     * opened the privacy panel should still be protected.
      *
      * @return string[]
      */

@@ -6,23 +6,18 @@ use Everest\Models\User;
 use Everest\Models\Server;
 
 /**
- * The window during which an assist binding is actually in force.
+ * The window during which an assist binding is actually in force — the single
+ * exception `AuthenticateServerAccess` and `ServerPolicy` consult for a
+ * delegated administrator who is neither the server owner nor a panel Owner.
  *
- * `AuthenticateServerAccess` and `ServerPolicy` both let the server owner and a
- * panel Owner through and refuse everyone else. Support staff who are neither —
- * a delegated administrator holding `servers.assist` — need a way past both, and
- * the honest way to say that is a single exception both of them consult.
+ * Kept as small as possible: not open for the request, turn or conversation.
+ * {@see AgentRunner} opens it around one dispatched sub-request and closes it in
+ * a `finally`, so anything else in the same PHP request sees the ordinary
+ * refusal. `during()` is the only way in, so no code path opens a session and
+ * forgets to close it.
  *
- * The exception is kept as small as it can be. It is not open for the request,
- * or for the turn, or for the conversation: {@see AgentRunner} opens it around
- * one dispatched sub-request and closes it in a `finally`, so anything else
- * running in the same PHP request — including a tool call the model made in the
- * same step — sees the ordinary refusal. Nothing outside this class can open
- * one, and there is no setter: `during()` is the only way in, which means there
- * is no code path that opens a session and forgets to close it.
- *
- * Bound as a singleton because the two consumers are a middleware and a policy,
- * neither of which is constructed anywhere the runner could reach.
+ * A singleton, since its two consumers are a middleware and a policy that the
+ * runner could not otherwise reach.
  */
 class AssistSession
 {

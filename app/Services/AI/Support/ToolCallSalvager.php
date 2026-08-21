@@ -7,18 +7,16 @@ use Everest\Services\AI\Data\AiToolCall;
 
 /**
  * Recovers tool calls that a model wrote as prose instead of emitting through
- * the structured tool-call channel.
+ * the structured tool-call channel — the highest-leverage reliability mechanism
+ * for self-hosted models.
  *
- * This is the single highest-leverage reliability mechanism for self-hosted
- * models. A model that "knows" the right call but formats it as
- * `<tool_call>{...}</tool_call>` or a fenced JSON block has not actually
- * failed — dropping that turn wastes an inference round and, in an agent loop,
- * leaves text in the history that skews every later step. Recovering it costs
- * nothing and is unambiguous: we only accept a candidate whose `name` matches
- * a tool that was actually offered.
+ * A model that formats the right call as `<tool_call>{...}</tool_call>` or a
+ * fenced JSON block has not failed; dropping the turn wastes an inference round
+ * and leaves text in the history that skews every later step. Recovery is
+ * unambiguous: only a candidate whose `name` matches an offered tool is taken.
  *
- * Nothing here loosens authorization. A salvaged call goes through the exact
- * same schema validation, risk gate, and executor as a natively emitted one.
+ * Nothing here loosens authorization — a salvaged call goes through the same
+ * schema validation, risk gate and executor as a natively emitted one.
  */
 class ToolCallSalvager
 {
