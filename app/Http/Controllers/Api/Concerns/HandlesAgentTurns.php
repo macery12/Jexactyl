@@ -137,7 +137,7 @@ trait HandlesAgentTurns
             // relay cannot outlive the thing it is relaying even if the worker
             // vanished without writing a terminal row. The sweep in
             // `agentTurnStatus()` closes that row out; this just stops waiting.
-            $stopAt = ($usage->deadline_at?->timestamp ?? (time() + 900)) + 60;
+            $stopAt = ($usage->deadline_at !== null ? $usage->deadline_at->timestamp : time() + 900) + 60;
 
             while (true) {
                 $cursor = $this->drainFrames($events, $turnId, $cursor);
@@ -387,7 +387,7 @@ trait HandlesAgentTurns
         $conversationId = $context->conversationId;
         $model = $this->providerFactory()->model(ProviderFactory::TASK_AGENT);
 
-        $usageReconciled = $budgetReservation?->passthrough ?? true;
+        $usageReconciled = $budgetReservation === null || $budgetReservation->passthrough;
 
         try {
             $startedAt = microtime(true);
@@ -596,7 +596,7 @@ trait HandlesAgentTurns
      * away once effects have landed.
      *
      * @throws AIServiceException when the queue is full, the caller already has
-     *                             a turn in flight, or a ticket has lapsed
+     *                            a turn in flight, or a ticket has lapsed
      */
     protected function admitTurn(Request $request, $user, string $lane): Admission
     {
@@ -710,7 +710,7 @@ trait HandlesAgentTurns
 
         return response()->json(['data' => [
             'turn_id' => $turnId,
-            'status' => $usage->fresh()?->status ?? $usage->status,
+            'status' => $usage->fresh()->status,
             'cancel_requested' => $recorded || $usage->cancel_requested_at !== null,
         ]]);
     }
@@ -868,81 +868,77 @@ trait HandlesAgentTurns
     protected function restoreAssist(AgentContext $context, ?AiPendingAction $pending = null): void
     {
         if ($pending !== null && $context->scope() === \Everest\Services\AI\Tools\ToolDefinition::SCOPE_ADMIN) {
-            $state = is_array($pending->state) ? $pending->state : [];
+            $state = $pending->state;
             $rawBinding = $state['assist'] ?? null;
             // Every admin pending action is authenticated, including the
             // explicit no-assist phase. Otherwise an attacker could bypass an
             // assist signature simply by removing the grant columns and
             // retargeting the rest of the pending row.
-            $expectsGrant = true;
+            $grant = AssistGrant::verify(
+                $pending->assist_grant,
+                $pending->assist_grant_mac,
+                (string) $pending->turn_id,
+                (int) $pending->user_id,
+                (string) $pending->tool_name,
+                (array) $pending->arguments,
+            );
 
-            if ($expectsGrant) {
-                $grant = AssistGrant::verify(
-                    $pending->assist_grant,
-                    $pending->assist_grant_mac,
-                    (string) $pending->turn_id,
-                    (int) $pending->user_id,
-                    (string) $pending->tool_name,
-                    (array) $pending->arguments,
-                );
+            $phaseMatchesTool = $grant !== null && match ($grant->phase) {
+                AssistGrant::PHASE_NONE => !in_array(
+                    $pending->tool_name,
+                    [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES],
+                    true,
+                ),
+                AssistGrant::PHASE_OPEN => $pending->tool_name === AdminTools::ASSIST_SERVER,
+                AssistGrant::PHASE_ESCALATE => $pending->tool_name === AdminTools::ASSIST_ALLOW_WRITES,
+                AssistGrant::PHASE_ACTIVE => !in_array(
+                    $pending->tool_name,
+                    [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES],
+                    true,
+                ),
+                default => false,
+            };
 
-                $phaseMatchesTool = $grant !== null && match ($grant->phase) {
-                    AssistGrant::PHASE_NONE => !in_array(
-                        $pending->tool_name,
-                        [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES],
-                        true,
-                    ),
-                    AssistGrant::PHASE_OPEN => $pending->tool_name === AdminTools::ASSIST_SERVER,
-                    AssistGrant::PHASE_ESCALATE => $pending->tool_name === AdminTools::ASSIST_ALLOW_WRITES,
-                    AssistGrant::PHASE_ACTIVE => !in_array(
-                        $pending->tool_name,
-                        [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES],
-                        true,
-                    ),
-                    default => false,
-                };
-
-                if (
-                    $grant === null
-                    || !$phaseMatchesTool
-                    || !$grant->matchesState($rawBinding)
-                    || ($grant->after === null
-                        ? $pending->server_uuid !== null
-                        : !hash_equals($grant->after->serverUuid, (string) $pending->server_uuid))
-                ) {
-                    $context->assist = null;
-                    $context->pendingAssistAuthorityInvalid = true;
-
-                    return;
-                }
-
-                if ($grant->phase === AssistGrant::PHASE_NONE) {
-                    $context->assist = null;
-                    $context->pendingAssistGrant = $grant;
-
-                    return;
-                }
-
-                // Re-authorize against the approved target even for an opening
-                // grant, but do not activate it until the audit row is durable.
-                $authorizer = app(AssistAuthorizer::class);
-                $server = $authorizer->reauthorize($context->user, $grant->after);
-                if ($server === null) {
-                    $context->assist = null;
-                    $context->pendingAssistAuthorityInvalid = true;
-
-                    return;
-                }
-
-                $context->pendingAssistGrant = $grant;
-                if ($grant->before !== null) {
-                    $context->bindAssist($grant->before, $server);
-                } else {
-                    $context->assist = null;
-                }
+            if (
+                $grant === null
+                || !$phaseMatchesTool
+                || !$grant->matchesState($rawBinding)
+                || ($grant->after === null
+                    ? $pending->server_uuid !== null
+                    : !hash_equals($grant->after->serverUuid, (string) $pending->server_uuid))
+            ) {
+                $context->assist = null;
+                $context->pendingAssistAuthorityInvalid = true;
 
                 return;
             }
+
+            if ($grant->phase === AssistGrant::PHASE_NONE) {
+                $context->assist = null;
+                $context->pendingAssistGrant = $grant;
+
+                return;
+            }
+
+            // Re-authorize against the approved target even for an opening
+            // grant, but do not activate it until the audit row is durable.
+            $authorizer = app(AssistAuthorizer::class);
+            $server = $authorizer->reauthorize($context->user, $grant->after);
+            if ($server === null) {
+                $context->assist = null;
+                $context->pendingAssistAuthorityInvalid = true;
+
+                return;
+            }
+
+            $context->pendingAssistGrant = $grant;
+            if ($grant->before !== null) {
+                $context->bindAssist($grant->before, $server);
+            } else {
+                $context->assist = null;
+            }
+
+            return;
         }
 
         $binding = $context->assist;
@@ -979,10 +975,6 @@ trait HandlesAgentTurns
         string $scope,
         ?string $serverUuid,
     ): ?AiConversation {
-        if ($pending->conversation_id === null) {
-            return null;
-        }
-
         $conversation = AiConversation::query()->whereKey($pending->conversation_id)->first();
 
         if ($conversation === null) {

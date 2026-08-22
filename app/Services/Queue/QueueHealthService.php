@@ -286,7 +286,7 @@ class QueueHealthService
                 if ($split) {
                     foreach ($split as $part) {
                         $part = (array) $part;
-                        $byQueue[$part['name']] = $part + ['processes' => $entry['processes'] ?? null];
+                        $byQueue[$part['name']] = $part + ['processes' => $entry['processes']];
                     }
 
                     continue;

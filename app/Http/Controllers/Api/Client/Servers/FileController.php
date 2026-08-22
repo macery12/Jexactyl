@@ -257,7 +257,7 @@ class FileController extends ClientApiController
         // If diff calculation fails, the remote file remains untouched.
         $diffProperty = null;
 
-        if ($this->diffService->isTextFile($file) && is_string($originalContent)) {
+        if ($this->diffService->isTextFile($file)) {
             $diff = $this->diffService->calculateDiff($liveContent, $content, $file);
             $diffProperty = [
                 'additions' => $diff['additions'],

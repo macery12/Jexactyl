@@ -275,11 +275,7 @@ abstract class AbstractProvider implements AiProvider
             // A closed connection can return an empty string forever; bail
             // rather than spinning the CPU until the request times out.
             if ($chunk === '') {
-                if (!$body->eof()) {
-                    break;
-                }
-
-                continue;
+                break;
             }
 
             $buffer .= $chunk;
@@ -345,11 +341,7 @@ abstract class AbstractProvider implements AiProvider
             $chunk = $body->read(8192);
 
             if ($chunk === '') {
-                if (!$body->eof()) {
-                    break;
-                }
-
-                continue;
+                break;
             }
 
             $buffer .= $chunk;

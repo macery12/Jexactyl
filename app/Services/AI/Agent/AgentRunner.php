@@ -823,10 +823,10 @@ class AgentRunner
      * complete after the click, as a dispatched one does.
      *
      * @param string $approvedRisk the tier this call may run at: resolved fresh
-     *                              immediately, or read off the stored pending
-     *                              action on resume, the only record of what the
-     *                              user agreed to. Used only by the batch runner,
-     *                              as the ceiling its children may not exceed.
+     *                             immediately, or read off the stored pending
+     *                             action on resume, the only record of what the
+     *                             user agreed to. Used only by the batch runner,
+     *                             as the ceiling its children may not exceed.
      * @param callable(AgentEvent): void $emit
      */
     public function runHostTool(
@@ -1004,7 +1004,7 @@ class AgentRunner
      *                                  user can't reach the card via a batch
      *
      * @return ToolResult|array{0: array, 1: string} the refusal, or the normalised
-     *                                                arguments and the tier the set runs at
+     *                                               arguments and the tier the set runs at
      */
     protected function planBatch(array $arguments, array $offered): ToolResult|array
     {
@@ -1701,7 +1701,9 @@ class AgentRunner
                 'user_id' => $context->user->id,
                 // See `suspend()`: the server the pending call is against, not
                 // the surface's own binding.
-                'server_uuid' => $sealed['binding']?->serverUuid ?? $context->targetServer()?->uuid,
+                'server_uuid' => $sealed['binding'] instanceof AssistBinding
+                    ? $sealed['binding']->serverUuid
+                    : $context->targetServer()?->uuid,
                 'scope' => $context->scope(),
                 'tool_name' => $toolName,
                 // The model's own id for this call. Resuming has to answer with

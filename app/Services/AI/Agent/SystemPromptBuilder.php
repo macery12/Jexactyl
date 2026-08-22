@@ -2,6 +2,7 @@
 
 namespace Everest\Services\AI\Agent;
 
+use Everest\Models\Egg;
 use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Privacy\PiiRedactor;
@@ -143,10 +144,11 @@ class SystemPromptBuilder
     {
         $server = $context->server;
         $server->loadMissing('egg');
+        $egg = $server->getRelation('egg');
 
         $facts = [
             'Name: ' . $this->fact($context, (string) $server->name),
-            'Type: ' . $this->fact($context, (string) ($server->egg?->name ?? 'unknown')),
+            'Type: ' . $this->fact($context, $egg instanceof Egg ? (string) $egg->name : 'unknown'),
             'State: ' . ($server->status ?? 'installed and idle'),
             'Memory limit: ' . ($server->memory ? $server->memory . ' MB' : 'unlimited'),
             'Disk limit: ' . ($server->disk ? $server->disk . ' MB' : 'unlimited'),

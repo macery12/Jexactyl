@@ -3,6 +3,7 @@
 namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Facades\Activity;
+use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Everest\Services\Queue\QueueHealthService;
 use Everest\Services\Queue\FailedJobRepository;
@@ -73,7 +74,7 @@ class QueueHealthController extends ApplicationApiController
      * so it is logged with the job class and queue, and sits behind its own
      * capability rather than the read one.
      */
-    public function retry(RetryFailedJobRequest $request, string $uuid): JsonResponse
+    public function retry(RetryFailedJobRequest $request, string $uuid): JsonResponse|Response
     {
         $job = $this->failedJobs->find($uuid);
 

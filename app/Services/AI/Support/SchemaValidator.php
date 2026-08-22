@@ -173,7 +173,7 @@ class SchemaValidator
             $value = trim($value);
         }
 
-        if (!is_numeric($value) || is_bool($value)) {
+        if (!is_numeric($value)) {
             $errors[] = $this->label($path) . ' must be a ' . ($integer ? 'whole number' : 'number') . '.';
 
             return $value;

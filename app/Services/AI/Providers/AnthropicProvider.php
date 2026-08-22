@@ -390,13 +390,6 @@ class AnthropicProvider extends AbstractProvider
         $messages = [];
         $pendingResults = [];
 
-        $flush = function () use (&$messages, &$pendingResults): void {
-            if ($pendingResults !== []) {
-                $messages[] = ['role' => 'user', 'content' => $pendingResults];
-                $pendingResults = [];
-            }
-        };
-
         foreach ($request->messages as $message) {
             if ($message->role === AiMessage::ROLE_TOOL) {
                 $pendingResults[] = array_filter([
@@ -409,7 +402,7 @@ class AnthropicProvider extends AbstractProvider
                 continue;
             }
 
-            $flush();
+            $this->flushToolResults($messages, $pendingResults);
 
             // A system message inside the history has nowhere to go in this
             // API — fold it into the user turn rather than dropping it.
@@ -446,9 +439,23 @@ class AnthropicProvider extends AbstractProvider
             $messages[] = ['role' => $message->role, 'content' => (string) $message->content];
         }
 
-        $flush();
+        $this->flushToolResults($messages, $pendingResults);
 
         return $messages;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @param array<int, array<string, mixed>> $pendingResults
+     */
+    private function flushToolResults(array &$messages, array &$pendingResults): void
+    {
+        if ($pendingResults === []) {
+            return;
+        }
+
+        $messages[] = ['role' => 'user', 'content' => $pendingResults];
+        $pendingResults = [];
     }
 
     /**

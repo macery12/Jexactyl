@@ -67,7 +67,7 @@ class DeferredEmail extends Model
      * holder died, and those emails still need to go out. `lockForUpdate` rather
      * than `SKIP LOCKED` because the test suite runs on SQLite.
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, self>
+     * @return \Illuminate\Database\Eloquent\Collection<int, static>
      */
     public static function claimPending(int $limit = 100): \Illuminate\Database\Eloquent\Collection
     {

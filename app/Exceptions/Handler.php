@@ -250,8 +250,7 @@ final class Handler extends ExceptionHandler
 
         $request = $container->make('request');
 
-        return !$request instanceof \Illuminate\Http\Request
-            || !InternalToolCall::matches($request->attributes->get(InternalToolCall::ATTRIBUTE));
+        return !InternalToolCall::matches($request->attributes->get(InternalToolCall::ATTRIBUTE));
     }
 
     /**

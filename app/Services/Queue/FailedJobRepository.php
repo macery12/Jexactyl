@@ -147,7 +147,18 @@ class FailedJobRepository
 
         // The command reports success on its own output rather than its exit
         // code, so the row's disappearance is the reliable signal.
-        return $this->find($uuid) === null;
+        return $this->wasRemoved($uuid);
+    }
+
+    private function wasRemoved(string $uuid): bool
+    {
+        try {
+            return !$this->query()->where('uuid', $uuid)->exists();
+        } catch (\Throwable $e) {
+            Log::warning('FailedJobRepository: could not verify retry', ['uuid' => $uuid, 'error' => $e->getMessage()]);
+
+            return false;
+        }
     }
 
     /**

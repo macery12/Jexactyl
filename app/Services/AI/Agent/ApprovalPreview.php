@@ -148,10 +148,9 @@ class ApprovalPreview
         return [
             'kind' => 'server',
             'name' => (string) $server->name,
-            // Nullable because the relation can be missing on a server whose
-            // owner was deleted, which is exactly the sort of orphan somebody
-            // opens a diagnostic session about.
-            'owner' => $server->user?->username,
+            // `servers.owner_id` is non-null and protected by a foreign key, so
+            // a server cannot outlive its owner.
+            'owner' => $server->user->username,
             'identifier' => (string) $server->uuidShort,
         ];
     }

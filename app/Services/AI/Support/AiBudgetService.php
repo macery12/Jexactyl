@@ -142,17 +142,10 @@ class AiBudgetService
      */
     public function releaseHandle(array $handle): void
     {
-        $userId = (int) ($handle['user_id'] ?? 0);
-        $token = (string) ($handle['token'] ?? '');
-
-        if ($userId === 0 || $token === '') {
-            return;
-        }
-
         try {
             DB::table('ai_budget_reservations')
-                ->where('user_id', $userId)
-                ->where('token', $token)
+                ->where('user_id', $handle['user_id'])
+                ->where('token', $handle['token'])
                 ->delete();
         } catch (\Throwable $e) {
             Log::warning('Failed to release an AI budget reservation: ' . $e->getMessage());

@@ -190,8 +190,8 @@ class AgentController extends ClientApiController
                 'arguments' => $action->arguments,
                 'risk' => $action->risk,
                 'preview' => ApprovalPreview::for($action->tool_name, (array) $action->arguments),
-                'created_at' => $action->created_at?->toIso8601String(),
-                'expires_at' => $action->expires_at?->toIso8601String(),
+                'created_at' => $action->created_at->toIso8601String(),
+                'expires_at' => $action->expires_at->toIso8601String(),
             ])->values(),
         ]);
     }

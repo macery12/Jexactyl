@@ -34,6 +34,7 @@ class AiMessage extends Model
         'step' => 'integer',
     ];
 
+    /** @return BelongsTo<AiConversation, $this> */
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(AiConversation::class, 'conversation_id');

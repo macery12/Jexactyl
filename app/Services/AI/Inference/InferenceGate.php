@@ -398,18 +398,8 @@ class InferenceGate
     public function releaseHandle(array $handle): void
     {
         try {
-            $slot = $handle['slot'] ?? null;
-            $owner = (string) ($handle['owner'] ?? '');
-
-            if (is_int($slot) && $owner !== '') {
-                Cache::restoreLock(self::SLOT_KEY . $slot, $owner)->release();
-            }
-
-            $reservation = $handle['reservation'] ?? null;
-
-            if (is_array($reservation)) {
-                $this->releaseUser($reservation);
-            }
+            Cache::restoreLock(self::SLOT_KEY . $handle['slot'], $handle['owner'])->release();
+            $this->releaseUser($handle['reservation']);
         } catch (\Throwable $e) {
             Log::warning('Failed to release an AI inference lease handle: ' . $e->getMessage());
         }

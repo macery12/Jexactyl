@@ -74,15 +74,16 @@ class AiPendingAction extends Model
     public function isActionable(): bool
     {
         return $this->status === self::STATUS_PENDING
-            && $this->expires_at !== null
             && $this->expires_at->isFuture();
     }
 
+    /** @return BelongsTo<AiConversation, $this> */
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(AiConversation::class, 'conversation_id');
     }
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

@@ -25,7 +25,7 @@ class AdminPermissionService
         $token = $user->currentAccessToken();
         if ($token instanceof ApiKey) {
             $profile = $this->apiProfiles->profileFor($token);
-            $permissions[] = $profile?->permissions ?? [];
+            $permissions[] = $profile === null ? [] : $profile->permissions;
 
             return $permissions;
         }

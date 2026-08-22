@@ -48,16 +48,19 @@ class AiConversation extends Model
     /** Max unsaved conversations kept per user (oldest are pruned on create). */
     public const MAX_UNSAVED_PER_USER = 30;
 
+    /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
     }
 
+    /** @return BelongsTo<Server, $this> */
     public function server(): BelongsTo
     {
         return $this->belongsTo(Server::class, 'server_uuid', 'uuid');
     }
 
+    /** @return HasMany<AiMessage, $this> */
     public function messages(): HasMany
     {
         // Ordered by id, not created_at: an agent turn writes several messages

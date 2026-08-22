@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\ProviderFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
@@ -54,7 +55,6 @@ class AiAgentController extends ApplicationApiController
     public function __construct(
         private ToolRegistry $registry,
         private RiskGate $riskGate,
-        private ConsoleCommandGate $consoleGate,
         private InferenceGate $inferenceGate,
         private ProviderFactory $factory,
         private AgentRunner $runner,
@@ -192,8 +192,8 @@ class AiAgentController extends ApplicationApiController
                     (array) $action->arguments,
                     $action->server_uuid ? Server::where('uuid', $action->server_uuid)->first() : null,
                 ),
-                'created_at' => $action->created_at?->toIso8601String(),
-                'expires_at' => $action->expires_at?->toIso8601String(),
+                'created_at' => $action->created_at->toIso8601String(),
+                'expires_at' => $action->expires_at->toIso8601String(),
             ])->values(),
         ]);
     }
@@ -472,7 +472,8 @@ class AiAgentController extends ApplicationApiController
         return $this->returnNoContent();
     }
 
-    private function ownConversations(int $userId): \Illuminate\Database\Eloquent\Builder
+    /** @return Builder<AiConversation> */
+    private function ownConversations(int $userId): Builder
     {
         return AiConversation::query()
             ->where('user_id', $userId)

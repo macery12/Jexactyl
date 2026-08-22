@@ -136,7 +136,7 @@ class QueueWorkerHeartbeat
         $queues = [];
 
         foreach ($this->workers() as $worker) {
-            foreach ($worker['queues'] ?? [] as $queue) {
+            foreach ($worker['queues'] as $queue) {
                 $queues[$queue] = true;
             }
         }
