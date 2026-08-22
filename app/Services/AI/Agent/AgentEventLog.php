@@ -139,7 +139,7 @@ class AgentEventLog
      * Bounded per call so this can be scheduled without becoming a long lock on
      * a table that one busy turn can add hundreds of rows to.
      */
-    public function prune(int $days, int $limit = 5000): int
+    public function prune(int $days, int $limit = 50000): int
     {
         return AiTurnEvent::query()
             ->where('created_at', '<', now()->subDays(max(1, $days)))

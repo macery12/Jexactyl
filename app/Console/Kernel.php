@@ -62,7 +62,7 @@ class Kernel extends ConsoleKernel
         // Execute scheduled commands for servers every minute, as if there was a normal cron running.
         $schedule->command(ProcessRunnableCommand::class)->everyMinute()->withoutOverlapping();
         $schedule->command(CleanServiceBackupFilesCommand::class)->daily();
-        $schedule->command(PruneAiConversationsCommand::class)->daily();
+        $schedule->command(PruneAiConversationsCommand::class)->hourly()->withoutOverlapping();
         // Re-assert Ollama keep_alive before it lapses; the command exits
         // immediately unless AI is enabled with warm-up on and mode=ollama.
         $schedule->command(WarmAiModelCommand::class)->everyFiveMinutes()->withoutOverlapping();

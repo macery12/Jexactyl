@@ -76,7 +76,6 @@ CREATE TABLE `ai_budget_reservations` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `ai_budget_reservations_token_unique` (`token`),
-  KEY `ai_budget_reservations_expires_at_index` (`expires_at`),
   CONSTRAINT `ai_budget_reservations_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -113,40 +112,13 @@ CREATE TABLE `ai_messages` (
   `role` enum('user','assistant','system','tool') NOT NULL,
   `content` text NOT NULL,
   `tool_calls` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`tool_calls`)),
-  `tool_call_id` varchar(64) DEFAULT NULL,
+  `tool_call_id` varchar(128) DEFAULT NULL,
   `tool_name` varchar(64) DEFAULT NULL,
   `step` smallint(5) unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `ai_messages_conversation_id_index` (`conversation_id`),
   CONSTRAINT `ai_messages_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `ai_operations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ai_operations` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `uuid` char(36) NOT NULL,
-  `conversation_id` bigint(20) unsigned DEFAULT NULL,
-  `user_id` int(10) unsigned DEFAULT NULL,
-  `server_uuid` char(36) NOT NULL,
-  `kind` varchar(32) NOT NULL,
-  `external_ref` varchar(64) DEFAULT NULL,
-  `status` varchar(24) NOT NULL DEFAULT 'running',
-  `progress` tinyint(3) unsigned NOT NULL DEFAULT 0,
-  `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`payload`)),
-  `error` text DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
-  `completed_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `ai_operations_uuid_unique` (`uuid`),
-  KEY `ai_operations_user_id_foreign` (`user_id`),
-  KEY `ai_operations_conversation_id_index` (`conversation_id`),
-  KEY `ai_operations_server_uuid_index` (`server_uuid`),
-  CONSTRAINT `ai_operations_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `ai_operations_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ai_pending_actions`;
@@ -178,10 +150,10 @@ CREATE TABLE `ai_pending_actions` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `ai_pending_actions_turn_id_unique` (`turn_id`),
   UNIQUE KEY `ai_pending_actions_execution_key_unique` (`execution_key`),
-  KEY `ai_pending_actions_user_id_foreign` (`user_id`),
+  KEY `ai_pending_actions_user_status_expires_index` (`user_id`,`status`,`expires_at`),
+  KEY `ai_pending_actions_user_server_status_index` (`user_id`,`server_uuid`,`status`),
+  KEY `ai_pending_actions_updated_status_index` (`updated_at`,`status`),
   KEY `ai_pending_actions_conversation_id_index` (`conversation_id`),
-  KEY `ai_pending_actions_expires_at_index` (`expires_at`),
-  KEY `ai_pending_actions_claimed_at_index` (`claimed_at`),
   CONSTRAINT `ai_pending_actions_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `ai_pending_actions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -210,14 +182,11 @@ CREATE TABLE `ai_tool_calls` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `resolved_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `ai_tool_calls_server_uuid_created_at_index` (`server_uuid`,`created_at`),
-  KEY `ai_tool_calls_turn_id_index` (`turn_id`),
+  KEY `ai_tool_calls_turn_call_index` (`turn_id`,`tool_call_id`),
+  KEY `ai_tool_calls_created_at_index` (`created_at`),
   KEY `ai_tool_calls_conversation_id_index` (`conversation_id`),
   KEY `ai_tool_calls_user_id_index` (`user_id`),
-  KEY `ai_tool_calls_server_uuid_index` (`server_uuid`),
-  KEY `ai_tool_calls_scope_created_at_index` (`scope`,`created_at`),
-  KEY `ai_tool_calls_turn_call_index` (`turn_id`,`tool_call_id`),
-  CONSTRAINT `ai_tool_calls_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ai_tool_calls_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `ai_tool_calls_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -243,7 +212,7 @@ CREATE TABLE `ai_tool_discovery` (
   `reason` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
-  KEY `ai_tool_discovery_event_created_at_index` (`event`,`created_at`),
+  KEY `ai_tool_discovery_created_at_index` (`created_at`),
   KEY `ai_tool_discovery_turn_id_index` (`turn_id`),
   KEY `ai_tool_discovery_conversation_id_index` (`conversation_id`),
   KEY `ai_tool_discovery_user_id_index` (`user_id`),
@@ -298,7 +267,7 @@ CREATE TABLE `ai_usage_logs` (
   KEY `ai_usage_logs_user_id_index` (`user_id`),
   KEY `ai_usage_logs_server_uuid_index` (`server_uuid`),
   KEY `ai_usage_logs_user_created_index` (`user_id`,`created_at`),
-  KEY `ai_usage_logs_status_deadline_index` (`status`,`deadline_at`),
+  KEY `ai_usage_logs_user_status_id_index` (`user_id`,`status`,`id`),
   CONSTRAINT `ai_usage_logs_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `ai_usage_logs_server_uuid_foreign` FOREIGN KEY (`server_uuid`) REFERENCES `servers` (`uuid`) ON DELETE SET NULL,
   CONSTRAINT `ai_usage_logs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -689,7 +658,8 @@ CREATE TABLE `deferred_emails` (
   KEY `deferred_emails_user_id_index` (`user_id`),
   KEY `deferred_emails_scheduled_at_index` (`scheduled_at`),
   KEY `deferred_emails_sent_at_index` (`sent_at`),
-  KEY `deferred_emails_claim_index` (`sent_at`,`scheduled_at`,`claimed_at`)
+  KEY `deferred_emails_claim_index` (`sent_at`,`scheduled_at`,`claimed_at`),
+  KEY `deferred_emails_claim_token_index` (`claim_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `download_queue`;
@@ -905,8 +875,8 @@ CREATE TABLE `email_quotas` (
   `month_sent_count` int(11) NOT NULL DEFAULT 0,
   `monthly_overage` int(11) NOT NULL DEFAULT 0,
   `overage_count` int(11) NOT NULL DEFAULT 0,
-  `month_reset_at` date NOT NULL DEFAULT '2026-08-20',
-  `day_reset_at` date NOT NULL DEFAULT '2026-08-20',
+  `month_reset_at` date NOT NULL DEFAULT '2026-08-22',
+  `day_reset_at` date NOT NULL DEFAULT '2026-08-22',
   `period_month` varchar(7) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1188,7 +1158,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=49 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `mount_node`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

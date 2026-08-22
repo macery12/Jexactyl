@@ -293,6 +293,26 @@ return [
     ],
 
     /*
+     * Retention for high-volume agent state. The command runs hourly and uses
+     * bounded batches, so shortening a window does not turn cleanup into one
+     * unbounded delete. Audit rows live longer than reconnect telemetry; only
+     * terminal pending actions are eligible for deletion.
+     */
+    'retention' => [
+        'turn_events_days' => env('AI_RETENTION_TURN_EVENTS_DAYS', 2),
+        'tool_discovery_days' => env('AI_RETENTION_TOOL_DISCOVERY_DAYS', 14),
+        'tool_calls_days' => env('AI_RETENTION_TOOL_CALLS_DAYS', 90),
+        'usage_logs_days' => env('AI_RETENTION_USAGE_LOGS_DAYS', 180),
+        'pending_actions_days' => env('AI_RETENTION_PENDING_ACTIONS_DAYS', 30),
+
+        'turn_events_limit' => env('AI_RETENTION_TURN_EVENTS_LIMIT', 50000),
+        'tool_discovery_limit' => env('AI_RETENTION_TOOL_DISCOVERY_LIMIT', 20000),
+        'tool_calls_limit' => env('AI_RETENTION_TOOL_CALLS_LIMIT', 20000),
+        'usage_logs_limit' => env('AI_RETENTION_USAGE_LOGS_LIMIT', 20000),
+        'pending_actions_limit' => env('AI_RETENTION_PENDING_ACTIONS_LIMIT', 20000),
+    ],
+
+    /*
      * Admission control for self-hosted inference. A GPU serves a fixed number
      * of concurrent requests; beyond that, queueing is dramatically better than
      * thrashing. Ignored for hosted providers, where the binding constraint is
