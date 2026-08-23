@@ -22,6 +22,7 @@ use Everest\Http\Controllers\Api\Application\Billing\StoreController;
 use Everest\Http\Requests\Api\Application\Servers\ServerWriteRequest;
 use Everest\Http\Requests\Api\Application\Settings\FinishSetupRequest;
 use Everest\Http\Controllers\Api\Application\Billing\InvoiceController;
+use Everest\Http\Requests\Api\Application\Intelligence\ProbeToolCallingRequest;
 use Everest\Http\Requests\Api\Application\Billing\CustomDomains\UpdateCustomDomainRequest;
 
 class ApplicationApiPermissionResolverTest extends TestCase
@@ -122,6 +123,7 @@ class ApplicationApiPermissionResolverTest extends TestCase
         $this->assertSame(AdminRole::THEME_READ, (new GetThemeRequest())->permission());
         $this->assertSame(AdminRole::THEME_UPDATE, (new UpdateThemeRequest())->permission());
         $this->assertSame(AdminRole::SERVERS_UPDATE, (new ServerWriteRequest())->permission());
+        $this->assertSame(AdminRole::AI_UPDATE, (new ProbeToolCallingRequest())->permission());
     }
 
     public function testPlainRequestActionFailsClosed(): void

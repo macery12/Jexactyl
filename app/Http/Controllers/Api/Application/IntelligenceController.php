@@ -11,8 +11,10 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
+use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Http\Requests\Api\Application\Intelligence;
+use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
 
 class IntelligenceController extends ApplicationApiController
@@ -197,6 +199,40 @@ class IntelligenceController extends ApplicationApiController
         Cache::put($cacheKey, $models, 300);
 
         return response()->json(['data' => $models]);
+    }
+
+    /**
+     * Explicitly verify that a generic OpenAI-compatible model can emit the
+     * same tool-call shape the agent consumes. Unlike the inference status
+     * endpoint, this performs a real generation and must never be polled.
+     */
+    public function probeToolCalling(Intelligence\ProbeToolCallingRequest $request): JsonResponse
+    {
+        $config = $this->factory->config();
+
+        if ($config->provider !== ProviderConfig::PROVIDER_OPENAI_COMPATIBLE) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'The live tool-calling test is only available for generic OpenAI-compatible providers.',
+            ], 422);
+        }
+
+        try {
+            // Bound a button click independently of the normal five-minute
+            // inference timeout. Two minutes still leaves room for a cold local
+            // model load without tying up a web worker indefinitely.
+            $provider = $this->factory->make(120);
+            if (!$provider instanceof OpenAiCompatibleProvider) {
+                throw new \LogicException('The configured provider does not support a live tool-calling test.');
+            }
+
+            return response()->json($provider->probeToolCalling($config->model));
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $e->getMessage(),
+            ], 502);
+        }
     }
 
     /**

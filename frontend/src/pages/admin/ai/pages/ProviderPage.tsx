@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cpu, HardDrive, KeyRound, Plug, RefreshCw, Trash2, TriangleAlert, Wifi } from 'lucide-react';
+import { CircleCheck, Cpu, HardDrive, KeyRound, Plug, RefreshCw, Trash2, TriangleAlert, Wifi, Wrench } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
@@ -17,9 +17,11 @@ import {
     getAiInference,
     getAiModels,
     testAiConnection,
+    testAiToolCalling,
     updateAiSettings,
     type AiConnectionTest,
     type AiProvider,
+    type AiToolCallingTest,
 } from '@/api/adminAi';
 import { DEFAULT_ENDPOINTS } from '../capabilities';
 import { AI_INFERENCE_KEY, AI_SETTINGS_KEY, useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
@@ -38,6 +40,7 @@ export default function ProviderPage() {
     const push = useFlashes(s => s.push);
     const [confirmKeyDelete, setConfirmKeyDelete] = useState(false);
     const [testResult, setTestResult] = useState<AiConnectionTest | null>(null);
+    const [toolTestResult, setToolTestResult] = useState<AiToolCallingTest | null>(null);
     const [testing, setTesting] = useState(false);
 
     const form = useAiSettingsForm(
@@ -96,10 +99,27 @@ export default function ProviderPage() {
         onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
 
+    const testTools = useMutation({
+        mutationFn: testAiToolCalling,
+        onSuccess: result => {
+            setToolTestResult(result);
+            if (result.status !== 'error') {
+                void queryClient.invalidateQueries({ queryKey: AI_INFERENCE_KEY });
+            }
+        },
+        onError: err => {
+            setToolTestResult({
+                status: 'error',
+                message: firstError(err) ?? m['common.states.genericError'](),
+            });
+        },
+    });
+
     // A connection result belongs to the saved endpoint. Clear it as soon as
     // the draft changes so "Connected" can never describe the old provider.
     const patch = (partial: Parameters<typeof patchDraft>[0]) => {
         setTestResult(null);
+        setToolTestResult(null);
         patchDraft(partial);
     };
 
@@ -136,6 +156,15 @@ export default function ProviderPage() {
     const discovered = !probeOutdated && models.length > 0;
     const modelsRefreshing = modelsFetching || refreshModels.isPending;
     const modelsError = modelsQueryError || refreshModels.isError;
+    const testedCapabilities = !probeOutdated
+        && inference?.capabilities?.model === settings.model
+        ? inference.capabilities
+        : null;
+    const toolTestStatus = toolTestResult?.status
+        ?? (testedCapabilities?.tool_support_verified
+            ? testedCapabilities.supports_tools ? 'supported' : 'unsupported'
+            : null);
+    const toolTestModel = toolTestResult?.model ?? testedCapabilities?.model ?? value.model;
 
     return (
         <form
@@ -359,15 +388,68 @@ export default function ProviderPage() {
                     <p className="text-xs text-[var(--color-warning)]">{m['admin.ai.settings.modelsUnavailable']()}</p>
                 )}
 
-                {/* Unsupported models block the agent. Generic compatible
-                    servers cannot prove model-level support, so their warning
-                    stays visible even though the protocol accepts tools. */}
-                {!probeOutdated
+                {value.provider === 'openai_compatible' && (
+                    <div
+                        className={cn(
+                            'flex min-w-0 flex-col gap-2 rounded-md border p-2.5 sm:flex-row sm:items-center sm:justify-between',
+                            toolTestStatus === 'supported'
+                                ? 'border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10'
+                                : toolTestStatus === 'error'
+                                  ? 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10'
+                                  : 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10',
+                        )}
+                    >
+                        <div className="flex min-w-0 gap-2">
+                            {toolTestStatus === 'supported' ? (
+                                <CircleCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-accent)]" />
+                            ) : (
+                                <TriangleAlert
+                                    className={cn(
+                                        'mt-0.5 h-3.5 w-3.5 shrink-0',
+                                        toolTestStatus === 'error'
+                                            ? 'text-[var(--color-danger)]'
+                                            : 'text-[var(--color-warning)]',
+                                    )}
+                                />
+                            )}
+                            <p className="min-w-0 break-words text-xs text-[var(--color-ink-muted)]">
+                                {probeOutdated
+                                    ? m['admin.ai.settings.saveBeforeToolProbe']()
+                                    : toolTestStatus === 'supported'
+                                      ? m['admin.ai.settings.toolCallingVerified']({ model: toolTestModel })
+                                      : toolTestStatus === 'unsupported'
+                                        ? m['admin.ai.settings.toolCallingUnsupported']({ model: toolTestModel })
+                                        : toolTestStatus === 'error'
+                                          ? toolTestResult?.message ?? m['common.states.genericError']()
+                                          : m['admin.ai.settings.toolCallingUnverified']()}
+                            </p>
+                        </div>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="shrink-0 self-start sm:self-auto"
+                            title={probeOutdated ? m['admin.ai.settings.saveBeforeToolProbe']() : undefined}
+                            onClick={() => testTools.mutate()}
+                            disabled={testTools.isPending || probeOutdated || value.model.trim() === ''}
+                        >
+                            <Wrench className="h-3.5 w-3.5" />
+                            {testTools.isPending
+                                ? m['admin.ai.settings.testingToolCalling']()
+                                : m['admin.ai.settings.testToolCalling']()}
+                        </Button>
+                    </div>
+                )}
+
+                {/* A failed model-level probe blocks the agent. Native
+                    providers report that state without needing live inference. */}
+                {value.provider !== 'openai_compatible'
+                    && !probeOutdated
                     && inference?.capabilities
                     && (inference.capabilities.supports_tools === false || inference.capabilities.warnings.length > 0) && (
-                    <div className="flex gap-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-2.5">
+                    <div className="flex min-w-0 gap-2 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-2.5">
                         <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
-                        <p className="text-xs text-[var(--color-ink-muted)]">
+                        <p className="min-w-0 break-words text-xs text-[var(--color-ink-muted)]">
                             {inference.capabilities.warnings[0] ?? m['admin.ai.settings.noToolSupport']()}
                         </p>
                     </div>

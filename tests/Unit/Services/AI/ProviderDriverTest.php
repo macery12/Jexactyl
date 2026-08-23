@@ -402,6 +402,96 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('ok', $response->content);
         $this->assertFalse($this->history[0]['request']->hasHeader('Authorization'));
         $this->assertNotEmpty($provider->capabilities()->warnings);
+        $this->assertFalse($provider->capabilities()->toolSupportVerified);
+    }
+
+    public function testOpenAiCompatibleCanVerifyAndCacheToolCallingForTheExactModel(): void
+    {
+        Cache::flush();
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'choices' => [[
+                'message' => [
+                    'content' => null,
+                    'tool_calls' => [[
+                        'id' => 'call_probe',
+                        'type' => 'function',
+                        'function' => ['name' => 'capability_probe', 'arguments' => '{}'],
+                    ]],
+                ],
+                'finish_reason' => 'tool_calls',
+            ]],
+        ]))]);
+
+        $provider = new OpenAiCompatibleProvider($this->config(
+            ProviderConfig::PROVIDER_OPENAI_COMPATIBLE,
+            ['endpoint' => 'http://127.0.0.1:8080/v1', 'model' => 'tool-model'],
+        ), $stack);
+
+        $result = $provider->probeToolCalling();
+
+        $this->assertSame('supported', $result['status']);
+        $this->assertTrue($result['supports_tools']);
+        $this->assertSame('tool-model', $result['model']);
+
+        $payload = $this->sentPayload();
+        $this->assertSame('/v1/chat/completions', $this->sentPath());
+        $this->assertSame('capability_probe', $payload['tools'][0]['function']['name']);
+        $this->assertSame(AiRequest::TOOL_CHOICE_AUTO, $payload['tool_choice']);
+        $this->assertSame(64, $payload['max_tokens']);
+        $this->assertSame(0, $payload['temperature']);
+        $this->assertFalse($payload['stream']);
+
+        // Reading capabilities uses the cached result and makes no second
+        // inference request. A different model remains unverified.
+        $capabilities = $provider->capabilities();
+        $this->assertTrue($capabilities->supportsTools);
+        $this->assertTrue($capabilities->toolSupportVerified);
+        $this->assertSame([], $capabilities->warnings);
+        $this->assertCount(1, $this->history);
+
+        $otherModel = $provider->capabilities('another-model');
+        $this->assertTrue($otherModel->supportsTools);
+        $this->assertFalse($otherModel->toolSupportVerified);
+        $this->assertNotEmpty($otherModel->warnings);
+    }
+
+    public function testOpenAiCompatibleFailedToolCallProbeBlocksThatModel(): void
+    {
+        Cache::flush();
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'choices' => [[
+                'message' => ['content' => 'I cannot call tools.'],
+                'finish_reason' => 'stop',
+            ]],
+        ]))]);
+
+        $provider = new OpenAiCompatibleProvider($this->config(
+            ProviderConfig::PROVIDER_OPENAI_COMPATIBLE,
+            ['endpoint' => 'http://127.0.0.1:8080/v1', 'model' => 'text-only-model'],
+        ), $stack);
+
+        $result = $provider->probeToolCalling();
+        $capabilities = $provider->capabilities();
+
+        $this->assertSame('unsupported', $result['status']);
+        $this->assertFalse($result['supports_tools']);
+        $this->assertFalse($capabilities->supportsTools);
+        $this->assertTrue($capabilities->toolSupportVerified);
+        $this->assertStringContainsString('text-only-model', $capabilities->warnings[0]);
+        $this->assertCount(1, $this->history);
+    }
+
+    public function testToolCallingProbeRejectsTheOfficialOpenAiProvider(): void
+    {
+        $provider = new OpenAiCompatibleProvider($this->config(
+            ProviderConfig::PROVIDER_OPENAI,
+            ['endpoint' => 'https://api.openai.com/v1', 'apiKey' => 'sk-test'],
+        ));
+
+        $this->expectException(AIServiceException::class);
+        $this->expectExceptionMessage('only available for generic OpenAI-compatible providers');
+
+        $provider->probeToolCalling();
     }
 
     public function testSelfHostedProvidersDoNotRequireAnApiKey(): void

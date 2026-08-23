@@ -26,6 +26,9 @@ class ProviderCapabilities
      *                                direction.
      * @param bool $selfHosted whether inference runs on hardware we own, and
      *                         therefore needs slot-based admission control
+     * @param bool $toolSupportVerified whether `supportsTools` comes from a
+     *                                  model-level probe rather than the wire
+     *                                  protocol accepting a `tools` field
      * @param string[] $warnings admin-facing problems that do not block use
      */
     public function __construct(
@@ -39,6 +42,7 @@ class ProviderCapabilities
         public readonly ?int $maxContextTokens = null,
         public readonly ?int $modelSizeBytes = null,
         public readonly array $warnings = [],
+        public readonly bool $toolSupportVerified = true,
     ) {
     }
 
@@ -47,6 +51,7 @@ class ProviderCapabilities
         return new self(
             supportsTools: false,
             warnings: [$reason],
+            toolSupportVerified: false,
         );
     }
 
@@ -72,6 +77,7 @@ class ProviderCapabilities
             'max_context_tokens' => $this->maxContextTokens,
             'model_size_bytes' => $this->modelSizeBytes,
             'warnings' => $this->warnings,
+            'tool_support_verified' => $this->toolSupportVerified,
         ];
     }
 }

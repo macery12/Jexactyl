@@ -220,6 +220,7 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::get('/settings', [Application\IntelligenceController::class, 'index']);
         Route::put('/settings', [Application\IntelligenceController::class, 'update']);
         Route::get('/test', [Application\IntelligenceController::class, 'testConnection']);
+        Route::post('/test-tools', [Application\IntelligenceController::class, 'probeToolCalling']);
         Route::get('/models', [Application\IntelligenceController::class, 'models']);
         Route::get('/stats', [Application\IntelligenceController::class, 'stats']);
         Route::get('/logs', [Application\IntelligenceController::class, 'recentLogs']);

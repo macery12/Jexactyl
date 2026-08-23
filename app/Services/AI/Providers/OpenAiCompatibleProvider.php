@@ -3,6 +3,7 @@
 namespace Everest\Services\AI\Providers;
 
 use Everest\Services\AI\Data\AiTool;
+use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Data\AiRequest;
 use Everest\Services\AI\Data\AiResponse;
@@ -20,6 +21,7 @@ use Everest\Exceptions\Service\AI\AIServiceException;
 class OpenAiCompatibleProvider extends AbstractProvider
 {
     protected const CHAT_PATH = 'chat/completions';
+    private const TOOL_PROBE_CACHE_PREFIX = 'ai:tool-call-probe:';
 
     public function chat(AiRequest $request): AiResponse
     {
@@ -171,15 +173,88 @@ class OpenAiCompatibleProvider extends AbstractProvider
 
     public function capabilities(?string $model = null): ProviderCapabilities
     {
+        $generic = $this->providerConfig->provider === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE;
+        $probe = $generic ? $this->cachedToolCallingProbe($model) : null;
+        $supportsTools = $probe === null || $probe['supports_tools'];
+
+        $warnings = [];
+        if ($generic && $probe === null) {
+            $warnings[] = 'Tool calling is supported by the server protocol but has not been tested for this model. Run the tool-calling test before enabling the agent for users.';
+        } elseif ($generic && !$supportsTools) {
+            $warnings[] = sprintf(
+                'The live tool-calling test did not return the required probe call for "%s". The agent cannot safely run on this model.',
+                $this->resolveProbeModel($model),
+            );
+        }
+
         return new ProviderCapabilities(
-            supportsTools: true,
+            supportsTools: $supportsTools,
             supportsStructuredOutput: true,
             selfHosted: $this->providerConfig->isSelfHosted(),
             maxContextTokens: $this->providerConfig->contextTokens,
-            warnings: $this->providerConfig->provider === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE
-                ? ['Tool calling is supported by the server protocol but cannot be verified for this model. Test the agent before enabling it for users.']
-                : [],
+            warnings: $warnings,
+            toolSupportVerified: !$generic || $probe !== null,
         );
+    }
+
+    /**
+     * Make one small, non-streamed request that asks the configured model to
+     * emit a harmless no-argument tool call. This is deliberately explicit:
+     * generic OpenAI-compatible servers have no model metadata endpoint, and
+     * running this from the admin UI's polling loop could load a local model or
+     * spend remote tokens every time the page is opened.
+     *
+     * The result is retained for this exact connection and model until an
+     * operator tests it again. ProviderConfig's fingerprint includes a digest
+     * of the credential, so changing any connection input starts unverified.
+     *
+     * @return array{status: 'supported'|'unsupported', supports_tools: bool, model: string, checked_at: string}
+     */
+    public function probeToolCalling(?string $model = null): array
+    {
+        if ($this->providerConfig->provider !== ProviderConfig::PROVIDER_OPENAI_COMPATIBLE) {
+            throw new AIServiceException('The live tool-calling test is only available for generic OpenAI-compatible providers.');
+        }
+
+        $model = $this->resolveProbeModel($model);
+        if ($model === '') {
+            throw new AIServiceException('An AI model must be selected before testing tool calling.');
+        }
+
+        $probeName = 'capability_probe';
+        $response = $this->chat(new AiRequest(
+            messages: [AiMessage::user('Call the capability_probe tool now. Do not answer with text.')],
+            systemPrompt: 'You are testing tool-call support. Follow the user instruction exactly.',
+            tools: [new AiTool(
+                $probeName,
+                'Confirm that this model can emit an OpenAI-compatible tool call.',
+                AiTool::emptySchema(),
+            )],
+            // `auto` is what real agent turns use. A model that cannot select
+            // one explicitly requested tool under the production setting is
+            // not reliable enough to operate the panel agent.
+            toolChoice: AiRequest::TOOL_CHOICE_AUTO,
+            model: $model,
+            maxTokens: 64,
+            temperature: 0,
+            noCache: true,
+        ));
+
+        $supported = count(array_filter(
+            $response->toolCalls,
+            static fn (AiToolCall $call): bool => $call->name === $probeName,
+        )) > 0;
+
+        $result = [
+            'status' => $supported ? 'supported' : 'unsupported',
+            'supports_tools' => $supported,
+            'model' => $model,
+            'checked_at' => now()->toIso8601String(),
+        ];
+
+        Cache::forever($this->toolCallingProbeCacheKey($model), $result);
+
+        return $result;
     }
 
     public function listModels(): array
@@ -203,6 +278,42 @@ class OpenAiCompatibleProvider extends AbstractProvider
 
             return false;
         }
+    }
+
+    /**
+     * @return array{status: 'supported'|'unsupported', supports_tools: bool, model: string, checked_at: string}|null
+     */
+    private function cachedToolCallingProbe(?string $model = null): ?array
+    {
+        $model = $this->resolveProbeModel($model);
+        if ($model === '') {
+            return null;
+        }
+
+        $cached = Cache::get($this->toolCallingProbeCacheKey($model));
+
+        if (!is_array($cached)
+            || !is_bool($cached['supports_tools'] ?? null)
+            || !is_string($cached['checked_at'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'status' => $cached['supports_tools'] ? 'supported' : 'unsupported',
+            'supports_tools' => $cached['supports_tools'],
+            'model' => $model,
+            'checked_at' => $cached['checked_at'],
+        ];
+    }
+
+    private function toolCallingProbeCacheKey(string $model): string
+    {
+        return self::TOOL_PROBE_CACHE_PREFIX . $this->providerConfig->withModel($model)->fingerprint();
+    }
+
+    private function resolveProbeModel(?string $model): string
+    {
+        return trim($model ?? $this->providerConfig->model);
     }
 
     /*

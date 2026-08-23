@@ -171,6 +171,8 @@ export interface AiInferenceState {
         supports_parallel_tool_calls: boolean;
         /** On-disk size of a local model, where the endpoint reports one. */
         model_size_bytes: number | null;
+        /** Whether tool support was checked at model level rather than assumed from the protocol. */
+        tool_support_verified: boolean;
         warnings: string[];
     } | null;
     error?: string;
@@ -181,6 +183,14 @@ export interface AiConnectionTest {
     latency_ms?: number;
     message?: string;
     from_cache?: boolean;
+}
+
+export interface AiToolCallingTest {
+    status: 'supported' | 'unsupported' | 'error';
+    supports_tools?: boolean;
+    model?: string;
+    checked_at?: string;
+    message?: string;
 }
 
 export interface AiModel {
@@ -266,6 +276,22 @@ export async function testAiConnection(fresh = false): Promise<AiConnectionTest>
         // A failing endpoint answers 502 with the same shape — surface it
         // instead of throwing so the status card can render the message.
         const resp = (err as { response?: { data?: AiConnectionTest } }).response;
+        if (resp?.data?.status) return resp.data;
+        throw err;
+    }
+}
+
+/**
+ * Run one real inference call. This is POST and user-triggered by design: a
+ * generic compatible endpoint has no metadata API, and probing from status
+ * polling could repeatedly load a local model or consume paid tokens.
+ */
+export async function testAiToolCalling(): Promise<AiToolCallingTest> {
+    try {
+        const { data } = await http.post('/api/application/ai/test-tools');
+        return data as AiToolCallingTest;
+    } catch (err: unknown) {
+        const resp = (err as { response?: { data?: AiToolCallingTest } }).response;
         if (resp?.data?.status) return resp.data;
         throw err;
     }
