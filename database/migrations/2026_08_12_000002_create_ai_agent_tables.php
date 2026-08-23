@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 
 /*
  * Agent-owned state in its final shape: the tool-call audit, suspended turns,
- * budget admission reservations, discovery telemetry, and durable event log.
+ * budget admission reservations, and durable event log.
  */
 return new class () extends Migration {
     public function up(): void
@@ -83,30 +83,6 @@ return new class () extends Migration {
             $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
         });
 
-        Schema::create('ai_tool_discovery', function (Blueprint $table): void {
-            $table->bigIncrements('id');
-            $table->uuid('turn_id')->index();
-            $table->unsignedBigInteger('conversation_id')->nullable()->index();
-            $table->unsignedInteger('user_id')->nullable()->index();
-            $table->unsignedSmallInteger('step')->default(0);
-            $table->string('scope', 16);
-            $table->string('phase', 24);
-            $table->string('event', 24);
-            $table->text('query')->nullable();
-            $table->json('matches')->nullable();
-            $table->json('working_set')->nullable();
-            $table->unsignedSmallInteger('catalogue_size')->default(0);
-            $table->unsignedSmallInteger('budget')->default(0);
-            $table->unsignedInteger('schema_bytes')->default(0);
-            $table->string('profile', 16)->nullable();
-            $table->text('reason')->nullable();
-            $table->timestamp('created_at', 3)->useCurrent();
-
-            $table->index('created_at', 'ai_tool_discovery_created_at_index');
-            $table->foreign('user_id')->references('id')->on('users')->nullOnDelete();
-            $table->foreign('conversation_id')->references('id')->on('ai_conversations')->cascadeOnDelete();
-        });
-
         Schema::create('ai_turn_events', function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->uuid('turn_id');
@@ -123,7 +99,6 @@ return new class () extends Migration {
     public function down(): void
     {
         Schema::dropIfExists('ai_turn_events');
-        Schema::dropIfExists('ai_tool_discovery');
         Schema::dropIfExists('ai_budget_reservations');
         Schema::dropIfExists('ai_pending_actions');
         Schema::dropIfExists('ai_tool_calls');

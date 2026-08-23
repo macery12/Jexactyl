@@ -219,7 +219,6 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::group(['prefix' => '/ai'], function () {
         Route::get('/settings', [Application\IntelligenceController::class, 'index']);
         Route::put('/settings', [Application\IntelligenceController::class, 'update']);
-        Route::post('/query', [Application\IntelligenceController::class, 'query']);
         Route::get('/test', [Application\IntelligenceController::class, 'testConnection']);
         Route::get('/models', [Application\IntelligenceController::class, 'models']);
         Route::get('/stats', [Application\IntelligenceController::class, 'stats']);
@@ -236,7 +235,6 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::post('/agent', [Application\AiAgentController::class, 'start'])
             ->middleware('throttle:ai.agent');
         Route::post('/agent/decide', [Application\AiAgentController::class, 'decide']);
-        Route::get('/agent/pending', [Application\AiAgentController::class, 'pending']);
         Route::get('/agent/turns/{turnId}', [Application\AiAgentController::class, 'turnStatus']);
         // Stopping a turn and giving up a queue place are separate because the
         // two states are: a queued turn has a ticket and no turn id, and

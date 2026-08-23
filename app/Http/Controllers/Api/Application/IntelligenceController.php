@@ -7,12 +7,10 @@ use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
-use Everest\Services\AI\OpenAIService;
+use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
-use Illuminate\Support\Facades\RateLimiter;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Http\Requests\Api\Application\Intelligence;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
@@ -23,7 +21,7 @@ class IntelligenceController extends ApplicationApiController
      * IntelligenceController constructor.
      */
     public function __construct(
-        private OpenAIService $aiService,
+        private ProviderFactory $factory,
         private PiiRedactor $redactor,
         private ToolBudget $budget,
     ) {
@@ -35,8 +33,6 @@ class IntelligenceController extends ApplicationApiController
      */
     public function index(GetIntelligenceRequest $request): JsonResponse
     {
-        $factory = app(\Everest\Services\AI\ProviderFactory::class);
-
         return response()->json([
             'enabled' => boolval(config('modules.ai.enabled', false)),
             'key' => !empty(config('modules.ai.key')),
@@ -47,7 +43,7 @@ class IntelligenceController extends ApplicationApiController
             // installs are configured with, so the resolved provider is
             // returned alongside it rather than in place of it.
             'mode' => config('modules.ai.mode', 'ollama'),
-            'provider' => $factory->provider(),
+            'provider' => $this->factory->provider(),
 
             'max_tokens' => (int) config('modules.ai.max_tokens', 1024),
             'temperature' => (float) config('modules.ai.temperature', 0.3),
@@ -57,7 +53,6 @@ class IntelligenceController extends ApplicationApiController
             'system_prompt' => config('modules.ai.system_prompt', ''),
 
             'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
-            'feature_crash_analysis' => boolval(config('modules.ai.feature_crash_analysis', true)),
 
             'agent' => [
                 'enabled' => boolval(config('modules.ai.agent.enabled', false)),
@@ -161,7 +156,7 @@ class IntelligenceController extends ApplicationApiController
         $start = microtime(true);
 
         try {
-            $ok = $this->aiService->testConnection();
+            $ok = $this->factory->make()->health();
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
 
             $result = $ok
@@ -194,7 +189,7 @@ class IntelligenceController extends ApplicationApiController
         }
 
         try {
-            $models = $this->aiService->listModels();
+            $models = $this->factory->make()->listModels();
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 502);
         }
@@ -213,128 +208,7 @@ class IntelligenceController extends ApplicationApiController
      */
     private function connectionFingerprint(): string
     {
-        $factory = app(\Everest\Services\AI\ProviderFactory::class);
-
-        return $factory->config()->fingerprint();
-    }
-
-    /**
-     * Send a query to the AI service using OpenAI-compatible API.
-     *
-     * @throws \Throwable
-     */
-    public function query(Intelligence\QueryRequest $request): JsonResponse|\Symfony\Component\HttpFoundation\StreamedResponse
-    {
-        $enabled = filter_var(
-            Setting::get('settings::modules:ai:enabled', config('modules.ai.enabled', false)),
-            FILTER_VALIDATE_BOOLEAN
-        );
-
-        if (!$enabled) {
-            return response()->json(['error' => 'The M12Labs-AI module is not enabled.'], 403);
-        }
-
-        // Rate-limit admin queries (60 per 10 minutes).
-        $rateLimitKey = 'ai:admin:' . ($request->user()?->id ?? 'anon');
-        if (RateLimiter::tooManyAttempts($rateLimitKey, 60)) {
-            $retryAfter = RateLimiter::availableIn($rateLimitKey);
-
-            return response()->json([
-                'error' => 'Too many AI requests. Please try again in ' . $retryAfter . ' seconds.',
-                'retry_after' => $retryAfter,
-            ], 429);
-        }
-        RateLimiter::hit($rateLimitKey, 600);
-
-        // Check if streaming is requested
-        if ($request->input('stream', false)) {
-            $userId = $request->user()?->id;
-            $model = Setting::get('settings::modules:ai:model', config('modules.ai.model', 'unknown'));
-
-            return response()->stream(function () use ($request, $userId, $model) {
-                $start = microtime(true);
-                $status = 'success';
-                $errorMsg = null;
-
-                try {
-                    foreach ($this->aiService->queryStream($request->input('query')) as $chunk) {
-                        echo 'data: ' . json_encode(['content' => $chunk]) . "\n\n";
-                        ob_flush();
-                        flush();
-                    }
-                    echo "data: [DONE]\n\n";
-                    ob_flush();
-                    flush();
-                } catch (\Exception $e) {
-                    $status = 'error';
-                    $errorMsg = $e->getMessage();
-                    echo 'data: ' . json_encode(['error' => $e->getMessage()]) . "\n\n";
-                    ob_flush();
-                    flush();
-                }
-
-                $latencyMs = (int) round((microtime(true) - $start) * 1000);
-                try {
-                    AiUsageLog::create([
-                        'user_id' => $userId,
-                        'model' => $model,
-                        'source' => 'admin',
-                        'latency_ms' => $latencyMs,
-                        'status' => $status,
-                        'cached' => $this->aiService->wasCached(),
-                        'error_message' => $errorMsg,
-                    ]);
-                } catch (\Exception $logEx) {
-                    Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
-                }
-            }, 200, [
-                'Content-Type' => 'text/event-stream',
-                'Cache-Control' => 'no-cache',
-                'X-Accel-Buffering' => 'no',
-            ]);
-        }
-
-        $model = Setting::get('settings::modules:ai:model', config('modules.ai.model', 'unknown'));
-        $start = microtime(true);
-
-        try {
-            $result = $this->aiService->query($request->input('query'));
-            $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            $usage = $this->aiService->getLastUsage();
-
-            try {
-                AiUsageLog::create([
-                    'user_id' => $request->user()?->id,
-                    'model' => $usage['model'] ?? $model,
-                    'source' => 'admin',
-                    'prompt_tokens' => $usage['prompt_tokens'] ?? null,
-                    'completion_tokens' => $usage['completion_tokens'] ?? null,
-                    'total_tokens' => $usage['total_tokens'] ?? null,
-                    'latency_ms' => $latencyMs,
-                    'status' => 'success',
-                    'cached' => $this->aiService->wasCached(),
-                ]);
-            } catch (\Exception $logEx) {
-                Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
-            }
-
-            return response()->json($result);
-        } catch (\Exception $e) {
-            $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            try {
-                AiUsageLog::create([
-                    'user_id' => $request->user()?->id,
-                    'model' => $model,
-                    'source' => 'admin',
-                    'latency_ms' => $latencyMs,
-                    'status' => 'error',
-                    'error_message' => $e->getMessage(),
-                ]);
-            } catch (\Exception $logEx) {
-                Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
-            }
-            throw $e;
-        }
+        return $this->factory->config()->fingerprint();
     }
 
     /**

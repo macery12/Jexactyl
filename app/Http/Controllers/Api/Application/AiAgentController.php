@@ -164,40 +164,6 @@ class AiAgentController extends ApplicationApiController
         }
     }
 
-    /**
-     * Approvals and questions still awaiting a decision.
-     */
-    public function pending(GetIntelligenceRequest $request): JsonResponse
-    {
-        $owned = AiPendingAction::query()
-            ->where('user_id', $request->user()->id)
-            ->where('scope', ToolDefinition::SCOPE_ADMIN);
-
-        $this->sweepExpiredPending($owned);
-
-        $pending = (clone $owned)->actionable()
-            ->orderByDesc('created_at')
-            ->limit(10)
-            ->get();
-
-        return response()->json([
-            'data' => $pending->map(fn (AiPendingAction $action) => [
-                'turn_id' => $action->turn_id,
-                'conversation_id' => $action->conversation_id,
-                'tool' => $action->tool_name,
-                'arguments' => $action->arguments,
-                'risk' => $action->risk,
-                'preview' => \Everest\Services\AI\Agent\ApprovalPreview::for(
-                    $action->tool_name,
-                    (array) $action->arguments,
-                    $action->server_uuid ? Server::where('uuid', $action->server_uuid)->first() : null,
-                ),
-                'created_at' => $action->created_at->toIso8601String(),
-                'expires_at' => $action->expires_at->toIso8601String(),
-            ])->values(),
-        ]);
-    }
-
     /** Authoritative state used when an accepted SSE connection disappears. */
     public function turnStatus(GetIntelligenceRequest $request, string $turnId): JsonResponse
     {

@@ -35,7 +35,6 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'warm' => 'nullable|bool',
             'system_prompt' => 'nullable|string|min:10|max:1000',
             'feature_server_assistant' => 'nullable|bool',
-            'feature_crash_analysis' => 'nullable|bool',
 
             'agent.enabled' => 'nullable|bool',
             'agent.admin_enabled' => 'nullable|bool',

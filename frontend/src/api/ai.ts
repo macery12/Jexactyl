@@ -11,14 +11,6 @@ import {
 // agent, which can suspend mid-turn and be resumed by /ai/agent/decide, plus the
 // conversation store behind the history rail.
 //
-// Two endpoints have no client any more. `POST /ai` — advisory chat — lost its
-// caller when chat mode was cut, and its other query type, `log_analysis`, never
-// had a V2 caller despite the crash-analysis toggle on /admin/ai/limits still
-// being wired to the setting. `GET /ai/agent/pending` lost its caller with the
-// banner that polled it; a suspended turn now either has its card on screen or
-// expires on its own. Both are left in place — retiring them is a decision about
-// those features, not about this module.
-
 export type ChatRole = 'user' | 'assistant' | 'tool';
 
 /** A stored message, including the tool steps an agent turn produced. */

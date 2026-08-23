@@ -178,7 +178,6 @@ export interface EverestConfiguration {
     ai: {
         enabled: boolean;
         feature_server_assistant: boolean;
-        feature_crash_analysis: boolean;
         /** The customer-facing tool-calling agent. */
         feature_agent: boolean;
         /** The admin assistant, which also requires feature_agent. */

@@ -5,7 +5,7 @@ namespace Everest\Tests\Unit\Http\Controllers\Api\Application;
 use Everest\Tests\TestCase;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
-use Everest\Services\AI\OpenAIService;
+use Everest\Services\AI\ProviderFactory;
 use Illuminate\Support\Facades\Artisan;
 use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
@@ -34,7 +34,7 @@ class SensitiveSettingsLoggingTest extends TestCase
         $this->app->instance(SettingsRepositoryInterface::class, $repository);
 
         $controller = new IntelligenceController(
-            \Mockery::mock(OpenAIService::class),
+            \Mockery::mock(ProviderFactory::class),
             app(PiiRedactor::class),
             app(ToolBudget::class),
         );

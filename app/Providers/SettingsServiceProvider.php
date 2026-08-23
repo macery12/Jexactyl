@@ -95,7 +95,6 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:context_tokens',
         'modules:ai:system_prompt',
         'modules:ai:feature_server_assistant',
-        'modules:ai:feature_crash_analysis',
         'modules:ai:keep_alive',
         'modules:ai:warm',
         'modules:ai:agent:enabled',

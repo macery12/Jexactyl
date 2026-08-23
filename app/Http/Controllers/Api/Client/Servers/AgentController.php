@@ -17,7 +17,6 @@ use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\TurnRecorder;
 use Everest\Services\AI\Tools\ToolRegistry;
 use Everest\Services\AI\Tools\ToolDefinition;
-use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\AiBudgetService;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -26,10 +25,6 @@ use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 
 /**
  * The tool-calling agent.
- *
- * Kept separate from AIController — which remains the plain chat and crash
- * analysis surface — because the two have genuinely different contracts: this
- * one can suspend mid-turn and be resumed by a later request.
  *
  * The streaming, resume and suspension mechanics live in HandlesAgentTurns,
  * shared with the admin assistant. What stays here is what is genuinely
@@ -159,41 +154,6 @@ class AgentController extends ClientApiController
 
             throw $e;
         }
-    }
-
-    /**
-     * Approvals and questions the user still owes a decision on.
-     *
-     * A suspended turn closes its stream, so without this a reload loses the
-     * only pointer to it and the action silently expires.
-     */
-    public function pending(Request $request, Server $server): JsonResponse
-    {
-        $this->assertAgentEnabled($request);
-
-        $owned = AiPendingAction::query()
-            ->where('user_id', $request->user()->id)
-            ->where('server_uuid', $server->uuid);
-
-        $this->sweepExpiredPending($owned);
-
-        $pending = (clone $owned)->actionable()
-            ->orderByDesc('created_at')
-            ->limit(10)
-            ->get();
-
-        return response()->json([
-            'data' => $pending->map(fn (AiPendingAction $action) => [
-                'turn_id' => $action->turn_id,
-                'conversation_id' => $action->conversation_id,
-                'tool' => $action->tool_name,
-                'arguments' => $action->arguments,
-                'risk' => $action->risk,
-                'preview' => ApprovalPreview::for($action->tool_name, (array) $action->arguments),
-                'created_at' => $action->created_at->toIso8601String(),
-                'expires_at' => $action->expires_at->toIso8601String(),
-            ])->values(),
-        ]);
     }
 
     /** Authoritative state used when an accepted SSE connection disappears. */

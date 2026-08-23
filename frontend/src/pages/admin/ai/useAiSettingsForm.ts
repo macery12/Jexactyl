@@ -123,11 +123,10 @@ function syncFlags(payload: AiSettingsPayload): void {
     if (!everest) return;
 
     const server = payload.feature_server_assistant;
-    const crash = payload.feature_crash_analysis;
     const agent = payload.agent?.enabled;
     const adminAgent = payload.agent?.admin_enabled;
 
-    if ([server, crash, agent, adminAgent].every(flag => flag === undefined)) return;
+    if ([server, agent, adminAgent].every(flag => flag === undefined)) return;
 
     const nextAgent = agent ?? everest.ai.feature_agent;
     const nextAdminAgent = adminAgent ?? everest.ai.feature_admin_agent;
@@ -138,7 +137,6 @@ function syncFlags(payload: AiSettingsPayload): void {
             ai: {
                 ...everest.ai,
                 feature_server_assistant: server ?? everest.ai.feature_server_assistant,
-                feature_crash_analysis: crash ?? everest.ai.feature_crash_analysis,
                 feature_agent: nextAgent,
                 feature_admin_agent: nextAgent && nextAdminAgent,
             },

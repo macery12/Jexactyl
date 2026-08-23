@@ -10,7 +10,6 @@ use Everest\Models\AiTurnEvent;
 use Everest\Models\AiConversation;
 use Illuminate\Support\Facades\DB;
 use Everest\Models\AiPendingAction;
-use Everest\Models\AiToolDiscovery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class PruneAiConversationsCommandTest extends TestCase
@@ -21,12 +20,10 @@ class PruneAiConversationsCommandTest extends TestCase
     {
         config()->set('modules.ai.retention', [
             'turn_events_days' => 2,
-            'tool_discovery_days' => 14,
             'tool_calls_days' => 90,
             'usage_logs_days' => 180,
             'pending_actions_days' => 30,
             'turn_events_limit' => 20,
-            'tool_discovery_limit' => 20,
             'tool_calls_limit' => 20,
             'usage_logs_limit' => 20,
             'pending_actions_limit' => 20,
@@ -44,10 +41,6 @@ class PruneAiConversationsCommandTest extends TestCase
         $oldEvent = AiTurnEvent::create($this->event('aaaaaaaa-bbbb-4ccc-8ddd-000000000001'));
         $newEvent = AiTurnEvent::create($this->event('aaaaaaaa-bbbb-4ccc-8ddd-000000000002'));
         $this->age('ai_turn_events', $oldEvent->id, 'created_at', 3);
-
-        $oldDiscovery = AiToolDiscovery::create($this->discovery('aaaaaaaa-bbbb-4ccc-8ddd-000000000003'));
-        $newDiscovery = AiToolDiscovery::create($this->discovery('aaaaaaaa-bbbb-4ccc-8ddd-000000000004'));
-        $this->age('ai_tool_discovery', $oldDiscovery->id, 'created_at', 15);
 
         $oldCall = AiToolCall::create($this->toolCall('aaaaaaaa-bbbb-4ccc-8ddd-000000000005'));
         $newCall = AiToolCall::create($this->toolCall('aaaaaaaa-bbbb-4ccc-8ddd-000000000006'));
@@ -83,8 +76,6 @@ class PruneAiConversationsCommandTest extends TestCase
 
         $this->assertModelMissing($oldEvent);
         $this->assertModelExists($newEvent);
-        $this->assertModelMissing($oldDiscovery);
-        $this->assertModelExists($newDiscovery);
         $this->assertModelMissing($oldCall);
         $this->assertModelExists($newCall);
         $this->assertModelMissing($oldUsage);
@@ -98,19 +89,6 @@ class PruneAiConversationsCommandTest extends TestCase
     private function event(string $turnId): array
     {
         return ['turn_id' => $turnId, 'seq' => 1, 'type' => 'text', 'payload' => []];
-    }
-
-    /** @return array<string, mixed> */
-    private function discovery(string $turnId): array
-    {
-        return [
-            'turn_id' => $turnId,
-            'step' => 1,
-            'scope' => 'admin',
-            'phase' => 'step',
-            'event' => AiToolDiscovery::EVENT_SEARCH,
-            'query' => 'server',
-        ];
     }
 
     /** @return array<string, mixed> */

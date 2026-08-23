@@ -7,7 +7,6 @@ use Everest\Models\AiUsageLog;
 use Illuminate\Console\Command;
 use Everest\Models\AiConversation;
 use Everest\Models\AiPendingAction;
-use Everest\Models\AiToolDiscovery;
 use Illuminate\Database\Eloquent\Builder;
 use Everest\Services\AI\Agent\AgentEventLog;
 
@@ -29,12 +28,6 @@ class PruneAiConversationsCommand extends Command
         $this->report('agent turn event', $events->prune(
             $this->days('turn_events'),
             $this->limit('turn_events'),
-        ));
-
-        $this->report('tool discovery event', $this->pruneByCreatedAt(
-            AiToolDiscovery::query(),
-            $this->days('tool_discovery'),
-            $this->limit('tool_discovery'),
         ));
 
         $this->report('tool-call audit record', $this->pruneByCreatedAt(

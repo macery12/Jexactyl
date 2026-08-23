@@ -8,8 +8,6 @@ use Everest\Tests\TestCase;
 use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Agent\ProgressGuard;
-use Everest\Services\AI\Privacy\PiiRedactor;
-use Everest\Services\AI\Agent\DiscoveryRecorder;
 
 /**
  * A turn that is going nowhere should say so, not time out.
@@ -27,9 +25,7 @@ class ProgressGuardTest extends TestCase
 {
     private function guard(): ProgressGuard
     {
-        // The recorder only writes telemetry, and a unit test has no database.
-        // Its own failures are swallowed by design, so a real one is safe here.
-        return new ProgressGuard(new DiscoveryRecorder(app(PiiRedactor::class)));
+        return new ProgressGuard();
     }
 
     private function context(): AgentContext

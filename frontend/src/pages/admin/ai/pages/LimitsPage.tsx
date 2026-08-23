@@ -15,12 +15,10 @@ export default function LimitsPage() {
             enforce: settings.budget?.enforce ?? false,
             monthly_tokens: settings.budget?.monthly_tokens ?? 2_000_000,
             feature_server_assistant: settings.feature_server_assistant ?? true,
-            feature_crash_analysis: settings.feature_crash_analysis ?? true,
         }),
         value => ({
             budget: { enforce: value.enforce, monthly_tokens: value.monthly_tokens },
             feature_server_assistant: value.feature_server_assistant,
-            feature_crash_analysis: value.feature_crash_analysis,
         }),
     );
 
@@ -96,12 +94,6 @@ export default function LimitsPage() {
                         desc={m['admin.ai.settings.serverAssistantHint']()}
                         checked={value.feature_server_assistant}
                         onChange={next => patch({ feature_server_assistant: next })}
-                    />
-                    <ToggleRow
-                        label={m['admin.ai.settings.crashAnalysis']()}
-                        desc={m['admin.ai.settings.crashAnalysisHint']()}
-                        checked={value.feature_crash_analysis}
-                        onChange={next => patch({ feature_crash_analysis: next })}
                     />
                 </ToggleGroup>
 

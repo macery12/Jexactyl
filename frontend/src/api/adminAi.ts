@@ -81,7 +81,6 @@ export interface AiAdminSettings {
     warm: boolean;
     system_prompt: string;
     feature_server_assistant: boolean;
-    feature_crash_analysis: boolean;
     agent: AiAgentSettings;
     concurrency: AiConcurrencySettings;
     budget: AiBudgetSettings;
@@ -102,7 +101,6 @@ export interface AiSettingsPayload {
     warm?: boolean;
     system_prompt?: string;
     feature_server_assistant?: boolean;
-    feature_crash_analysis?: boolean;
     agent?: Partial<AiAgentSettings>;
     concurrency?: Partial<AiConcurrencySettings>;
     budget?: Partial<AiBudgetSettings>;

@@ -9,9 +9,7 @@ use Everest\Services\AI\Tools\RiskGate;
 use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\AI\Agent\AgentContext;
 use Everest\Services\AI\Tools\ToolRegistry;
-use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\AI\Tools\ToolCatalogue;
-use Everest\Services\AI\Agent\DiscoveryRecorder;
 use Everest\Services\AI\Agent\WorkingSetPlanner;
 use Everest\Services\AI\Support\SchemaValidator;
 use Everest\Services\AI\Tools\ConsoleCommandGate;
@@ -49,7 +47,6 @@ class ToolDiscoveryServiceTest extends TestCase
             new ToolCatalogue($registry),
             new WorkingSetPlanner($registry, $prerequisites),
             $prerequisites,
-            new DiscoveryRecorder(app(PiiRedactor::class)),
         );
     }
 

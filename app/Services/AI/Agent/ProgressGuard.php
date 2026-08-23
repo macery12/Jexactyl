@@ -30,10 +30,6 @@ class ProgressGuard
      */
     private const STRIKES = 2;
 
-    public function __construct(private DiscoveryRecorder $recorder)
-    {
-    }
-
     /**
      * Fold a completed call into the turn's history.
      */
@@ -82,8 +78,6 @@ class ProgressGuard
         }
 
         if ($repeats >= self::STRIKES) {
-            $this->recorder->repeatStop($context, $tool);
-
             return [
                 'result' => ToolResult::error(
                     'repeated_call',

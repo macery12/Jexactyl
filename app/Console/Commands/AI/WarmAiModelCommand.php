@@ -4,7 +4,9 @@ namespace Everest\Console\Commands\AI;
 
 use Everest\Models\Setting;
 use Illuminate\Console\Command;
-use Everest\Services\AI\OpenAIService;
+use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Data\ProviderConfig;
+use Everest\Services\AI\Providers\OllamaProvider;
 
 class WarmAiModelCommand extends Command
 {
@@ -12,7 +14,7 @@ class WarmAiModelCommand extends Command
 
     protected $description = 'Keep the configured Ollama model loaded in memory so users never hit a cold start.';
 
-    public function handle(OpenAIService $service): int
+    public function handle(ProviderFactory $factory): int
     {
         $enabled = filter_var(
             Setting::get('settings::modules:ai:enabled', config('modules.ai.enabled', false)),
@@ -22,15 +24,17 @@ class WarmAiModelCommand extends Command
             Setting::get('settings::modules:ai:warm', config('modules.ai.warm', false)),
             FILTER_VALIDATE_BOOLEAN
         );
-        $provider = app(\Everest\Services\AI\ProviderFactory::class)->provider();
+        $provider = $factory->provider();
 
-        if (!$enabled || !$warm || $provider !== \Everest\Services\AI\Data\ProviderConfig::PROVIDER_OLLAMA) {
+        if (!$enabled || !$warm || $provider !== ProviderConfig::PROVIDER_OLLAMA) {
             $this->line('AI warm-up skipped (disabled, warm-up off, or provider is not Ollama).');
 
             return Command::SUCCESS;
         }
 
-        if ($service->warm()) {
+        $driver = $factory->make();
+
+        if ($driver instanceof OllamaProvider && $driver->warm()) {
             $this->info('Ollama model warmed successfully.');
 
             return Command::SUCCESS;

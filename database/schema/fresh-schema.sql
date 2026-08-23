@@ -190,36 +190,6 @@ CREATE TABLE `ai_tool_calls` (
   CONSTRAINT `ai_tool_calls_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `ai_tool_discovery`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8mb4 */;
-CREATE TABLE `ai_tool_discovery` (
-  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-  `turn_id` char(36) NOT NULL,
-  `conversation_id` bigint(20) unsigned DEFAULT NULL,
-  `user_id` int(10) unsigned DEFAULT NULL,
-  `step` smallint(5) unsigned NOT NULL DEFAULT 0,
-  `scope` varchar(16) NOT NULL,
-  `phase` varchar(24) NOT NULL,
-  `event` varchar(24) NOT NULL,
-  `query` text DEFAULT NULL,
-  `matches` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`matches`)),
-  `working_set` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`working_set`)),
-  `catalogue_size` smallint(5) unsigned NOT NULL DEFAULT 0,
-  `budget` smallint(5) unsigned NOT NULL DEFAULT 0,
-  `schema_bytes` int(10) unsigned NOT NULL DEFAULT 0,
-  `profile` varchar(16) DEFAULT NULL,
-  `reason` text DEFAULT NULL,
-  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
-  PRIMARY KEY (`id`),
-  KEY `ai_tool_discovery_created_at_index` (`created_at`),
-  KEY `ai_tool_discovery_turn_id_index` (`turn_id`),
-  KEY `ai_tool_discovery_conversation_id_index` (`conversation_id`),
-  KEY `ai_tool_discovery_user_id_index` (`user_id`),
-  CONSTRAINT `ai_tool_discovery_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `ai_tool_discovery_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ai_turn_events`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;

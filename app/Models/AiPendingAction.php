@@ -2,9 +2,7 @@
 
 namespace Everest\Models;
 
-use Illuminate\Support\Carbon;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -64,12 +62,6 @@ class AiPendingAction extends Model
         'claimed_at' => 'datetime',
         'resolved_at' => 'datetime',
     ];
-
-    public function scopeActionable(Builder $query): Builder
-    {
-        return $query->where('status', self::STATUS_PENDING)
-            ->where('expires_at', '>', Carbon::now());
-    }
 
     public function isActionable(): bool
     {

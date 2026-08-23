@@ -6,7 +6,6 @@ use Everest\Models\Setting;
 use Everest\Facades\LogBatch;
 use Everest\Models\AiToolCall;
 use Everest\Models\AiPendingAction;
-use Everest\Models\AiToolDiscovery;
 use Illuminate\Support\Facades\Log;
 use Everest\Services\AI\Data\AiTool;
 use Everest\Services\AI\Data\AiMessage;
@@ -54,7 +53,6 @@ class AgentRunner
         private ToolDiscoveryService $discovery,
         private PrerequisiteResolver $prerequisites,
         private ProgressGuard $progress,
-        private DiscoveryRecorder $discoveryLog,
         private ToolBudget $budget,
     ) {
     }
@@ -331,7 +329,7 @@ class AgentRunner
      * Surface-specific reasoning — which groups are active, how an assist
      * session narrows the admin catalogue, what fits — now lives in
      * `WorkingSetPlanner`. What's left here is what the runner owns: ask for
-     * a set, and log what was offered.
+     * a set and pass it to the model.
      */
     protected function offerings(AgentContext $context): WorkingSet
     {
@@ -340,17 +338,7 @@ class AgentRunner
         // outlived its binding would keep offering a customer's server tools.
         $context->phase = $context->resolvePhase();
 
-        $set = $this->planner->plan($context, $this->maxTools());
-
-        $this->discoveryLog->offer(
-            $context,
-            $set,
-            count($this->planner->catalogue($context)),
-            $this->maxTools(),
-            $this->budget->profile(),
-        );
-
-        return $set;
+        return $this->planner->plan($context, $this->maxTools());
     }
 
     /**
@@ -678,13 +666,6 @@ class AgentRunner
     protected function unofferedCall(AgentContext $context, ToolCallData $call, ?ToolDefinition $definition): ToolResult
     {
         if ($definition === null) {
-            $this->discoveryLog->unreachable(
-                $context,
-                $call->name,
-                AiToolDiscovery::EVENT_UNAVAILABLE,
-                'Called a name that is not registered.',
-            );
-
             return ToolResult::error(
                 'tool_not_found',
                 sprintf(
@@ -708,13 +689,6 @@ class AgentRunner
             $unmet = $this->prerequisites->unmet($context, $definition);
 
             if ($unmet !== []) {
-                $this->discoveryLog->unreachable(
-                    $context,
-                    $definition->name,
-                    AiToolDiscovery::EVENT_UNAVAILABLE,
-                    'Called before its prerequisite was met.',
-                );
-
                 return ToolResult::error(
                     'prerequisite_required',
                     sprintf('%s is not usable yet. %s Call %s first.', $definition->name, $unmet[0]['reason'], $unmet[0]['tool']),
@@ -722,13 +696,6 @@ class AgentRunner
                     fields: ['requires' => $unmet],
                 );
             }
-
-            $this->discoveryLog->unreachable(
-                $context,
-                $definition->name,
-                AiToolDiscovery::EVENT_UNAVAILABLE,
-                'Called without the permission it needs.',
-            );
 
             return ToolResult::error(
                 'tool_not_permitted',
@@ -742,12 +709,6 @@ class AgentRunner
 
         // Reachable and permitted, just not loaded. Pin it and say so.
         $context->pin($definition->name, 'called before it was loaded');
-        $this->discoveryLog->unreachable(
-            $context,
-            $definition->name,
-            AiToolDiscovery::EVENT_NOT_LOADED,
-            'Called before it was loaded; pinned for the next step.',
-        );
 
         return ToolResult::error(
             'tool_not_loaded',

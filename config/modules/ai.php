@@ -78,8 +78,7 @@ return [
     'connect_timeout' => env('AI_CONNECT_TIMEOUT', 10),
 
     /*
-     * The house system prompt, applied to plain chat and appended to the
-     * agent's own instructions.
+     * The house system prompt, appended to the agent's own instructions.
      *
      * Deliberately plain prose. It has to work unchanged on Anthropic, OpenAI
      * and whatever local model is loaded in Ollama, and a prompt written around
@@ -90,9 +89,8 @@ return [
      * degrades measurably as the system prompt grows, and the agent stacks this
      * on top of its server facts and tool schemas.
      *
-     * It also stays out of output formatting. Crash analysis supplies its own
-     * "Issue / Evidence / Fix" shape per request, and an agent turn needs to be
-     * free to answer in whatever form the work produced.
+     * It also stays out of output formatting so an agent turn is free to answer
+     * in whatever form the work produced.
      */
     'system_prompt' => env('AI_SYSTEM_PROMPT', 'You are the assistant built into a game server hosting control panel. The people you help run game servers such as Minecraft, Rust and ARK, and range from complete beginners to experienced administrators. Be direct and concrete: lead with the answer, then the reasoning only if it is needed. Prefer exact file paths, setting names and values over general advice. Never invent a file path, configuration key, console command or log line — if you have not seen it, say you are not sure and say how to find out. Match your length to the question, and explain the risk before suggesting anything that deletes data or interrupts players.'),
 
@@ -101,7 +99,6 @@ return [
      * These allow disabling specific AI components without disabling AI entirely.
      */
     'feature_server_assistant' => env('AI_FEATURE_SERVER_ASSISTANT', true),
-    'feature_crash_analysis' => env('AI_FEATURE_CRASH_ANALYSIS', true),
 
     /*
      * The agent: tool-calling on behalf of the user. Off by default — it
@@ -290,13 +287,11 @@ return [
      */
     'retention' => [
         'turn_events_days' => env('AI_RETENTION_TURN_EVENTS_DAYS', 2),
-        'tool_discovery_days' => env('AI_RETENTION_TOOL_DISCOVERY_DAYS', 14),
         'tool_calls_days' => env('AI_RETENTION_TOOL_CALLS_DAYS', 90),
         'usage_logs_days' => env('AI_RETENTION_USAGE_LOGS_DAYS', 180),
         'pending_actions_days' => env('AI_RETENTION_PENDING_ACTIONS_DAYS', 30),
 
         'turn_events_limit' => env('AI_RETENTION_TURN_EVENTS_LIMIT', 50000),
-        'tool_discovery_limit' => env('AI_RETENTION_TOOL_DISCOVERY_LIMIT', 20000),
         'tool_calls_limit' => env('AI_RETENTION_TOOL_CALLS_LIMIT', 20000),
         'usage_logs_limit' => env('AI_RETENTION_USAGE_LOGS_LIMIT', 20000),
         'pending_actions_limit' => env('AI_RETENTION_PENDING_ACTIONS_LIMIT', 20000),

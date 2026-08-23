@@ -2,7 +2,6 @@
 
 namespace Everest\Services\AI\Agent;
 
-use Everest\Models\AiToolDiscovery;
 use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Tools\ToolCatalogue;
 use Everest\Services\AI\Tools\CatalogueMatch;
@@ -28,7 +27,6 @@ class ToolDiscoveryService
         private ToolCatalogue $catalogue,
         private WorkingSetPlanner $planner,
         private PrerequisiteResolver $prerequisites,
-        private DiscoveryRecorder $recorder,
     ) {
     }
 
@@ -56,14 +54,6 @@ class ToolDiscoveryService
 
         $candidates = $this->planner->catalogue($context);
         $matches = $this->catalogue->search($candidates, $query, $exact ?: null, $limit);
-
-        $this->recorder->search(
-            $context,
-            $exact !== '' ? $exact : $query,
-            array_map(fn ($m) => $m->name(), $matches),
-            count($candidates),
-            $budget,
-        );
 
         if ($matches === []) {
             // Named as an error rather than an empty success. "No tool for that"
@@ -93,15 +83,12 @@ class ToolDiscoveryService
 
         $loaded = [];
 
-        if ($plan instanceof PlanFailure) {
-            $this->recorder->overflow($context, $plan);
-        } else {
+        if (!$plan instanceof PlanFailure) {
             $this->commit($context, $plan, $reason);
             $loaded[] = $primary->name();
         }
 
         $context->setRetrieved(array_map(fn ($m) => $m->name(), array_slice($described, 1)));
-        $this->recorder->load($context, $loaded, $reason);
 
         return ToolResult::ok(array_filter([
             'matches' => array_map(fn ($m) => $m->toArray(), $described),
@@ -135,15 +122,6 @@ class ToolDiscoveryService
         $unknown = array_values(array_diff($names, array_keys($catalogue)));
 
         if ($unknown !== []) {
-            foreach ($unknown as $name) {
-                $this->recorder->unreachable(
-                    $context,
-                    $name,
-                    AiToolDiscovery::EVENT_UNAVAILABLE,
-                    'Named in load_tools but not in this surface\'s catalogue.',
-                );
-            }
-
             // Refused whole rather than loading the half that resolved. A partial
             // load leaves the model believing it holds something it does not, and
             // the next call fails somewhere less legible than here.
@@ -160,8 +138,6 @@ class ToolDiscoveryService
         $plan = $this->planner->propose($context, $names, $drop, $budget);
 
         if ($plan instanceof PlanFailure) {
-            $this->recorder->overflow($context, $plan);
-
             return ToolResult::error(
                 $plan->code,
                 $plan->message,
@@ -171,7 +147,6 @@ class ToolDiscoveryService
         }
 
         $this->commit($context, $plan, $reason);
-        $this->recorder->load($context, $names, $reason);
 
         $callable = $this->planner->callable($context);
 
@@ -220,8 +195,6 @@ class ToolDiscoveryService
             return;
         }
 
-        $pinned = [];
-
         foreach ($this->planner->catalogue($context) as $definition) {
             if (in_array($definition->name, SharedTools::ALWAYS_OFFERED, true)) {
                 continue;
@@ -232,15 +205,11 @@ class ToolDiscoveryService
             }
 
             $context->pin($definition->name, 'named by the user');
-            $pinned[] = $definition->name;
 
             foreach ($this->prerequisites->gateways($context, $definition) as $gateway) {
                 $context->pin($gateway, sprintf('needed before %s', $definition->name));
-                $pinned[] = $gateway;
             }
         }
-
-        $this->recorder->load($context, array_unique($pinned), 'named by the user');
     }
 
     /**

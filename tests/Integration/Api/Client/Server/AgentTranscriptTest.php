@@ -363,46 +363,6 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
 
     /*
     |--------------------------------------------------------------------------
-    | Pending approvals — what the user comes back to
-    |--------------------------------------------------------------------------
-    */
-
-    public function testPendingActionsAreScopedToTheUserTheServerAndTheExpiryWindow(): void
-    {
-        // The endpoint is behind the agent kill switch, so the fixture has to
-        // turn the module on to reach the query it is about.
-        $this->enableAgent();
-
-        [$user, $server] = $this->generateTestAccount();
-        [$other, $otherServer] = $this->generateTestAccount();
-
-        $mine = $this->pendingAction($user, $server, 'files_write');
-        $this->pendingAction($other, $otherServer, 'files_delete');
-        $lapsed = $this->pendingAction($user, $server, 'backup_delete', ['expires_at' => now()->subMinute()]);
-        $this->pendingAction($user, $server, 'server_power', ['status' => 'approved']);
-
-        $response = $this->actingAs($user)->getJson("/api/client/servers/{$server->uuid}/ai/agent/pending");
-
-        $response->assertOk();
-        $data = $response->json('data');
-
-        // Only the one that is this user's, on this server, still pending, and
-        // not yet expired.
-        $this->assertCount(1, $data);
-        $this->assertSame($mine->turn_id, $data[0]['turn_id']);
-        $this->assertSame('files_write', $data[0]['tool']);
-        $this->assertSame('diff', $data[0]['preview']['kind']);
-        $this->assertNotNull($data[0]['expires_at']);
-
-        // AI-034. The lapsed one is not merely filtered out of the response —
-        // listing settles it, so the audit trail stops reporting a decision as
-        // outstanding when it can no longer be given.
-        $this->assertSame(AiPendingAction::STATUS_EXPIRED, $lapsed->fresh()->status);
-        $this->assertNotNull($lapsed->fresh()->resolved_at);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
     | Admission — what a queued turn costs (DESIGN-003)
     |--------------------------------------------------------------------------
     */
@@ -583,20 +543,6 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         config()->set('modules.ai.agent.enabled', true);
         \Everest\Models\Setting::forget('settings::modules:ai:enabled');
         \Everest\Models\Setting::forget('settings::modules:ai:agent:enabled');
-    }
-
-    public function testAnotherUsersPendingActionIsNotVisibleOnTheirServerEither(): void
-    {
-        [$user] = $this->generateTestAccount();
-        [$other, $otherServer] = $this->generateTestAccount();
-
-        $this->pendingAction($other, $otherServer, 'files_delete');
-
-        // Reaching the endpoint at all requires access to the server, so this
-        // 404s on the server binding before the query is ever reached.
-        $this->actingAs($user)
-            ->getJson("/api/client/servers/{$otherServer->uuid}/ai/agent/pending")
-            ->assertNotFound();
     }
 
     private function pendingAction($user, $server, string $tool, array $overrides = []): AiPendingAction
