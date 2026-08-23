@@ -5,7 +5,9 @@ import { m } from '@/i18n';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
+import { useFlashes } from '@/state/flashes';
 import { AgentChat } from '@/components/ai/AgentChat';
+import { DeleteConversationModal } from '@/components/ai/DeleteConversationModal';
 import {
     deleteConversation,
     listConversations,
@@ -30,6 +32,7 @@ export default function AiPage() {
     const canUseAssistant = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
 
     const queryClient = useQueryClient();
+    const push = useFlashes(s => s.push);
     const conversationId = useAgentChat(s => s.conversationId);
     const loading = useAgentChat(s => s.loading);
     const bind = useAgentChat(s => s.bind);
@@ -62,12 +65,20 @@ export default function AiPage() {
         [queryClient, server.uuid],
     );
 
-    const [railOpen, setRailOpen] = useState(() => localStorage.getItem(RAIL_KEY) !== 'closed');
+    const [railOpen, setRailOpen] = useState(
+        () => window.matchMedia('(min-width: 768px)').matches && localStorage.getItem(RAIL_KEY) !== 'closed',
+    );
+    const [deleteTarget, setDeleteTarget] = useState<AiConversation | null>(null);
+
+    const desktopRail = () => window.matchMedia('(min-width: 768px)').matches;
     const toggleRail = () => {
         setRailOpen(open => {
-            localStorage.setItem(RAIL_KEY, open ? 'closed' : 'open');
+            if (desktopRail()) localStorage.setItem(RAIL_KEY, open ? 'closed' : 'open');
             return !open;
         });
+    };
+    const closeMobileRail = () => {
+        if (!desktopRail()) setRailOpen(false);
     };
 
     const openConversation = (conv: AiConversation) => {
@@ -78,19 +89,20 @@ export default function AiPage() {
         loadConversation(server.uuid, conv.id)
             .then(({ messages, redactions }) => loadTranscript(target, conv.id, generation, messages, redactions))
             .catch(() => loadFailed(target, generation));
+        closeMobileRail();
     };
 
-    const removeConversation = (conv: AiConversation) => {
-        void deleteConversation(server.uuid, conv.id)
-            .then(() => {
-                if (conversationId === conv.id) newChat();
-                return refreshConversations();
-            })
-            .catch(() => undefined);
+    const removeConversation = async (conv: AiConversation) => {
+        await deleteConversation(server.uuid, conv.id);
+        if (conversationId === conv.id) newChat();
+        await refreshConversations();
+        closeMobileRail();
     };
 
     const handleToggleSave = (conv: AiConversation) => {
-        void toggleSaveConversation(server.uuid, conv.id).then(refreshConversations).catch(() => undefined);
+        void toggleSaveConversation(server.uuid, conv.id)
+            .then(refreshConversations)
+            .catch(() => push({ type: 'error', message: m['common.states.genericError']() }));
     };
 
     if (!canUseAssistant) {
@@ -104,17 +116,30 @@ export default function AiPage() {
     }
 
     return (
-        <div className="flex h-[calc(100vh-10.5rem)] min-h-[420px] gap-3">
+        <div className="relative flex h-[calc(100vh-10.5rem)] min-h-[420px] gap-3 overflow-hidden">
             {railOpen && (
-                <ConversationRail
-                    conversations={conversations}
-                    loading={conversationsLoading}
-                    activeId={conversationId}
-                    onNewChat={newChat}
-                    onOpen={openConversation}
-                    onToggleSave={handleToggleSave}
-                    onDelete={removeConversation}
-                />
+                <>
+                    <button
+                        type="button"
+                        aria-label={m['server.ai.hideHistory']()}
+                        onClick={() => setRailOpen(false)}
+                        className="absolute inset-0 z-10 bg-black/50 md:hidden"
+                    />
+                    <ConversationRail
+                        conversations={conversations}
+                        loading={conversationsLoading}
+                        activeId={conversationId}
+                        onNewChat={() => {
+                            newChat();
+                            closeMobileRail();
+                        }}
+                        onOpen={openConversation}
+                        onToggleSave={handleToggleSave}
+                        onDelete={setDeleteTarget}
+                        onClose={() => setRailOpen(false)}
+                        className="absolute inset-y-0 left-0 z-20 w-[min(16rem,calc(100%-3rem))] shadow-2xl md:static md:z-auto md:w-64 md:shadow-none"
+                    />
+                </>
             )}
 
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
@@ -133,6 +158,14 @@ export default function AiPage() {
 
                 <AgentChat />
             </div>
+
+            {deleteTarget && (
+                <DeleteConversationModal
+                    title={deleteTarget.title}
+                    onClose={() => setDeleteTarget(null)}
+                    onDelete={() => removeConversation(deleteTarget)}
+                />
+            )}
         </div>
     );
 }

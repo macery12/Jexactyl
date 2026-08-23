@@ -103,6 +103,58 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $this->assertStringContainsString('style={{ unicodeBidi:', $card);
         $this->assertStringContainsString('<bdi dir="ltr">{target}</bdi>', $card);
         $this->assertGreaterThanOrEqual(2, substr_count($card, '<ExactApprovalTarget target={target} />'));
+        $this->assertStringContainsString('toolTargetKey(entry.tool)', $card);
+        $this->assertStringContainsString('spoken.add(targetKey)', $card);
+    }
+
+    public function testConversationHistoryIsUsableOnSmallScreensAndDeletionIsAcknowledged(): void
+    {
+        $serverPage = file_get_contents(base_path('frontend/src/pages/server/ai/AiPage.tsx'));
+        $serverRail = file_get_contents(base_path('frontend/src/pages/server/ai/ConversationRail.tsx'));
+        $adminPage = file_get_contents(base_path('frontend/src/pages/admin/assistant/AssistantPage.tsx'));
+        $delete = file_get_contents(base_path('frontend/src/components/ai/DeleteConversationModal.tsx'));
+
+        $this->assertStringContainsString("window.matchMedia('(min-width: 768px)')", $serverPage);
+        $this->assertStringContainsString('absolute inset-y-0 left-0 z-20', $serverPage);
+        $this->assertStringContainsString('md:static', $serverPage);
+        $this->assertStringContainsString('closeMobileRail', $serverPage);
+
+        $this->assertStringContainsString('historyOpen', $adminPage);
+        $this->assertStringContainsString('lg:static', $adminPage);
+        $this->assertStringContainsString("m['server.ai.showHistory']()", $adminPage);
+
+        // Hover cannot be a requirement on a touch screen.
+        $this->assertStringContainsString('opacity-100 md:pointer-events-none md:opacity-0', $serverRail);
+        $this->assertStringContainsString('opacity-100 transition-opacity lg:opacity-0', $adminPage);
+
+        // The irreversible request begins only in the confirmation dialog. A
+        // failure keeps it mounted; success is the only mutation path that
+        // closes it.
+        $this->assertStringContainsString('mutationFn: onDelete', $delete);
+        $this->assertStringContainsString('onSuccess: onClose', $delete);
+        $this->assertStringContainsString('onError:', $delete);
+        $this->assertStringContainsString("m['server.ai.deleteBody']", $delete);
+        $this->assertStringContainsString('<DeleteConversationModal', $serverPage);
+        $this->assertStringContainsString('<DeleteConversationModal', $adminPage);
+    }
+
+    public function testAiRequestFailuresDoNotMasqueradeAsEmptyOrDisabledStates(): void
+    {
+        $section = file_get_contents(base_path('frontend/src/pages/admin/ai/AiSection.tsx'));
+        $assistant = file_get_contents(base_path('frontend/src/pages/admin/assistant/AssistantPage.tsx'));
+        $overview = file_get_contents(base_path('frontend/src/pages/admin/ai/pages/OverviewPage.tsx'));
+        $logs = file_get_contents(base_path('frontend/src/pages/admin/ai/pages/LogsPage.tsx'));
+        $tools = file_get_contents(base_path('frontend/src/pages/admin/ai/pages/ToolsPage.tsx'));
+
+        foreach ([$section, $assistant, $overview, $logs, $tools] as $source) {
+            $this->assertStringContainsString('isError', $source);
+            $this->assertStringContainsString('AiLoadError', $source);
+        }
+
+        $this->assertStringContainsString('connectionError', $overview);
+        $this->assertStringContainsString('retest.isError', $overview);
+        $this->assertStringContainsString('logsError', $overview);
+        $this->assertStringContainsString('statsError', $overview);
     }
 
     public function testCustomerAgentRouteDrawerAndPageShareTheDedicatedKillSwitch(): void

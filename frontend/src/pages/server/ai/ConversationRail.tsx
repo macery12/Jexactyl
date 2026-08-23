@@ -1,4 +1,4 @@
-import { Bookmark, Plus, Trash2 } from 'lucide-react';
+import { Bookmark, Plus, Trash2, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
@@ -26,6 +26,8 @@ export function ConversationRail({
     onOpen,
     onToggleSave,
     onDelete,
+    onClose,
+    className,
 }: {
     conversations: AiConversation[];
     loading: boolean;
@@ -34,10 +36,17 @@ export function ConversationRail({
     onOpen: (conversation: AiConversation) => void;
     onToggleSave: (conversation: AiConversation) => void;
     onDelete: (conversation: AiConversation) => void;
+    onClose?: () => void;
+    className?: string;
 }) {
     return (
-        <div className="flex h-full w-64 shrink-0 flex-col overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
-            <div className="p-2">
+        <div
+            className={cn(
+                'flex h-full w-64 shrink-0 flex-col overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/95',
+                className,
+            )}
+        >
+            <div className="flex gap-1 p-2">
                 <button
                     type="button"
                     onClick={onNewChat}
@@ -46,6 +55,16 @@ export function ConversationRail({
                     <Plus className="h-4 w-4 shrink-0 text-[var(--color-ink-muted)]" />
                     {m['server.ai.newChat']()}
                 </button>
+                {onClose && (
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        title={m['server.ai.hideHistory']()}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] md:hidden"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
+                )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -96,7 +115,7 @@ export function ConversationRail({
                                     'focus-visible:opacity-100',
                                     conv.is_saved
                                         ? 'text-[var(--brand)] opacity-100'
-                                        : 'pointer-events-none text-[var(--color-ink-faint)] opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-visible:pointer-events-auto',
+                                        : 'text-[var(--color-ink-faint)] opacity-100 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100 focus-visible:pointer-events-auto',
                                 )}
                             >
                                 <Bookmark className={cn('h-3.5 w-3.5', conv.is_saved && 'fill-current')} />
@@ -108,7 +127,7 @@ export function ConversationRail({
                                     onDelete(conv);
                                 }}
                                 title={m['common.actions.delete']()}
-                                className="pointer-events-none shrink-0 rounded p-0.5 text-[var(--color-ink-faint)] opacity-0 transition-opacity hover:text-[var(--color-danger)] focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                                className="shrink-0 rounded p-0.5 text-[var(--color-ink-faint)] opacity-100 transition-opacity hover:text-[var(--color-danger)] focus-visible:pointer-events-auto focus-visible:opacity-100 md:pointer-events-none md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:opacity-100"
                             >
                                 <Trash2 className="h-3.5 w-3.5" />
                             </button>

@@ -10,7 +10,7 @@ import type { ChatEntry } from '@/state/agentChat';
 import { BatchPreview, unreviewedBatchCalls } from './BatchPreview';
 import { DiffView } from './DiffView';
 import { ToolArgs } from './ToolArgs';
-import { ToolIcon, toolLabel, toolTarget } from './toolMeta';
+import { ToolIcon, toolLabel, toolTarget, toolTargetKey } from './toolMeta';
 
 type ApprovalEntry = Extract<ChatEntry, { kind: 'approval' }>;
 
@@ -50,15 +50,19 @@ export function ApprovalCard({
 
     const destructive = entry.risk === 'destructive';
     const spoken = spokenFor(entry.preview);
-    const remaining = Object.fromEntries(
-        Object.entries(entry.args).filter(([key]) => !spoken.has(key)),
-    );
 
     // The subtitle under the tool name is the call's primary argument, which for
     // a file write is the path and is worth having — the diff below it shows the
     // change but not what is being changed. A server preview already names its
     // subject in full, so repeating the id it was quoted by adds only doubt.
     const target = entry.preview?.kind === 'server' ? null : toolTarget(entry.tool, entry.args);
+    if (target) {
+        const targetKey = toolTargetKey(entry.tool);
+        if (targetKey) spoken.add(targetKey);
+    }
+    const remaining = Object.fromEntries(
+        Object.entries(entry.args).filter(([key]) => !spoken.has(key)),
+    );
 
     if (entry.decision) {
         return (

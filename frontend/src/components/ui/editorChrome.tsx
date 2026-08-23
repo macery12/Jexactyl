@@ -27,15 +27,17 @@ export function SectionCard({
 }) {
     return (
         <section id={id} className="scroll-mt-6 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
-            <header className="flex items-center gap-3 border-b border-[var(--color-border)] px-5 py-3.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]">
-                    <Icon className="h-4 w-4" />
+            <header className="flex flex-col items-stretch gap-3 border-b border-[var(--color-border)] px-5 py-3.5 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]">
+                        <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                        <h2 className="text-sm font-semibold text-[var(--color-ink)]">{title}</h2>
+                        <p className="text-xs text-[var(--color-ink-faint)]">{desc}</p>
+                    </div>
                 </div>
-                <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-[var(--color-ink)]">{title}</h2>
-                    <p className="text-xs text-[var(--color-ink-faint)]">{desc}</p>
-                </div>
-                {right && <div className="ml-auto flex shrink-0 items-center">{right}</div>}
+                {right && <div className="flex shrink-0 items-center sm:ml-auto">{right}</div>}
             </header>
             <div className="flex flex-col gap-5 p-5">{children}</div>
         </section>
@@ -137,7 +139,7 @@ export function SaveBar({
     const blocked = Boolean(blockedReason);
 
     return (
-        <div className="sticky bottom-4 z-10 flex items-center justify-between gap-4 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/95 px-5 py-3 shadow-2xl shadow-black/30 backdrop-blur">
+        <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-2 rounded-[var(--radius-card)] border border-[var(--color-border-strong)] bg-[var(--color-surface)]/95 px-3 py-3 shadow-2xl shadow-black/30 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
             {blocked ? (
                 <span className="flex items-center gap-2 text-xs text-[var(--color-warning)]">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -149,7 +151,7 @@ export function SaveBar({
                     {dirty ? m['common.editor.unsaved']() : m['common.editor.allSaved']()}
                 </span>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-end gap-2">
                 <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={!dirty || saving}>
                     <RotateCcw className="h-4 w-4" /> {m['common.actions.discard']()}
                 </Button>

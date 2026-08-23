@@ -4,6 +4,7 @@ import { m } from '@/i18n';
 import { Spinner } from '@/components/ui/Spinner';
 import { SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
 import { AiNav } from './AiNav';
+import { AiLoadError } from './LoadError';
 import { useAiSettings } from './useAiSettingsForm';
 import OverviewPage from './pages/OverviewPage';
 import ProviderPage from './pages/ProviderPage';
@@ -30,13 +31,27 @@ import LogsPage from './pages/LogsPage';
 // Module on/off lives in Admin → Features; an unconfigured provider surfaces as
 // a banner steering to Provider.
 export default function AiSection() {
-    const { data: settings, isLoading } = useAiSettings();
+    const { data: settings, isLoading, isError, refetch } = useAiSettings();
     const { pathname } = useLocation();
 
     if (isLoading) {
         return (
             <div className="flex items-center justify-center py-24">
                 <Spinner className="h-7 w-7" />
+            </div>
+        );
+    }
+
+    if (isError) {
+        return (
+            <div>
+                <header>
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
+                        {m['admin.ai.title']()}
+                    </h1>
+                    <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['admin.ai.subtitle']()}</p>
+                </header>
+                <AiLoadError onRetry={() => void refetch()} />
             </div>
         );
     }

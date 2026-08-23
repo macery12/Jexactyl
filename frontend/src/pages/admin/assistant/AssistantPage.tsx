@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Plus, TriangleAlert } from 'lucide-react';
+import { Bot, PanelLeftOpen, Plus, TriangleAlert, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { AgentChatView } from '@/components/ai/AgentChatView';
+import { DeleteConversationModal } from '@/components/ai/DeleteConversationModal';
+import { AiLoadError } from '@/pages/admin/ai/LoadError';
 import { ADMIN_AGENT_TARGET, useAdminAgentChat } from '@/state/agentChat';
 import type { ChatRole } from '@/api/ai';
 import {
@@ -30,6 +32,8 @@ import {
 
 export default function AssistantPage() {
     const queryClient = useQueryClient();
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<AdminAgentConversation | null>(null);
 
     const loading = useAdminAgentChat(s => s.loading);
     const conversationId = useAdminAgentChat(s => s.conversationId);
@@ -42,7 +46,12 @@ export default function AssistantPage() {
     // Read from settings rather than the injected feature flags: those are
     // rendered once per page load, so an operator who has just switched the
     // assistant on would be told it is off until they reloaded.
-    const { data: settings, isLoading: settingsLoading } = useQuery({
+    const {
+        data: settings,
+        isLoading: settingsLoading,
+        isError: settingsError,
+        refetch: refetchSettings,
+    } = useQuery({
         queryKey: ['admin', 'ai', 'settings'],
         queryFn: getAiSettings,
     });
@@ -123,10 +132,11 @@ export default function AssistantPage() {
         }
     };
 
-    const remove = async (id: number) => {
-        await deleteAdminAgentConversation(id);
-        if (conversationId === id) newChat();
-        void queryClient.invalidateQueries({ queryKey: ['admin', 'ai', 'agent-conversations'] });
+    const remove = async (conversation: AdminAgentConversation) => {
+        await deleteAdminAgentConversation(conversation.id);
+        if (conversationId === conversation.id) newChat();
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'ai', 'agent-conversations'] });
+        setHistoryOpen(false);
     };
 
     if (settingsLoading) {
@@ -135,6 +145,10 @@ export default function AssistantPage() {
                 <Spinner className="h-7 w-7" />
             </div>
         );
+    }
+
+    if (settingsError) {
+        return <AiLoadError onRetry={() => void refetchSettings()} />;
     }
 
     if (!enabled) {
@@ -148,12 +162,45 @@ export default function AssistantPage() {
     }
 
     return (
-        <div className="flex h-[calc(100vh-10.5rem)] min-h-[28rem] gap-3">
-            <aside className="hidden w-56 shrink-0 flex-col gap-1 overflow-y-auto lg:flex">
-                <Button size="sm" variant="outline" onClick={newChat} disabled={loading} className="mb-1">
-                    <Plus className="h-3.5 w-3.5" />
-                    {m['server.ai.newChat']()}
-                </Button>
+        <div className="relative flex h-[calc(100vh-10.5rem)] min-h-[28rem] gap-3 overflow-hidden">
+            {historyOpen && (
+                <button
+                    type="button"
+                    aria-label={m['server.ai.hideHistory']()}
+                    onClick={() => setHistoryOpen(false)}
+                    className="absolute inset-0 z-10 bg-black/50 lg:hidden"
+                />
+            )}
+            <aside
+                className={cn(
+                    'w-[min(16rem,calc(100%-3rem))] shrink-0 flex-col gap-1 overflow-y-auto bg-[var(--color-surface)] p-2',
+                    'absolute inset-y-0 left-0 z-20 rounded-lg border border-[var(--color-border-strong)] shadow-2xl lg:static lg:flex lg:w-56 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none',
+                    historyOpen ? 'flex' : 'hidden lg:flex',
+                )}
+            >
+                <div className="mb-1 flex gap-1">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                            newChat();
+                            setHistoryOpen(false);
+                        }}
+                        disabled={loading}
+                        className="flex-1"
+                    >
+                        <Plus className="h-3.5 w-3.5" />
+                        {m['server.ai.newChat']()}
+                    </Button>
+                    <button
+                        type="button"
+                        onClick={() => setHistoryOpen(false)}
+                        title={m['server.ai.hideHistory']()}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] lg:hidden"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
 
                 {conversations.length === 0 ? (
                     <p className="px-2 py-3 text-xs text-[var(--color-ink-faint)]">
@@ -172,15 +219,18 @@ export default function AssistantPage() {
                         >
                             <button
                                 type="button"
-                                onClick={() => void open(conversation.id)}
+                                onClick={() => {
+                                    void open(conversation.id);
+                                    setHistoryOpen(false);
+                                }}
                                 className="min-w-0 flex-1 truncate text-left"
                             >
                                 {conversation.title}
                             </button>
                             <button
                                 type="button"
-                                onClick={() => void remove(conversation.id)}
-                                className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                                onClick={() => setDeleteTarget(conversation)}
+                                className="shrink-0 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:focus-visible:opacity-100"
                                 aria-label={m['common.actions.delete']()}
                             >
                                 <span className="text-[var(--color-ink-faint)] hover:text-[var(--color-danger)]">
@@ -194,6 +244,14 @@ export default function AssistantPage() {
 
             <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[var(--color-border)]">
                 <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-4 py-2">
+                    <button
+                        type="button"
+                        onClick={() => setHistoryOpen(true)}
+                        title={m['server.ai.showHistory']()}
+                        className="-ml-1 rounded-md p-1 text-[var(--color-ink-muted)] hover:bg-[var(--color-surface-2)] lg:hidden"
+                    >
+                        <PanelLeftOpen className="h-4 w-4" />
+                    </button>
                     <Bot className="h-3.5 w-3.5 text-[var(--brand)]" />
                     <span className="text-[11px] font-medium uppercase tracking-wide text-[var(--color-ink-muted)]">
                         {m['admin.ai.agent.title']()}
@@ -219,6 +277,14 @@ export default function AssistantPage() {
                     onEndAssist={() => void endAssist()}
                 />
             </div>
+
+            {deleteTarget && (
+                <DeleteConversationModal
+                    title={deleteTarget.title}
+                    onClose={() => setDeleteTarget(null)}
+                    onDelete={() => remove(deleteTarget)}
+                />
+            )}
         </div>
     );
 }

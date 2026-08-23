@@ -64,7 +64,7 @@ const GROUPS: Group[] = [
 // is empty.
 export function AiNav() {
     return (
-        <nav className="flex shrink-0 gap-4 overflow-x-auto pb-2 lg:w-52 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
+        <nav className="flex w-full min-w-0 max-w-full shrink-0 gap-4 overflow-x-auto pb-2 lg:w-52 lg:flex-col lg:gap-5 lg:overflow-visible lg:pb-0">
             {GROUPS.map(group => (
                 <div key={group.labelKey} className="flex shrink-0 flex-col gap-1">
                     <p className="hidden px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--color-ink-faint)] lg:block">

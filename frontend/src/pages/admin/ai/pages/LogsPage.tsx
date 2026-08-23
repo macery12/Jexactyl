@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select';
 import { getAiLogs, type AiLogsParams } from '@/api/adminAi';
 import { LogTable } from './LogTable';
 import { AI_SOURCES, sourceLabel } from '../sources';
+import { AiLoadError } from '../LoadError';
 
 // Full request log — search by user, filter by source/status, newest 500.
 export default function LogsPage() {
@@ -26,7 +27,7 @@ export default function LogsPage() {
         debounceRef.current = setTimeout(() => setSearch(value), 400);
     };
 
-    const { data: logs = [], isLoading } = useQuery({
+    const { data: logs = [], isLoading, isError, refetch } = useQuery({
         queryKey: ['admin', 'ai', 'logs', { source, status, search }],
         queryFn: () => getAiLogs({ limit: 500, source, status, search: search || undefined }),
     });
@@ -36,7 +37,7 @@ export default function LogsPage() {
             title={m['admin.ai.logs.title']()}
             right={
                 <span className="text-xs tabular-nums text-[var(--color-ink-faint)]">
-                    {isLoading ? '…' : m['admin.ai.logs.recordCount']({ count: logs.length })}
+                    {isError ? '—' : isLoading ? '…' : m['admin.ai.logs.recordCount']({ count: logs.length })}
                 </span>
             }
             flush
@@ -87,7 +88,11 @@ export default function LogsPage() {
                     className="h-9 w-36 text-xs"
                 />
             </div>
-            <LogTable logs={logs} loading={isLoading} />
+            {isError ? (
+                <AiLoadError onRetry={() => void refetch()} />
+            ) : (
+                <LogTable logs={logs} loading={isLoading} />
+            )}
         </Panel>
     );
 }

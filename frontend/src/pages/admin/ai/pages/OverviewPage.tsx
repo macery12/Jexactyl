@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, RefreshCw, XCircle, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { m } from '@/i18n';
@@ -15,6 +15,7 @@ import {
 } from '@/api/adminAi';
 import { LogTable } from './LogTable';
 import { sourceChip, sourceLabel, sourceTone } from '../sources';
+import { AiLoadError } from '../LoadError';
 
 // A labelled figure on one dense line.
 //
@@ -84,16 +85,18 @@ function ActivityBars({ series }: { series: AiStats['daily_series'] }) {
 function ConnectionCard() {
     const queryClient = useQueryClient();
     const { data: settings } = useQuery({ queryKey: ['admin', 'ai', 'settings'], queryFn: getAiSettings });
-    const { data: conn, isFetching } = useQuery({
+    const { data: conn, isFetching, isError: connectionError } = useQuery({
         queryKey: ['admin', 'ai', 'health'],
         queryFn: () => testAiConnection(false),
         staleTime: 60_000,
     });
 
-    const retest = async () => {
-        const fresh = await testAiConnection(true);
-        queryClient.setQueryData(['admin', 'ai', 'health'], fresh);
-    };
+    const retest = useMutation({
+        mutationFn: () => testAiConnection(true),
+        onSuccess: fresh => queryClient.setQueryData(['admin', 'ai', 'health'], fresh),
+    });
+    const testing = isFetching || retest.isPending;
+    const testFailed = connectionError || retest.isError;
 
     const providerLabel =
         settings?.provider === 'ollama'
@@ -107,7 +110,7 @@ function ConnectionCard() {
     return (
         <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
-                {isFetching ? (
+                {testing ? (
                     <Spinner className="h-5 w-5 shrink-0" />
                 ) : conn?.status === 'ok' ? (
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--color-accent)]" />
@@ -120,7 +123,9 @@ function ConnectionCard() {
                     </p>
                     <p className="truncate text-xs text-[var(--color-ink-faint)]">{settings?.endpoint || '—'}</p>
                     <p className="mt-0.5 text-xs">
-                        {conn?.status === 'ok' ? (
+                        {testFailed ? (
+                            <span className="text-[var(--color-danger)]">{m['common.states.genericError']()}</span>
+                        ) : conn?.status === 'ok' ? (
                             <span className="text-[var(--color-accent)]">
                                 {m['admin.ai.overview.connected']({ latency: String(conn.latency_ms ?? '?') })}
                             </span>
@@ -140,12 +145,12 @@ function ConnectionCard() {
             </div>
             <button
                 type="button"
-                onClick={() => void retest()}
-                disabled={isFetching}
+                onClick={() => retest.mutate()}
+                disabled={testing}
                 title={m['admin.ai.overview.retest']()}
                 className="shrink-0 rounded-lg border border-[var(--color-border-strong)] p-2 text-[var(--color-ink-muted)] transition-colors hover:text-[var(--color-ink)] disabled:opacity-40"
             >
-                <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
+                <RefreshCw className={cn('h-4 w-4', testing && 'animate-spin')} />
             </button>
         </div>
     );
@@ -265,11 +270,11 @@ function InferenceCard() {
 }
 
 export default function OverviewPage() {
-    const { data: stats, isLoading: statsLoading } = useQuery({
+    const { data: stats, isLoading: statsLoading, isError: statsError, refetch: refetchStats } = useQuery({
         queryKey: ['admin', 'ai', 'stats'],
         queryFn: getAiStats,
     });
-    const { data: logs = [], isLoading: logsLoading } = useQuery({
+    const { data: logs = [], isLoading: logsLoading, isError: logsError, refetch: refetchLogs } = useQuery({
         queryKey: ['admin', 'ai', 'logs', 'recent'],
         queryFn: () => getAiLogs({ limit: 10 }),
     });
@@ -295,6 +300,15 @@ export default function OverviewPage() {
         budget?.enforce && budget.monthly_tokens > 0
             ? Math.min((stats?.month_to_date_tokens ?? 0) / budget.monthly_tokens, 1)
             : null;
+
+    if (statsError) {
+        return (
+            <div className="space-y-3">
+                <ConnectionCard />
+                <AiLoadError onRetry={() => void refetchStats()} />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-3">
@@ -460,7 +474,11 @@ export default function OverviewPage() {
                 }
                 flush
             >
-                <LogTable logs={logs} loading={logsLoading} />
+                {logsError ? (
+                    <AiLoadError onRetry={() => void refetchLogs()} />
+                ) : (
+                    <LogTable logs={logs} loading={logsLoading} />
+                )}
             </Panel>
         </div>
     );

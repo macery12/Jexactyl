@@ -153,7 +153,7 @@ export function toolLabel(tool: string): string {
  * The one argument worth showing on a collapsed row.
  */
 export function toolTarget(tool: string, args: Record<string, unknown>): string | null {
-    const key = META[tool]?.primary;
+    const key = toolTargetKey(tool);
     if (!key) return null;
 
     const value = args[key];
@@ -164,4 +164,9 @@ export function toolTarget(tool: string, args: Record<string, unknown>): string 
     // Cutting it here made two long paths with the same prefix indistinguishable
     // everywhere, including to assistive technology.
     return String(value);
+}
+
+/** The argument represented by `toolTarget`, for surfaces that show it in full. */
+export function toolTargetKey(tool: string): string | null {
+    return META[tool]?.primary ?? null;
 }

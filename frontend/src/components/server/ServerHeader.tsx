@@ -93,7 +93,7 @@ export function ServerHeader() {
                 </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">
                 {/* Admin escape hatch back to this server's admin page. The admin area
                     routes by numeric primary key, not the client identifier. */}
                 {canViewAsAdmin && (
