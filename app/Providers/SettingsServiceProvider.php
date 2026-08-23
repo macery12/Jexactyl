@@ -90,8 +90,6 @@ class SettingsServiceProvider extends ServiceProvider
         // Deprecated in favour of `provider`; still hydrated so installs that
         // predate the multi-provider rework keep resolving a driver.
         'modules:ai:mode',
-        'modules:ai:models:agent',
-        'modules:ai:models:fast',
         'modules:ai:max_tokens',
         'modules:ai:temperature',
         'modules:ai:context_tokens',

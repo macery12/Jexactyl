@@ -117,11 +117,17 @@ class ProviderConfig
     }
 
     /**
-     * A stable fingerprint of everything that identifies this endpoint+model,
-     * used to key health, capability, and model-listing caches.
+     * A stable fingerprint of everything that identifies this connection and
+     * model, used to key health, response, capability, and model-listing caches.
+     * The credential is represented only by a one-way digest.
      */
     public function fingerprint(): string
     {
-        return sha1(implode('|', [$this->provider, $this->endpoint, $this->model]));
+        return sha1(implode('|', [
+            $this->provider,
+            $this->endpoint,
+            hash('sha256', $this->apiKey),
+            $this->model,
+        ]));
     }
 }

@@ -127,6 +127,45 @@ class QueueTopology
     }
 
     /**
+     * The queues and connections each Horizon supervisor must consume.
+     *
+     * Lane names and both queue connections are configurable, so Horizon must
+     * resolve them through the same topology used for dispatch. Otherwise a
+     * documented QUEUE_* override can send work to a queue no worker drains.
+     *
+     * @return array<string, array{connection: string, queue: list<string>}>
+     */
+    public function horizonSupervisors(): array
+    {
+        $interactive = [];
+
+        foreach ($this->lanes() as $lane => $queue) {
+            if (!$this->isLong($lane)) {
+                $interactive[] = $queue;
+            }
+        }
+
+        // Drain names used before the lane topology existed. De-duplicate the
+        // standard lane when it still has its shipped name.
+        $interactive = array_values(array_unique(array_merge($interactive, ['high', 'low', 'standard'])));
+
+        return [
+            'supervisor-interactive' => [
+                'connection' => $this->defaultConnection(),
+                'queue' => $interactive,
+            ],
+            'supervisor-mods' => [
+                'connection' => $this->longConnection(),
+                'queue' => [$this->queueFor('mods')],
+            ],
+            'supervisor-agent' => [
+                'connection' => $this->longConnection(),
+                'queue' => [$this->queueFor('agent')],
+            ],
+        ];
+    }
+
+    /**
      * The lane a job class is routed to, or null when it falls through to the
      * connection default.
      */

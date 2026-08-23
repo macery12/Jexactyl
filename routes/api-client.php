@@ -224,7 +224,8 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
         // The tool-calling agent. `decide` resolves an action the turn
         // suspended on — approvals arrive on a fresh request because the
         // stream that asked for one closes when the turn suspends.
-        Route::post('/ai/agent', [Client\Servers\AgentController::class, 'start']);
+        Route::post('/ai/agent', [Client\Servers\AgentController::class, 'start'])
+            ->middleware('throttle:ai.agent');
         Route::post('/ai/agent/decide', [Client\Servers\AgentController::class, 'decide']);
         Route::get('/ai/agent/pending', [Client\Servers\AgentController::class, 'pending']);
         Route::get('/ai/agent/turns/{turnId}', [Client\Servers\AgentController::class, 'turnStatus']);

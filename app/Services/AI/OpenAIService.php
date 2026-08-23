@@ -38,13 +38,13 @@ class OpenAIService
     }
 
     /**
-     * The resolved driver for one-shot work. Built lazily so constructing the
+     * The resolved driver. Built lazily so constructing the
      * service never touches settings — several call sites inject it and then
      * bail on a feature flag before making a request.
      */
     protected function provider(): AiProvider
     {
-        return $this->provider ??= $this->factory->make(ProviderFactory::TASK_FAST);
+        return $this->provider ??= $this->factory->make();
     }
 
     public function getLastUsage(): array
@@ -151,7 +151,7 @@ class OpenAIService
      */
     public function warm(): bool
     {
-        $provider = $this->factory->make(ProviderFactory::TASK_FAST);
+        $provider = $this->factory->make();
 
         return $provider instanceof OllamaProvider && $provider->warm();
     }

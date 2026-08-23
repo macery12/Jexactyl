@@ -46,12 +46,27 @@ class QueueServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->configureSupervisorTopology();
         $this->registerRoutes();
         $this->registerRateLimiters();
         $this->registerHeartbeat();
         $this->guardWorkerStartup();
         $this->sizeConditionalSupervisors();
         $this->configureHorizon();
+    }
+
+    /**
+     * Point Horizon at the same resolved queue names and connections used for
+     * dispatch. This keeps every documented QUEUE_* override safe.
+     */
+    private function configureSupervisorTopology(): void
+    {
+        foreach ($this->app->make(QueueTopology::class)->horizonSupervisors() as $supervisor => $values) {
+            config([
+                "horizon.defaults.{$supervisor}.connection" => $values['connection'],
+                "horizon.defaults.{$supervisor}.queue" => $values['queue'],
+            ]);
+        }
     }
 
     /**

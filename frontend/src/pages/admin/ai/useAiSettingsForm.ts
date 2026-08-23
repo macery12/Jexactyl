@@ -61,7 +61,8 @@ export function useAiSettingsForm<T extends object>(
 ) {
     const queryClient = useQueryClient();
     const push = useFlashes(s => s.push);
-    const { data: settings, isLoading } = useAiSettings();
+    const settingsQuery = useAiSettings();
+    const { data: settings, isLoading, isError } = settingsQuery;
     const [draft, setDraft] = useState<T | null>(null);
 
     const saved = settings ? select(settings) : null;
@@ -85,6 +86,10 @@ export function useAiSettingsForm<T extends object>(
     return {
         settings,
         isLoading,
+        isError,
+        retry: () => {
+            void settingsQuery.refetch();
+        },
         value,
         dirty,
         saving: save.isPending,

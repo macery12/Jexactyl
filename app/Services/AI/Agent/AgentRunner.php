@@ -364,7 +364,7 @@ class AgentRunner
      */
     protected function callModel(AgentContext $context, array $tools, callable $emit): array
     {
-        $provider = $this->factory->make(ProviderFactory::TASK_AGENT, $this->remainingSeconds($context));
+        $provider = $this->factory->make($this->remainingSeconds($context));
 
         $request = (new AiRequest(
             messages: $context->messages,
@@ -457,7 +457,7 @@ class AgentRunner
                 return [];
             }
 
-            $provider = $this->factory->make(ProviderFactory::TASK_AGENT, $this->remainingSeconds($context));
+            $provider = $this->factory->make($this->remainingSeconds($context));
 
             $request = (new AiRequest(
                 messages: array_merge($context->messages, [

@@ -326,7 +326,7 @@ trait HandlesAgentTurns
             'conversation_id' => $context->conversationId,
             'step' => 0,
             'tool_calls_count' => 0,
-            'model' => $this->providerFactory()->model(ProviderFactory::TASK_AGENT) ?: 'unknown',
+            'model' => $this->providerFactory()->model() ?: 'unknown',
             'source' => $serverUuid === null ? 'admin-agent' : 'agent',
             'prompt_tokens' => 0,
             'completion_tokens' => 0,
@@ -385,7 +385,7 @@ trait HandlesAgentTurns
         $serverUuid = $context->server?->uuid;
         $turnId = $context->turnId;
         $conversationId = $context->conversationId;
-        $model = $this->providerFactory()->model(ProviderFactory::TASK_AGENT);
+        $model = $this->providerFactory()->model();
 
         $usageReconciled = $budgetReservation === null || $budgetReservation->passthrough;
 

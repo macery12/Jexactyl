@@ -9,6 +9,7 @@ import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
 import { SettingNotice } from '../SettingNotice';
 import { SliderRow } from '../SliderRow';
 import { useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
+import { AiLoadError } from '../LoadError';
 
 const MAX_PROMPT = 1000;
 
@@ -41,6 +42,10 @@ export default function GenerationPage() {
 
     const { value, patch } = form;
     const capabilities = useAiCapabilities();
+
+    if (form.isError) {
+        return <AiLoadError onRetry={form.retry} />;
+    }
 
     if (form.isLoading || !value) {
         return (

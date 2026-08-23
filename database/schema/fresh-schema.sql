@@ -115,7 +115,7 @@ CREATE TABLE `ai_messages` (
   `tool_call_id` varchar(128) DEFAULT NULL,
   `tool_name` varchar(64) DEFAULT NULL,
   `step` smallint(5) unsigned DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
   PRIMARY KEY (`id`),
   KEY `ai_messages_conversation_id_index` (`conversation_id`),
   CONSTRAINT `ai_messages_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE
@@ -179,7 +179,7 @@ CREATE TABLE `ai_tool_calls` (
   `status` varchar(24) NOT NULL DEFAULT 'pending_approval',
   `http_status` smallint(5) unsigned DEFAULT NULL,
   `duration_ms` int(10) unsigned DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
   `resolved_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `ai_tool_calls_turn_call_index` (`turn_id`,`tool_call_id`),
@@ -210,7 +210,7 @@ CREATE TABLE `ai_tool_discovery` (
   `schema_bytes` int(10) unsigned NOT NULL DEFAULT 0,
   `profile` varchar(16) DEFAULT NULL,
   `reason` text DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
   PRIMARY KEY (`id`),
   KEY `ai_tool_discovery_created_at_index` (`created_at`),
   KEY `ai_tool_discovery_turn_id_index` (`turn_id`),
@@ -229,10 +229,9 @@ CREATE TABLE `ai_turn_events` (
   `seq` int(10) unsigned NOT NULL,
   `type` varchar(32) NOT NULL,
   `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`payload`)),
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
   PRIMARY KEY (`id`),
   UNIQUE KEY `ai_turn_events_turn_seq_unique` (`turn_id`,`seq`),
-  KEY `ai_turn_events_turn_id_index` (`turn_id`,`id`),
   KEY `ai_turn_events_created_at_index` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -1979,4 +1978,3 @@ CREATE TABLE `webhook_events` (
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
-

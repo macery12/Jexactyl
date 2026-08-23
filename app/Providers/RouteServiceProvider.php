@@ -187,6 +187,31 @@ class RouteServiceProvider extends ServiceProvider
             });
         });
 
+        RateLimiter::for('ai.agent', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+            $retrying = is_string($request->input('ticket')) && trim($request->input('ticket')) !== '';
+
+            return Limit::perMinutes(
+                max(1, (int) config('http.rate_limit.ai_agent_period', 1)),
+                max(1, (int) config(
+                    $retrying ? 'http.rate_limit.ai_agent_retry' : 'http.rate_limit.ai_agent',
+                    $retrying ? 120 : 10,
+                ))
+            )->by(($retrying ? 'ai-agent-retry:' : 'ai-agent:') . $key)->response(function () use ($retrying) {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => $retrying
+                                ? 'Too many AI queue checks. Please wait before checking again.'
+                                : 'Too many AI agent requests. Please wait before starting another turn.',
+                        ],
+                    ],
+                ], 429);
+            });
+        });
+
         RateLimiter::for('daemon.activity', function (Request $request) {
             /** @var \Everest\Models\Node|null $node */
             $node = $request->attributes->get('node');

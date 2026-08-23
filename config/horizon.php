@@ -97,7 +97,9 @@ return [
         | `high` and `low` are legacy lanes. Nothing routes to them; they are
         | listed only so anything queued there before the split still drains.
         |
-        | timeout must stay below the connection's retry_after (300), or a job
+        | QueueServiceProvider replaces the packaged connection and queue names
+        | below with the resolved queue topology during boot. timeout must stay
+        | below the connection's retry_after (300), or a job
         | could be handed to a second worker while the first still has it.
         */
         'supervisor-interactive' => [
@@ -138,7 +140,8 @@ return [
         | pick it up.
         |
         | Horizon force-kills workers it considers hung after `timeout`, so this
-        | must not be below the job's own 3600.
+        | must not be below the job's own 3600. QueueServiceProvider resolves
+        | both this connection and queue name from config/queue.php at boot.
         */
         'supervisor-mods' => [
             'connection' => 'redis-long',
@@ -174,7 +177,8 @@ return [
         | Sized from the durable-execution flag rather than from the agent flag:
         | with the agent on and execution still request-bound, nothing is ever
         | dispatched here. QueueServiceProvider sets the real value once the
-        | runtime setting overrides have been layered onto config.
+        | runtime setting overrides have been layered onto config. It also
+        | resolves this connection and queue name from config/queue.php.
         */
         'supervisor-agent' => [
             'connection' => 'redis-long',

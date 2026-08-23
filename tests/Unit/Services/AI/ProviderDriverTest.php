@@ -8,6 +8,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Handler\MockHandler;
 use Everest\Services\AI\Data\AiTool;
+use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Data\AiRequest;
 use Everest\Services\AI\Data\AiResponse;
@@ -382,6 +383,27 @@ class ProviderDriverTest extends TestCase
         $provider->chat(new AiRequest([AiMessage::user('Test')]));
     }
 
+    public function testOpenAiCompatibleLocalServerAcceptsABlankApiKeyWithoutSendingAuthorization(): void
+    {
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'choices' => [[
+                'message' => ['content' => 'ok'],
+                'finish_reason' => 'stop',
+            ]],
+        ]))]);
+
+        $provider = new OpenAiCompatibleProvider($this->config(
+            ProviderConfig::PROVIDER_OPENAI_COMPATIBLE,
+            ['endpoint' => 'http://127.0.0.1:8080/v1', 'apiKey' => ''],
+        ), $stack);
+
+        $response = $provider->chat(new AiRequest([AiMessage::user('x')], noCache: true));
+
+        $this->assertSame('ok', $response->content);
+        $this->assertFalse($this->history[0]['request']->hasHeader('Authorization'));
+        $this->assertNotEmpty($provider->capabilities()->warnings);
+    }
+
     public function testSelfHostedProvidersDoNotRequireAnApiKey(): void
     {
         $stack = $this->stack([new Response(200, [], json_encode([
@@ -589,5 +611,35 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('first', $provider->chat($request)->content);
         $this->assertSame('second', $provider->chat($request)->content);
         $this->assertCount(2, $this->history);
+    }
+
+    public function testResponseCacheDoesNotCrossEndpointsOrCredentials(): void
+    {
+        Cache::flush();
+        $request = new AiRequest([AiMessage::user('same prompt')]);
+
+        $first = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, [
+                'endpoint' => 'http://first.local/v1',
+                'apiKey' => 'first-secret',
+            ]),
+            $this->stack([new Response(200, [], json_encode([
+                'choices' => [['message' => ['content' => 'first'], 'finish_reason' => 'stop']],
+            ]))]),
+        );
+        $this->assertSame('first', $first->chat($request)->content);
+
+        $second = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, [
+                'endpoint' => 'http://second.local/v1',
+                'apiKey' => 'second-secret',
+            ]),
+            $this->stack([new Response(200, [], json_encode([
+                'choices' => [['message' => ['content' => 'second'], 'finish_reason' => 'stop']],
+            ]))]),
+        );
+
+        $this->assertSame('second', $second->chat($request)->content);
+        $this->assertCount(1, $this->history);
     }
 }

@@ -48,10 +48,6 @@ class IntelligenceController extends ApplicationApiController
             // returned alongside it rather than in place of it.
             'mode' => config('modules.ai.mode', 'ollama'),
             'provider' => $factory->provider(),
-            'models' => [
-                'agent' => (string) config('modules.ai.models.agent', ''),
-                'fast' => (string) config('modules.ai.models.fast', ''),
-            ],
 
             'max_tokens' => (int) config('modules.ai.max_tokens', 1024),
             'temperature' => (float) config('modules.ai.temperature', 0.3),
@@ -219,7 +215,7 @@ class IntelligenceController extends ApplicationApiController
     {
         $factory = app(\Everest\Services\AI\ProviderFactory::class);
 
-        return sha1($factory->provider() . '|' . config('modules.ai.endpoint', ''));
+        return $factory->config()->fingerprint();
     }
 
     /**
@@ -478,7 +474,7 @@ class IntelligenceController extends ApplicationApiController
         if (in_array($source, ['client', 'agent', 'admin', 'admin-agent', 'modpack'], true)) {
             $query->where('source', $source);
         }
-        if (in_array($status, ['success', 'error'], true)) {
+        if (in_array($status, ['success', 'error', 'running', 'suspended', 'cancelled'], true)) {
             $query->where('status', $status);
         }
         if ($search) {

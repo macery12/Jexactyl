@@ -8,6 +8,7 @@ import { FieldGrid, FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } fro
 import { getAiInference } from '@/api/adminAi';
 import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
 import { AI_INFERENCE_KEY, useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
+import { AiLoadError } from '../LoadError';
 
 function formatVram(bytes: number | undefined): string | null {
     if (!bytes) return null;
@@ -50,6 +51,10 @@ export default function PerformancePage() {
         retry: false,
         staleTime: 60_000,
     });
+
+    if (form.isError) {
+        return <AiLoadError onRetry={form.retry} />;
+    }
 
     if (form.isLoading || !value) {
         return (

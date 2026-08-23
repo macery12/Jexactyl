@@ -34,20 +34,10 @@ return [
     'endpoint' => env('AI_ENDPOINT', ''),
 
     /*
-     * Default model, used for any task without a more specific model below.
+     * Model used for every AI request. The panel has one provider connection,
+     * so keeping one model here makes the runtime match the settings UI.
      */
     'model' => env('AI_MODEL', ''),
-
-    /*
-     * Per-task model routing. The agent loop is the only place tool-call
-     * reliability matters, so it can run a stronger (or simply different)
-     * model than one-shot work like log triage and conversation titles.
-     * Either may be left empty to fall back to 'model'.
-     */
-    'models' => [
-        'agent' => env('AI_MODEL_AGENT', ''),
-        'fast' => env('AI_MODEL_FAST', ''),
-    ],
 
     /*
      * Maximum tokens generated per response.

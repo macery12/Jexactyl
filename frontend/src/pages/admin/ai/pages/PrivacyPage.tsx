@@ -5,6 +5,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import type { AiPiiCategory } from '@/api/adminAi';
 import { useAiSettingsForm } from '../useAiSettingsForm';
+import { AiLoadError } from '../LoadError';
 
 // What is stripped out of tool results and panel-attached context before a
 // request leaves the building. Never applied to what the administrator types:
@@ -23,6 +24,10 @@ export default function PrivacyPage() {
     );
 
     const { settings, value, patch } = form;
+
+    if (form.isError) {
+        return <AiLoadError onRetry={form.retry} />;
+    }
 
     if (form.isLoading || !value || !settings) {
         return (

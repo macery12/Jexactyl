@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { getAiStats } from '@/api/adminAi';
 import { useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
+import { AiLoadError } from '../LoadError';
 
 // What the module is allowed to cost, and who is allowed to reach it.
 export default function LimitsPage() {
@@ -26,6 +27,10 @@ export default function LimitsPage() {
     const { value, patch } = form;
     const capabilities = useAiCapabilities();
     const { data: stats } = useQuery({ queryKey: ['admin', 'ai', 'stats'], queryFn: getAiStats });
+
+    if (form.isError) {
+        return <AiLoadError onRetry={form.retry} />;
+    }
 
     if (form.isLoading || !value) {
         return (

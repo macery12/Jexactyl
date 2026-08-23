@@ -171,6 +171,55 @@ class QueueTopologyTest extends TestCase
         }
     }
 
+    public function testHorizonUsesResolvedLaneNamesAndConnections(): void
+    {
+        config([
+            'queue.default' => 'custom-short',
+            'queue.long_connection' => 'custom-long',
+            'queue.connections.custom-short' => ['driver' => 'redis', 'retry_after' => 300],
+            'queue.connections.custom-long' => ['driver' => 'redis', 'retry_after' => 3900],
+            'queue.lanes' => [
+                'critical' => 'custom-critical',
+                'schedules' => 'custom-schedules',
+                'mail' => 'custom-mail',
+                'dns' => 'custom-dns',
+                'mods' => 'custom-mods',
+                'agent' => 'custom-agent',
+                'standard' => 'custom-standard',
+            ],
+        ]);
+
+        $supervisors = $this->topology()->horizonSupervisors();
+
+        $this->assertSame('custom-short', $supervisors['supervisor-interactive']['connection']);
+        $this->assertSame([
+            'custom-critical',
+            'custom-schedules',
+            'custom-mail',
+            'custom-dns',
+            'custom-standard',
+            'high',
+            'low',
+            'standard',
+        ], $supervisors['supervisor-interactive']['queue']);
+        $this->assertSame([
+            'connection' => 'custom-long',
+            'queue' => ['custom-mods'],
+        ], $supervisors['supervisor-mods']);
+        $this->assertSame([
+            'connection' => 'custom-long',
+            'queue' => ['custom-agent'],
+        ], $supervisors['supervisor-agent']);
+    }
+
+    public function testBootedHorizonConfigMatchesTheResolvedTopology(): void
+    {
+        foreach ($this->topology()->horizonSupervisors() as $name => $expected) {
+            $this->assertSame($expected['connection'], config("horizon.defaults.{$name}.connection"));
+            $this->assertSame($expected['queue'], config("horizon.defaults.{$name}.queue"));
+        }
+    }
+
     /**
      * The legacy lanes predate this topology and nothing routes to them, but a
      * long-lived install can still have jobs sitting on them.
@@ -226,14 +275,23 @@ class QueueTopologyTest extends TestCase
      * after the short retry_after and hand a still-running install to a second
      * worker.
      *
-     * Asserted against the named connection's actual retry_after rather than
-     * against the resolved long-connection name, because that name depends on
-     * QUEUE_CONNECTION — which is `sync` under test and `redis` in the shipped
-     * default. What has to hold either way is that the connection the
-     * supervisor names outlives the longest job on that lane.
+     * Asserted against the shipped Redis topology rather than PHPUnit's `sync`
+     * connection, which deliberately has no retry_after at all.
      */
     public function testLongLanesAreConsumedOnAConnectionThatOutlivesTheirJobs(): void
     {
+        config([
+            'queue.default' => 'redis',
+            'queue.long_connection' => 'redis-long',
+        ]);
+
+        foreach ($this->topology()->horizonSupervisors() as $name => $values) {
+            config([
+                "horizon.defaults.{$name}.connection" => $values['connection'],
+                "horizon.defaults.{$name}.queue" => $values['queue'],
+            ]);
+        }
+
         foreach ($this->topology()->lanes() as $lane => $queue) {
             if (!$this->topology()->isLong($lane)) {
                 continue;

@@ -525,8 +525,8 @@ class AiAgentController extends ApplicationApiController
         }
 
         $capabilities = $this->factory
-            ->make(ProviderFactory::TASK_AGENT)
-            ->capabilities($this->factory->model(ProviderFactory::TASK_AGENT));
+            ->make()
+            ->capabilities($this->factory->model());
 
         if (!$capabilities->supportsTools) {
             abort(503, $capabilities->warnings[0]
@@ -637,8 +637,8 @@ class AiAgentController extends ApplicationApiController
         ];
 
         try {
-            $model = $this->factory->model(ProviderFactory::TASK_AGENT);
-            $provider = $this->factory->make(ProviderFactory::TASK_AGENT);
+            $model = $this->factory->model();
+            $provider = $this->factory->make();
 
             $capabilities = $provider->capabilities($model);
 

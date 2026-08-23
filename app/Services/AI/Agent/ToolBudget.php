@@ -139,8 +139,8 @@ class ToolBudget
     private function detect(): string
     {
         try {
-            $model = $this->factory->model(ProviderFactory::TASK_AGENT);
-            $capabilities = $this->factory->make(ProviderFactory::TASK_AGENT)->capabilities($model);
+            $model = $this->factory->model();
+            $capabilities = $this->factory->make()->capabilities($model);
         } catch (\Throwable) {
             return self::PROFILE_MEDIUM;
         }

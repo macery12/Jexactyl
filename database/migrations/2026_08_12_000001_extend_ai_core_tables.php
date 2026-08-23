@@ -30,6 +30,7 @@ return new class () extends Migration {
             $table->string('tool_call_id', 128)->nullable()->after('tool_calls');
             $table->string('tool_name', 64)->nullable()->after('tool_call_id');
             $table->unsignedSmallInteger('step')->nullable()->after('tool_name');
+            $table->timestamp('created_at', 3)->useCurrent()->change();
         });
         $this->setMessageRoles(['user', 'assistant', 'system', 'tool']);
 
@@ -85,6 +86,7 @@ return new class () extends Migration {
         $this->setMessageRoles(['user', 'assistant']);
         Schema::table('ai_messages', function (Blueprint $table): void {
             $table->dropColumn(['tool_calls', 'tool_call_id', 'tool_name', 'step']);
+            $table->timestamp('created_at')->useCurrent()->change();
         });
 
         // Only admin conversations can legitimately have no server. They have

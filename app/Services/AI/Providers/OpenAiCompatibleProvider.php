@@ -8,13 +8,14 @@ use Everest\Services\AI\Data\AiRequest;
 use Everest\Services\AI\Data\AiResponse;
 use Everest\Services\AI\Data\AiToolCall;
 use Everest\Services\AI\Data\AiStreamEvent;
+use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Data\ProviderCapabilities;
 use Everest\Exceptions\Service\AI\AIServiceException;
 
 /**
- * Driver for any endpoint speaking the OpenAI `chat/completions` contract —
- * vLLM, LM Studio, OpenRouter, Groq, llama.cpp's server, and Ollama (which
- * subclasses this to add its native probe and runtime options).
+ * Driver for self-hosted endpoints speaking the OpenAI `chat/completions`
+ * contract — vLLM, LM Studio, llama.cpp's server, and Ollama (which subclasses
+ * this to add its native probe and runtime options).
  */
 class OpenAiCompatibleProvider extends AbstractProvider
 {
@@ -175,6 +176,9 @@ class OpenAiCompatibleProvider extends AbstractProvider
             supportsStructuredOutput: true,
             selfHosted: $this->providerConfig->isSelfHosted(),
             maxContextTokens: $this->providerConfig->contextTokens,
+            warnings: $this->providerConfig->provider === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE
+                ? ['Tool calling is supported by the server protocol but cannot be verified for this model. Test the agent before enabling it for users.']
+                : [],
         );
     }
 

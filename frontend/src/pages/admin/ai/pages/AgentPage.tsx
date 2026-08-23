@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { FieldGrid, FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
 import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
 import { useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
+import { AiLoadError } from '../LoadError';
 
 // The agent: which assistants exist, and how far a single turn may run.
 export default function AgentPage() {
@@ -31,6 +32,10 @@ export default function AgentPage() {
     const { value, patch } = form;
     const capabilities = useAiCapabilities();
     const budget = form.settings?.agent?.tool_budget;
+
+    if (form.isError) {
+        return <AiLoadError onRetry={form.retry} />;
+    }
 
     if (form.isLoading || !value) {
         return (

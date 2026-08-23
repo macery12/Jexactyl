@@ -29,7 +29,7 @@ return new class () extends Migration {
             $table->string('status', 24)->default('pending_approval');
             $table->unsignedSmallInteger('http_status')->nullable();
             $table->unsignedInteger('duration_ms')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('created_at', 3)->useCurrent();
             $table->timestamp('resolved_at')->nullable();
 
             $table->index(['turn_id', 'tool_call_id'], 'ai_tool_calls_turn_call_index');
@@ -100,7 +100,7 @@ return new class () extends Migration {
             $table->unsignedInteger('schema_bytes')->default(0);
             $table->string('profile', 16)->nullable();
             $table->text('reason')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('created_at', 3)->useCurrent();
 
             $table->index('created_at', 'ai_tool_discovery_created_at_index');
             $table->foreign('user_id')->references('id')->on('users')->nullOnDelete();
@@ -113,10 +113,9 @@ return new class () extends Migration {
             $table->unsignedInteger('seq');
             $table->string('type', 32);
             $table->json('payload')->nullable();
-            $table->timestamp('created_at')->useCurrent();
+            $table->timestamp('created_at', 3)->useCurrent();
 
             $table->unique(['turn_id', 'seq'], 'ai_turn_events_turn_seq_unique');
-            $table->index(['turn_id', 'id'], 'ai_turn_events_turn_id_index');
             $table->index('created_at', 'ai_turn_events_created_at_index');
         });
     }

@@ -450,8 +450,8 @@ class AgentController extends ClientApiController
         $this->assertAgentEnabled($request);
 
         $capabilities = $this->factory
-            ->make(ProviderFactory::TASK_AGENT)
-            ->capabilities($this->factory->model(ProviderFactory::TASK_AGENT));
+            ->make()
+            ->capabilities($this->factory->model());
 
         if (!$capabilities->supportsTools) {
             abort(503, $capabilities->warnings[0]

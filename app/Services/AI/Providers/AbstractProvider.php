@@ -135,7 +135,7 @@ abstract class AbstractProvider implements AiProvider
     protected function responseCacheKey(AiRequest $request): string
     {
         return 'ai:response:' . sha1(json_encode([
-            $this->providerConfig->provider,
+            $this->providerConfig->fingerprint(),
             $this->resolveModel($request),
             $this->resolveSystemPrompt($request),
             $this->resolveTemperature($request),

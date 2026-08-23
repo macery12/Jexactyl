@@ -74,7 +74,6 @@ export interface AiAdminSettings {
     /** Legacy setting, still writable; `provider` is what actually resolves. */
     mode: 'openai' | 'ollama';
     provider: AiProvider;
-    models: { agent: string; fast: string };
     max_tokens: number;
     temperature: number;
     context_tokens: number | null;
@@ -96,7 +95,6 @@ export interface AiSettingsPayload {
     model?: string;
     mode?: 'openai' | 'ollama';
     provider?: AiProvider;
-    models?: { agent?: string; fast?: string };
     max_tokens?: number;
     temperature?: number;
     context_tokens?: number | null;
@@ -238,8 +236,8 @@ export interface AiLogEntry {
     username: string;
     server_name: string | null;
     model: string;
-    source: 'client' | 'admin';
-    status: 'success' | 'error';
+    source: 'client' | 'agent' | 'admin' | 'admin-agent' | 'modpack';
+    status: 'success' | 'error' | 'running' | 'suspended' | 'cancelled';
     cached: boolean;
     total_tokens: number | null;
     latency_ms: number | null;
@@ -249,7 +247,7 @@ export interface AiLogEntry {
 export interface AiLogsParams {
     limit?: number;
     source?: 'client' | 'agent' | 'admin' | 'admin-agent' | 'modpack' | '';
-    status?: 'success' | 'error' | '';
+    status?: AiLogEntry['status'] | '';
     search?: string;
 }
 

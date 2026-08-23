@@ -12,6 +12,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { getAiTools, updateAiTools, type AiRiskTier, type AiToolDefinition } from '@/api/adminAi';
+import { AiLoadError } from '../LoadError';
 
 // What the agent may call, and what it has to ask before doing.
 //
@@ -38,7 +39,7 @@ export default function ToolsPage() {
     const queryClient = useQueryClient();
     const push = useFlashes(s => s.push);
 
-    const { data, isLoading } = useQuery({ queryKey: ['admin', 'ai', 'tools'], queryFn: getAiTools });
+    const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'ai', 'tools'], queryFn: getAiTools });
 
     const [overrides, setOverrides] = useState<Record<string, AiRiskTier>>({});
     const [disabled, setDisabled] = useState<string[]>([]);
@@ -95,6 +96,10 @@ export default function ToolsPage() {
             a === 'discovery' ? -1 : b === 'discovery' ? 1 : a.localeCompare(b),
         );
     }, [data, search]);
+
+    if (isError) {
+        return <AiLoadError onRetry={() => void refetch()} />;
+    }
 
     if (isLoading || !data) {
         return (

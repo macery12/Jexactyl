@@ -20,20 +20,6 @@ use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 class ProviderFactory
 {
     /**
-     * The strong model, used for the agent loop where tool-call reliability
-     * matters more than cost.
-     */
-    public const TASK_AGENT = 'agent';
-
-    /**
-     * The cheap model, used for log triage, conversation titles, and anything
-     * else that is a single short completion.
-     */
-    public const TASK_FAST = 'fast';
-
-    public const TASKS = [self::TASK_AGENT, self::TASK_FAST];
-
-    /**
      * Sensible endpoint per provider when the admin has not set one.
      */
     public const DEFAULT_ENDPOINTS = [
@@ -44,14 +30,14 @@ class ProviderFactory
     ];
 
     /**
-     * Build the provider for a task class, falling back to the default model
-     * when no task-specific model has been configured.
+     * Build the configured provider, optionally bounded by a caller's remaining
+     * wall-clock allowance.
      *
      * @throws AIServiceException
      */
-    public function make(?string $task = null, ?int $timeoutSeconds = null): AiProvider
+    public function make(?int $timeoutSeconds = null): AiProvider
     {
-        $config = $this->config($task);
+        $config = $this->config();
 
         return $this->fromConfig(
             $timeoutSeconds === null ? $config : $config->withTimeout($timeoutSeconds)
@@ -72,10 +58,8 @@ class ProviderFactory
         };
     }
 
-    /**
-     * Resolve the effective settings for a task class.
-     */
-    public function config(?string $task = null): ProviderConfig
+    /** Resolve the effective connection and provider settings. */
+    public function config(): ProviderConfig
     {
         $provider = $this->provider();
 
@@ -90,7 +74,7 @@ class ProviderFactory
             provider: $provider,
             endpoint: $endpoint,
             apiKey: (string) ($this->setting('key', config('modules.ai.key')) ?: ''),
-            model: $this->model($task),
+            model: $this->model(),
             maxTokens: (int) $this->setting('max_tokens', config('modules.ai.max_tokens', 1024)),
             temperature: (float) $this->setting('temperature', config('modules.ai.temperature', 0.3)),
             systemPrompt: $this->systemPrompt(),
@@ -122,21 +106,11 @@ class ProviderFactory
     }
 
     /**
-     * The model for a task class. An unset task model means "use the default",
-     * so an operator running a single model does not have to fill in three
-     * identical fields.
+     * The single model used by every AI surface.
      */
-    public function model(?string $task = null): string
+    public function model(): string
     {
-        $default = (string) ($this->setting('model', config('modules.ai.model')) ?: '');
-
-        if ($task === null || !in_array($task, self::TASKS, true)) {
-            return $default;
-        }
-
-        $specific = (string) ($this->setting('models:' . $task, config('modules.ai.models.' . $task)) ?: '');
-
-        return $specific !== '' ? $specific : $default;
+        return (string) ($this->setting('model', config('modules.ai.model')) ?: '');
     }
 
     /**

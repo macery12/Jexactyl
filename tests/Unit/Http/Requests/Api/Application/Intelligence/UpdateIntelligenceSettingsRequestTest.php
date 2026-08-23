@@ -141,14 +141,13 @@ class UpdateIntelligenceSettingsRequestTest extends TestCase
         $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
 
         $normalized = $this->request([
-            'models' => ['agent' => 'qwen3:30b-a3b', 'fast' => 'qwen3:4b'],
             'agent' => ['max_steps' => 8],
+            'privacy' => ['enabled' => true],
         ])->normalize();
 
         $this->assertSame([
-            'models:agent' => 'qwen3:30b-a3b',
-            'models:fast' => 'qwen3:4b',
             'agent:max_steps' => 8,
+            'privacy:enabled' => true,
         ], $normalized);
     }
 }

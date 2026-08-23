@@ -12,7 +12,7 @@ import type { AiAdminSettings, AiInferenceState, AiProvider } from '@/api/adminA
 export const DEFAULT_ENDPOINTS: Record<AiProvider, string> = {
     anthropic: 'https://api.anthropic.com/v1',
     openai: 'https://api.openai.com/v1',
-    ollama: 'http://127.0.0.1:11434',
+    ollama: 'http://127.0.0.1:11434/v1',
     openai_compatible: '',
 };
 
@@ -50,8 +50,10 @@ const OLLAMA_PRESETS = [
 export type TemperatureState = 'rejected' | 'agent-pinned' | 'active';
 
 export interface AiCapabilities {
-    /** Whether the endpoint authenticates at all. */
+    /** Whether the endpoint accepts a credential field at all. */
     apiKey: boolean;
+    /** Whether that credential may be omitted (for example llama.cpp). */
+    apiKeyOptional: boolean;
     /** Model residency. `keep_alive` is an Ollama request field. */
     keepAlive: boolean;
     /** `num_ctx`, which only the Ollama driver sends — an OpenAI-compatible
@@ -126,9 +128,10 @@ export function resolveCapabilities(
     const probe = settings && inference?.capabilities?.model === settings.model ? inference.capabilities : null;
 
     return {
-        // An OpenAI-compatible endpoint is self-hosted but usually still wants
-        // a key; a bare Ollama is the only one that authenticates nothing.
+        // Self-hosted OpenAI-compatible servers may accept a key, but servers such as
+        // llama.cpp commonly run without one. Bare Ollama has no key field.
         apiKey: !isOllama,
+        apiKeyOptional: provider === 'openai_compatible',
         keepAlive: isOllama,
         contextWindow: isOllama,
         queue: !hosted,
@@ -139,7 +142,14 @@ export function resolveCapabilities(
                 : settings?.agent.enabled
                   ? 'agent-pinned'
                   : 'active',
-        presets: provider === 'anthropic' ? ANTHROPIC_PRESETS : hosted ? OPENAI_PRESETS : OLLAMA_PRESETS,
+        presets:
+            provider === 'openai_compatible'
+                ? []
+                : provider === 'anthropic'
+                  ? ANTHROPIC_PRESETS
+                  : hosted
+                    ? OPENAI_PRESETS
+                    : OLLAMA_PRESETS,
         selfHosted: !hosted,
         probedModel: probe?.model ?? null,
         shimmedOllama: provider === 'openai_compatible' && OLLAMA_PORT.test(settings?.endpoint ?? ''),

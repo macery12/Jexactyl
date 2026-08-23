@@ -75,11 +75,14 @@ export default function LogsPage() {
                 />
                 <Select
                     value={status || 'all'}
-                    onChange={v => setStatus(v === 'all' ? '' : (v as 'success' | 'error'))}
+                    onChange={v => setStatus(v === 'all' ? '' : (v as NonNullable<AiLogsParams['status']>))}
                     options={[
                         { value: 'all', label: m['admin.ai.logs.allStatuses']() },
                         { value: 'success', label: m['admin.ai.logs.statusSuccess']() },
                         { value: 'error', label: m['admin.ai.logs.statusError']() },
+                        { value: 'running', label: m['admin.ai.logs.statusRunning']() },
+                        { value: 'suspended', label: m['admin.ai.logs.statusSuspended']() },
+                        { value: 'cancelled', label: m['admin.ai.logs.statusCancelled']() },
                     ]}
                     className="h-9 w-36 text-xs"
                 />

@@ -1,4 +1,4 @@
-import { Check, X, Zap } from 'lucide-react';
+import { Ban, Check, LoaderCircle, Pause, X, Zap } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
@@ -79,18 +79,35 @@ export function LogTable({ logs, loading }: { logs: AiLogEntry[]; loading: boole
                                 )}
                             </td>
                             <td className="px-3 py-1.5">
-                                {log.status === 'success' ? (
-                                    <Check className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                                ) : (
-                                    <span title={log.error_message ?? undefined}>
-                                        <X className="h-3.5 w-3.5 text-[var(--color-danger)]" />
-                                    </span>
-                                )}
+                                <StatusIcon log={log} />
                             </td>
                         </tr>
                     ))}
                 </tbody>
             </table>
         </div>
+    );
+}
+
+function StatusIcon({ log }: { log: AiLogEntry }) {
+    const labels = {
+        success: m['admin.ai.logs.statusSuccess'](),
+        error: m['admin.ai.logs.statusError'](),
+        running: m['admin.ai.logs.statusRunning'](),
+        suspended: m['admin.ai.logs.statusSuspended'](),
+        cancelled: m['admin.ai.logs.statusCancelled'](),
+    };
+    const label = log.status === 'error' && log.error_message
+        ? `${labels.error}: ${log.error_message}`
+        : labels[log.status];
+
+    return (
+        <span title={label} aria-label={label}>
+            {log.status === 'success' && <Check className="h-3.5 w-3.5 text-[var(--color-accent)]" />}
+            {log.status === 'error' && <X className="h-3.5 w-3.5 text-[var(--color-danger)]" />}
+            {log.status === 'running' && <LoaderCircle className="h-3.5 w-3.5 animate-spin text-[var(--brand)]" />}
+            {log.status === 'suspended' && <Pause className="h-3.5 w-3.5 text-[var(--color-warning)]" />}
+            {log.status === 'cancelled' && <Ban className="h-3.5 w-3.5 text-[var(--color-ink-faint)]" />}
+        </span>
     );
 }

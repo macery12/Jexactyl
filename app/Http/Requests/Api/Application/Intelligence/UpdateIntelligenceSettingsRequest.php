@@ -24,9 +24,6 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             // before the multi-provider rework can still be edited.
             'mode' => 'nullable|string|in:openai,ollama',
 
-            'models.agent' => 'nullable|string|max:100',
-            'models.fast' => 'nullable|string|max:100',
-
             'max_tokens' => 'nullable|integer|min:50|max:32000',
             'temperature' => 'nullable|numeric|min:0|max:1',
 
@@ -101,8 +98,8 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
      *
      * Validation addresses nested fields in dot notation, but `Request::only()`
      * would hand those back as nested arrays and the caller writes one setting
-     * per key — `models` would be stored as an array instead of
-     * `models:agent` and `models:fast`.
+     * per key — nested agent and privacy values must become their corresponding
+     * colon-delimited setting names rather than being stored as arrays.
      */
     public function normalize(?array $only = null): array
     {

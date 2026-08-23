@@ -233,7 +233,8 @@ Route::middleware([AdminSubject::class])->group(function () {
         // The admin assistant. `decide` resolves an approval or a question the
         // turn suspended on — both arrive on a fresh request, because the stream
         // that asked closes when the turn suspends.
-        Route::post('/agent', [Application\AiAgentController::class, 'start']);
+        Route::post('/agent', [Application\AiAgentController::class, 'start'])
+            ->middleware('throttle:ai.agent');
         Route::post('/agent/decide', [Application\AiAgentController::class, 'decide']);
         Route::get('/agent/pending', [Application\AiAgentController::class, 'pending']);
         Route::get('/agent/turns/{turnId}', [Application\AiAgentController::class, 'turnStatus']);
