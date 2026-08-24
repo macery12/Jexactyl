@@ -2,6 +2,7 @@
 
 namespace Everest\Services\AI\Tools\Definitions;
 
+use Everest\Models\Ticket;
 use Everest\Models\AdminRole;
 use Everest\Services\AI\Tools\Prerequisite;
 use Everest\Services\AI\Tools\ToolDiscovery;
@@ -333,7 +334,10 @@ class AdminTools
                 name: 'admin_products_list',
                 description: 'List the products in one category.',
                 parameters: self::object([
-                    'category' => self::string('The numeric category id, from admin_categories_list.'),
+                    'category' => self::string(
+                        'The numeric category id — the \'id\' field of an admin_categories_list '
+                        . 'result, not the item\'s position in that list.'
+                    ),
                 ], ['category']),
                 method: 'GET',
                 uriTemplate: self::BASE . '/billing/categories/{category}/products',
@@ -404,7 +408,10 @@ class AdminTools
                     . 'inventing limits. A limit of 0 means unlimited. The price is per month, in the '
                     . 'panel\'s configured currency.',
                 parameters: self::object([
-                    'category' => self::string('The numeric category id, from admin_categories_list.'),
+                    'category' => self::string(
+                        'The numeric category id — the \'id\' field of an admin_categories_list '
+                        . 'result, not the item\'s position in that list.'
+                    ),
                     'category_uuid' => self::string('That same category\'s uuid. Both are required.'),
                     'name' => self::string('Product name as customers will see it.'),
                     'description' => self::string('Short description shown on the storefront.'),
@@ -696,11 +703,23 @@ class AdminTools
         return [
             new ToolDefinition(
                 name: 'admin_tickets_list',
-                description: 'List support tickets. Filter by status to find what still needs attention.',
+                description: 'List support tickets. Filter by status to find what still needs attention. '
+                    . 'There is no "open" status — an unanswered ticket is "pending".',
                 parameters: self::object([
                     'filter' => self::object([
-                        'status' => self::string('Exact ticket status.'),
-                        'priority' => self::string('Exact ticket priority.'),
+                        'status' => self::enum([
+                            Ticket::STATUS_PENDING,
+                            Ticket::STATUS_IN_PROGRESS,
+                            Ticket::STATUS_UNRESOLVED,
+                            Ticket::STATUS_RESOLVED,
+                        ], 'Exact ticket status. "pending" is a new ticket nobody has answered yet — '
+                            . 'that is what "open tickets" usually means.'),
+                        'priority' => self::enum([
+                            Ticket::PRIORITY_LOW,
+                            Ticket::PRIORITY_MEDIUM,
+                            Ticket::PRIORITY_HIGH,
+                            Ticket::PRIORITY_CRITICAL,
+                        ], 'Exact ticket priority.'),
                         'title' => self::string('Match on title, partial matches allowed.'),
                     ]),
                     'per_page' => self::integer('Rows per page, 1 to 100. Defaults to 20.'),
@@ -752,6 +771,25 @@ class AdminTools
                     aliases: ['ticket details', 'what is this ticket about', 'ticket subject', 'ticket status'],
                     tags: ['support', 'tickets', 'read'],
                 ),
+                // The transformer nests the whole user record — including its
+                // admin_role and that role's full permissions array — rather
+                // than a flat reference. As on the listing, only the id and
+                // username are worth the model having; everything else is
+                // account/security detail it has no reason to see.
+                resultShaper: fn (mixed $data) => self::mapItem($data, fn (array $t) => [
+                    'id' => $t['id'] ?? null,
+                    'title' => $t['title'] ?? null,
+                    'status' => $t['status'] ?? null,
+                    'priority' => $t['priority'] ?? null,
+                    'server_id' => $t['server_id'] ?? null,
+                    'last_reply_at' => $t['last_reply_at'] ?? null,
+                    'user_id' => $t['user']['id'] ?? ($t['user_id'] ?? null),
+                    'user' => $t['user']['username'] ?? null,
+                    'assigned_to_id' => $t['assigned_to']['id'] ?? null,
+                    'assigned_to' => $t['assigned_to']['username'] ?? null,
+                    'created_at' => $t['created_at'] ?? null,
+                    'updated_at' => $t['updated_at'] ?? null,
+                ]),
             ),
 
             new ToolDefinition(

@@ -246,9 +246,13 @@ class SystemPromptBuilder
               reply that ends on an intention with no tool call has done nothing at all.
             - Look before you change. Read the record you are about to edit so you can say what
               it is changing from, and so you do not overwrite a field you never looked at.
-            - Identifiers come from tool results, never from memory. List categories to get a
-              category id, list users to get a user id. If you do not have an id, go and get it
-              rather than guessing a number.
+            - Identifiers come from tool results, never from memory or from a guess. List
+              categories to get a category id, list users to get a user id — then read what came
+              back before you use it. An id is never its position in the list: a single category
+              named Minecraft can still have id 3, and "the first one" is not "id 1". If you do
+              not have an id yet, go and get it rather than guessing a number, and do not call a
+              tool that needs an id in the same turn as the list call that produces it — wait for
+              that result first.
             - When you change a product, a coupon or a price, say plainly who it affects: existing
               customers on that plan, everyone on that node, and whether it takes effect now.
             - You cannot see inside a customer's server by default. If the question is about what one
