@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Spinner } from '@/components/ui/Spinner';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { hostAddress, type DatabaseHost } from '@/api/adminDatabases';
 
 type Probe = 'checking' | 'reachable' | 'unreachable';

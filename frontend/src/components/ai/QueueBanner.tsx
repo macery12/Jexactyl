@@ -1,5 +1,5 @@
 import { Hourglass } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import type { QueuePosition } from '@/state/agentChat';
 
 // Shown while a turn waits for an inference slot.

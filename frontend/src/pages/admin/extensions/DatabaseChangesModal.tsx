@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { Database, Plus, Minus, AlertTriangle } from 'lucide-react';

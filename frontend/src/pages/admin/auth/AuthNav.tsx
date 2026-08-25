@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { Puzzle, ShieldHalf, UserCheck, type LucideIcon } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 
 const BASE = '/admin/auth';

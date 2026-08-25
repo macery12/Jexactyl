@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 
 // Shared constants + label helpers for the marketplace UI. Keeps the numeric
 // CurseForge-style enums the backend speaks in one place.

@@ -5,7 +5,7 @@ import { RotateCcw, X, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2,
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { useFlashes } from '@/state/flashes';
 import { getQueue, cancelQueueItem, retryQueueItem, bulkClearQueue, type DownloadQueueItem } from '@/api/modQueue';

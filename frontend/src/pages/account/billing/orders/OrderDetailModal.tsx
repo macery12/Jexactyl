@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Modal } from '@/components/ui/Modal';
 import type { Order } from '@/api/orders';

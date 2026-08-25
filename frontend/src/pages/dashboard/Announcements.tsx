@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useQuery } from '@tanstack/react-query';
 import { Megaphone, Info, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import { getAlerts, type Alert } from '@/api/alerts';

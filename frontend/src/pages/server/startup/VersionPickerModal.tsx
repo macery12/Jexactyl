@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';
 import { getStartupVersions, updateStartupVariable, type EggVariable } from '@/api/startup';

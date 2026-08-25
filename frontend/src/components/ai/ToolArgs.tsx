@@ -1,4 +1,4 @@
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { restoreRedactionsDeep } from '@/state/agentChat';
 

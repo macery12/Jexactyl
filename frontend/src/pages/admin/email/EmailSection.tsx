@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';

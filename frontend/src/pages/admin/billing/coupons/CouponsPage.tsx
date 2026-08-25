@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { can } from '@/lib/can';
 import { useAdminHeld } from '@/layouts/heldPermissions';

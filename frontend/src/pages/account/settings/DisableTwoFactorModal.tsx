@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { KeyRound, ShieldCheck } from 'lucide-react';

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 import {
     LayoutDashboard,
     Boxes,

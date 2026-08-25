@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { abs } from '@/lib/base';
 import type { LucideIcon } from 'lucide-react';
 import { DoorOpen, ShieldHalf, MessageCircle, Globe, Sparkles, Plus } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import type { EverestConfiguration } from '@/lib/globals';
 import { Modal } from '@/components/ui/Modal';
 import { Spinner } from '@/components/ui/Spinner';

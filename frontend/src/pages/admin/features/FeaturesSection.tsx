@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { LucideIcon } from 'lucide-react';
 import { ToggleRight, CreditCard, SlidersHorizontal, Monitor, Terminal, Check, AlertTriangle } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';

@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Modal } from '@/components/ui/Modal';
 import type { ActivityEntry } from '@/api/activity';
 

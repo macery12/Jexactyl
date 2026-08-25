@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { compressAdvanced, type ArchiveFormat } from '@/api/files';
 

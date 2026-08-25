@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, Bell, CheckCircle2, Info, AlertTriangle, XCircle } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';

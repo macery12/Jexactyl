@@ -10,15 +10,17 @@
         "allowImportingTsExtensions": true,
         "resolveJsonModule": true,
 
-        // Paraglide compiles messages to plain .js with no per-message .d.ts (see
-        // vite.config.ts). allowJs lets TS read their JSDoc so m['x']() stays
-        // typo-checked; checkJs stays off so tsc doesn't deep-check generated code.
+        // Paraglide's generated JS is excluded below. Components use the compact
+        // generated MessageFunctions interface instead of making TypeScript parse
+        // several megabytes of locale implementation code.
         "allowJs": true,
         "checkJs": false,
 
         "isolatedModules": true,
         "moduleDetection": "force",
         "noEmit": true,
+        "incremental": true,
+        "tsBuildInfoFile": "./node_modules/.cache/m12labs-ui.tsbuildinfo",
         "jsx": "react-jsx",
 
         "strict": true,
@@ -31,5 +33,6 @@
             "@/*": ["./src/*"]
         }
     },
-    "include": ["src", "vite.config.ts"]
+    "include": ["src", "vite.config.ts"],
+    "exclude": ["src/paraglide"]
 }

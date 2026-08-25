@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import type {
     ActiveAgentTurn,
     AgentEvent,

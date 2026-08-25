@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { abs } from '@/lib/base';
 import { useState } from 'react';
 import { Link2, CheckCircle2, AlertTriangle, Send, PowerOff } from 'lucide-react';

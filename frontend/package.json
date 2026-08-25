@@ -9,8 +9,8 @@
     },
     "scripts": {
         "dev": "vite",
-        "predev": "node scripts/merge-extension-messages.mjs",
-        "build": "node scripts/merge-extension-messages.mjs && paraglide-js compile --project ./project.inlang --outdir ./src/paraglide --strategy localStorage baseLocale && tsc -b && vite build",
+        "predev": "node scripts/merge-extension-messages.mjs && node scripts/compile-i18n.mjs",
+        "build": "node scripts/merge-extension-messages.mjs && node scripts/compile-i18n.mjs && tsc -b && vite build",
         "build:fast": "vite build",
         "lint": "eslint src",
         "locales:set": "node scripts/locales.mjs",

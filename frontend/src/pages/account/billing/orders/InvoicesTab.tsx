@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { getInvoices, getInvoiceDownloadUrl, type Invoice } from '@/api/orders';
 import { timeAgo } from '@/lib/format';

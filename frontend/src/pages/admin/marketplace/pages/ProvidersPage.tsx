@@ -5,7 +5,7 @@ import { Panel } from '@/components/ui/Panel';
 import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { useFlashes } from '@/state/flashes';
 import { getProviderRules, updateProviderRules, type ProviderRule } from '@/api/marketplaceAdmin';

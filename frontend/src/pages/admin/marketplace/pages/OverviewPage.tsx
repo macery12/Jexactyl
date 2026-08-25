@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Download, AlertTriangle, HardDrive, Clock } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';
 import { Spinner } from '@/components/ui/Spinner';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { formatBytes } from '@/lib/format';
 import { getMarketplaceAnalytics, type MarketplaceAnalytics } from '@/api/marketplaceAdmin';

@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';

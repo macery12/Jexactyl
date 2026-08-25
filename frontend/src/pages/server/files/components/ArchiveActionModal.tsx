@@ -1,7 +1,7 @@
 import { Download, FolderOpen, PackageOpen } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // Shown when an archive is clicked, instead of silently downloading it. Makes
 // the difference between a browsable archive (zip/7z/ddup on a Supercharged

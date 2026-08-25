@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { BadgeCheck, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';

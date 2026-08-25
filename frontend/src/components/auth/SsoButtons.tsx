@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { externalLogin } from '@/api/auth';
 import { firstError } from '@/lib/apiError';

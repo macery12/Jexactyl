@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useFlashes } from '@/state/flashes';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';

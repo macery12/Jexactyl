@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { Send } from 'lucide-react';
 import { Input } from '@/components/ui/Input';

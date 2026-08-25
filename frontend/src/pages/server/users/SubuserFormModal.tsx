@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { can } from '@/lib/can';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';

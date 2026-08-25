@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 
 // Line diff for the file-write approval card.

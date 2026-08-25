@@ -1,5 +1,5 @@
 import { ShieldCheck } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';

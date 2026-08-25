@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Layers } from 'lucide-react';

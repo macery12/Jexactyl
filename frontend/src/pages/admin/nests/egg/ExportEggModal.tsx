@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { useFlashes } from '@/state/flashes';
 import { Button } from '@/components/ui/Button';

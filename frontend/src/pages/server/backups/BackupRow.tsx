@@ -1,6 +1,6 @@
 import * as Dropdown from '@radix-ui/react-dropdown-menu';
 import { Archive, Lock, Unlock, MoreVertical, Download, Box, Trash2, type LucideIcon } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
 import { formatBytes, timeAgo } from '@/lib/format';

@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Lock, Zap, CreditCard } from 'lucide-react';
 import { useBilling } from '@/state/billing';
 import type { StoreFeatureItem, StoreSectionData } from '@/lib/globals';

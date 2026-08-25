@@ -1,5 +1,5 @@
 import { Lock } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // Shown when a route's `permission` gate rejects the current user. Sibling of
 // FeatureDisabled: that one answers "is this module on?", this one answers "may

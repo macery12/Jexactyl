@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { Network, Star, Copy, Check } from 'lucide-react';
 import { Panel } from './Panel';

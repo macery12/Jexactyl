@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Zap } from 'lucide-react';
 import type { WingsType } from '@/api/nodes';
 import { cn } from '@/lib/cn';

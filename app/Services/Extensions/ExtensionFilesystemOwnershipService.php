@@ -142,8 +142,8 @@ class ExtensionFilesystemOwnershipService
      * Directories the frontend rebuild writes to and can leave root-owned when
      * an install/update is run as root (the pnpm/paraglide/vite processes
      * inherit the invoking user). These must be handed back to the panel user
-     * so a later www-data-run rebuild does not fail with EACCES while pnpm,
-     * paraglide-js, or vite tries to purge and regenerate its output.
+     * so a later www-data-run rebuild does not fail with EACCES while TypeScript,
+     * Paraglide, or Vite regenerates its output.
      *
      * @return array<int, string>
      */
@@ -152,6 +152,7 @@ class ExtensionFilesystemOwnershipService
         return [
             base_path('node_modules'),
             base_path('frontend/node_modules'),
+            base_path('frontend/src/i18n/generated'),
             base_path('frontend/src/paraglide'),
             base_path('public/build'),
         ];

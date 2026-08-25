@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { AlertTriangle, X } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { Spinner } from '@/components/ui/Spinner';
 import {

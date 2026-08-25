@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { abs } from '@/lib/base';
 import { ChevronUp, ChevronDown, Plus, Trash2, ExternalLink, EyeOff } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 import { Input, Field } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';

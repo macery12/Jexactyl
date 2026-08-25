@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useServerSocket } from '@/state/serverSocket';
 import { formatBytes, mibToBytes, formatUptime } from '@/lib/format';
 import { useServer } from '@/components/server/ServerContext';

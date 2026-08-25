@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftRight, AlertTriangle, CalendarClock } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { Panel } from '@/components/ui/Panel';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';

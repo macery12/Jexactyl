@@ -4,7 +4,7 @@ import { Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import type { Mod } from '@/api/mods';
 import {

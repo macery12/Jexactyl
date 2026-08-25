@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 
 export function AiLoadError({ onRetry }: { onRetry: () => void }) {

@@ -5,7 +5,7 @@ import { EditorView } from '@codemirror/view';
 import { LanguageDescription, type LanguageSupport } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { ArrowLeft, Save } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
 import { useWideContent } from '@/components/shell/shellLayout';
 import { can } from '@/lib/can';

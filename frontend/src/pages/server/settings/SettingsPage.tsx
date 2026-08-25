@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Cog, ServerCog, Info, AlertTriangle, Trash2 } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { can } from '@/lib/can';
 import { formatMib } from '@/lib/format';
 import { useServer } from '@/components/server/ServerContext';

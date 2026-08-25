@@ -1,6 +1,6 @@
 import { AlertTriangle } from 'lucide-react';
 import { Link, isRouteErrorResponse, useRouteError } from 'react-router-dom';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { isStaleChunkError, attemptStaleChunkReload } from '@/lib/staleChunk';
 import { Spinner } from '@/components/ui/Spinner';
 

@@ -23,7 +23,9 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: |
+          pnpm install
+          pnpm --dir frontend install
 
       - name: Build
         run: pnpm run build

@@ -1,6 +1,6 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Spinner } from '@/components/ui/Spinner';
 import { SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
 import { AiNav } from './AiNav';

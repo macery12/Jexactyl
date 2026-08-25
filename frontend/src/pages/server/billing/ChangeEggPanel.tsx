@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Puzzle, AlertTriangle } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Panel } from '@/components/ui/Panel';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';

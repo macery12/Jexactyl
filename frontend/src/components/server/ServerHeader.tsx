@@ -6,7 +6,7 @@ import { useServerSocket } from '@/state/serverSocket';
 import { SocketRequest } from '@/lib/Websocket';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 
 const stateMeta: Record<string, { label: string; dot: string }> = {

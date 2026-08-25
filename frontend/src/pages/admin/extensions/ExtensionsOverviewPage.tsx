@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Puzzle, RefreshCw, Package, Power, ArrowUpCircle, GitBranch, Search, ChevronLeft, ChevronRight } from 'lucide-react';

@@ -1,6 +1,6 @@
 import { forwardRef, useMemo, useState } from 'react';
 import { Check, Eye, EyeOff } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Input, type InputProps } from '@/components/ui/Input';
 

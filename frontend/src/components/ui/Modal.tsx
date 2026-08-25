@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 
 type Size = 'sm' | 'md' | 'lg';
 

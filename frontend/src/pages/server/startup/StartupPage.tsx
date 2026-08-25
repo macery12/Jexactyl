@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, History } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { can } from '@/lib/can';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';

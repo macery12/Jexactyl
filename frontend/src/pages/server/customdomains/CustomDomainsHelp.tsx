@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { HelpButton, HelpSteps } from '@/components/ui/HelpButton';
 
 // The "?" guide for the server owner. Plain-language explanation of what a

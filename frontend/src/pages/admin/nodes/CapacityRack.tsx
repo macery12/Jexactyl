@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Wrench, Server as ServerIcon } from 'lucide-react';

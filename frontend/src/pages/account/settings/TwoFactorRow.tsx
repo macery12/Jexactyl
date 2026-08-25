@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { Smartphone, Check } from 'lucide-react';
 import { useSession } from '@/state/session';

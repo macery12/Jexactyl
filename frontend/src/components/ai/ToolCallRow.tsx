@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, Check, ChevronRight, CircleAlert, X } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { restoreRedactionsDeep, type ChatEntry } from '@/state/agentChat';

@@ -1,5 +1,5 @@
 import { PowerOff } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // Shown when a feature's route is reached directly (typed URL, stale bookmark,
 // back button) while its module is switched off on the admin Features page.

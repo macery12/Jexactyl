@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';

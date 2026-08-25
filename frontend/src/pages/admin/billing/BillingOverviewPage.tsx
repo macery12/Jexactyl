@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingUp, Repeat, CalendarClock, Boxes } from 'lucide-react';
 import { getBillingAnalytics, type BillingAnalytics } from '@/api/billing';

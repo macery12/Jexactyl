@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Panel } from '@/components/ui/Panel';
 import { cn } from '@/lib/cn';
 

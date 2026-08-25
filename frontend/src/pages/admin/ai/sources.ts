@@ -1,4 +1,4 @@
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 
 // Where a logged request came from.
 //

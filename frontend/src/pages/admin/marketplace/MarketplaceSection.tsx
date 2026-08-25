@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { MarketplaceNav } from './MarketplaceNav';
 import OverviewPage from './pages/OverviewPage';
 import SettingsPage from './pages/SettingsPage';

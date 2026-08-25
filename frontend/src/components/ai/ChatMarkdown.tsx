@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // Themed markdown renderer for AI responses. GFM (tables, strikethrough,
 // task lists) + copyable fenced code blocks. All colors come from theme

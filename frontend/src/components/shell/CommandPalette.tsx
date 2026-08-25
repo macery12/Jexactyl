@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Search, CornerDownLeft, type LucideIcon } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useFlags } from '@/state/flags';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 import { adminRoutes } from '@/routes/admin.routes';

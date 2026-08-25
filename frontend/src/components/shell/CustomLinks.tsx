@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { ExternalLink } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { getVisibleLinks } from '@/api/links';
 
 // Operator-defined external links, pinned below the nav in the user sidebar

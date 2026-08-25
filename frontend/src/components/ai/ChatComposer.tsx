@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, type KeyboardEvent } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // ChatGPT-style composer pill: auto-growing textarea with Enter-to-send
 // (Shift+Enter for a newline) and a circular action button that flips

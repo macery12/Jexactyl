@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import type { OrderStatus, PaymentProcessor } from '@/api/adminBillingOrders';
 

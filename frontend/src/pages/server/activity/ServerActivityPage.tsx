@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Activity, ChevronLeft, ChevronRight, Code2, Search, Terminal, FolderOpen, XCircle } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { timeAgo } from '@/lib/format';
 import { useFlags } from '@/state/flags';

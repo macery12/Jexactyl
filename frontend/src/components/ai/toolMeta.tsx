@@ -35,7 +35,7 @@ import {
     Wrench,
     type LucideIcon,
 } from 'lucide-react';
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 
 // Presentation for a tool call: an icon, a short verb, and which argument is
 // worth putting on the collapsed row.

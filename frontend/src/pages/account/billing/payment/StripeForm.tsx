@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { abs } from '@/lib/base';
 import { useState, type FormEvent } from 'react';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';

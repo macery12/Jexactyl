@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { getLocale, locales } from '@/paraglide/runtime';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';

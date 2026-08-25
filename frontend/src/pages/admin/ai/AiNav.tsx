@@ -11,7 +11,7 @@ import {
     Wrench,
     type LucideIcon,
 } from 'lucide-react';
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 
 interface Item {

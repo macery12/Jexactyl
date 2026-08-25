@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { Server, Plus } from 'lucide-react';

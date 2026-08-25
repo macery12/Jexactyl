@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import type { EmailResponse } from '@/api/email';
 import { getStatusPresentation, type EmailTone } from '../status';

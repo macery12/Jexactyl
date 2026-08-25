@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, Plus, Pencil, Trash2, BadgeCheck, ExternalLink, X } from 'lucide-react';

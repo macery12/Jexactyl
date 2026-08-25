@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Plus, Play, Trash2, ChevronRight, CircleDot } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { can } from '@/lib/can';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';

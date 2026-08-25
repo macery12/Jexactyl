@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';
 import { saveSchedule, type Cron, type Schedule } from '@/api/schedules';

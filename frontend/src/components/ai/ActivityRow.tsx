@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Spinner } from '@/components/ui/Spinner';
 import type { Activity } from '@/state/agentChat';
 import { toolLabel } from './toolMeta';

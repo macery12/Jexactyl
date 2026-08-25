@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Gauge, HardDrive, Layers } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';

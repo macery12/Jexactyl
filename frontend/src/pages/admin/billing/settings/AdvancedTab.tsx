@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Download, FileJson, Power, Upload } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { Button } from '@/components/ui/Button';

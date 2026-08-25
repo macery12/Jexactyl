@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { abs } from '@/lib/base';
 import { ShieldHalf, Info } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Input, Field } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Select } from '@/components/ui/Select';

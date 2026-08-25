@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Cpu } from 'lucide-react';
 import { Panel } from './Panel';
 import { useServer } from '@/components/server/ServerContext';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, HelpCircle } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import type { ChatEntry } from '@/state/agentChat';
