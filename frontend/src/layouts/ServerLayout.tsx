@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { lazy, Suspense, useMemo } from 'react';
+import { useMatch, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { AppShell } from '@/components/shell/AppShell';
 import { RequireAuth } from './RequireAuth';
@@ -9,13 +9,18 @@ import { useFlags } from '@/state/flags';
 import { getServer } from '@/api/servers';
 import { ServerContext } from '@/components/server/ServerContext';
 import { ServerHeader } from '@/components/server/ServerHeader';
-import { AgentDrawer } from '@/components/ai/AgentDrawer';
 import { useServerSocketConnection } from '@/hooks/useServerSocket';
 import { FullPageSpinner } from '@/components/ui/Spinner';
+
+const AgentDrawer = lazy(() =>
+    import('@/components/ai/AgentDrawer').then(module => ({ default: module.AgentDrawer })),
+);
 
 export default function ServerLayout() {
     const { id } = useParams();
     const flags = useFlags(s => s.everest);
+    const agentEnabled = Boolean(flags?.ai.enabled && flags.ai.feature_agent);
+    const onAiPage = Boolean(useMatch('/server/:id/ai/*'));
 
     const { data: server, isLoading, isError } = useQuery({
         queryKey: ['server', id],
@@ -43,10 +48,14 @@ export default function ServerLayout() {
             ) : (
                 <ServerContext.Provider value={server}>
                     <AppShell groups={groups} header={<ServerHeader />} />
-                    {/* Inside the provider so the drawer reaches the same
-                        server context the pages do, and available on every
-                        server page rather than only the AI one. */}
-                    <AgentDrawer />
+                    {/* Keep the disabled feature out of the browser graph. The
+                        drawer remains inside the provider so an enabled agent
+                        reaches the same server context the pages do. */}
+                    {agentEnabled && !onAiPage && (
+                        <Suspense fallback={null}>
+                            <AgentDrawer />
+                        </Suspense>
+                    )}
                 </ServerContext.Provider>
             )}
         </RequireAuth>

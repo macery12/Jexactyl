@@ -44,6 +44,8 @@ export default function AiPage() {
     const resumeActive = useAgentChat(s => s.resumeActive);
 
     useEffect(() => {
+        if (!canUseAssistant) return;
+
         bind(server.uuid);
         // The page and the drawer are two views of one conversation; showing
         // both at once would be redundant and fight for scroll.
@@ -52,7 +54,7 @@ export default function AiPage() {
         // Landing here directly — a reload, a bookmark, a link — is exactly the
         // case that used to show an empty page while a turn was still running.
         resumeActive();
-    }, [bind, resumeActive, setDrawer, server.uuid]);
+    }, [bind, canUseAssistant, resumeActive, setDrawer, server.uuid]);
 
     const { data: conversations = [], isLoading: conversationsLoading } = useQuery({
         queryKey: ['server', server.uuid, 'ai-conversations'],

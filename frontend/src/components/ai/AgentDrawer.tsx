@@ -1,12 +1,14 @@
-import { useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { Link, useMatch } from 'react-router-dom';
 import { Bot, Maximize2, X } from 'lucide-react';
 import { m } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
-import { AgentChat } from './AgentChat';
+import { Spinner } from '@/components/ui/Spinner';
+
+const AgentChat = lazy(() => import('./AgentChat').then(module => ({ default: module.AgentChat })));
 
 // The assistant as a companion rather than a destination.
 //
@@ -20,7 +22,6 @@ const HOTKEY = 'k';
 export function AgentDrawer() {
     const server = useServer();
     const everest = useFlags(s => s.everest);
-    const location = useLocation();
 
     const open = useAgentChat(s => s.drawerOpen);
     const setDrawer = useAgentChat(s => s.setDrawer);
@@ -29,6 +30,9 @@ export function AgentDrawer() {
     const running = useAgentChat(s => s.loading);
 
     const enabled = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
+    // The full page owns binding and resumption while it is mounted. Running
+    // the drawer lifecycle there as well duplicates the active-turn request.
+    const onAiPage = Boolean(useMatch('/server/:id/ai/*'));
 
     // Rebinding clears state when the server changes; a conversation is bound
     // to one server for the life of a turn.
@@ -38,9 +42,11 @@ export function AgentDrawer() {
     // back up wherever the user went next — including after a reload, which
     // used to lose it entirely and look like nothing had happened.
     useEffect(() => {
+        if (!enabled || onAiPage) return;
+
         bind(server.uuid);
         resumeActive();
-    }, [bind, resumeActive, server.uuid]);
+    }, [bind, enabled, onAiPage, resumeActive, server.uuid]);
 
     useEffect(() => {
         if (!enabled) return;
@@ -56,10 +62,6 @@ export function AgentDrawer() {
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [enabled, setDrawer]);
-
-    // The full page is the same conversation; showing the drawer on top of it
-    // would be two views of one thing fighting for the same scroll position.
-    const onAiPage = location.pathname.endsWith('/ai');
 
     if (!enabled || onAiPage) return null;
 
@@ -122,8 +124,23 @@ export function AgentDrawer() {
                 </header>
 
                 {/* Mounted only while open so a closed drawer is not polling or
-                    holding a scroll container the page cannot see. */}
-                {open && <AgentChat compact />}
+                    holding a scroll container the page cannot see. Its heavier
+                    renderer and markdown graph are also fetched only now. */}
+                {open && (
+                    <Suspense
+                        fallback={
+                            <div
+                                role="status"
+                                className="flex min-h-0 flex-1 items-center justify-center"
+                            >
+                                <Spinner className="h-6 w-6" />
+                                <span className="sr-only">{m['common.states.loading']()}</span>
+                            </div>
+                        }
+                    >
+                        <AgentChat compact />
+                    </Suspense>
+                )}
             </aside>
         </>
     );
