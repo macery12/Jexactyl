@@ -24,11 +24,19 @@
 export function restoreRedactions(text: string, map: Record<string, string>): string {
     if (text === '' || Object.keys(map).length === 0) return text;
 
-    // Tokens are `[kind_hex]` — the hex being a slice of an HMAC of the value,
-    // so that two maps for the same person agree and two maps for different
-    // people cannot collide. A single pass over the pattern is enough, and it
-    // cannot re-enter a value that happens to contain one.
-    return text.replace(/\[[a-z]+_[0-9a-f]+]/g, token => map[token] ?? token);
+    // Tokens are `[kind_hex]` — the hex being a slice of an HMAC of the value.
+    // Models sometimes protect Markdown punctuation and return
+    // `[kind\_hex]` or `\[kind\_hex\]`. Normalise only those reversible escapes
+    // on a token-shaped candidate, then require an exact entry in the map. An
+    // invented or unknown token is deliberately left byte-for-byte unchanged:
+    // deriving a value from its suffix would risk showing the wrong person's
+    // data. The single pass also cannot re-enter a restored value that happens
+    // to contain another token.
+    return text.replace(/\\?\[[a-z]+\\?_[0-9a-f]+\\?\]/g, candidate => {
+        const token = candidate.replace(/\\(?=[[\]_])/g, '');
+
+        return map[token] ?? candidate;
+    });
 }
 
 /**

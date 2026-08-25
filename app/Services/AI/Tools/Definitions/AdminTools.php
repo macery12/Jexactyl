@@ -332,7 +332,8 @@ class AdminTools
 
             new ToolDefinition(
                 name: 'admin_products_list',
-                description: 'List the products in one category.',
+                description: 'List the products in one category after admin_categories_list. This is '
+                    . 'the only source of product ids for product reads, cycles and updates.',
                 parameters: self::object([
                     'category' => self::string(
                         'The numeric category id — the \'id\' field of an admin_categories_list '
@@ -360,7 +361,9 @@ class AdminTools
 
             new ToolDefinition(
                 name: 'admin_product_view',
-                description: 'Full detail for one product, including its resource limits.',
+                description: 'Full detail for one product, including its resource limits. The product '
+                    . 'id must be an exact item from admin_products_list for the same category; never '
+                    . 'guess or probe sequential ids.',
                 parameters: self::object([
                     'category' => self::string('The numeric category id.'),
                     'product' => self::string('The numeric product id.'),
@@ -379,7 +382,8 @@ class AdminTools
             new ToolDefinition(
                 name: 'admin_cycles_list',
                 description: 'The billing cycles (monthly, quarterly and so on) configured for a product, '
-                    . 'with their price multipliers.',
+                    . 'with their price multipliers. Use only a product id returned by '
+                    . 'admin_products_list for the same category.',
                 parameters: self::object([
                     'category' => self::string('The numeric category id.'),
                     'product' => self::string('The numeric product id.'),
@@ -403,10 +407,12 @@ class AdminTools
 
             new ToolDefinition(
                 name: 'admin_product_create',
-                description: 'Create a product in a category. Every resource limit is required — read an '
-                    . 'existing product in the same category first and follow its shape rather than '
-                    . 'inventing limits. A limit of 0 means unlimited. The price is per month, in the '
-                    . 'panel\'s configured currency.',
+                description: 'Create a product in a category. First call admin_categories_list, then '
+                    . 'admin_products_list for that exact category. Every resource limit is required: '
+                    . 'read one returned product and follow its shape rather than inventing limits. If '
+                    . 'the category has no products, ask the user for the missing name and resource '
+                    . 'limits; never probe ids. A limit of 0 means unlimited. The price is per month, '
+                    . 'in the panel\'s configured currency.',
                 parameters: self::object([
                     'category' => self::string(
                         'The numeric category id — the \'id\' field of an admin_categories_list '
@@ -449,7 +455,8 @@ class AdminTools
                 name: 'admin_product_update',
                 description: 'Change fields on an existing product. Send only the fields you are changing; '
                     . 'anything omitted is left alone. Read the product first so you know what you are '
-                    . 'changing it from.',
+                    . 'changing it from, using only an id returned by admin_products_list for the same '
+                    . 'category.',
                 parameters: self::object([
                     'category' => self::string('The numeric category id.'),
                     'product' => self::string('The numeric product id.'),
@@ -559,14 +566,14 @@ class AdminTools
                     'value' => self::number('20 with type "percentage" means 20% off.'),
                     'allowed_for' => self::enum(
                         ['both', 'purchases', 'renewals'],
-                        'What the coupon may be used on. Defaults to both.'
+                        'What the coupon may be used on.'
                     ),
                     'expires_at' => self::string('Expiry as a date, for example 2026-08-31. Omit for no expiry.'),
                     'max_uses' => self::integer('Total redemptions allowed across all customers.'),
                     'max_uses_per_user' => self::integer('Redemptions allowed per customer.'),
                     'min_order_total' => self::number('Minimum order value before the coupon applies.'),
                     'is_active' => self::boolean('Whether it can be redeemed straight away.'),
-                ], ['code', 'type', 'value']),
+                ], ['code', 'type', 'value', 'allowed_for']),
                 method: 'POST',
                 uriTemplate: self::BASE . '/billing/coupons',
                 risk: ToolDefinition::RISK_WRITE,
@@ -826,7 +833,9 @@ class AdminTools
                 description: 'Open a read-only diagnostic session on one customer\'s server, so you can '
                     . 'look at its files, startup settings and current state the way its owner could. '
                     . 'Use this when a ticket is about a specific server and you cannot answer it from '
-                    . 'the panel\'s own records. The administrator has to approve it, and the customer '
+                    . 'the panel\'s own records. If the ticket names no server and its owner has several, '
+                    . 'ask which returned server is affected; never choose from its name, egg, or software. '
+                    . 'The administrator has to approve it, and the customer '
                     . 'sees it in their activity log, so give a reason that would make sense to them. '
                     . 'You cannot change anything with this — ask for writes separately if a fix needs one.',
                 parameters: self::object([
@@ -858,7 +867,10 @@ class AdminTools
                 description: 'Ask to be allowed to change the server you are currently assisting — '
                     . 'editing a config file, changing a startup variable, restarting it. Only ask '
                     . 'once you have found the problem and can say exactly what you would change and '
-                    . 'why. The administrator approves this separately from the session itself.',
+                    . 'why. Do not request writes for a missing jar, archive, executable, or incomplete '
+                    . 'installation: the text-file tool cannot repair those, so recommend a known-good '
+                    . 'backup or a server reinstall and stop. The administrator approves this separately '
+                    . 'from the session itself.',
                 parameters: self::object([
                     'reason' => self::string('What you want to change and why, in one or two sentences.'),
                 ], ['reason']),

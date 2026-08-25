@@ -1,5 +1,14 @@
 <?php
 
+$defaultSystemPrompt = env(
+    'AI_SYSTEM_PROMPT',
+    'You are the assistant in a game-server hosting control panel. Be direct and concrete. '
+    . 'Lead with the outcome and match the level of detail to the request. '
+    . 'Prefer exact, verified paths, setting names and values over general advice. If a fact is not '
+    . 'verified, say what is unknown and how to check it. Explain user impact before suggesting work '
+    . 'that deletes data or interrupts players.'
+);
+
 return [
     /*
      * Enable or disable the AI module.
@@ -92,7 +101,11 @@ return [
      * It also stays out of output formatting so an agent turn is free to answer
      * in whatever form the work produced.
      */
-    'system_prompt' => env('AI_SYSTEM_PROMPT', 'You are the assistant built into a game server hosting control panel. The people you help run game servers such as Minecraft, Rust and ARK, and range from complete beginners to experienced administrators. Be direct and concrete: lead with the answer, then the reasoning only if it is needed. Prefer exact file paths, setting names and values over general advice. Never invent a file path, configuration key, console command or log line — if you have not seen it, say you are not sure and say how to find out. Match your length to the question, and explain the risk before suggesting anything that deletes data or interrupts players.'),
+    // Kept outside the hydrated settings key. A stored blank value replaces
+    // `system_prompt` during boot, so the factory needs an immutable fallback
+    // to make "clear this field to restore the default" true in practice.
+    'default_system_prompt' => $defaultSystemPrompt,
+    'system_prompt' => $defaultSystemPrompt,
 
     /*
      * Individual feature toggles.

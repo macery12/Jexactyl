@@ -30,10 +30,10 @@ class RiskGate
     {
         $risk = $this->override($definition->name) ?? $definition->risk;
 
-        // These calls create or widen authority over somebody else's server.
-        // An operator may harden them, but an override must never make that
-        // trust-boundary decision automatic.
-        if (in_array($definition->name, [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES], true)) {
+        // These calls create/widen authority over somebody else's server, or
+        // require server-attested data on their approval card. An operator may
+        // harden them, but an override must never make either boundary automatic.
+        if (in_array($definition->name, [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES, 'files_write'], true)) {
             $risk = $this->max(ToolDefinition::RISK_WRITE, $risk);
         }
 

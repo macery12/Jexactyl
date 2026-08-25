@@ -52,7 +52,9 @@ class IntelligenceController extends ApplicationApiController
             'context_tokens' => config('modules.ai.context_tokens') ? (int) config('modules.ai.context_tokens') : null,
             'keep_alive' => (string) config('modules.ai.keep_alive', '10m'),
             'warm' => boolval(config('modules.ai.warm', false)),
-            'system_prompt' => config('modules.ai.system_prompt', ''),
+            // Return the effective value, including the packaged fallback when
+            // an older save left an empty setting row behind.
+            'system_prompt' => $this->factory->systemPrompt(),
 
             'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
 

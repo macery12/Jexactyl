@@ -288,7 +288,7 @@ class ServerTools
         return [
             new ToolDefinition(
                 name: 'files_list',
-                description: 'List the contents of a directory on the server. Start at "/" and work down. Mod and plugin configuration usually lives under /config, /plugins or /mods.',
+                description: 'List the contents of a directory on the server. Start at "/" and work down. This is the server\'s own isolated data directory, not a general Linux filesystem — there is no /home, /opt or system root, only whatever the egg actually created. Mod and plugin configuration usually lives under /config, /plugins or /mods, and a "path not found" there just means this server/egg does not use that directory.',
                 parameters: self::object([
                     'directory' => self::string('Absolute path from the server root, e.g. "/" or "/config".'),
                 ], ['directory']),
@@ -317,7 +317,7 @@ class ServerTools
 
             new ToolDefinition(
                 name: 'files_read',
-                description: 'Read a text file from the server. Always read a config file before editing it — files_write needs its exact current contents.',
+                description: 'Read a text file from the server. Always read a config file before editing it so you can preserve everything unrelated to the requested change.',
                 parameters: self::object([
                     'file' => self::string('Absolute path from the server root, e.g. "/config/iceandfire-common.toml".'),
                 ], ['file']),
@@ -334,12 +334,11 @@ class ServerTools
 
             new ToolDefinition(
                 name: 'files_write',
-                description: 'Replace the contents of a text file. You must pass the file\'s exact current contents as original_content — read it with files_read first. The user is shown a diff and approves before anything is written.',
+                description: 'Replace the complete contents of an existing recognized UTF-8 text file — configs, properties, scripts. Read it first, preserve unrelated content, then pass the complete updated text. The panel validates and reads the live original itself and shows the user an approval diff. This cannot create a missing file, download anything, or restore a jar, mod, archive, database, world-region, or executable. For a missing required binary or incomplete installation, recommend a known-good backup when data must be preserved; otherwise recommend the panel Reinstall action, then stop.',
                 parameters: self::object([
                     'file' => self::string('Absolute path from the server root.'),
                     'content' => self::string('The complete new contents of the file.'),
-                    'original_content' => self::string('The exact current contents, as returned by files_read.'),
-                ], ['file', 'content', 'original_content']),
+                ], ['file', 'content']),
                 method: 'POST',
                 uriTemplate: self::BASE . '/files/write-with-diff',
                 risk: ToolDefinition::RISK_WRITE,

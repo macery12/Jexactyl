@@ -109,6 +109,37 @@ class RedactionSeamTest extends TestCase
     }
 
     /**
+     * Markdown escaping is presentation syntax, not part of the opaque token.
+     * Local models commonly protect underscores and brackets in prose, so the
+     * browser accepts those reversible spellings only when the normalised token
+     * exists in the conversation's map. Unknown spellings remain untouched.
+     */
+    public function testTheBrowserRestoresKnownMarkdownEscapedTokensOnly(): void
+    {
+        $map = new RedactionMap();
+        $known = $map->tokenFor(PiiRedactor::KIND_EMAIL, 'jo@example.com');
+        $underscoreEscaped = str_replace('_', '\\_', $known);
+        $fullyEscaped = strtr($known, ['[' => '\\[', '_' => '\\_', ']' => '\\]']);
+
+        $restored = $this->restoreInNode(
+            $map,
+            sprintf('%s and %s', $underscoreEscaped, $fullyEscaped),
+            [
+                'underscore' => $underscoreEscaped,
+                'full' => $fullyEscaped,
+                'unknown' => '[ip\\_0]',
+                'unknown_full' => '\\[ip\\_0\\]',
+            ],
+        );
+
+        $this->assertSame('jo@example.com and jo@example.com', $restored['text']);
+        $this->assertSame('jo@example.com', $restored['payload']['underscore']);
+        $this->assertSame('jo@example.com', $restored['payload']['full']);
+        $this->assertSame('[ip\\_0]', $restored['payload']['unknown']);
+        $this->assertSame('\\[ip\\_0\\]', $restored['payload']['unknown_full']);
+    }
+
+    /**
      * Run the real browser implementation over a fixture this process wrote.
      *
      * @return array{text: string, payload: mixed}

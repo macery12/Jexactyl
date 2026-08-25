@@ -385,13 +385,13 @@ class PiiRedactionTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
-    | AI-027 — the system prompt is a payload too
+    | AI-027 — runtime context is a payload too
     |--------------------------------------------------------------------------
     */
 
     /**
      * A customer names their own server, and the panel interpolates that name
-     * straight into the system prompt. It used to go unfiltered, so the exact
+     * into model context. It used to go unfiltered, so the exact
      * string that was tokenised on its way through `admin_server_view` reached
      * the provider verbatim two lines above it.
      */
@@ -405,13 +405,15 @@ class PiiRedactionTest extends TestCase
         $user = User::factory()->make(['id' => 3, 'username' => 'customer']);
         $context = new AgentContext($user, $server, 'turn-prompt-facts');
 
-        $prompt = app(\Everest\Services\AI\Agent\SystemPromptBuilder::class)->build($context);
+        $builder = app(\Everest\Services\AI\Agent\SystemPromptBuilder::class);
+        $runtime = $builder->runtimeContext($context);
 
-        $this->assertStringNotContainsString('jo@example.com', $prompt);
+        $this->assertStringNotContainsString('jo@example.com', $runtime);
         $this->assertStringContainsString(
             $context->redactions->tokenFor('email', 'jo@example.com'),
-            $prompt,
+            $runtime,
         );
+        $this->assertStringNotContainsString('jo@example.com', $builder->build($context));
     }
 
     /**
@@ -426,7 +428,7 @@ class PiiRedactionTest extends TestCase
         $server->setRelation('egg', null);
 
         $context = new AgentContext(User::factory()->make(['id' => 3]), $server, 'turn-prompt-token');
-        app(\Everest\Services\AI\Agent\SystemPromptBuilder::class)->build($context);
+        app(\Everest\Services\AI\Agent\SystemPromptBuilder::class)->runtimeContext($context);
 
         $shaped = $this->redactor->redact(['email' => 'jo@example.com'], $context->redactions);
 
@@ -438,7 +440,7 @@ class PiiRedactionTest extends TestCase
      * An ordinary server name is not personal data, and tokenising it would
      * cost the assistant the one noun the whole conversation is about.
      */
-    public function testAnOrdinaryServerNameIsLeftInThePrompt(): void
+    public function testAnOrdinaryServerNameIsLeftInRuntimeContextOnly(): void
     {
         $server = new \Everest\Models\Server();
         $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
@@ -447,10 +449,10 @@ class PiiRedactionTest extends TestCase
 
         $context = new AgentContext(User::factory()->make(['id' => 3]), $server, 'turn-prompt-plain');
 
-        $this->assertStringContainsString(
-            'Survival SMP',
-            app(\Everest\Services\AI\Agent\SystemPromptBuilder::class)->build($context),
-        );
+        $builder = app(\Everest\Services\AI\Agent\SystemPromptBuilder::class);
+
+        $this->assertStringContainsString('Survival SMP', $builder->runtimeContext($context));
+        $this->assertStringNotContainsString('Survival SMP', $builder->build($context));
         $this->assertTrue($context->redactions->isEmpty());
     }
 

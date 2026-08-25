@@ -377,4 +377,61 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $this->assertStringContainsString('batchParentCallId', $store);
         $this->assertStringContainsString('batchIndex', $store);
     }
+
+    /**
+     * A terminal result is evidence even when its announcement was salvaged or
+     * refused early enough that no pending/running row reached the browser.
+     */
+    public function testAnUnmatchedToolResultSynthesizesATerminalEvidenceRow(): void
+    {
+        $store = file_get_contents(base_path('frontend/src/state/agentChat.ts'));
+        $start = strpos($store, "case 'tool_result':");
+        $end = strpos($store, "case 'approval_required':", $start);
+
+        $this->assertIsInt($start);
+        $this->assertIsInt($end);
+        $resultHandler = substr($store, $start, $end - $start);
+
+        $this->assertStringContainsString('matching !== -1', $resultHandler);
+        $this->assertStringContainsString("kind: 'tool' as const", $resultHandler);
+        $this->assertStringContainsString('callId: event.id', $resultHandler);
+        $this->assertStringContainsString('tool: event.tool', $resultHandler);
+        $this->assertStringContainsString('args: {}', $resultHandler);
+        $this->assertStringContainsString("risk: 'safe' as const", $resultHandler);
+        $this->assertStringContainsString("event.outcome === 'partial' ? 'partial' : event.ok ? 'ok' : 'error'", $resultHandler);
+        $this->assertStringContainsString('summary: event.summary', $resultHandler);
+        $this->assertStringContainsString('result: event.result', $resultHandler);
+        $this->assertStringContainsString('durationMs: event.duration_ms', $resultHandler);
+        $this->assertStringContainsString('batchParentCallId: event.batch_parent_id', $resultHandler);
+        $this->assertStringContainsString('batchIndex: event.batch_index', $resultHandler);
+    }
+
+    /**
+     * Naming a write is an intention, not evidence that the file changed.
+     *
+     * A tool row exists from tool_pending onward, before its arguments, policy
+     * checks, live-file attestation and execution have completed. Its label must
+     * therefore follow the event-backed status and reserve the past tense for
+     * the successful tool_result state.
+     */
+    public function testFileWriteRowsClaimCompletionOnlyAfterASuccessfulResult(): void
+    {
+        $meta = file_get_contents(base_path('frontend/src/components/ai/toolMeta.tsx'));
+        $row = file_get_contents(base_path('frontend/src/components/ai/ToolCallRow.tsx'));
+        $messages = json_decode(file_get_contents(base_path('frontend/messages/en.json')), true);
+
+        $this->assertStringContainsString('toolLifecycleLabel(entry.tool, entry.status)', $row);
+        $this->assertStringContainsString("case 'pending':", $meta);
+        $this->assertStringContainsString("case 'running':", $meta);
+        $this->assertStringContainsString("case 'ok':", $meta);
+        $this->assertStringContainsString("case 'partial':", $meta);
+        $this->assertStringContainsString("case 'error':", $meta);
+
+        $this->assertSame('Write file', $messages['server.ai.tools.files_write']);
+        $this->assertSame('Preparing file write', $messages['server.ai.tools.files_write.pending']);
+        $this->assertSame('Attempting file write', $messages['server.ai.tools.files_write.running']);
+        $this->assertSame('Wrote', $messages['server.ai.tools.files_write.ok']);
+        $this->assertSame('File write incomplete', $messages['server.ai.tools.files_write.partial']);
+        $this->assertSame('File write failed', $messages['server.ai.tools.files_write.error']);
+    }
 }

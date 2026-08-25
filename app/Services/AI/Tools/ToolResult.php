@@ -25,6 +25,8 @@ class ToolResult
         public readonly ?int $status = null,
         public readonly bool $retryable = false,
         public readonly ?array $fields = null,
+        public readonly ?array $requires = null,
+        public readonly ?string $next = null,
         public readonly bool $truncated = false,
         public readonly string $outcome = self::OUTCOME_SUCCESS,
     ) {
@@ -41,8 +43,21 @@ class ToolResult
         ?int $status = null,
         bool $retryable = false,
         ?array $fields = null,
+        ?array $requires = null,
+        ?string $next = null,
     ): self {
-        return new self(false, null, $code, $detail, $status, $retryable, $fields, outcome: self::OUTCOME_FAILED);
+        return new self(
+            false,
+            null,
+            $code,
+            $detail,
+            $status,
+            $retryable,
+            $fields,
+            $requires,
+            $next,
+            outcome: self::OUTCOME_FAILED,
+        );
     }
 
     /**
@@ -107,6 +122,8 @@ class ToolResult
                 'message' => $this->detail,
                 'retryable' => $this->retryable,
                 'fields' => $this->fields,
+                'requires' => $this->requires,
+                'next' => $this->next,
             ], fn ($v) => $v !== null);
         }
 
@@ -165,6 +182,8 @@ class ToolResult
             $this->status,
             $this->retryable,
             $this->fields,
+            $this->requires,
+            $this->next,
             $truncated,
             $this->outcome,
         );

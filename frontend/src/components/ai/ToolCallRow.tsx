@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 import { restoreRedactionsDeep, type ChatEntry } from '@/state/agentChat';
 import { ToolArgs } from './ToolArgs';
-import { ToolIcon, toolLabel, toolTarget } from './toolMeta';
+import { ToolIcon, toolLifecycleLabel, toolTarget } from './toolMeta';
 
 type ToolEntry = Extract<ChatEntry, { kind: 'tool' }>;
 
@@ -60,7 +60,9 @@ export function ToolCallRow({
                 />
                 <ToolIcon tool={entry.tool} className="h-3.5 w-3.5 shrink-0 text-[var(--color-ink-muted)]" />
 
-                <span className="shrink-0 font-medium text-[var(--color-ink)]">{toolLabel(entry.tool)}</span>
+                <span className="shrink-0 font-medium text-[var(--color-ink)]">
+                    {toolLifecycleLabel(entry.tool, entry.status)}
+                </span>
 
                 {target && (
                     <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-ink-muted)]">

@@ -16,6 +16,7 @@ use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Data\AiStreamEvent;
 use Everest\Services\AI\Tools\ToolExecutor;
 use Everest\Services\AI\Tools\ToolRegistry;
+use Everest\Services\Files\FileDiffService;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Tools\ToolInvocation;
@@ -26,6 +27,7 @@ use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
+use Everest\Exceptions\Http\Connection\DaemonConnectionException;
 
 /**
  * Drives one agent turn: model call, tool calls, repeat.
@@ -48,11 +50,13 @@ class AgentRunner
         private PiiRedactor $redactor,
         private AssistAuthorizer $assist,
         private DaemonFileRepository $files,
+        private FileDiffService $fileDiffs,
         private TurnCancellations $cancellations,
         private WorkingSetPlanner $planner,
         private ToolDiscoveryService $discovery,
         private PrerequisiteResolver $prerequisites,
         private ProgressGuard $progress,
+        private IdentifierEvidenceGuard $identifierEvidence,
         private ToolBudget $budget,
     ) {
     }
@@ -183,12 +187,33 @@ class AgentRunner
             // Nothing structured came back. If the text looks like a botched
             // call, spend a repair round under a schema-constrained grammar
             // rather than throwing away the step.
-            $repaired = false;
+            $repairKind = null;
 
             if ($calls === [] && $this->shouldRepair($context, $text)) {
                 ++$context->repairs;
-                $repaired = true;
+                $repairKind = 'malformed_tool_call';
                 $calls = $this->repair($context, $tools, $text);
+            }
+
+            // A small model sometimes narrates the next operation as if saying
+            // it were the operation: "Next, I will inspect startup" with no
+            // call. That is neither a final answer nor malformed JSON, so the
+            // ordinary salvager cannot see it. Recover one call under the same
+            // schema, repair-count and deadline bounds rather than recording the
+            // promise as a successful terminal turn.
+            $unfinishedIntention = $calls === []
+                && $tools !== []
+                && $this->salvager->looksLikeUnfinishedIntent($text);
+
+            if ($unfinishedIntention && $context->repairs < $this->maxRepairs()) {
+                ++$context->repairs;
+                $repairKind = 'unfinished_intention';
+                $calls = $this->repair(
+                    $context,
+                    $tools,
+                    $text,
+                    'You announced a next action but did not call a tool. Reply with only the JSON object for the one offered tool that performs that announced action now.',
+                );
             }
 
             if ($calls === []) {
@@ -198,13 +223,14 @@ class AgentRunner
                 // user's screen labelled as a completed turn, which is exactly
                 // the failure mode of the small local models the salvager exists
                 // for. Better to say what happened.
-                if ($repaired) {
-                    Log::warning('AI agent turn abandoned: unrepairable tool call', [
+                if ($repairKind !== null || $unfinishedIntention) {
+                    Log::warning('AI agent turn abandoned: promised action could not be recovered', [
                         'turn' => $context->turnId,
                         'step' => $context->step,
+                        'kind' => $repairKind ?? 'repair_limit',
                     ]);
 
-                    throw new AIServiceException('The model tried to use a tool but could not write the request correctly. This usually means the model is too small for the number of tools it was offered — try again, or ask an administrator to lower the tool limit.');
+                    throw new AIServiceException($unfinishedIntention ? 'The model announced another action but did not issue its tool call. The panel refused to mark that promise as complete. Please try again.' : 'The model tried to use a tool but could not write the request correctly. This usually means the model is too small for the number of tools it was offered — try again, or ask an administrator to lower the tool limit.');
                 }
 
                 $context->push(AiMessage::assistant($text));
@@ -355,7 +381,10 @@ class AgentRunner
         $provider = $this->factory->make($this->remainingSeconds($context));
 
         $request = (new AiRequest(
-            messages: $context->messages,
+            // Runtime facts and console text are tenant-controlled data. The
+            // prompt builder attaches them to the latest user message instead of
+            // granting them system-message authority.
+            messages: $this->promptBuilder->contextualize($context),
             // The offered set is passed because two of the prompt's sections are
             // about tools that may not be on the table this step — the group
             // meta-tool and `ask_user`. Built without it they return null, which
@@ -431,8 +460,12 @@ class AgentRunner
      *
      * @return ToolCallData[]
      */
-    protected function repair(AgentContext $context, array $tools, string $text): array
-    {
+    protected function repair(
+        AgentContext $context,
+        array $tools,
+        string $text,
+        string $instruction = 'That was not a valid tool call. Reply with only the JSON object for the tool you want to call.',
+    ): array {
         // First try to read what it already wrote — a correctly-formed call in
         // the wrong channel needs no second inference at all.
         $salvaged = $this->salvager->salvage($text, $tools);
@@ -447,11 +480,13 @@ class AgentRunner
 
             $provider = $this->factory->make($this->remainingSeconds($context));
 
+            $repairMessages = array_merge($context->messages, [
+                AiMessage::assistant($text),
+                AiMessage::user($instruction),
+            ]);
+
             $request = (new AiRequest(
-                messages: array_merge($context->messages, [
-                    AiMessage::assistant($text),
-                    AiMessage::user('That was not a valid tool call. Reply with only the JSON object for the tool you want to call.'),
-                ]),
+                messages: $this->promptBuilder->contextualize($context, $repairMessages),
                 systemPrompt: $this->promptBuilder->build($context, $tools),
                 tools: $tools,
                 temperature: 0.0,
@@ -538,6 +573,35 @@ class AgentRunner
 
         $arguments = $validation['value'];
 
+        if ($definition->name !== SharedTools::BATCH) {
+            $refusal = $this->identifierEvidence->validate($context, $definition, $arguments);
+            if ($refusal !== null) {
+                return $this->refuseInvariant(
+                    $context,
+                    $call,
+                    $definition,
+                    $refusal,
+                    'identifier_evidence:' . $definition->name,
+                    $emit,
+                );
+            }
+        }
+
+        // `files_write` is a text editor, not an upload primitive. Enforce that
+        // before risk calculation, live-file attestation or an approval card so
+        // a model cannot turn base64 text into a pretend jar/archive write.
+        if ($definition->name === 'files_write') {
+            $refusal = $this->fileWriteProposalRefusal(
+                (string) ($arguments['file'] ?? ''),
+                (string) ($arguments['content'] ?? ''),
+            );
+            if ($refusal !== null) {
+                $this->pushToolRefusal($context, $call, $definition, $refusal, $emit);
+
+                return 'continued';
+            }
+        }
+
         // `ask_user` is a suspension in its own right — asking *is* the pause —
         // so it is handled before the risk gate rather than through it. Every
         // other host-handled tool goes through the gate like anything else: they
@@ -563,6 +627,22 @@ class AgentRunner
             foreach ($arguments['calls'] as $child) {
                 $childDefinition = $this->registry->find($child['tool']);
                 if ($childDefinition !== null) {
+                    $refusal = $this->identifierEvidence->validate(
+                        $context,
+                        $childDefinition,
+                        $child['arguments'],
+                    );
+                    if ($refusal !== null) {
+                        return $this->refuseInvariant(
+                            $context,
+                            $call,
+                            $definition,
+                            $refusal,
+                            'identifier_evidence:' . $childDefinition->name,
+                            $emit,
+                        );
+                    }
+
                     $risk = $this->riskGate->max(
                         $risk,
                         $this->riskForContext($context, $childDefinition, $child['arguments']),
@@ -576,7 +656,12 @@ class AgentRunner
         $emit(AgentEvent::toolCall($call->id, $definition->name, $arguments, $risk));
 
         if (!$this->riskGate->runsAutomatically($risk)) {
-            $this->suspend($context, $call, $definition, $arguments, $risk, $emit);
+            $refusal = $this->suspend($context, $call, $definition, $arguments, $risk, $emit);
+            if ($refusal !== null) {
+                $this->pushToolRefusal($context, $call, $definition, $refusal, $emit);
+
+                return 'continued';
+            }
 
             return 'suspended';
         }
@@ -721,8 +806,8 @@ class AgentRunner
      * Hand the browser the values that were kept out of the request.
      *
      * Runs after every call, not at the end of the turn — the tool row is
-     * already on screen, and a `[email_1]` placeholder sitting unresolved for
-     * ten seconds is worse than one that never appeared.
+     * already on screen, and a privacy handle sitting unresolved for ten
+     * seconds is worse than one that never appeared.
      *
      * @param callable(AgentEvent): void $emit
      */
@@ -1543,8 +1628,11 @@ class AgentRunner
         array $arguments,
         string $risk,
         callable $emit,
-    ): void {
+    ): ?ToolResult {
         $arguments = $this->attestApprovalArguments($context, $definition, $arguments);
+        if ($arguments instanceof ToolResult) {
+            return $arguments;
+        }
 
         $this->persistPending($context, $call, $definition->name, $arguments, $risk);
 
@@ -1573,6 +1661,8 @@ class AgentRunner
             $risk,
             ApprovalPreview::for($definition->name, $arguments, $context->targetServer()),
         ));
+
+        return null;
     }
 
     /** Replace security-sensitive preview inputs with live server evidence. */
@@ -1580,7 +1670,7 @@ class AgentRunner
         AgentContext $context,
         ToolDefinition $definition,
         array $arguments,
-    ): array {
+    ): array|ToolResult {
         if ($definition->name === AdminTools::ASSIST_SERVER) {
             $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
             if ($server === null) {
@@ -1599,15 +1689,196 @@ class AgentRunner
                 throw new \RuntimeException('A file write cannot be attested without its target server and path.');
             }
 
-            // The model's original_content is never evidence. Replace it with
-            // content read directly from Wings before persisting or rendering
+            // original_content is deliberately absent from the model schema.
+            // Add content read directly from Wings before persisting or rendering
             // the approval, bounded to the endpoint's accepted file size.
-            $arguments['original_content'] = $this->files
-                ->setServer($target)
-                ->getContent($file, \Everest\Http\Requests\Api\Client\Servers\Files\WriteFileWithDiffRequest::MAX_CONTENT_BYTES);
+            try {
+                $liveContent = $this->files
+                    ->setServer($target)
+                    ->getContent($file, \Everest\Http\Requests\Api\Client\Servers\Files\WriteFileWithDiffRequest::MAX_CONTENT_BYTES);
+            } catch (DaemonConnectionException $exception) {
+                // Wings reports a missing path as 404. That is an expected
+                // refusal for an existing-file-only editor, not a failed agent
+                // turn. Other node failures still bubble to normal error
+                // handling because retrying later may genuinely work.
+                if ($exception->getStatusCode() !== 404) {
+                    throw $exception;
+                }
+
+                return $this->missingTextFileRecovery(
+                    'file_missing',
+                    sprintf('The target text file "%s" does not exist. files_write only edits an existing text file and made no change.', $file),
+                    $file,
+                );
+            }
+
+            if (!$this->isUtf8Text($liveContent)) {
+                return $this->unsupportedFileWrite(
+                    sprintf('The live target "%s" contains binary bytes or is not valid UTF-8 text. files_write cannot safely edit it, and made no change.', $file),
+                );
+            }
+
+            $arguments['original_content'] = $liveContent;
         }
 
         return $arguments;
+    }
+
+    /** Enforce the same positive text-file contract as the panel diff service. */
+    protected function fileWriteProposalRefusal(string $file, string $content): ?ToolResult
+    {
+        $path = trim($file);
+
+        if ($path === '') {
+            return ToolResult::error(
+                'invalid_arguments',
+                'files_write needs the exact path of an existing text file.',
+                retryable: true,
+                next: 'Read or list the relevant directory, then call files_write once with the exact existing text-file path.',
+            );
+        }
+
+        if (!$this->fileDiffs->isTextFile($path)) {
+            $detail = sprintf('The target "%s" is not an allowlisted text-file type. files_write cannot create, upload, download, reconstruct or restore binary, database, world-region, archive or unknown file types, and made no change.', $path);
+
+            // The positive text allowlist above is the guard. This narrower
+            // classification only chooses useful recovery guidance: a missing
+            // server jar/archive/executable can indicate an incomplete install,
+            // while a PNG, world region or database says no such thing.
+            return $this->isRuntimeBinaryOrArchive($path)
+                ? $this->binaryFileWriteRecovery($detail)
+                : $this->unsupportedFileWrite($detail);
+        }
+
+        return $this->isUtf8Text($content)
+            ? null
+            : $this->unsupportedFileWrite(
+                sprintf('The proposed replacement for "%s" contains binary control bytes or is not valid UTF-8 text. files_write refused it and made no change.', $path),
+            );
+    }
+
+    /** Require valid UTF-8 and exclude controls that identify binary payloads. */
+    protected function isUtf8Text(string $content): bool
+    {
+        if (!mb_check_encoding($content, 'UTF-8')) {
+            return false;
+        }
+
+        // Horizontal tab and CR/LF are the only C0 controls ordinary panel
+        // configuration files need. NUL, the remaining C0 range, DEL and C1
+        // controls are strong binary signatures even when the bytes happen to
+        // form valid UTF-8.
+        return preg_match('/[\x{0000}-\x{0008}\x{000B}\x{000C}\x{000E}-\x{001F}\x{007F}-\x{009F}]/u', $content) === 0;
+    }
+
+    /** Whether a refused path plausibly represents installation/runtime media. */
+    protected function isRuntimeBinaryOrArchive(string $file): bool
+    {
+        return preg_match('/\.(?:7z|apk|bin|bz2|class|deb|dll|dmg|ear|exe|gz|img|iso|jar|lz4|msi|rar|rpm|so(?:\.\d+)*|tar|tgz|war|wasm|xz|zip|zst)$/i', $file) === 1;
+    }
+
+    /** Refuse generic non-text data without inventing an install diagnosis. */
+    protected function unsupportedFileWrite(string $detail): ToolResult
+    {
+        return ToolResult::error(
+            code: 'binary_write_unsupported',
+            detail: $detail,
+            retryable: false,
+            next: 'Tell the user no change was made. Do not retry files_write with this target or content; it only edits allowlisted UTF-8 text files. Use an appropriate manual panel workflow outside the assistant if non-text data must be managed.',
+        );
+    }
+
+    /** Recovery for binary targets and incomplete runtime installations. */
+    protected function binaryFileWriteRecovery(string $detail): ToolResult
+    {
+        return ToolResult::error(
+            code: 'binary_write_unsupported',
+            detail: $detail,
+            retryable: false,
+            requires: [
+                [
+                    'action' => 'restore_backup',
+                    'manual' => true,
+                    'when' => 'Use a known-good backup when a required binary is damaged or existing server data must be preserved.',
+                ],
+                [
+                    'action' => 'server_reinstall',
+                    'manual' => true,
+                    'when' => 'Use the panel Reinstall action when the installation is incomplete or no suitable backup exists.',
+                ],
+            ],
+            next: 'Tell the user no change was made. For a missing or damaged required runtime binary, recommend restoring a known-good backup first when data must be preserved; otherwise recommend the panel Reinstall action. Do not retry files_write or claim the file was restored.',
+        );
+    }
+
+    /** Recovery for an ordinary missing text path, never an install diagnosis. */
+    protected function missingTextFileRecovery(string $code, string $detail, string $file): ToolResult
+    {
+        $parent = dirname($file);
+        if ($parent === '.' || $parent === DIRECTORY_SEPARATOR) {
+            $parent = '/';
+        }
+
+        return ToolResult::error(
+            code: $code,
+            detail: $detail,
+            retryable: false,
+            requires: [[
+                'action' => 'verify_path',
+                'tool' => 'files_list',
+                'directory' => $parent,
+            ]],
+            next: 'List the parent directory and verify the exact path. files_write cannot create a missing file. Do not retry the unchanged path; if the intended text file truly does not exist, tell the user it must be created or uploaded manually outside the assistant.',
+        );
+    }
+
+    /** Close the live tool row and feed a policy refusal back to the model. */
+    protected function pushToolRefusal(
+        AgentContext $context,
+        ToolCallData $call,
+        ToolDefinition $definition,
+        ToolResult $result,
+        callable $emit,
+    ): void {
+        $emit(AgentEvent::toolResult(
+            $call->id,
+            $definition->name,
+            false,
+            $result->summary(),
+            outcome: $result->outcome,
+        ));
+
+        $this->pushToolResult($context, $call, $result);
+    }
+
+    /**
+     * Refuse a code-enforced invariant once with corrective guidance, then stop
+     * if the very next call attempts the same class of bypass with new values.
+     *
+     * @param callable(AgentEvent): void $emit
+     */
+    protected function refuseInvariant(
+        AgentContext $context,
+        ToolCallData $call,
+        ToolDefinition $definition,
+        ToolResult $result,
+        string $family,
+        callable $emit,
+    ): string {
+        $verdict = $this->progress->evaluateInvariant($context, $family, $result);
+
+        $this->pushToolRefusal($context, $call, $definition, $verdict['result'], $emit);
+
+        if (!$verdict['halt']) {
+            return 'continued';
+        }
+
+        $context->push(AiMessage::assistant(
+            'I stopped because I repeatedly tried to use an identifier that no listing had verified.'
+        ));
+        $emit(AgentEvent::done('no_progress'));
+
+        return 'suspended';
     }
 
     /**

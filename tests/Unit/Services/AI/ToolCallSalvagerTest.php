@@ -152,6 +152,30 @@ class ToolCallSalvagerTest extends TestCase
         $this->assertFalse($this->salvager->looksLikeAttempt(null));
     }
 
+    public function testDetectsAnUnfinishedOperationalIntentionWithoutTreatingAnswersAsPromises(): void
+    {
+        foreach ([
+            'Next, I will check the startup configuration.',
+            "First, I'll inspect the server status.",
+            'Let me read the current properties file.',
+            'Proceeding to inspect the startup variables.',
+            'Continuing with the investigation.',
+        ] as $text) {
+            $this->assertTrue($this->salvager->looksLikeUnfinishedIntent($text), $text);
+        }
+
+        foreach ([
+            'The EULA has not been accepted yet.',
+            'You will need to restart the server for this change to apply.',
+            'I cannot inspect the server because access was denied.',
+            'I can check that too if you want.',
+            'Restore a backup first, otherwise use the panel Reinstall action.',
+            null,
+        ] as $text) {
+            $this->assertFalse($this->salvager->looksLikeUnfinishedIntent($text), (string) $text);
+        }
+    }
+
     public function testRepairSchemaConstrainsToOfferedToolNames(): void
     {
         $schema = $this->salvager->repairSchema($this->tools);

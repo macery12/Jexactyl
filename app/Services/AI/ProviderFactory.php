@@ -125,7 +125,9 @@ class ProviderFactory
     {
         $prompt = trim((string) ($this->setting('system_prompt', '') ?: ''));
 
-        return $prompt !== '' ? $prompt : trim((string) config('modules.ai.system_prompt', ''));
+        return $prompt !== ''
+            ? $prompt
+            : trim((string) config('modules.ai.default_system_prompt', config('modules.ai.system_prompt', '')));
     }
 
     protected function setting(string $key, mixed $default = null): mixed

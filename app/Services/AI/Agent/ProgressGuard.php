@@ -106,6 +106,46 @@ class ProgressGuard
     }
 
     /**
+     * Give the model one chance to correct a violated runtime invariant.
+     *
+     * Unlike ordinary repeated calls, the arguments are deliberately absent
+     * from this signature. Changing product 101 to 102 does not make an
+     * unevidenced identifier legitimate. A successful prerequisite call lands
+     * a normal signature between violations and therefore resets the sequence.
+     *
+     * @return array{result: ToolResult, halt: bool}
+     */
+    public function evaluateInvariant(
+        AgentContext $context,
+        string $family,
+        ToolResult $result,
+    ): array {
+        $signature = hash('sha256', implode('|', [
+            'invariant',
+            $family,
+            $result->code,
+            $context->stateVersion,
+        ]));
+        $lastKey = array_key_last($context->callSignatures);
+        $repeated = $lastKey !== null && $context->callSignatures[$lastKey] === $signature;
+
+        $context->callSignatures[] = $signature;
+
+        if (!$repeated) {
+            return ['result' => $result, 'halt' => false];
+        }
+
+        return [
+            'result' => ToolResult::error(
+                'repeated_invariant_violation',
+                'A second consecutive call tried to bypass the same identifier-evidence requirement. '
+                    . 'The turn was stopped before another request reached the panel.',
+            ),
+            'halt' => true,
+        ];
+    }
+
+    /**
      * Bump the state version, so identical calls stop counting as repetition.
      * Called wherever the world may have moved — a successful mutation, a phase
      * transition, an answered question. Generosity is the safe direction: a

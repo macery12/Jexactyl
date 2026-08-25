@@ -103,6 +103,25 @@ class AdminAgentScopeTest extends TestCase
         $this->assertContains('admin_coupon_create', $names);
     }
 
+    public function testCouponCreationRequiresAnExplicitPurchaseScope(): void
+    {
+        $definition = $this->registry($this->authorizer([], owner: true))->find('admin_coupon_create');
+
+        $this->assertContains('allowed_for', $definition->parameters['required']);
+    }
+
+    public function testAssistGatewaysCarryTheIncidentRecoveryBoundariesAtDecisionTime(): void
+    {
+        $registry = $this->registry($this->authorizer([], owner: true));
+        $open = $registry->find('admin_assist_server');
+        $escalate = $registry->find('admin_assist_allow_writes');
+
+        $this->assertStringContainsString('owner has several', $open->description);
+        $this->assertStringContainsString('never choose from its name, egg, or software', $open->description);
+        $this->assertStringContainsString('missing jar', $escalate->description);
+        $this->assertStringContainsString('server reinstall and stop', $escalate->description);
+    }
+
     /**
      * Host-handled tools belong to neither surface and must appear on both.
      */
@@ -166,7 +185,7 @@ class AdminAgentScopeTest extends TestCase
         $this->assertStringNotContainsString('/plugins', $prompt);
         // It can now get inside a customer's server, but only by asking for a
         // session that an administrator approves — never by default.
-        $this->assertStringContainsString('cannot see inside a customer\'s server by default', $prompt);
+        $this->assertStringContainsString('cannot inspect a customer\'s server by default', $prompt);
     }
 
     public function testScopeIsDerivedFromTheBoundServer(): void

@@ -95,6 +95,38 @@ class ToolCallSalvager
     }
 
     /**
+     * Whether plain prose promises an immediate tool-backed action but contains
+     * no call. Kept deliberately narrow: ordinary answers and recommendations
+     * must remain valid terminal responses, while high-confidence first-person
+     * commitments such as "I will inspect" must not be accepted as completion.
+     */
+    public function looksLikeUnfinishedIntent(?string $text): bool
+    {
+        if ($text === null || trim($text) === '') {
+            return false;
+        }
+
+        $tail = mb_substr(trim($text), -800);
+        $actions = 'check|inspect|look(?:\s+at|\s+up)?|list|read|verify|open|fetch|find|test|review|'
+            . 'diagnose|investigate|examine|query|search|load|run|update|change|edit|write|restart|'
+            . 'start|stop|create|delete|compare|analy[sz]e';
+
+        return preg_match(
+            '~\b(?:next\s*,?\s*|first\s*,?\s*|then\s*,?\s*)?(?:i|we)'
+                . '(?:\s+(?:will|am\s+going\s+to|are\s+going\s+to|need\s+to|shall)|[\'’]ll)\s+'
+                . '(?:now\s+)?(?:' . $actions . ')\b~i',
+            $tail,
+        ) === 1 || preg_match(
+            '~\b(?:let\s+me|allow\s+me\s+to)\s+(?:now\s+)?(?:' . $actions . ')\b~i',
+            $tail,
+        ) === 1 || preg_match(
+            '~\b(?:proceeding|continuing)\s+(?:now\s+)?(?:to|with)\s+(?:the\s+)?'
+                . '(?:' . $actions . '|inspection|review|diagnosis|investigation|analysis)\b~i',
+            $tail,
+        ) === 1;
+    }
+
+    /**
      * All decoded JSON objects found in the text, most-specific source first.
      *
      * @return array<int, array>

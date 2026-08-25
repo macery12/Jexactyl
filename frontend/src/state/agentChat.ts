@@ -793,27 +793,52 @@ export function createAgentChatStore(
                 case 'tool_result':
                     set(state => {
                         const matching = latestOpenToolIndex(state.entries, event.id);
+                        const status: Extract<ChatEntry, { kind: 'tool' }>['status'] =
+                            event.outcome === 'partial' ? 'partial' : event.ok ? 'ok' : 'error';
 
-                        return {
-                            activity: { phase: 'waiting', startedAt: Date.now() },
-                            entries: state.entries.map((entry, index) =>
-                                index === matching && entry.kind === 'tool'
-                                    ? {
-                                          ...entry,
-                                          status:
-                                              event.outcome === 'partial'
-                                                  ? 'partial'
-                                                  : event.ok
-                                                    ? 'ok'
-                                                    : 'error',
+                        // A salvaged call, or one rejected before its ordinary
+                        // announcement, can legitimately produce a result with
+                        // no pending/running row. The result is still evidence
+                        // and must not disappear from the transcript. Its args
+                        // and risk were never announced, so represent neither
+                        // as facts the client does not have.
+                        const entries =
+                            matching !== -1
+                                ? state.entries.map((entry, index) =>
+                                      index === matching && entry.kind === 'tool'
+                                          ? {
+                                                ...entry,
+                                                status,
+                                                summary: event.summary,
+                                                result: event.result,
+                                                durationMs: event.duration_ms,
+                                                batchParentCallId:
+                                                    event.batch_parent_id ?? entry.batchParentCallId,
+                                                batchIndex: event.batch_index ?? entry.batchIndex,
+                                            }
+                                          : entry,
+                                  )
+                                : [
+                                      ...state.entries,
+                                      {
+                                          kind: 'tool' as const,
+                                          key: nextKey(),
+                                          callId: event.id,
+                                          tool: event.tool,
+                                          args: {},
+                                          risk: 'safe' as const,
+                                          status,
                                           summary: event.summary,
                                           result: event.result,
                                           durationMs: event.duration_ms,
-                                          batchParentCallId: event.batch_parent_id ?? entry.batchParentCallId,
-                                          batchIndex: event.batch_index ?? entry.batchIndex,
-                                      }
-                                    : entry,
-                            ),
+                                          batchParentCallId: event.batch_parent_id,
+                                          batchIndex: event.batch_index,
+                                      },
+                                  ];
+
+                        return {
+                            activity: { phase: 'waiting', startedAt: Date.now() },
+                            entries,
                         };
                     });
                     break;

@@ -743,29 +743,35 @@ class AssistSessionTest extends TestCase
     |--------------------------------------------------------------------------
     */
 
-    public function testThePromptNamesTheServerAndItsAccessLevel(): void
+    public function testRuntimeContextNamesTheServerAndInstructionsNameTheEscalationTool(): void
     {
         $user = User::factory()->make(['id' => 7, 'username' => 'support-jo']);
 
         $context = new AgentContext($user, null, 'turn-1');
         $context->bindAssist($this->binding(), $this->server());
 
-        $prompt = app(SystemPromptBuilder::class)->build($context);
+        $builder = app(SystemPromptBuilder::class);
+        $instructions = $builder->build($context);
+        $runtime = $builder->runtimeContext($context);
 
-        $this->assertStringContainsString('Survival SMP', $prompt);
-        $this->assertStringContainsString('read only', $prompt);
-        $this->assertStringContainsString('Ticket: #2', $prompt);
-        $this->assertStringContainsString('admin_assist_allow_writes', $prompt);
+        $this->assertStringContainsString('Survival SMP', $runtime);
+        $this->assertStringContainsString('read only', $runtime);
+        $this->assertStringContainsString('"ticket_id": 2', $runtime);
+        $this->assertStringNotContainsString('Survival SMP', $instructions);
+        $this->assertStringContainsString('admin_assist_allow_writes', $instructions);
     }
 
     public function testThePromptSaysNothingAboutServersWhenNoSessionIsOpen(): void
     {
         $user = User::factory()->make(['id' => 7, 'username' => 'support-jo']);
 
-        $prompt = app(SystemPromptBuilder::class)->build(new AgentContext($user, null, 'turn-1'));
+        $context = new AgentContext($user, null, 'turn-1');
+        $builder = app(SystemPromptBuilder::class);
+        $prompt = $builder->build($context);
 
         $this->assertStringNotContainsString('Survival SMP', $prompt);
         $this->assertStringNotContainsString('read and write', $prompt);
+        $this->assertStringNotContainsString('Survival SMP', $builder->runtimeContext($context));
         // It is still told how to get there, so it does not simply give up on a
         // ticket about a server.
         $this->assertStringContainsString('admin_assist_server', $prompt);

@@ -149,6 +149,32 @@ export function toolLabel(tool: string): string {
     return td(`server.ai.tools.${tool}`, tool.replace(/_/g, ' '));
 }
 
+export type ToolLifecycleStatus = 'pending' | 'running' | 'ok' | 'partial' | 'error';
+
+/**
+ * Label a transcript row without claiming that a mutation happened before its
+ * result proves it. Most historical labels are already neutral enough for
+ * every state; files_write is deliberately explicit because its old "Wrote"
+ * label appeared as soon as the model named the call, including while approval
+ * attestation was still running and after a failed write.
+ */
+export function toolLifecycleLabel(tool: string, status: ToolLifecycleStatus): string {
+    if (tool !== 'files_write') return toolLabel(tool);
+
+    switch (status) {
+        case 'pending':
+            return td('server.ai.tools.files_write.pending', 'Preparing file write');
+        case 'running':
+            return td('server.ai.tools.files_write.running', 'Attempting file write');
+        case 'ok':
+            return td('server.ai.tools.files_write.ok', 'Wrote');
+        case 'partial':
+            return td('server.ai.tools.files_write.partial', 'File write incomplete');
+        case 'error':
+            return td('server.ai.tools.files_write.error', 'File write failed');
+    }
+}
+
 /**
  * The one argument worth showing on a collapsed row.
  */

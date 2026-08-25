@@ -94,6 +94,46 @@ class ProgressGuardTest extends TestCase
         $this->assertSame('repeated_call', $verdict['result']->code);
     }
 
+    public function testChangingAGuessedIdentifierDoesNotBypassAnInvariant(): void
+    {
+        $guard = $this->guard();
+        $context = $this->context();
+
+        $first = $guard->evaluateInvariant(
+            $context,
+            'identifier_evidence:admin_product_view',
+            ToolResult::error('unverified_identifier', 'Product 101 was not listed.'),
+        );
+        $second = $guard->evaluateInvariant(
+            $context,
+            'identifier_evidence:admin_product_view',
+            ToolResult::error('unverified_identifier', 'Product 102 was not listed.'),
+        );
+
+        $this->assertFalse($first['halt']);
+        $this->assertTrue($second['halt']);
+        $this->assertSame('repeated_invariant_violation', $second['result']->code);
+    }
+
+    public function testARealPrerequisiteCallBreaksTheInvariantSequence(): void
+    {
+        $guard = $this->guard();
+        $context = $this->context();
+        $violation = ToolResult::error('unverified_identifier', 'Product was not listed.');
+
+        $guard->evaluateInvariant($context, 'identifier_evidence:admin_product_view', $violation);
+        $guard->evaluate($context, 'admin_products_list', ['category' => '3'], $this->ok([
+            'items' => [['id' => 17]],
+        ]));
+        $afterEvidence = $guard->evaluateInvariant(
+            $context,
+            'identifier_evidence:admin_product_view',
+            $violation,
+        );
+
+        $this->assertFalse($afterEvidence['halt']);
+    }
+
     /**
      * Argument order is not identity.
      *

@@ -67,7 +67,7 @@ class CustomerAgentFeatureGateTest extends TestCase
 
         try {
             foreach ([false, true] as $owner) {
-                foreach (['start', 'pending', 'turnStatus', 'decide'] as $method) {
+                foreach (['start', 'activeTurn', 'turnStatus', 'decide'] as $method) {
                     $request = Request::create('/api/client/servers/server/ai/agent', 'POST');
                     $request->setUserResolver(fn () => $this->user($owner));
 
