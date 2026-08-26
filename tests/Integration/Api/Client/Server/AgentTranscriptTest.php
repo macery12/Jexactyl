@@ -496,15 +496,73 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         config()->set('modules.ai.concurrency.slots', 1);
         config()->set('modules.ai.concurrency.per_user', 1);
         config()->set('modules.ai.concurrency.queue_depth', 5);
+        config()->set('modules.ai.endpoint', 'http://127.0.0.1:1/v1');
+        config()->set('modules.ai.model', 'test-model');
         \Everest\Models\Setting::forget('settings::modules:ai:provider');
+        \Everest\Models\Setting::forget('settings::modules:ai:endpoint');
+        \Everest\Models\Setting::forget('settings::modules:ai:model');
         \Everest\Models\Setting::forget('settings::modules:ai:concurrency:slots');
         \Everest\Models\Setting::forget('settings::modules:ai:concurrency:per_user');
         \Everest\Models\Setting::forget('settings::modules:ai:concurrency:queue_depth');
+
+        // Readiness is asked before admission, and it is the one gate on this
+        // path that genuinely wants a host. Marked reachable rather than
+        // stubbed, because that is exactly what a returning call does in
+        // production — these tests are about the queue, not about the network.
+        $this->app->make(\Everest\Services\AI\Inference\ProviderReadiness::class)->markReachable(
+            $this->app->make(\Everest\Services\AI\ProviderFactory::class)->config(),
+        );
 
         $gate = $this->app->make(\Everest\Services\AI\Inference\InferenceGate::class);
         $this->assertTrue($gate->admit('somebody-else-entirely')->granted());
 
         return $gate;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Readiness — refusing a turn nothing can answer
+    |--------------------------------------------------------------------------
+    */
+
+    public function testATurnIsRefusedWithoutRecordingAnythingWhenTheProviderIsOffline(): void
+    {
+        [$user, $server] = $this->generateTestAccount();
+        $this->busyGate();
+
+        $this->app->make(\Everest\Services\AI\Inference\ProviderReadiness::class)->markUnreachable(
+            $this->app->make(\Everest\Services\AI\ProviderFactory::class)->config(),
+            \Everest\Services\AI\Inference\ProviderReadiness::UNREACHABLE_MESSAGE,
+        );
+
+        $before = microtime(true);
+        $response = $this->actingAs($user)->postJson(
+            "/api/client/servers/{$server->uuid}/ai/agent",
+            ['query' => 'why is my server crashing'],
+        );
+
+        $response->assertStatus(503);
+
+        // The sentence the composer puts in the transcript. It travels in the
+        // panel's own envelope because the stream never opened — there is no
+        // error frame to carry it, and a bare 503 would reach the reader as
+        // "Request failed (503)".
+        $this->assertSame(
+            \Everest\Services\AI\Inference\ProviderReadiness::UNREACHABLE_MESSAGE,
+            $response->json('errors.0.detail'),
+        );
+
+        // Refused from a cached verdict, so no socket was opened to discover
+        // an outage that was already known.
+        $this->assertLessThan(2.0, microtime(true) - $before);
+
+        // And nothing happened. This is why the check sits before admission
+        // rather than inside the turn: no conversation to reopen showing a
+        // question that was never asked, no usage row stuck on `running`, and
+        // no inference slot held by a turn that cannot start.
+        $this->assertSame(0, AiConversation::query()->where('user_id', $user->id)->count());
+        $this->assertSame(0, \Everest\Models\AiUsageLog::query()->where('user_id', $user->id)->count());
+        $this->assertSame(0, AiMessage::query()->count());
     }
 
     /** @return array<int, array<string, mixed>> */

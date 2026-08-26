@@ -191,6 +191,34 @@ class PrerequisiteChainTest extends TestCase
         );
     }
 
+    /**
+     * ...and only a subject. Outside a session there is nothing to stray from.
+     *
+     * Requiring one unconditionally was not a boundary, it was a cycle. The
+     * `tickets` table has no body column, so everything a customer wrote lives
+     * in `ticket_messages`; a ticket whose `server_id` is null names its server
+     * only in that conversation. The agent therefore had to open an approved
+     * session on the server it was trying to identify from the conversation it
+     * could not read — and what that looked like from outside was an assistant
+     * that listed tickets over and over and never learned what any said.
+     *
+     * The listing and the view are already unrestricted here under the same
+     * `tickets.read` capability, so gating the one tool that carries the text
+     * bought nothing either.
+     */
+    public function testTicketMessagesAreReadableOnTheAdminSurfaceWithNoSessionOpen(): void
+    {
+        $this->assertTrue(
+            $this->resolver()->availableNow($this->adminContext(), $this->definition('admin_ticket_messages')),
+        );
+
+        // The tool that carries the text must be offered wherever the tool that
+        // proves the ticket exists is. A set with one and not the other is the
+        // deadlock in a different place.
+        $this->assertContains('admin_ticket_messages', WorkingSet::PREFERRED[WorkingSet::PHASE_ADMIN]);
+        $this->assertContains('admin_ticket_view', WorkingSet::PREFERRED[WorkingSet::PHASE_ADMIN]);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Discoverable is not usable

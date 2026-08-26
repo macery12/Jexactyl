@@ -12,6 +12,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Exception\RequestException;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Contracts\AiProvider;
+use Everest\Services\AI\Inference\ProviderReadiness;
 use Everest\Exceptions\Service\AI\AIServiceException;
 
 abstract class AbstractProvider implements AiProvider
@@ -202,6 +203,8 @@ abstract class AbstractProvider implements AiProvider
             throw $this->wrapTransportError($e);
         }
 
+        $this->noteReachable();
+
         $decoded = json_decode($response->getBody()->getContents(), true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
@@ -234,23 +237,59 @@ abstract class AbstractProvider implements AiProvider
             throw $this->wrapTransportError($e);
         }
 
+        $this->noteReachable();
+
         return $response->getBody();
     }
 
     protected function wrapTransportError(GuzzleException $e): AIServiceException
     {
+        $status = $e instanceof RequestException && $e->hasResponse()
+            ? $e->getResponse()->getStatusCode()
+            : null;
+
         // Provider errors are an untrusted data source. Bodies and exception
         // messages can echo the complete prompt, tool results or credentials,
         // so neither belongs in a long-lived operational log or a browser error.
         Log::error('AI provider transport error', array_filter([
             'provider' => $this->providerConfig->provider,
-            'status' => $e instanceof RequestException && $e->hasResponse()
-                ? $e->getResponse()->getStatusCode()
-                : null,
+            'status' => $status,
             'exception' => $e::class,
         ], static fn (mixed $value): bool => $value !== null));
 
+        // A request that never got a response is a service that is not there; a
+        // 5xx is one that is there and cannot serve. Either way the next person
+        // to send should be told immediately instead of waiting out the same
+        // timeout again, so this failure stands in for a probe.
+        //
+        // A 4xx is the opposite, and recording it as reachable matters as much:
+        // the endpoint answered. Not every OpenAI-compatible server implements
+        // `/models`, and a 404 there must not be allowed to read as an outage
+        // and lock the assistant out of a host that is running perfectly well.
+        if ($status === null || $status >= 500) {
+            $this->noteUnreachable();
+        } else {
+            $this->noteReachable();
+        }
+
         return new AIServiceException('Failed to communicate with AI service.');
+    }
+
+    /**
+     * A call that came back is the cheapest readiness evidence there is, and
+     * recording it is what keeps an active conversation off the probe path.
+     */
+    protected function noteReachable(): void
+    {
+        app(ProviderReadiness::class)->markReachable($this->providerConfig);
+    }
+
+    protected function noteUnreachable(): void
+    {
+        app(ProviderReadiness::class)->markUnreachable(
+            $this->providerConfig,
+            ProviderReadiness::UNREACHABLE_MESSAGE,
+        );
     }
 
     /**
@@ -383,6 +422,8 @@ abstract class AbstractProvider implements AiProvider
         } catch (GuzzleException $e) {
             throw $this->wrapTransportError($e);
         }
+
+        $this->noteReachable();
 
         $decoded = json_decode($response->getBody()->getContents(), true);
 

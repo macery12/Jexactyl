@@ -82,6 +82,79 @@ class AssistSessionTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
+    | Naming the target
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * A server reference the model made up must fail the call, not the turn.
+     *
+     * Observed: asked about a ticket that named no server, the assistant said it
+     * needed an id — and then answered itself, calling `admin_assist_server`
+     * with `server: "ticket 4"`. Attestation could not resolve that, threw, and
+     * the throw unwound the whole turn: the card rendered with no result and the
+     * conversation ended on "The AI ran into a problem. Please try again.",
+     * which tells nobody that the fix was to name a real server.
+     *
+     * `suspend()` has always had a channel for this — a returned ToolResult
+     * becomes an ordinary failed call the model reads and retries from. This is
+     * the assertion that the assist path uses it.
+     */
+    public function testAnUnresolvableServerReferenceFailsTheCallRatherThanTheTurn(): void
+    {
+        $authorizer = \Mockery::mock(AssistAuthorizer::class);
+        $authorizer->shouldReceive('resolveServer')->andReturn(null);
+
+        $result = $this->attest($authorizer, ['server' => 'ticket 4', 'reason' => 'Diagnosing startup issues']);
+
+        $this->assertInstanceOf(\Everest\Services\AI\Tools\ToolResult::class, $result);
+        $this->assertFalse($result->ok);
+        $this->assertTrue($result->retryable, 'Naming a real server is a recoverable next step.');
+
+        // The reference is quoted back, because "no server matches" is unhelpful
+        // when the model cannot see what it sent.
+        $this->assertStringContainsString('ticket 4', $result->detail);
+
+        // And it is told where a real one comes from, rather than being left to
+        // guess again — the failure mode that produced this in the first place.
+        $this->assertSame('admin_servers_list', $result->requires[0]['tool']);
+    }
+
+    public function testAResolvableReferenceIsAttestedToTheImmutableUuid(): void
+    {
+        $server = $this->server();
+        $authorizer = \Mockery::mock(AssistAuthorizer::class);
+        $authorizer->shouldReceive('resolveServer')->andReturn($server);
+
+        $attested = $this->attest($authorizer, ['server' => '14', 'reason' => 'Ticket #4']);
+
+        $this->assertIsArray($attested);
+
+        // A numeric id is useful model input but not a durable authorization
+        // identity: what the card and the sealed grant name is the uuid.
+        $this->assertSame($server->uuid, $attested['server']);
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    private function attest(AssistAuthorizer $authorizer, array $arguments): mixed
+    {
+        $runner = (new \ReflectionClass(AgentRunner::class))->newInstanceWithoutConstructor();
+        (new \ReflectionProperty(AgentRunner::class, 'assist'))->setValue($runner, $authorizer);
+
+        $context = new AgentContext(user: new User(), server: null, turnId: 'a-turn');
+
+        return (new \ReflectionMethod(AgentRunner::class, 'attestApprovalArguments'))->invoke(
+            $runner,
+            $context,
+            $this->registry($this->authorizer([AdminRole::SERVERS_ASSIST]))->find(AdminTools::ASSIST_SERVER),
+            $arguments,
+        );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | The ambient window
     |--------------------------------------------------------------------------
     */

@@ -14,6 +14,7 @@ use Everest\Services\Email\EmailRedactor;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\AI\Inference\ProviderReadiness;
 use Everest\Http\Requests\Api\Application\Intelligence;
 use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
@@ -183,6 +184,20 @@ class IntelligenceController extends ApplicationApiController
         }
 
         Cache::put($cacheKey, $result, 300);
+
+        // The assistant's send-path gate reads the same reachability from its
+        // own short-lived cache. An operator who has just fixed an endpoint and
+        // pressed Test is entitled to have that answer count immediately, rather
+        // than being told the assistant is offline for another fifteen seconds
+        // by a verdict they have visibly superseded.
+        $readiness = app(ProviderReadiness::class);
+        $config = $this->factory->config();
+
+        if ($result['status'] === 'ok') {
+            $readiness->markReachable($config);
+        } else {
+            $readiness->markUnreachable($config, ProviderReadiness::UNREACHABLE_MESSAGE);
+        }
 
         return response()->json($result, $result['status'] === 'ok' ? 200 : 502);
     }

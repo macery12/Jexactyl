@@ -31,6 +31,7 @@ use Everest\Services\AI\Agent\ApprovalPreview;
 use Everest\Services\AI\Agent\AssistAuthorizer;
 use Everest\Services\AI\Agent\TurnCancellations;
 use Everest\Services\AI\Inference\InferenceGate;
+use Everest\Services\AI\Inference\ProviderReadiness;
 use Everest\Services\AI\Support\AiBudgetReservation;
 use Everest\Services\AI\Support\AiTurnUsageRecorder;
 use Everest\Exceptions\Service\AI\AIServiceException;
@@ -280,6 +281,31 @@ trait HandlesAgentTurns
         }
 
         return $query->firstOrFail();
+    }
+
+    /**
+     * Refuse a turn the configured provider cannot possibly serve.
+     *
+     * Asked before admission, before the conversation is opened and before the
+     * message is recorded, which is the entire point: a turn refused here has
+     * changed nothing. Everything past this line is expensive to undo — an
+     * inference slot, a budget reservation, a row in somebody's transcript and a
+     * queued job — and the failure it prevents used to spend all of them and
+     * then hang, because a worker cannot tell a model that is thinking from an
+     * endpoint that is switched off.
+     *
+     * 503 rather than an error frame inside the stream. The stream has not
+     * opened; the client reads `errors[0].detail` off a plain JSON body and puts
+     * the sentence in the transcript, which is how the queue's own refusals
+     * already reach the reader.
+     */
+    protected function assertProviderReady(): void
+    {
+        $state = app(ProviderReadiness::class)->state();
+
+        if (!$state['ready']) {
+            abort(503, (string) $state['reason']);
+        }
     }
 
     /**

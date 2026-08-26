@@ -101,6 +101,13 @@ class WorkingSet
             'admin_tickets_list',
             'admin_activity',
             'admin_ticket_view',
+            // Beside the view, because on this surface the two are one action.
+            // `admin_ticket_view` returns metadata and nothing else — `tickets`
+            // has no body column — so a set holding the view without the
+            // messages offers a way to learn that a ticket exists and no way to
+            // learn what it says. That is what produced an assistant that listed
+            // tickets repeatedly and never picked up the server they were about.
+            'admin_ticket_messages',
             AdminTools::ASSIST_SERVER,
             'admin_products_list',
             'admin_orders_list',

@@ -119,12 +119,12 @@
       "tags": ["wrong_target", "invented_evidence"]
     },
     {
-      "id": "ticket_messages_follow_ticket_bound_assist",
+      "id": "ticket_messages_are_read_before_the_target_is_chosen",
       "surface": "admin",
       "request": "Read ticket 56 and diagnose it.",
-      "given": ["admin_ticket_messages requires a ticket-bound assist session"],
-      "expected": ["Read metadata", "Resolve server", "Open assist with ticket 56", "Read messages before diagnosis"],
-      "forbidden": ["Skip the messages", "Call messages before its prerequisite"],
+      "given": ["The tickets record holds no body text; the conversation is in admin_ticket_messages", "Ticket server_id is null"],
+      "expected": ["Read admin_ticket_view and admin_ticket_messages", "Resolve the server from what the conversation names or from the reporter's server list", "Open assist with the verified server id and ticket 56"],
+      "forbidden": ["Open an assist session before reading the conversation", "Diagnose from the title alone", "Re-list tickets instead of reading the one named"],
       "tags": ["sequencing"]
     },
     {

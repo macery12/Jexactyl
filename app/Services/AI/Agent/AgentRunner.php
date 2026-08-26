@@ -1688,9 +1688,38 @@ class AgentRunner
         $arguments = $this->restoreFileWriteArguments($context, $definition, $arguments);
 
         if ($definition->name === AdminTools::ASSIST_SERVER) {
-            $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
+            $reference = trim((string) ($arguments['server'] ?? ''));
+            $server = $this->assist->resolveServer($reference);
+
             if ($server === null) {
-                throw new \RuntimeException('An assist session cannot be approved without a live target server.');
+                // A refusal, not a throw. The reference is model input, and a
+                // model that has just asked which server is meant will sometimes
+                // answer itself — filling the argument with the ticket number,
+                // the customer's name, or the words it used to ask the question.
+                // Throwing turned that into a dead turn: the card rendered with
+                // no result, the whole conversation ended on "The AI ran into a
+                // problem", and the one thing nobody could tell from that is
+                // that the answer was simply to name a real server.
+                //
+                // Returned instead, `suspend()` hands it back as an ordinary
+                // failed call the model reads and can act on. It is the same
+                // condition `openAssist()` already refuses this way, which until
+                // now was unreachable — attestation ran first and threw.
+                return ToolResult::error(
+                    code: 'not_found',
+                    detail: sprintf(
+                        'No server matches "%s", so no session was opened and nobody was asked to approve one. '
+                        . 'A ticket id, a customer name, or a description of the server is not a server reference.',
+                        $reference,
+                    ),
+                    retryable: true,
+                    requires: [[
+                        'action' => 'list_servers',
+                        'tool' => 'admin_servers_list',
+                    ]],
+                    next: 'Call admin_servers_list, and use the numeric id or uuid of an exact entry from its result. '
+                        . 'If several belong to the customer and the ticket does not say which, ask them.',
+                );
             }
 
             // The card and authenticated grant name one immutable target. A

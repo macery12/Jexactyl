@@ -402,12 +402,19 @@ class AgentController extends ClientApiController
     }
 
     /**
-     * The agent needs three things: the module on, the agent feature on, and a
-     * model that can actually emit tool calls.
+     * The agent needs four things: the module on, the agent feature on, a
+     * provider that is actually answering, and a model that can emit tool calls.
+     *
+     * Reachability is asked first because it is both the cheapest question and
+     * the one the others quietly assume. `capabilities()` is answered from a
+     * cache measured in minutes — or, for a generic OpenAI-compatible endpoint,
+     * from a probe kept until an operator re-runs it — so on its own it will
+     * happily certify a model on a host that was unplugged an hour ago.
      */
     protected function assertAgentAvailable(Request $request): void
     {
         $this->assertAgentEnabled($request);
+        $this->assertProviderReady();
 
         $capabilities = $this->factory
             ->make()

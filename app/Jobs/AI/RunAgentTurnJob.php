@@ -23,6 +23,7 @@ use Everest\Services\AI\Agent\TurnAuthority;
 use Everest\Services\AI\Inference\InferenceGate;
 use Everest\Services\AI\Support\AiBudgetService;
 use Everest\Services\AI\Agent\WorkerRequestScope;
+use Everest\Services\AI\Inference\ProviderReadiness;
 use Everest\Http\Controllers\Api\Concerns\HandlesAgentTurns;
 
 /**
@@ -97,6 +98,21 @@ class RunAgentTurnJob extends Job implements ShouldQueue
         // have been for no longer has a session to read it in.
         if ($user === null || !$authority->stillHeld()) {
             $this->finishWithoutRunning('revoked', 'The session that started this turn is no longer valid.');
+
+            return;
+        }
+
+        // Asked again here, not only at acceptance. A turn can wait behind a
+        // backlog for minutes, and the provider it was admitted against may have
+        // gone away in between — in which case running it means holding an
+        // inference slot on a socket that will never answer while the composer
+        // spins. Nearly always a cache read: the accepting request populated it
+        // moments ago, and a busy worker pool refreshes it on every call that
+        // comes back.
+        $readiness = app(ProviderReadiness::class)->state();
+
+        if (!$readiness['ready']) {
+            $this->finishWithoutRunning('error', (string) $readiness['reason']);
 
             return;
         }

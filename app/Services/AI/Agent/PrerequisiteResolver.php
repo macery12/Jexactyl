@@ -159,7 +159,25 @@ class PrerequisiteResolver
             Prerequisite::SELECTED_SERVER => $context->server !== null || $bound,
             Prerequisite::READ_ASSIST => $context->server !== null || $bound,
             Prerequisite::WRITE_ASSIST => $context->server !== null || ($bound && $binding->writable),
-            Prerequisite::TICKET_CONTEXT => $bound && $binding->ticketId !== null,
+            // Only inside a live session. The rule is about staying on the
+            // subject a session was opened for, and outside one there is no
+            // subject to stray from — the administrator is on the admin surface,
+            // reading the panel's own records, where the ticket listing and the
+            // ticket view are already unrestricted under `tickets.read`.
+            //
+            // Requiring a session unconditionally was a deadlock rather than a
+            // boundary: `tickets` has no body column, so every word a customer
+            // wrote lives in `ticket_messages`. A ticket whose `server_id` is
+            // null — every ticket raised before that column existed — names its
+            // server only in the conversation, so the agent had to open an
+            // approved session on the server it was trying to identify *from*
+            // that conversation. The observable result was an assistant that
+            // listed tickets over and over and never knew what any of them said.
+            //
+            // Nothing is relaxed in-session: this still bites there, and
+            // `AgentRunner::assistSubjectAllows()` separately refuses a ticket
+            // that is not the bound one.
+            Prerequisite::TICKET_CONTEXT => !$bound || $binding->ticketId !== null,
             default => true,
         };
     }

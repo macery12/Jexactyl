@@ -474,6 +474,8 @@ class AiAgentController extends ApplicationApiController
             }
         }
 
+        $this->assertProviderReady();
+
         $capabilities = $this->factory
             ->make()
             ->capabilities($this->factory->model());
