@@ -13,6 +13,8 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
 {
     private ?string $storedProvider = null;
 
+    private ?ProviderConfig $storedConfig = null;
+
     public function rules(): array
     {
         return [
@@ -34,8 +36,6 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             'keep_alive' => 'nullable|string|in:5m,10m,30m,1h,4h,24h,-1',
             'warm' => 'nullable|bool',
             'system_prompt' => 'nullable|string|min:10|max:1000',
-            'feature_server_assistant' => 'nullable|bool',
-
             'agent.enabled' => 'nullable|bool',
             'agent.admin_enabled' => 'nullable|bool',
             'agent.reasoning' => 'nullable|bool',
@@ -121,7 +121,20 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             $normalized['privacy:categories'] = json_encode(array_values($normalized['privacy:categories']));
         }
 
-        return $this->resetProviderScopedSettings($normalized);
+        return $this->clearCredentialForEndpointChange(
+            $this->resetProviderScopedSettings($normalized)
+        );
+    }
+
+    /** Whether this request changes a credential-bearing network boundary. */
+    public function changesProviderConnection(): bool
+    {
+        $stored = $this->storedConfig();
+        $key = $this->input('key');
+
+        return ($this->has('key') && !is_bool($key))
+            || ($this->has('provider') && (string) $this->input('provider') !== $stored->provider)
+            || ($this->has('endpoint') && $this->normaliseEndpoint((string) $this->input('endpoint')) !== $this->normaliseEndpoint($stored->endpoint));
     }
 
     /**
@@ -155,6 +168,31 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
         return $normalized;
     }
 
+    /**
+     * A credential approved for one origin must never silently follow an
+     * endpoint edit to another host, port or transport. Re-entering the key makes
+     * that trust decision explicit.
+     *
+     * @param array<string, mixed> $normalized
+     *
+     * @return array<string, mixed>
+     */
+    private function clearCredentialForEndpointChange(array $normalized): array
+    {
+        if (!array_key_exists('endpoint', $normalized) || array_key_exists('key', $normalized)) {
+            return $normalized;
+        }
+
+        $oldOrigin = $this->endpointOrigin($this->storedConfig()->endpoint);
+        $newOrigin = $this->endpointOrigin((string) $normalized['endpoint']);
+
+        if ($oldOrigin !== $newOrigin) {
+            $normalized['key'] = '';
+        }
+
+        return $normalized;
+    }
+
     public function permission(): string
     {
         return AdminRole::AI_UPDATE;
@@ -167,6 +205,30 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
     private function storedProvider(): string
     {
         return $this->storedProvider ??= app(ProviderFactory::class)->provider();
+    }
+
+    private function storedConfig(): ProviderConfig
+    {
+        return $this->storedConfig ??= app(ProviderFactory::class)->config();
+    }
+
+    private function normaliseEndpoint(string $endpoint): string
+    {
+        return rtrim(strtolower(trim($endpoint)), '/');
+    }
+
+    private function endpointOrigin(string $endpoint): string
+    {
+        $parts = parse_url($endpoint);
+        if (!is_array($parts)) {
+            return '';
+        }
+
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $port = isset($parts['port']) ? ':' . (int) $parts['port'] : '';
+
+        return $scheme . '://' . $host . $port;
     }
 
     /**
@@ -210,6 +272,19 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             $parsed = parse_url($value);
             if (isset($parsed['user']) || str_contains($value, '@')) {
                 $fail('The endpoint URL contains invalid characters.');
+
+                return;
+            }
+
+            $host = strtolower((string) ($parsed['host'] ?? ''));
+            $officialHost = match ($provider) {
+                ProviderConfig::PROVIDER_OPENAI => 'api.openai.com',
+                ProviderConfig::PROVIDER_ANTHROPIC => 'api.anthropic.com',
+                default => null,
+            };
+
+            if ($officialHost !== null && $host !== $officialHost) {
+                $fail(sprintf('The %s provider must use its official API host.', $provider));
             }
         };
     }

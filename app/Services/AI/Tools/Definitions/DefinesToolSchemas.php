@@ -33,9 +33,22 @@ trait DefinesToolSchemas
         return ['type' => 'integer', 'description' => $description];
     }
 
-    private static function number(string $description): array
-    {
-        return ['type' => 'number', 'description' => $description];
+    private static function number(
+        string $description,
+        int|float|null $minimum = null,
+        int|float|null $maximum = null,
+    ): array {
+        $schema = ['type' => 'number', 'description' => $description];
+
+        if ($minimum !== null) {
+            $schema['minimum'] = $minimum;
+        }
+
+        if ($maximum !== null) {
+            $schema['maximum'] = $maximum;
+        }
+
+        return $schema;
     }
 
     private static function boolean(string $description): array

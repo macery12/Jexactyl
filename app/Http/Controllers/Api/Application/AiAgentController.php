@@ -398,22 +398,6 @@ class AiAgentController extends ApplicationApiController
         ]);
     }
 
-    public function toggleSaveConversation(AgentConversationRequest $request, int $conversationId): JsonResponse
-    {
-        $conversation = $this->ownConversations($request->user()->id)->findOrFail($conversationId);
-
-        $saved = !$conversation->is_saved;
-
-        $conversation->update([
-            'is_saved' => $saved,
-            // Saving pins a transcript; unsaving hands it back to the reaper
-            // with a fresh window rather than expiring it immediately.
-            'expires_at' => $saved ? null : now()->addDays(AiConversation::EXPIRY_DAYS),
-        ]);
-
-        return response()->json(['data' => ['id' => $conversation->id, 'is_saved' => $saved]]);
-    }
-
     /**
      * End the assist session a conversation has open.
      *
@@ -506,12 +490,13 @@ class AiAgentController extends ApplicationApiController
      */
     public function tools(GetIntelligenceRequest $request): JsonResponse
     {
-        $overrides = $this->riskGate->overrides();
         $disabled = $this->riskGate->disabledTools();
 
         $tools = [];
 
         foreach ($this->registry->all() as $definition) {
+            $configuredRisk = $this->riskGate->configuredRisk($definition);
+
             $tools[] = [
                 'name' => $definition->name,
                 'description' => $definition->description,
@@ -519,8 +504,8 @@ class AiAgentController extends ApplicationApiController
                 'category' => $definition->category(),
                 'method' => $definition->method,
                 'default_risk' => $definition->risk,
-                'risk' => $overrides[$definition->name] ?? $definition->risk,
-                'overridden' => isset($overrides[$definition->name]),
+                'risk' => $configuredRisk,
+                'overridden' => $configuredRisk !== $definition->risk,
                 'enabled' => !in_array($definition->name, $disabled, true),
                 // Both halves, so the catalogue does not read as though a tool
                 // requiring any one of three permissions requires none.
@@ -557,7 +542,20 @@ class AiAgentController extends ApplicationApiController
         // rest of their edits over a stale row would be the worse outcome.
         $overrides = array_filter(
             (array) $request->input('risk_overrides', []),
-            fn ($risk, $name) => in_array($name, $known, true) && in_array($risk, ToolDefinition::RISKS, true),
+            function ($risk, $name) use ($known): bool {
+                if (!in_array($name, $known, true) || !in_array($risk, ToolDefinition::RISKS, true)) {
+                    return false;
+                }
+
+                $definition = $this->registry->find($name);
+
+                // Store only a real hardening. Selecting the declared tier (or a
+                // lower one from a stale client) removes the override instead of
+                // persisting a policy value runtime must ignore.
+                return $definition !== null
+                    && $risk !== $definition->risk
+                    && $this->riskGate->max($definition->risk, $risk) === $risk;
+            },
             ARRAY_FILTER_USE_BOTH
         );
 
@@ -621,8 +619,8 @@ class AiAgentController extends ApplicationApiController
                 $payload['resident_models'] = $provider->runningModels();
             }
         } catch (\Throwable $e) {
-            Log::debug('AI inference probe failed: ' . $e->getMessage());
-            $payload['error'] = $e->getMessage();
+            Log::debug('AI inference probe failed.', ['exception' => $e::class]);
+            $payload['error'] = 'Unable to inspect the configured AI provider.';
         }
 
         return response()->json($payload);

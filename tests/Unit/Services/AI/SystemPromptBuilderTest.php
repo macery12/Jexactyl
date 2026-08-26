@@ -102,6 +102,21 @@ class SystemPromptBuilderTest extends TestCase
         $this->assertSame('I will inspect it.', $messages[3]->content);
     }
 
+    public function testAdminPromptTreatsZeroPriceAsFreeAndRequiresCapabilityDiscovery(): void
+    {
+        $user = User::factory()->make(['id' => 3]);
+        $user->setRelation('adminRole', null);
+        $tools = [new AiTool(SharedTools::SEARCH_TOOLS, 'Search', AiTool::emptySchema())];
+
+        $prompt = app(SystemPromptBuilder::class)->build(
+            new AgentContext($user, null, 'turn-free-product'),
+            $tools,
+        );
+
+        $this->assertStringContainsString('billing product price of 0 is valid', $prompt);
+        $this->assertStringContainsString('Before saying the panel cannot or does not support an action, search once', $prompt);
+    }
+
     public function testPrivacyGuidanceCannotTeachTheModelToInventAnUnmappedToken(): void
     {
         $user = new User();

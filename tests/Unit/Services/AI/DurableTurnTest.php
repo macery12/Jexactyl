@@ -3,7 +3,9 @@
 namespace Everest\Tests\Unit\Services\AI;
 
 use Everest\Models\User;
+use Everest\Models\ApiKey;
 use Everest\Tests\TestCase;
+use Illuminate\Http\Request;
 use Everest\Models\AiTurnEvent;
 use Everest\Models\UserSession;
 use Illuminate\Support\Facades\Cache;
@@ -11,6 +13,7 @@ use Everest\Services\AI\Agent\AgentEvent;
 use Everest\Services\AI\Agent\AgentEventLog;
 use Everest\Services\AI\Agent\TurnAuthority;
 use Everest\Services\AI\Inference\TurnLease;
+use Everest\Services\AI\Agent\WorkerRequestScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 /**
@@ -169,19 +172,71 @@ class DurableTurnTest extends TestCase
         $this->assertFalse($authority->stillHeld());
     }
 
-    /**
-     * A turn started with an API key has no session to revoke, so the account's
-     * own state is the only thing left to check — and must still be checked.
-     */
-    public function testAKeylessTurnStillFailsOnASuspendedAccount(): void
+    public function testALegacySessionlessTurnWithoutAKeyIdFailsClosed(): void
     {
         $user = User::factory()->create();
 
-        $this->assertTrue($this->authority($user, null)->stillHeld());
-
-        $user->update(['state' => 'suspended']);
-
         $this->assertFalse($this->authority($user, null)->stillHeld());
+    }
+
+    public function testDeletingTheOriginatingApiKeyWithdrawsAuthority(): void
+    {
+        $user = User::factory()->create();
+        $key = $this->apiKey($user);
+        $authority = $this->keyAuthority($user, $key);
+
+        $this->assertTrue($authority->stillHeld());
+
+        $key->delete();
+
+        $this->assertFalse($authority->stillHeld());
+    }
+
+    public function testCaptureAndQueueRoundTripRetainApiKeyIdentity(): void
+    {
+        $user = User::factory()->create();
+        $key = $this->apiKey($user);
+        $user->withAccessToken($key);
+        $request = Request::create('https://panel.test/api/client/servers/server/ai/agent', 'POST');
+
+        $captured = TurnAuthority::capture($request, $user);
+        $restored = TurnAuthority::fromArray($captured->toArray());
+
+        $this->assertSame($key->id, $captured->apiKeyId);
+        $this->assertSame($key->id, $restored->apiKeyId);
+        $this->assertTrue($restored->stillHeld());
+    }
+
+    public function testExpiredApiKeyWithdrawsAuthority(): void
+    {
+        $user = User::factory()->create();
+        $key = $this->apiKey($user, ['expires_at' => now()->subMinute()]);
+
+        $this->assertFalse($this->keyAuthority($user, $key)->stillHeld());
+    }
+
+    public function testApiKeyIpAllowlistIsRechecked(): void
+    {
+        $user = User::factory()->create();
+        $key = $this->apiKey($user, ['allowed_ips' => ['10.20.30.0/24']]);
+
+        $allowed = new TurnAuthority($user->id, null, '10.20.30.40', 'https://panel.test', $key->id);
+        $denied = new TurnAuthority($user->id, null, '10.20.31.40', 'https://panel.test', $key->id);
+
+        $this->assertTrue($allowed->stillHeld());
+        $this->assertFalse($denied->stillHeld());
+    }
+
+    public function testWorkerScopePreservesTheOriginatingApiKey(): void
+    {
+        $user = User::factory()->create();
+        $key = $this->apiKey($user);
+        $authority = $this->keyAuthority($user, $key);
+
+        app(WorkerRequestScope::class)->during($authority, $user, function (User $scoped) use ($key): void {
+            $this->assertInstanceOf(ApiKey::class, $scoped->currentAccessToken());
+            $this->assertSame($key->id, $scoped->currentAccessToken()->id);
+        });
     }
 
     /*
@@ -323,6 +378,20 @@ class DurableTurnTest extends TestCase
     private function authority(User $user, ?string $sessionId): TurnAuthority
     {
         return new TurnAuthority($user->id, $sessionId, '127.0.0.1', 'https://panel.test');
+    }
+
+    private function keyAuthority(User $user, ApiKey $key): TurnAuthority
+    {
+        return new TurnAuthority($user->id, null, '127.0.0.1', 'https://panel.test', $key->id);
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function apiKey(User $user, array $attributes = []): ApiKey
+    {
+        return ApiKey::factory()->for($user)->create(array_merge([
+            'key_type' => ApiKey::TYPE_ACCOUNT,
+            'allowed_ips' => [],
+        ], $attributes));
     }
 
     private function trackedSession(User $user, string $sessionId): UserSession

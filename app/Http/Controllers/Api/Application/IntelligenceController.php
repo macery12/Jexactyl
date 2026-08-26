@@ -13,6 +13,7 @@ use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
+use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Http\Requests\Api\Application\Intelligence;
 use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
@@ -26,6 +27,7 @@ class IntelligenceController extends ApplicationApiController
         private ProviderFactory $factory,
         private PiiRedactor $redactor,
         private ToolBudget $budget,
+        private AdminAuthorizer $adminAuthorizer,
     ) {
         parent::__construct();
     }
@@ -55,8 +57,6 @@ class IntelligenceController extends ApplicationApiController
             // Return the effective value, including the packaged fallback when
             // an older save left an empty setting row behind.
             'system_prompt' => $this->factory->systemPrompt(),
-
-            'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
 
             'agent' => [
                 'enabled' => boolval(config('modules.ai.agent.enabled', false)),
@@ -116,6 +116,17 @@ class IntelligenceController extends ApplicationApiController
      */
     public function update(Intelligence\UpdateIntelligenceSettingsRequest $request): Response
     {
+        // Endpoint and credential changes can turn the panel into a network
+        // client for an attacker-controlled host. Keep ordinary AI tuning
+        // delegable, but reserve this trust-boundary change for a live Owner
+        // session (never an Application API key owned by that account).
+        if (
+            $request->changesProviderConnection()
+            && !$this->adminAuthorizer->isInteractiveOwner($request->user())
+        ) {
+            throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('Only an interactive Owner can change the AI provider connection.');
+        }
+
         // `normalize()` also blanks the endpoint and key when the provider is
         // changing, since both are a single slot shared across providers.
         foreach ($request->normalize() as $key => $value) {
@@ -166,9 +177,9 @@ class IntelligenceController extends ApplicationApiController
             $result = $ok
                 ? ['status' => 'ok', 'latency_ms' => $latencyMs]
                 : ['status' => 'error', 'message' => 'AI service returned an unexpected response.', 'latency_ms' => $latencyMs];
-        } catch (\Exception $e) {
+        } catch (\Exception) {
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            $result = ['status' => 'error', 'message' => $e->getMessage(), 'latency_ms' => $latencyMs];
+            $result = ['status' => 'error', 'message' => 'Unable to reach the configured AI service.', 'latency_ms' => $latencyMs];
         }
 
         Cache::put($cacheKey, $result, 300);
@@ -194,8 +205,8 @@ class IntelligenceController extends ApplicationApiController
 
         try {
             $models = $this->factory->make()->listModels();
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 502);
+        } catch (\Exception) {
+            return response()->json(['error' => 'Unable to list models from the configured AI service.'], 502);
         }
 
         Cache::put($cacheKey, $models, 300);
@@ -229,10 +240,10 @@ class IntelligenceController extends ApplicationApiController
             }
 
             return response()->json($provider->probeToolCalling($config->model));
-        } catch (\Throwable $e) {
+        } catch (\Throwable) {
             return response()->json([
                 'status' => 'error',
-                'message' => $e->getMessage(),
+                'message' => 'The live tool-calling test failed.',
             ], 502);
         }
     }

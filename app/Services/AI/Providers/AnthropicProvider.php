@@ -256,7 +256,7 @@ class AnthropicProvider extends AbstractProvider
                     break;
 
                 case 'error':
-                    throw new AIServiceException('AI service error: ' . (string) ($data['error']['message'] ?? 'Unknown error'));
+                    throw new AIServiceException('The AI provider returned an error.');
             }
         }
 
@@ -574,7 +574,9 @@ class AnthropicProvider extends AbstractProvider
         try {
             return $this->listModels() !== [];
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Anthropic health check failed: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::warning('Anthropic health check failed.', [
+                'exception' => $e::class,
+            ]);
 
             return false;
         }

@@ -101,7 +101,7 @@ class OllamaProvider extends AbstractProvider
 
         foreach ($this->readNdjson($body) as $frame) {
             if (isset($frame['error'])) {
-                throw new AIServiceException('AI service error: ' . (string) $frame['error']);
+                throw new AIServiceException('The AI provider returned an error.');
             }
 
             $message = $frame['message'] ?? [];
@@ -468,7 +468,9 @@ class OllamaProvider extends AbstractProvider
                 ], $data['models']));
             }
         } catch (\Throwable $e) {
-            Log::warning('Ollama tag listing failed, falling back to /v1/models: ' . $e->getMessage());
+            Log::warning('Ollama tag listing failed; falling back to /v1/models.', [
+                'exception' => $e::class,
+            ]);
         }
 
         $data = $this->getJson('models', $this->providerConfig->connectTimeout);
@@ -486,7 +488,9 @@ class OllamaProvider extends AbstractProvider
 
             return isset($data['models']);
         } catch (\Throwable $e) {
-            Log::warning('Ollama health check failed: ' . $e->getMessage());
+            Log::warning('Ollama health check failed.', [
+                'exception' => $e::class,
+            ]);
 
             return false;
         }
@@ -533,7 +537,9 @@ class OllamaProvider extends AbstractProvider
 
             return true;
         } catch (\Throwable $e) {
-            Log::warning('AI model warm-up failed: ' . $e->getMessage());
+            Log::warning('AI model warm-up failed.', [
+                'exception' => $e::class,
+            ]);
 
             return false;
         }

@@ -27,6 +27,24 @@ class UpdateIntelligenceSettingsRequestTest extends TestCase
         $this->app->instance(ProviderFactory::class, $factory);
     }
 
+    private function storedConnection(string $provider, string $endpoint, string $key = 'stored-secret'): void
+    {
+        $config = new ProviderConfig(
+            provider: $provider,
+            endpoint: $endpoint,
+            apiKey: $key,
+            model: 'test-model',
+            maxTokens: 512,
+            temperature: 0.3,
+            systemPrompt: 'You are a test.',
+        );
+        $factory = \Mockery::mock(ProviderFactory::class);
+        $factory->shouldReceive('provider')->andReturn($provider);
+        $factory->shouldReceive('config')->andReturn($config);
+
+        $this->app->instance(ProviderFactory::class, $factory);
+    }
+
     private function request(array $payload): UpdateIntelligenceSettingsRequest
     {
         $request = UpdateIntelligenceSettingsRequest::create('/', 'PUT', $payload);
@@ -90,6 +108,30 @@ class UpdateIntelligenceSettingsRequestTest extends TestCase
         $this->assertContains('endpoint', $errors);
     }
 
+    public function testOfficialProviderRejectsAnAlternateHost(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OPENAI);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OPENAI,
+            'endpoint' => 'https://attacker.example/v1',
+        ]));
+
+        $this->assertContains('endpoint', $errors);
+    }
+
+    public function testOfficialProviderAcceptsItsOwnHost(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_ANTHROPIC);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_ANTHROPIC,
+            'endpoint' => 'https://api.anthropic.com/v1',
+        ]));
+
+        $this->assertNotContains('endpoint', $errors);
+    }
+
     public function testChangingProviderBlanksAnUnsuppliedEndpointAndKey(): void
     {
         $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
@@ -130,6 +172,39 @@ class UpdateIntelligenceSettingsRequestTest extends TestCase
         $this->assertArrayNotHasKey('endpoint', $normalized);
         $this->assertArrayNotHasKey('key', $normalized);
         $this->assertSame('qwen3:8b', $normalized['model']);
+    }
+
+    public function testChangingEndpointHostClearsAnUnsuppliedCredential(): void
+    {
+        $this->storedConnection(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, 'https://first.example/v1');
+
+        $normalized = $this->request([
+            'endpoint' => 'https://second.example/v1',
+        ])->normalize();
+
+        $this->assertSame('', $normalized['key']);
+    }
+
+    public function testChangingEndpointPathOnTheSameHostKeepsTheCredential(): void
+    {
+        $this->storedConnection(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, 'https://provider.example/v1');
+
+        $normalized = $this->request([
+            'endpoint' => 'https://provider.example/openai/v1',
+        ])->normalize();
+
+        $this->assertArrayNotHasKey('key', $normalized);
+    }
+
+    public function testChangingEndpointSchemeClearsAnUnsuppliedCredential(): void
+    {
+        $this->storedConnection(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, 'https://provider.example/v1');
+
+        $normalized = $this->request([
+            'endpoint' => 'http://provider.example/v1',
+        ])->normalize();
+
+        $this->assertSame('', $normalized['key']);
     }
 
     /**

@@ -301,6 +301,25 @@ class ToolDiscoveryServiceTest extends TestCase
         $this->assertSame([], $context->pinned);
     }
 
+    public function testAPreciseUserIntentPhrasePinsTheFreeProductToolBeforeInference(): void
+    {
+        $context = $this->context(admin: true);
+
+        $this->service()->pinUserIntentTools($context, 'Can you create a free plan for new users?');
+
+        $this->assertContains('admin_product_create', $context->pinned);
+        $this->assertSame('intent phrase from user', $context->pinReasons['admin_product_create']);
+    }
+
+    public function testABroadShortAliasIsNotAutomaticallyPinned(): void
+    {
+        $context = $this->context(admin: true);
+
+        $this->service()->pinUserIntentTools($context, 'Can you review pricing strategy?');
+
+        $this->assertNotContains('admin_products_list', $context->pinned);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Budget

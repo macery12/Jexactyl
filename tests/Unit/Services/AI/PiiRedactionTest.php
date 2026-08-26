@@ -473,21 +473,62 @@ class PiiRedactionTest extends TestCase
         $this->assertTrue($map->isEmpty());
     }
 
-    public function testSecretsAreOffByDefaultAndOnWhenSelected(): void
+    public function testSecretsAreOnByDefaultAndCanBeExplicitlyDeselected(): void
     {
         $map = new RedactionMap();
         $token = 'sk-abcdefghijklmnopqrstuvwx';
 
-        // Off by default because token-shaped strings collide with backup uuids
-        // and file hashes the agent legitimately needs.
-        $this->assertSame($token, $this->redactor->redactText($token, $map));
-
-        Setting::set('settings::modules:ai:privacy:categories', json_encode(['secret']));
-
         $this->assertMatchesRegularExpression(
             '/^\[secret_[0-9a-f]{6,}]$/',
-            app(PiiRedactor::class)->redactText($token, new RedactionMap())
+            $this->redactor->redactText($token, $map),
         );
+
+        Setting::set('settings::modules:ai:privacy:categories', json_encode(['email']));
+
+        $this->assertSame($token, app(PiiRedactor::class)->redactText($token, new RedactionMap()));
+    }
+
+    public function testCredentialLikeStartupVariablesAreStructurallyMasked(): void
+    {
+        $map = new RedactionMap();
+        $out = $this->redactor->redact([
+            'variables' => [
+                ['key' => 'MYSQL_PASSWORD', 'value' => 'correct horse battery staple'],
+                ['key' => 'CLIENT_SECRET_VALUE', 'value' => 'arbitrary-secret-value'],
+                ['key' => 'SERVER_JARFILE', 'value' => 'paper-1.20.4.jar'],
+                ['key' => 'MONKEY', 'value' => 'banana'],
+            ],
+            'startup_command' => 'java -Ddb.password="correct horse battery staple" -jar paper-1.20.4.jar',
+        ], $map);
+
+        $this->assertMatchesRegularExpression('/^\[secret_[0-9a-f]{6,}]$/', $out['variables'][0]['value']);
+        $this->assertMatchesRegularExpression('/^\[secret_[0-9a-f]{6,}]$/', $out['variables'][1]['value']);
+        $this->assertStringNotContainsString('correct horse battery staple', $out['startup_command']);
+        $this->assertStringContainsString($out['variables'][0]['value'], $out['startup_command']);
+        $this->assertSame('paper-1.20.4.jar', $out['variables'][2]['value']);
+        $this->assertSame('banana', $out['variables'][3]['value']);
+    }
+
+    public function testCredentialAssignmentsInTextFilesAreMaskedByKey(): void
+    {
+        $map = new RedactionMap();
+        $text = implode("\n", [
+            'DB_PASSWORD=correct horse battery staple',
+            'rcon.password = plain-value',
+            'authorization: Bearer opaque-value',
+            '"client_secret": "json-secret",',
+            'SERVER_JARFILE=paper-1.20.4.jar',
+        ]);
+
+        $out = $this->redactor->redactText($text, $map);
+
+        $this->assertStringNotContainsString('correct horse battery staple', $out);
+        $this->assertStringNotContainsString('plain-value', $out);
+        $this->assertStringNotContainsString('Bearer opaque-value', $out);
+        $this->assertStringNotContainsString('json-secret', $out);
+        $this->assertMatchesRegularExpression('/"client_secret": "\[secret_[0-9a-f]{6,}\]",/', $out);
+        $this->assertStringContainsString('SERVER_JARFILE=paper-1.20.4.jar', $out);
+        $this->assertSame($text, $this->redactor->restore($out, $map));
     }
 
     public function testUnknownCategoriesCannotReachTheWalker(): void
@@ -502,7 +543,7 @@ class PiiRedactionTest extends TestCase
         // An operator who has never opened the privacy panel should still be
         // protected — an empty setting is "not configured", not "nothing".
         $this->assertContains('email', $this->redactor->activeKinds());
-        $this->assertNotContains('secret', $this->redactor->activeKinds());
+        $this->assertContains('secret', $this->redactor->activeKinds());
     }
 
     /*

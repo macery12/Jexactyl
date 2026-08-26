@@ -14,9 +14,8 @@ use Everest\Http\Controllers\Api\Client\Servers\AgentController;
 class CustomerAgentFeatureGateTest extends TestCase
 {
     /**
-     * The legacy assistant flag and account privilege must have no effect on
-     * the customer agent. Its master module and dedicated switch are the whole
-     * admission decision.
+     * Account privilege must have no effect on the customer agent. Its master
+     * module and dedicated switch are the whole admission decision.
      */
     public function testEveryFlagCombinationTreatsOrdinaryUsersAndOwnersEqually(): void
     {
@@ -26,28 +25,20 @@ class CustomerAgentFeatureGateTest extends TestCase
         try {
             $this->forgetFlags();
             foreach ([false, true] as $moduleEnabled) {
-                foreach ([false, true] as $legacyAssistantEnabled) {
-                    foreach ([false, true] as $agentEnabled) {
-                        $this->flags($moduleEnabled, $legacyAssistantEnabled, $agentEnabled);
+                foreach ([false, true] as $agentEnabled) {
+                    $this->flags($moduleEnabled, $agentEnabled);
 
-                        foreach ([false, true] as $owner) {
-                            $request = Request::create('/api/client/servers/server/ai/agent', 'POST');
-                            $request->setUserResolver(fn () => $this->user($owner));
-                            $allowed = $moduleEnabled && $agentEnabled;
+                    foreach ([false, true] as $owner) {
+                        $request = Request::create('/api/client/servers/server/ai/agent', 'POST');
+                        $request->setUserResolver(fn () => $this->user($owner));
+                        $allowed = $moduleEnabled && $agentEnabled;
 
-                            try {
-                                $method->invoke($controller, $request);
-                                $this->assertTrue(
-                                    $allowed,
-                                    $this->caseName($moduleEnabled, $legacyAssistantEnabled, $agentEnabled, $owner),
-                                );
-                            } catch (HttpException $e) {
-                                $this->assertFalse(
-                                    $allowed,
-                                    $this->caseName($moduleEnabled, $legacyAssistantEnabled, $agentEnabled, $owner),
-                                );
-                                $this->assertSame(403, $e->getStatusCode());
-                            }
+                        try {
+                            $method->invoke($controller, $request);
+                            $this->assertTrue($allowed, $this->caseName($moduleEnabled, $agentEnabled, $owner));
+                        } catch (HttpException $e) {
+                            $this->assertFalse($allowed, $this->caseName($moduleEnabled, $agentEnabled, $owner));
+                            $this->assertSame(403, $e->getStatusCode());
                         }
                     }
                 }
@@ -63,7 +54,7 @@ class CustomerAgentFeatureGateTest extends TestCase
         $server = new Server();
         $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
         $this->forgetFlags();
-        $this->flags(true, true, false);
+        $this->flags(true, false);
 
         try {
             foreach ([false, true] as $owner) {
@@ -86,17 +77,15 @@ class CustomerAgentFeatureGateTest extends TestCase
         }
     }
 
-    private function flags(bool $module, bool $legacy, bool $agent): void
+    private function flags(bool $module, bool $agent): void
     {
         config()->set('modules.ai.enabled', $module);
-        config()->set('modules.ai.feature_server_assistant', $legacy);
         config()->set('modules.ai.agent.enabled', $agent);
     }
 
     private function forgetFlags(): void
     {
         Setting::forget('settings::modules:ai:enabled');
-        Setting::forget('settings::modules:ai:feature_server_assistant');
         Setting::forget('settings::modules:ai:agent:enabled');
     }
 
@@ -115,12 +104,11 @@ class CustomerAgentFeatureGateTest extends TestCase
         return $user;
     }
 
-    private function caseName(bool $module, bool $legacy, bool $agent, bool $owner): string
+    private function caseName(bool $module, bool $agent, bool $owner): string
     {
         return sprintf(
-            'module=%s legacy=%s agent=%s owner=%s',
+            'module=%s agent=%s owner=%s',
             $module ? 'on' : 'off',
-            $legacy ? 'on' : 'off',
             $agent ? 'on' : 'off',
             $owner ? 'yes' : 'no',
         );

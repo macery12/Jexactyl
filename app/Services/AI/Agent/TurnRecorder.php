@@ -92,7 +92,7 @@ class TurnRecorder
                 'expires_at' => now()->addDays(AiConversation::EXPIRY_DAYS),
             ]);
         } catch (\Throwable $e) {
-            Log::warning('Failed to open an AI conversation: ' . $e->getMessage());
+            Log::warning('Failed to open an AI conversation.', ['exception' => $e::class]);
 
             return null;
         }
@@ -125,7 +125,7 @@ class TurnRecorder
                 ->get(['role', 'content'])
                 ->reverse();
         } catch (\Throwable $e) {
-            Log::warning('Failed to load AI conversation history: ' . $e->getMessage());
+            Log::warning('Failed to load AI conversation history.', ['exception' => $e::class]);
 
             return [];
         }
@@ -179,7 +179,7 @@ class TurnRecorder
                 'created_at' => now(),
             ]);
         } catch (\Throwable $e) {
-            Log::warning('Failed to record an AI message: ' . $e->getMessage());
+            Log::warning('Failed to record an AI message.', ['exception' => $e::class]);
         }
     }
 
@@ -222,7 +222,7 @@ class TurnRecorder
 
             return true;
         } catch (\Throwable $e) {
-            Log::warning('Failed to touch an AI conversation: ' . $e->getMessage());
+            Log::warning('Failed to touch an AI conversation.', ['exception' => $e::class]);
 
             return false;
         }

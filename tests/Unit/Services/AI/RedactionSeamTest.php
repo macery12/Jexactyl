@@ -43,6 +43,7 @@ class RedactionSeamTest extends TestCase
             'email' => 'jo@example.com',
             'first_name' => 'Alice',
             'address_1' => '12 High Street',
+            'api_key' => 'opaque-provider-credential',
             'nested' => [
                 'note' => 'connected from 203.0.113.9 and ::dead:beef',
                 'contact' => 'reach me on +44 7700 900123',
@@ -52,7 +53,7 @@ class RedactionSeamTest extends TestCase
         ], $map);
 
         $text = $redactor->redactText(
-            'Ticket from jo@example.com, last seen at 203.0.113.9 and ::dead:beef.',
+            "Ticket from jo@example.com, last seen at 203.0.113.9 and ::dead:beef.\nDB_PASSWORD=plain-database-password",
             $map,
         );
 
@@ -67,10 +68,12 @@ class RedactionSeamTest extends TestCase
         $this->assertStringContainsString('jo@example.com', $restored['text']);
         $this->assertStringContainsString('203.0.113.9', $restored['text']);
         $this->assertStringContainsString('::dead:beef', $restored['text']);
+        $this->assertStringContainsString('DB_PASSWORD=plain-database-password', $restored['text']);
 
         $this->assertSame('jo@example.com', $restored['payload']['email']);
         $this->assertSame('Alice', $restored['payload']['first_name']);
         $this->assertSame('12 High Street', $restored['payload']['address_1']);
+        $this->assertSame('opaque-provider-credential', $restored['payload']['api_key']);
         $this->assertSame('4111 1111 1111 1111', $restored['payload']['nested']['card']);
         $this->assertStringContainsString('203.0.113.9', $restored['payload']['nested']['note']);
         $this->assertStringContainsString('::dead:beef', $restored['payload']['nested']['note']);

@@ -246,7 +246,6 @@ Route::middleware([AdminSubject::class])->group(function () {
         Route::prefix('/agent/conversations')->group(function () {
             Route::get('/', [Application\AiAgentController::class, 'conversations']);
             Route::get('/{conversationId}', [Application\AiAgentController::class, 'conversation']);
-            Route::patch('/{conversationId}/save', [Application\AiAgentController::class, 'toggleSaveConversation']);
             Route::delete('/{conversationId}/assist', [Application\AiAgentController::class, 'endAssist']);
             Route::delete('/{conversationId}', [Application\AiAgentController::class, 'deleteConversation']);
         });

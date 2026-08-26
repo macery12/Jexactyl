@@ -106,7 +106,6 @@ class EverestComposer
             ],
             'ai' => [
                 'enabled' => boolval(config('modules.ai.enabled', false)),
-                'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
                 // The agent is gated separately from the assistant: it can act
                 // on a server, so turning chat on must not turn it on too.
                 'feature_agent' => boolval(config('modules.ai.agent.enabled', false)),

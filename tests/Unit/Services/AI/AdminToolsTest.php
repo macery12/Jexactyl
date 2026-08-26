@@ -174,6 +174,24 @@ class AdminToolsTest extends TestCase
         }
     }
 
+    public function testProductPriceSchemasExplicitlySupportFreeProducts(): void
+    {
+        foreach (['admin_product_create', 'admin_product_update'] as $name) {
+            $definition = collect(AdminTools::all())->firstWhere('name', $name);
+            $this->assertNotNull($definition);
+
+            $price = $definition->parameters['properties']['price'] ?? [];
+            $this->assertSame('number', $price['type'] ?? null, $name);
+            $this->assertSame(0, $price['minimum'] ?? null, $name);
+            $this->assertStringContainsString('free', strtolower((string) ($price['description'] ?? '')), $name);
+            $this->assertStringContainsString('price of 0 is valid', strtolower($definition->description), $name);
+
+            $invocation = $definition->invoke(['price' => 0], ['category' => '1', 'product' => '2']);
+            $this->assertArrayHasKey('price', $invocation->body, $name);
+            $this->assertSame(0, $invocation->body['price'], $name);
+        }
+    }
+
     /**
      * A GET must not demand a mutating capability.
      *

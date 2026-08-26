@@ -148,7 +148,9 @@ class AiBudgetService
                 ->where('token', $handle['token'])
                 ->delete();
         } catch (\Throwable $e) {
-            Log::warning('Failed to release an AI budget reservation: ' . $e->getMessage());
+            Log::warning('Failed to release an AI budget reservation.', [
+                'exception' => $e::class,
+            ]);
         }
     }
 

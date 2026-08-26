@@ -89,7 +89,10 @@ class TurnCancellations
             // written. A database that cannot answer is not evidence that the
             // user pressed Stop, and treating it as though it were would end
             // every turn in flight the moment the connection wobbled.
-            Log::warning('Could not read the cancellation flag for AI turn ' . $turnId . ': ' . $e->getMessage());
+            Log::warning('Could not read the cancellation flag for an AI turn.', [
+                'turn' => $turnId,
+                'exception' => $e::class,
+            ]);
 
             return false;
         }

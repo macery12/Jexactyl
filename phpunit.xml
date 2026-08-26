@@ -5,11 +5,11 @@
     bootstrap="bootstrap/tests.php"
     colors="true"
 >
-    <coverage>
+    <source>
         <include>
             <directory suffix=".php">./app</directory>
         </include>
-    </coverage>
+    </source>
     <testsuites>
         <testsuite name="Integration">
             <directory>./tests/Integration</directory>

@@ -23,7 +23,7 @@ class ToolDiscovery
      * @param string[] $aliases the words a person would actually use, and the
      *                          highest-leverage field here — without embeddings,
      *                          "startup command" reaches `startup_list` only
-     *                          because somebody wrote it down.
+     *                          because somebody wrote it down
      * @param string[] $tags coarse facets — `read`, `configuration`, `server`.
      *                       Weaker than an alias: they broaden a query rather
      *                       than answering it.
@@ -31,7 +31,7 @@ class ToolDiscovery
      *                                derived cross-surface rule cannot know.
      *                                Almost always empty.
      * @param string|null $summary one line for search results, defaulting to the
-     *                             first sentence of the tool's description.
+     *                             first sentence of the tool's description
      */
     public function __construct(
         public readonly string $category,

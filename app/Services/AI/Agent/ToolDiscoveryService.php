@@ -213,6 +213,55 @@ class ToolDiscoveryService
     }
 
     /**
+     * Pin exact tool names plus precise, human-facing intent phrases before the
+     * first inference. Aliases shorter than three words stay search-only: broad
+     * phrases such as "pricing" or "list users" are too easy to mention while
+     * asking for a different operation. Longer aliases are deliberate routing
+     * phrases and remove an avoidable search step for requests such as "create
+     * a free plan".
+     */
+    public function pinUserIntentTools(AgentContext $context, string $message): void
+    {
+        $this->pinNamedTools($context, $message);
+
+        if (trim($message) === '') {
+            return;
+        }
+
+        foreach ($this->planner->catalogue($context) as $definition) {
+            if (in_array($definition->name, $context->pinned, true)) {
+                continue;
+            }
+
+            foreach ($definition->aliases() as $alias) {
+                $words = preg_split('/\s+/', trim($alias), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+                if (count($words) < 3) {
+                    continue;
+                }
+
+                $pattern = '/(?<![a-z0-9])'
+                    . implode('\\s+', array_map(
+                        static fn (string $word): string => preg_quote($word, '/'),
+                        $words,
+                    ))
+                    . '(?![a-z0-9])/i';
+
+                if (preg_match($pattern, $message) !== 1) {
+                    continue;
+                }
+
+                $context->pin($definition->name, 'intent phrase from user');
+
+                foreach ($this->prerequisites->gateways($context, $definition) as $gateway) {
+                    $context->pin($gateway, sprintf('needed before %s', $definition->name));
+                }
+
+                break;
+            }
+        }
+    }
+
+    /**
      * Attach reachability to a raw match.
      */
     private function describe(AgentContext $context, CatalogueMatch $match): CatalogueMatch

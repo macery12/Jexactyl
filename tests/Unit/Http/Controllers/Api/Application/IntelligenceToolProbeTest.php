@@ -77,6 +77,7 @@ class IntelligenceToolProbeTest extends TestCase
             $factory,
             \Mockery::mock(PiiRedactor::class),
             \Mockery::mock(ToolBudget::class),
+            \Mockery::mock(\Everest\Services\Authorization\AdminAuthorizer::class),
         );
     }
 }

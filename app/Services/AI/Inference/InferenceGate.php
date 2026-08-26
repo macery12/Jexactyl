@@ -401,7 +401,9 @@ class InferenceGate
             Cache::restoreLock(self::SLOT_KEY . $handle['slot'], $handle['owner'])->release();
             $this->releaseUser($handle['reservation']);
         } catch (\Throwable $e) {
-            Log::warning('Failed to release an AI inference lease handle: ' . $e->getMessage());
+            Log::warning('Failed to release an AI inference lease handle.', [
+                'exception' => $e::class,
+            ]);
         }
     }
 

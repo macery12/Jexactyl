@@ -165,7 +165,10 @@ class SystemPromptBuilder
 
         $rule = '# Tool discovery' . "\n\n"
             . 'The offered tools are a working set, not everything available. If none fits, call '
-            . 'search_tools with the task; do not search when an offered tool already fits.';
+            . 'search_tools with the task; do not search when an offered tool already fits. The absence '
+            . 'of a tool from the working set is not evidence that the panel lacks that capability. '
+            . 'Before saying the panel cannot or does not support an action, search once unless a tool '
+            . 'result from this turn explicitly reported that boundary.';
 
         if (in_array(SharedTools::LOAD_TOOLS, $offered, true)) {
             $rule .= ' Use load_tools for an exact tool name or to drop finished tools.';
@@ -334,6 +337,8 @@ class SystemPromptBuilder
 
             - Read a record immediately before changing it. Preserve fields the request does not
               target and describe who a product, coupon, price or node-wide change affects.
+            - A billing product price of 0 is valid and means the product is free. Treat explicit
+              numeric zero as a supplied value, not as missing, false, or a paid-product fallback.
             - Use only an exact `id` returned by a tool. An item's list position is never its id.
               Fetch an id in an earlier tool step, inspect the result, and only then call a tool that
               requires it.

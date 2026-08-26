@@ -87,14 +87,17 @@ class AgentRunner
             LogBatch::start();
 
             // Before the first inference, not after it. A user who typed a tool's
-            // registered name has already done the retrieval; making the model
-            // spend a step rediscovering it is the most annoying failure this
-            // whole mechanism can produce, and it costs nothing to avoid.
-            $this->discovery->pinNamedTools($context, $this->lastUserMessage($context));
+            // registered name or one of its precise intent phrases has already
+            // done the retrieval; making the model spend a step rediscovering it
+            // is the most annoying failure this mechanism can produce.
+            $this->discovery->pinUserIntentTools($context, $this->lastUserMessage($context));
 
             $this->loop($context, $emit, $startedAt);
         } catch (\Throwable $e) {
-            Log::error('AI agent turn failed: ' . $e->getMessage(), ['turn' => $context->turnId]);
+            Log::error('AI agent turn failed.', [
+                'turn' => $context->turnId,
+                'exception' => $e::class,
+            ]);
 
             // Finalization belongs to the stream owner. Swallowing here made
             // the controller mark usage and an approved pending action as
@@ -509,7 +512,7 @@ class AgentRunner
 
             return $this->salvager->salvage($repaired, $tools);
         } catch (\Throwable $e) {
-            Log::warning('AI tool-call repair failed: ' . $e->getMessage());
+            Log::warning('AI tool-call repair failed.', ['exception' => $e::class]);
 
             return [];
         }
@@ -572,6 +575,11 @@ class AgentRunner
         }
 
         $arguments = $validation['value'];
+
+        // A file read is redacted before it reaches the model. Restore only
+        // exact handles minted in this conversation before those bytes become a
+        // proposal, approval or audit record. Unknown lookalikes remain literal.
+        $arguments = $this->restoreFileWriteArguments($context, $definition, $arguments);
 
         if ($definition->name !== SharedTools::BATCH) {
             $refusal = $this->identifierEvidence->validate($context, $definition, $arguments);
@@ -1431,6 +1439,12 @@ class AgentRunner
         string $risk,
         ?AiToolCall $record = null,
     ): ToolResult {
+        // The normal path persisted canonical arguments at approval time. Do it
+        // again at the execution boundary for suspended turns created by an
+        // older worker and to keep the Wings request byte-identical to what the
+        // browser restored on the approval card.
+        $arguments = $this->restoreFileWriteArguments($context, $definition, $arguments);
+
         // A server-scoped tool records the server it actually touched, which
         // during an assist session is the customer's rather than none at all —
         // the audit trail is the whole justification for the feature.
@@ -1671,6 +1685,8 @@ class AgentRunner
         ToolDefinition $definition,
         array $arguments,
     ): array|ToolResult {
+        $arguments = $this->restoreFileWriteArguments($context, $definition, $arguments);
+
         if ($definition->name === AdminTools::ASSIST_SERVER) {
             $server = $this->assist->resolveServer((string) ($arguments['server'] ?? ''));
             if ($server === null) {
@@ -1720,6 +1736,21 @@ class AgentRunner
 
             $arguments['original_content'] = $liveContent;
         }
+
+        return $arguments;
+    }
+
+    /** Restore only server-issued privacy handles in a proposed file body. */
+    protected function restoreFileWriteArguments(
+        AgentContext $context,
+        ToolDefinition $definition,
+        array $arguments,
+    ): array {
+        if ($definition->name !== 'files_write' || !is_string($arguments['content'] ?? null)) {
+            return $arguments;
+        }
+
+        $arguments['content'] = $this->redactor->restore($arguments['content'], $context->redactions);
 
         return $arguments;
     }

@@ -71,6 +71,67 @@ class AgentFileApprovalIntegrityTest extends TestCase
         $this->assertSame("motd=Nouveau 🧱\n", $attested['content']);
     }
 
+    public function testKnownRedactionTokensAreRestoredBeforeFileApproval(): void
+    {
+        $user = new User();
+        $server = (new Server())->forceFill([
+            'uuid' => 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+            'name' => 'Live server',
+        ]);
+        $context = new AgentContext($user, $server, 'aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff');
+        $definition = app(ToolRegistry::class)->find('files_write');
+        $known = $context->redactions->tokenFor('secret', 'correct horse battery staple');
+
+        $files = \Mockery::mock(DaemonFileRepository::class);
+        $files->shouldReceive('setServer')->once()->with($server)->andReturnSelf();
+        $files->shouldReceive('getContent')
+            ->once()
+            ->with('/server.properties', WriteFileWithDiffRequest::MAX_CONTENT_BYTES)
+            ->andReturn("password=old value\n");
+        $this->app->instance(DaemonFileRepository::class, $files);
+
+        $method = new \ReflectionMethod(AgentRunner::class, 'attestApprovalArguments');
+        $attested = $method->invoke(app(AgentRunner::class), $context, $definition, [
+            'file' => '/server.properties',
+            'content' => "password={$known}\nunknown=[secret_ffffffff]\n",
+        ]);
+
+        $this->assertSame("password=old value\n", $attested['original_content']);
+        $this->assertSame(
+            "password=correct horse battery staple\nunknown=[secret_ffffffff]\n",
+            $attested['content'],
+        );
+
+        $execute = new \ReflectionMethod(AgentRunner::class, 'restoreFileWriteArguments');
+        $executed = $execute->invoke(app(AgentRunner::class), $context, $definition, $attested);
+
+        $this->assertSame(
+            $attested['content'],
+            $executed['content'],
+            'The approved bytes and the execution-boundary bytes must be identical.',
+        );
+    }
+
+    public function testFileWriteRestorationIsIdempotentAtTheExecutionBoundary(): void
+    {
+        $context = new AgentContext(new User(), new Server(), 'aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff');
+        $definition = app(ToolRegistry::class)->find('files_write');
+        $known = $context->redactions->tokenFor('email', 'owner@example.test');
+        $method = new \ReflectionMethod(AgentRunner::class, 'restoreFileWriteArguments');
+
+        $first = $method->invoke(app(AgentRunner::class), $context, $definition, [
+            'file' => '/server.properties',
+            'content' => "contact={$known}\nliteral=[email_ffffffff]\n",
+        ]);
+        $second = $method->invoke(app(AgentRunner::class), $context, $definition, $first);
+
+        $this->assertSame($first, $second);
+        $this->assertSame(
+            "contact=owner@example.test\nliteral=[email_ffffffff]\n",
+            $second['content'],
+        );
+    }
+
     public function testBinaryAndArchiveTargetsAreRefusedBeforeAttestationOrApproval(): void
     {
         $files = \Mockery::mock(DaemonFileRepository::class);

@@ -81,7 +81,7 @@ class OpenAiCompatibleProvider extends AbstractProvider
             }
 
             if (isset($data['error'])) {
-                throw new AIServiceException('AI service error: ' . ($data['error']['message'] ?? 'Unknown error'));
+                throw new AIServiceException('The AI provider returned an error.');
             }
 
             if (isset($data['usage']) && is_array($data['usage'])) {
@@ -274,7 +274,9 @@ class OpenAiCompatibleProvider extends AbstractProvider
 
             return isset($data['data']) || isset($data['models']);
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('AI health check failed: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::warning('AI health check failed.', [
+                'exception' => $e::class,
+            ]);
 
             return false;
         }

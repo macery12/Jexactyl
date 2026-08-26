@@ -18,9 +18,10 @@ use Illuminate\Support\Facades\Request as RequestFacade;
  * Safety comes from what it does *not* invent. No session, so
  * `UpdateUserSessionActivity` skips itself and a background turn can neither
  * create nor destroy one. No cookies, so nothing is decrypted or re-encrypted.
- * The identity carries a `TransientToken`, exactly as a browser-session request
- * does, so `RequireClientApiKey`, `RequireTwoFactorAuthentication` and
- * `AuthenticateIPAccess` reach the same conclusions they reach for the UI.
+ * The identity carries the same credential kind as the starting request: a
+ * `TransientToken` for a browser session, or the freshly-reloaded `ApiKey` for a
+ * token request. That keeps key type/profile/IP middleware and activity
+ * attribution authoritative inside every internal sub-request.
  *
  * The guard is primed rather than resolved: a `RequestGuard` returns the user
  * it was given without consulting the request. Skipped priming would 401, so
@@ -50,11 +51,14 @@ class WorkerRequestScope
 
         $request = $this->buildRequest($authority, $user);
 
-        // Sanctum marks a stateful (browser) request by handing the user a
-        // transient token. Doing the same here is the entire "session
-        // equivalent" decision, expressed where the middleware will read it:
-        // every token-shaped check downstream sees what it sees for the UI.
-        $user->withAccessToken(new TransientToken());
+        $key = $authority->apiKey();
+        if ($authority->apiKeyId !== null && $key === null) {
+            throw new \RuntimeException('The API key that started this turn is no longer valid.');
+        }
+
+        // Never replay the secret. The database model is all Sanctum and the
+        // authorization middleware need to preserve the key's restrictions.
+        $user->withAccessToken($key ?? new TransientToken());
 
         try {
             $this->app->instance('request', $request);

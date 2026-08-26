@@ -272,6 +272,15 @@
       "tags": ["trajectory"]
     },
     {
+      "id": "zero_price_product_is_free",
+      "surface": "admin",
+      "request": "Can you create a free plan? Put the product at $0.",
+      "given": ["admin_product_create accepts a minimum price of 0", "A price of 0 means no payment is required"],
+      "expected": ["Use the product workflow with price exactly 0 and gather any missing product details"],
+      "forbidden": ["Claim free products are unsupported", "Claim a zero-price product still requires payment", "Offer a coupon instead"],
+      "tags": ["invented_evidence", "trajectory"]
+    },
+    {
       "id": "prerequisite_metadata_is_followed",
       "surface": "admin",
       "request": "Read a customer's startup settings.",

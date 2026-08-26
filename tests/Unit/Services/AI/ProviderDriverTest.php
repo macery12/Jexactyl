@@ -7,6 +7,7 @@ use Everest\Tests\TestCase;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Handler\MockHandler;
+use Illuminate\Support\Facades\Log;
 use Everest\Services\AI\Data\AiTool;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\Data\AiMessage;
@@ -56,6 +57,54 @@ class ProviderDriverTest extends TestCase
             'properties' => ['path' => ['type' => 'string']],
             'required' => ['path'],
         ]);
+    }
+
+    public function testTransportErrorsDoNotLogOrExposeProviderBodies(): void
+    {
+        Log::shouldReceive('error')
+            ->once()
+            ->with('AI provider transport error', \Mockery::on(
+                fn (array $context): bool => $context['provider'] === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE
+                    && $context['status'] === 500
+                    && !str_contains((string) json_encode($context), 'prompt-secret')
+            ));
+
+        $stack = $this->stack([
+            new Response(500, [], json_encode([
+                'error' => ['message' => 'echoed prompt-secret and tool output'],
+            ])),
+        ]);
+        $provider = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, ['endpoint' => 'https://provider.test/v1']),
+            $stack,
+        );
+
+        try {
+            $provider->chat(new AiRequest([AiMessage::user('prompt-secret')]));
+            $this->fail('The failed provider request should throw.');
+        } catch (AIServiceException $exception) {
+            $this->assertSame('Failed to communicate with AI service.', $exception->getMessage());
+            $this->assertStringNotContainsString('prompt-secret', $exception->getMessage());
+        }
+    }
+
+    public function testStreamingProviderErrorsDoNotExposeProviderMessages(): void
+    {
+        $body = 'data: ' . json_encode([
+            'error' => ['message' => 'echoed prompt-secret and tool output'],
+        ]) . "\n\n";
+        $provider = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, ['endpoint' => 'https://provider.test/v1']),
+            $this->stack([new Response(200, [], $body)]),
+        );
+
+        try {
+            iterator_to_array($provider->stream(new AiRequest([AiMessage::user('prompt-secret')])));
+            $this->fail('The provider error frame should throw.');
+        } catch (AIServiceException $exception) {
+            $this->assertSame('The AI provider returned an error.', $exception->getMessage());
+            $this->assertStringNotContainsString('prompt-secret', $exception->getMessage());
+        }
     }
 
     /**

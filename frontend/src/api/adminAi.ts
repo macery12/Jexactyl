@@ -80,7 +80,6 @@ export interface AiAdminSettings {
     keep_alive: string;
     warm: boolean;
     system_prompt: string;
-    feature_server_assistant: boolean;
     agent: AiAgentSettings;
     concurrency: AiConcurrencySettings;
     budget: AiBudgetSettings;
@@ -100,7 +99,6 @@ export interface AiSettingsPayload {
     keep_alive?: string;
     warm?: boolean;
     system_prompt?: string;
-    feature_server_assistant?: boolean;
     agent?: Partial<AiAgentSettings>;
     concurrency?: Partial<AiConcurrencySettings>;
     budget?: Partial<AiBudgetSettings>;
@@ -471,10 +469,6 @@ export async function getAdminAgentConversation(id: number): Promise<AdminAgentT
  */
 export async function endAdminAssist(conversationId: number): Promise<void> {
     await http.delete(`/api/application/ai/agent/conversations/${conversationId}/assist`);
-}
-
-export async function toggleAdminAgentConversationSave(id: number): Promise<void> {
-    await http.patch(`/api/application/ai/agent/conversations/${id}/save`);
 }
 
 export async function deleteAdminAgentConversation(id: number): Promise<void> {

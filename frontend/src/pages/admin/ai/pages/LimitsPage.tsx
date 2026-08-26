@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Users, Wallet } from 'lucide-react';
+import { Wallet } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
@@ -14,11 +14,9 @@ export default function LimitsPage() {
         settings => ({
             enforce: settings.budget?.enforce ?? false,
             monthly_tokens: settings.budget?.monthly_tokens ?? 2_000_000,
-            feature_server_assistant: settings.feature_server_assistant ?? true,
         }),
         value => ({
             budget: { enforce: value.enforce, monthly_tokens: value.monthly_tokens },
-            feature_server_assistant: value.feature_server_assistant,
         }),
     );
 
@@ -85,19 +83,6 @@ export default function LimitsPage() {
                         onChange={event => patch({ monthly_tokens: Number(event.target.value) })}
                     />
                 </FieldRow>
-            </SectionCard>
-
-            <SectionCard icon={Users} title={m['admin.ai.settings.access']()} desc={m['admin.ai.pages.accessDesc']()}>
-                <ToggleGroup>
-                    <ToggleRow
-                        label={m['admin.ai.settings.serverAssistant']()}
-                        desc={m['admin.ai.settings.serverAssistantHint']()}
-                        checked={value.feature_server_assistant}
-                        onChange={next => patch({ feature_server_assistant: next })}
-                    />
-                </ToggleGroup>
-
-                <p className="text-xs text-[var(--color-ink-faint)]">{m['admin.ai.settings.adminsAlways']()}</p>
             </SectionCard>
 
             <SaveBar dirty={form.dirty} saving={form.saving} onDiscard={form.discard} />

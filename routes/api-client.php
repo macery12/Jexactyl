@@ -239,11 +239,9 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
 
         Route::prefix('/ai/conversations')->group(function () {
             Route::get('/', [Client\Servers\AIConversationController::class, 'index']);
-            Route::post('/', [Client\Servers\AIConversationController::class, 'store']);
             Route::get('/{conversationId}', [Client\Servers\AIConversationController::class, 'show']);
             Route::delete('/{conversationId}', [Client\Servers\AIConversationController::class, 'destroy']);
             Route::patch('/{conversationId}/save', [Client\Servers\AIConversationController::class, 'toggleSave']);
-            Route::post('/{conversationId}/messages', [Client\Servers\AIConversationController::class, 'appendMessages']);
         });
 
         Route::group(['prefix' => '/databases'], function () {

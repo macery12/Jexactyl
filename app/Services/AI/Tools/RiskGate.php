@@ -3,19 +3,16 @@
 namespace Everest\Services\AI\Tools;
 
 use Everest\Models\Setting;
-use Everest\Services\AI\Tools\Definitions\AdminTools;
 
 /**
  * Resolves the tier a tool call actually runs at.
  *
- * Three inputs, in increasing specificity: the tool's declared default, an
- * admin override, and — for console commands — a per-command classification,
- * because `console_send` is a single tool whose danger depends entirely on its
- * argument.
+ * Three inputs, in increasing specificity: the tool's declared minimum, an
+ * admin override, and — for tools whose danger depends on their arguments — a
+ * per-call classification.
  *
- * An admin override can only be *read* here; it is applied on top of the
- * declared tier in both directions so an operator can relax a tool they trust
- * or harden one they do not.
+ * Overrides are hardening-only. A declaration is a security invariant owned by
+ * the code, not a default an operator may relax into automatic execution.
  */
 class RiskGate
 {
@@ -28,14 +25,7 @@ class RiskGate
      */
     public function resolve(ToolDefinition $definition, array $arguments = []): string
     {
-        $risk = $this->override($definition->name) ?? $definition->risk;
-
-        // These calls create/widen authority over somebody else's server, or
-        // require server-attested data on their approval card. An operator may
-        // harden them, but an override must never make either boundary automatic.
-        if (in_array($definition->name, [AdminTools::ASSIST_SERVER, AdminTools::ASSIST_ALLOW_WRITES, 'files_write'], true)) {
-            $risk = $this->max(ToolDefinition::RISK_WRITE, $risk);
-        }
+        $risk = $this->configuredRisk($definition);
 
         // console_send carries one declared tier but many real ones: sending
         // "list" is not the same act as sending "stop".
@@ -48,7 +38,29 @@ class RiskGate
             return $this->max($risk, $classified);
         }
 
+        // A graceful stop gives the process a chance to save. `kill` does not:
+        // it can corrupt a live world, so it needs the typed-confirmation tier
+        // even though the other signals remain ordinary approved writes.
+        if ($definition->name === 'server_power') {
+            $signal = is_string($arguments['signal'] ?? null)
+                ? strtolower(trim($arguments['signal']))
+                : '';
+
+            if ($signal === 'kill') {
+                return $this->max($risk, ToolDefinition::RISK_DESTRUCTIVE);
+            }
+        }
+
         return $risk;
+    }
+
+    /** The effective operator-configured tier before argument-specific escalation. */
+    public function configuredRisk(ToolDefinition $definition): string
+    {
+        return $this->max(
+            $definition->risk,
+            $this->override($definition->name) ?? $definition->risk,
+        );
     }
 
     /**

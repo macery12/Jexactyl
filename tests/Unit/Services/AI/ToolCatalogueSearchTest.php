@@ -160,6 +160,7 @@ class ToolCatalogueSearchTest extends TestCase
             ['scheduled restarts', 'schedules_list', $server],
             ['who bought what', 'admin_orders_list', $admin],
             ['change a price', 'admin_product_update', $admin],
+            ['can you create a free plan', 'admin_product_create', $admin],
             ['find a customer by email', 'admin_users_list', $admin],
             ['look at a customer server', 'admin_assist_server', $admin],
             ['open support tickets', 'admin_tickets_list', $admin],

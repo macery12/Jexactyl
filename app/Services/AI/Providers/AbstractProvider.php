@@ -58,6 +58,10 @@ abstract class AbstractProvider implements AiProvider
             'base_uri' => $this->providerConfig->baseUri(),
             'timeout' => $this->providerConfig->timeout,
             'connect_timeout' => $this->providerConfig->connectTimeout,
+            // A configured provider endpoint is an explicit trust decision. Do
+            // not let that host redirect credentials or requests to a second,
+            // unreviewed network location.
+            'allow_redirects' => false,
             'handler' => $this->handler,
         ]));
     }
@@ -205,7 +209,7 @@ abstract class AbstractProvider implements AiProvider
         }
 
         if (isset($decoded['error'])) {
-            throw new AIServiceException('AI service error: ' . ($decoded['error']['message'] ?? 'Unknown error'));
+            throw new AIServiceException('The AI provider returned an error.');
         }
 
         return is_array($decoded) ? $decoded : [];
@@ -235,22 +239,18 @@ abstract class AbstractProvider implements AiProvider
 
     protected function wrapTransportError(GuzzleException $e): AIServiceException
     {
-        Log::error('AI provider transport error [' . $this->providerConfig->provider . ']: ' . $e->getMessage());
+        // Provider errors are an untrusted data source. Bodies and exception
+        // messages can echo the complete prompt, tool results or credentials,
+        // so neither belongs in a long-lived operational log or a browser error.
+        Log::error('AI provider transport error', array_filter([
+            'provider' => $this->providerConfig->provider,
+            'status' => $e instanceof RequestException && $e->hasResponse()
+                ? $e->getResponse()->getStatusCode()
+                : null,
+            'exception' => $e::class,
+        ], static fn (mixed $value): bool => $value !== null));
 
-        $detail = '';
-        if ($e instanceof RequestException && $e->hasResponse()) {
-            $body = (string) $e->getResponse()->getBody();
-            Log::error('AI provider response body: ' . $body);
-
-            $decoded = json_decode($body, true);
-            $detail = is_array($decoded)
-                ? (string) ($decoded['error']['message'] ?? $decoded['error'] ?? $decoded['message'] ?? '')
-                : '';
-        }
-
-        return new AIServiceException(
-            'Failed to communicate with AI service' . ($detail !== '' ? ': ' . $detail : '.')
-        );
+        return new AIServiceException('Failed to communicate with AI service.');
     }
 
     /**

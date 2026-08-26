@@ -108,12 +108,6 @@ return [
     'system_prompt' => $defaultSystemPrompt,
 
     /*
-     * Individual feature toggles.
-     * These allow disabling specific AI components without disabling AI entirely.
-     */
-    'feature_server_assistant' => env('AI_FEATURE_SERVER_ASSISTANT', true),
-
-    /*
      * The agent: tool-calling on behalf of the user. Off by default — it
      * requires a tool-capable model, and the panel refuses to enable it for
      * a model that does not report tool support.
@@ -284,12 +278,11 @@ return [
         'enabled' => env('AI_PRIVACY_REDACT', true),
 
         /*
-         * Which categories are swept. `secret` is absent by default: strings
-         * shaped like tokens overlap with backup uuids, file hashes and docker
-         * digests that the agent legitimately needs, so it trades capability for
-         * safety in a way that should be an operator's decision.
+         * Which categories are swept. Secrets are protected by default. The
+         * pattern matcher stays deliberately narrow, while structured startup
+         * variables use their credential-like key as stronger evidence.
          */
-        'categories' => ['email', 'ip', 'name', 'phone', 'address', 'payment'],
+        'categories' => ['email', 'ip', 'name', 'phone', 'address', 'payment', 'secret'],
     ],
 
     /*

@@ -64,7 +64,10 @@ class AgentEventLog
             // every later frame in this turn unreplayable.
             unset($this->sequences[$turnId]);
 
-            Log::warning('Failed to append AI turn event: ' . $e->getMessage(), ['turn' => $turnId]);
+            Log::warning('Failed to append AI turn event.', [
+                'turn' => $turnId,
+                'exception' => $e::class,
+            ]);
         }
     }
 

@@ -42,11 +42,7 @@ class PiiRedactor
         self::KIND_SECRET,
     ];
 
-    /**
-     * On unless an operator says otherwise. `secret` is the exception:
-     * token-shaped strings overlap with backup uuids, file hashes and docker
-     * digests, so trading that capability for safety is the operator's call.
-     */
+    /** On unless an operator explicitly narrows the categories. */
     public const DEFAULT_KINDS = [
         self::KIND_EMAIL,
         self::KIND_IP,
@@ -54,6 +50,7 @@ class PiiRedactor
         self::KIND_PHONE,
         self::KIND_ADDRESS,
         self::KIND_PAYMENT,
+        self::KIND_SECRET,
     ];
 
     /**
@@ -70,7 +67,20 @@ class PiiRedactor
         self::KIND_PHONE => ['phone', 'phone_number', 'telephone', 'mobile'],
         self::KIND_ADDRESS => ['address', 'address_1', 'address_2', 'address_line_1', 'address_line_2', 'street', 'city', 'postcode', 'postal_code', 'zip', 'zip_code'],
         self::KIND_PAYMENT => ['card_number', 'iban', 'account_number', 'sort_code', 'last_four'],
-        self::KIND_SECRET => ['api_key', 'secret', 'token', 'access_token', 'refresh_token', 'password'],
+        self::KIND_SECRET => [
+            'api_key',
+            'secret',
+            'client_secret',
+            'token',
+            'access_token',
+            'refresh_token',
+            'password',
+            'passwd',
+            'passphrase',
+            'private_key',
+            'credentials',
+            'authorization',
+        ],
     ];
 
     /**
@@ -145,7 +155,18 @@ class PiiRedactor
             return $data;
         }
 
-        return $this->walk($data, $map, $this->activeKinds());
+        $kinds = $this->activeKinds();
+
+        // Startup responses deliberately use a generic `value` field so the
+        // model can feed a returned key into startup_set. Field-name redaction
+        // cannot tell MYSQL_PASSWORD from SERVER_JARFILE at that point. Seed
+        // credential-like entries first so both their value and any resolved
+        // occurrence in the startup command receive one reversible token.
+        if (in_array(self::KIND_SECRET, $kinds, true)) {
+            $this->seedCredentialVariables($data, $map);
+        }
+
+        return $this->walk($data, $map, $kinds);
     }
 
     /**
@@ -161,11 +182,10 @@ class PiiRedactor
     }
 
     /**
-     * Put the real values back. No production caller by design — restoration
-     * happens in the browser at render time, where one map serves prose,
-     * arguments and payloads alike. Kept as the asserted inverse of `redact()`:
-     * the round trip proves every token reversible and the map complete. Never
-     * run on what the model reads.
+     * Put exact known values back. The browser uses this mapping for display;
+     * the server uses it only to canonicalize a files_write proposal before the
+     * approval and execution boundaries. Never run it on text sent to the model,
+     * and never infer or normalize an unknown token-shaped string.
      */
     public function restore(string $text, RedactionMap $map): string
     {
@@ -180,8 +200,20 @@ class PiiRedactor
     private function walk(mixed $value, RedactionMap $map, array $kinds, ?string $key = null): mixed
     {
         if (is_array($value)) {
+            $credentialVariable = in_array(self::KIND_SECRET, $kinds, true)
+                && $this->isCredentialVariable($value);
             $out = [];
             foreach ($value as $childKey => $child) {
+                if (
+                    $credentialVariable
+                    && in_array($childKey, ['value', 'server_value', 'default_value'], true)
+                    && (is_string($child) || is_int($child) || is_float($child))
+                    && (string) $child !== ''
+                ) {
+                    $out[$childKey] = $map->tokenFor(self::KIND_SECRET, (string) $child);
+                    continue;
+                }
+
                 $out[$childKey] = $this->walk($child, $map, $kinds, is_string($childKey) ? $childKey : null);
             }
 
@@ -202,6 +234,10 @@ class PiiRedactor
 
         if (!is_string($value)) {
             return $value;
+        }
+
+        if ($key !== null && $this->isStartupCommandField($key)) {
+            $value = $this->redactKnownSecrets($value, $map);
         }
 
         return $this->sweep(
@@ -255,10 +291,92 @@ class PiiRedactor
     }
 
     /**
+     * Mint tokens for values whose sibling startup-variable key identifies a
+     * credential. This is intentionally structural: ordinary variables such as
+     * SERVER_JARFILE and VERSION_ID remain useful even when their values happen
+     * to look opaque.
+     */
+    private function seedCredentialVariables(mixed $value, RedactionMap $map): void
+    {
+        if (!is_array($value)) {
+            return;
+        }
+
+        if ($this->isCredentialVariable($value)) {
+            foreach (['value', 'server_value', 'default_value'] as $field) {
+                $literal = $value[$field] ?? null;
+                if (is_string($literal) || is_int($literal) || is_float($literal)) {
+                    $literal = (string) $literal;
+                    if ($literal !== '') {
+                        $map->tokenFor(self::KIND_SECRET, $literal);
+                    }
+                }
+            }
+        }
+
+        foreach ($value as $child) {
+            $this->seedCredentialVariables($child, $map);
+        }
+    }
+
+    /** @param array<mixed> $value */
+    private function isCredentialVariable(array $value): bool
+    {
+        foreach (['key', 'env_variable'] as $field) {
+            if (
+                is_string($value[$field] ?? null)
+                && trim($value[$field]) !== ''
+                && $this->isCredentialIdentifier($value[$field])
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** A conservative set of credential words used in environment variables. */
+    private function isCredentialIdentifier(string $identifier): bool
+    {
+        $normalised = strtoupper((string) preg_replace('/[^A-Z0-9]+/i', '_', $identifier));
+        $normalised = trim($normalised, '_');
+
+        return preg_match(
+            '/(?:^|_)(?:PASSWORD|PASS|PASSWD|PWD|PASSPHRASE|SECRET|TOKEN|CREDENTIALS?|AUTHORIZATION|'
+                . 'API_KEY|ACCESS_KEY|PRIVATE_KEY|CLIENT_SECRET|DATABASE_URL|REDIS_URL|MONGO_URI|'
+                . 'SENTRY_DSN|WEBHOOK_URL)(?:$|_)/',
+            $normalised,
+        ) === 1;
+    }
+
+    private function isStartupCommandField(string $key): bool
+    {
+        return strtolower((string) preg_replace('/[^a-z0-9]/i', '', $key)) === 'startupcommand';
+    }
+
+    /** Replace only values behind secret tokens already minted in this map. */
+    private function redactKnownSecrets(string $text, RedactionMap $map): string
+    {
+        $replacements = [];
+
+        foreach ($map->all() as $token => $literal) {
+            if (str_starts_with($token, '[' . self::KIND_SECRET . '_') && $literal !== '') {
+                $replacements[$literal] = $token;
+            }
+        }
+
+        return $replacements === [] ? $text : strtr($text, $replacements);
+    }
+
+    /**
      * @param string[] $kinds
      */
     private function sweep(string $text, RedactionMap $map, array $kinds): string
     {
+        if (in_array(self::KIND_SECRET, $kinds, true)) {
+            $text = $this->redactCredentialAssignments($text, $map);
+        }
+
         foreach ($kinds as $kind) {
             $pattern = self::PATTERNS[$kind] ?? null;
 
@@ -298,6 +416,47 @@ class PiiRedactor
         }
 
         return $text;
+    }
+
+    /**
+     * Mask credential values in common .env, properties, YAML and simple JSON
+     * assignment lines. The key supplies the evidence; the value need not look
+     * token-shaped. This keeps ordinary opaque hashes and backup ids available.
+     */
+    private function redactCredentialAssignments(string $text, RedactionMap $map): string
+    {
+        $redacted = preg_replace_callback(
+            '/^(\s*(?:export\s+)?["\']?([A-Za-z][A-Za-z0-9_.-]*)["\']?\s*[:=]\s*)(\S.*?)(\s*,?\s*)$/m',
+            function (array $matches) use ($map): string {
+                if (!$this->isCredentialIdentifier($matches[2])) {
+                    return $matches[0];
+                }
+
+                $literal = $matches[3];
+                $quote = '';
+                if (
+                    strlen($literal) >= 2
+                    && in_array($literal[0], ['"', "'"], true)
+                    && $literal[-1] === $literal[0]
+                ) {
+                    $quote = $literal[0];
+                    $literal = substr($literal, 1, -1);
+                }
+
+                if ($literal === '') {
+                    return $matches[0];
+                }
+
+                return $matches[1]
+                    . $quote
+                    . $map->tokenFor(self::KIND_SECRET, $literal)
+                    . $quote
+                    . $matches[4];
+            },
+            $text,
+        );
+
+        return $redacted ?? '[redacted: could not be scanned]';
     }
 
     /**

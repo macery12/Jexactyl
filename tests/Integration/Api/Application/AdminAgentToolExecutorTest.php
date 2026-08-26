@@ -303,6 +303,35 @@ class AdminAgentToolExecutorTest extends IntegrationTestCase
         $this->assertSame(4096, $product->memory_limit);
     }
 
+    public function testProductCreateToolCreatesAFreeProductAtExactlyZero(): void
+    {
+        $this->actAsParentRequest($this->owner());
+        $template = $this->populatedProduct();
+        $category = $template->category;
+
+        $result = $this->invokeDefinition('admin_product_create', [
+            'category' => (string) $category->id,
+            'category_uuid' => $category->uuid,
+            'name' => 'Free plan',
+            'description' => 'No-cost plan',
+            'price' => 0,
+            'visible' => true,
+            'cpu_limit' => 100,
+            'memory_limit' => 1024,
+            'disk_limit' => 2048,
+            'backup_limit' => 1,
+            'database_limit' => 1,
+            'allocation_limit' => 1,
+            'subdomain_limit' => 0,
+        ]);
+
+        $this->assertTrue($result->ok, $result->summary());
+
+        $created = Product::query()->where('name', 'Free plan')->firstOrFail();
+        $this->createdProductIds[] = $created->id;
+        $this->assertSame(0.0, $created->price);
+    }
+
     public function testNodePricingListToolShowsTheStoredPriceMultiplier(): void
     {
         $this->actAsParentRequest($this->owner());

@@ -411,8 +411,9 @@ class AdminTools
                     . 'admin_products_list for that exact category. Every resource limit is required: '
                     . 'read one returned product and follow its shape rather than inventing limits. If '
                     . 'the category has no products, ask the user for the missing name and resource '
-                    . 'limits; never probe ids. A limit of 0 means unlimited. The price is per month, '
-                    . 'in the panel\'s configured currency.',
+                    . 'limits; never probe ids. A limit of 0 means unlimited. The price is per month '
+                    . 'in the panel\'s configured currency; a price of 0 is valid and creates a free '
+                    . 'product. Never claim free products are unsupported.',
                 parameters: self::object([
                     'category' => self::string(
                         'The numeric category id — the \'id\' field of an admin_categories_list '
@@ -421,7 +422,10 @@ class AdminTools
                     'category_uuid' => self::string('That same category\'s uuid. Both are required.'),
                     'name' => self::string('Product name as customers will see it.'),
                     'description' => self::string('Short description shown on the storefront.'),
-                    'price' => self::number('Monthly price.'),
+                    'price' => self::number(
+                        'Monthly price. Use exactly 0 for a free product; zero is valid and requires no payment.',
+                        minimum: 0,
+                    ),
                     'visible' => self::boolean('Whether it appears on the storefront. Defaults to visible.'),
                     'cpu_limit' => self::integer('CPU limit as a percentage. 100 is one core. 0 is unlimited.'),
                     'memory_limit' => self::integer('Memory limit in MB. 0 is unlimited.'),
@@ -441,8 +445,11 @@ class AdminTools
                 permissions: [AdminRole::BILLING_PRODUCTS_CREATE],
                 discovery: new ToolDiscovery(
                     category: self::CATEGORY_BILLING,
-                    aliases: ['create a product', 'add a plan', 'new plan', 'list a new tier', 'add to the store'],
-                    tags: ['billing', 'catalogue', 'products', 'create', 'write'],
+                    aliases: [
+                        'create a product', 'add a plan', 'new plan', 'list a new tier', 'add to the store',
+                        'create a free plan', 'create a free product', 'add a zero dollar plan',
+                    ],
+                    tags: ['billing', 'catalogue', 'products', 'pricing', 'free', 'create', 'write'],
                 ),
                 bodyFields: [
                     'category_uuid', 'name', 'description', 'icon', 'price', 'visible',
@@ -456,7 +463,7 @@ class AdminTools
                 description: 'Change fields on an existing product. Send only the fields you are changing; '
                     . 'anything omitted is left alone. Read the product first so you know what you are '
                     . 'changing it from, using only an id returned by admin_products_list for the same '
-                    . 'category.',
+                    . 'category. A price of 0 is valid and makes the product free.',
                 parameters: self::object([
                     'category' => self::string('The numeric category id.'),
                     'product' => self::string('The numeric product id.'),
@@ -469,7 +476,10 @@ class AdminTools
                         'type' => ['string', 'null'],
                         'description' => 'New icon, or null to clear it.',
                     ],
-                    'price' => self::number('New monthly price.'),
+                    'price' => self::number(
+                        'New monthly price. Use exactly 0 to make the product free; zero is valid.',
+                        minimum: 0,
+                    ),
                     'visible' => self::boolean('Whether it appears on the storefront.'),
                     'cpu_limit' => self::integer('CPU limit as a percentage. 100 is one core.'),
                     'memory_limit' => self::integer('Memory limit in MB.'),

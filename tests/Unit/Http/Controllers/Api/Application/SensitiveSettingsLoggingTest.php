@@ -5,12 +5,13 @@ namespace Everest\Tests\Unit\Http\Controllers\Api\Application;
 use Everest\Tests\TestCase;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
-use Everest\Services\AI\ProviderFactory;
 use Illuminate\Support\Facades\Artisan;
+use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\Mods\ModrinthService;
 use Everest\Services\AI\Privacy\PiiRedactor;
+use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Http\Controllers\Api\Application\ModsController;
 use Everest\Contracts\Repository\SettingsRepositoryInterface;
 use Everest\Http\Controllers\Api\Application\PluginsController;
@@ -37,8 +38,10 @@ class SensitiveSettingsLoggingTest extends TestCase
             \Mockery::mock(ProviderFactory::class),
             app(PiiRedactor::class),
             app(ToolBudget::class),
+            app(AdminAuthorizer::class),
         );
         $request = \Mockery::mock(UpdateIntelligenceSettingsRequest::class);
+        $request->shouldReceive('changesProviderConnection')->once()->andReturn(false);
         $request->shouldReceive('normalize')->once()->andReturn([
             'key' => 'super-secret-ai-key',
             'mode' => 'openai',
@@ -62,6 +65,26 @@ class SensitiveSettingsLoggingTest extends TestCase
         $response = $controller->update($request);
 
         $this->assertSame(Response::HTTP_NO_CONTENT, $response->getStatusCode());
+    }
+
+    public function testDelegatedAdminCannotChangeProviderConnection(): void
+    {
+        $authorizer = \Mockery::mock(AdminAuthorizer::class);
+        $authorizer->shouldReceive('isInteractiveOwner')->once()->andReturn(false);
+        $controller = new IntelligenceController(
+            \Mockery::mock(ProviderFactory::class),
+            app(PiiRedactor::class),
+            app(ToolBudget::class),
+            $authorizer,
+        );
+        $request = \Mockery::mock(UpdateIntelligenceSettingsRequest::class);
+        $request->shouldReceive('changesProviderConnection')->once()->andReturn(true);
+        $request->shouldReceive('user')->once()->andReturn(\Mockery::mock(\Everest\Models\User::class));
+        $request->shouldNotReceive('normalize');
+
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException::class);
+
+        $controller->update($request);
     }
 
     public function testPluginsSettingsActivityLogsUpdate(): void
