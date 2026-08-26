@@ -48,7 +48,14 @@ export interface QuestionOption {
 }
 
 export type ChatEntry =
-    | { kind: 'user'; key: string; content: string }
+    /**
+     * `at` is set only for a turn sent in this session.
+     *
+     * A stored transcript has no per-message timestamp to reconstruct it from,
+     * so a reopened conversation numbers its turns without timing them. The
+     * gutter renders whichever it has rather than inventing the other.
+     */
+    | { kind: 'user'; key: string; content: string; at?: number }
     | { kind: 'assistant'; key: string; content: string; streaming?: boolean; error?: boolean }
     /**
      * Why the turn stopped, when it stopped for a reason that is not an answer.
@@ -1329,7 +1336,12 @@ export function createAgentChatStore(
                 const trimmed = query.trim();
                 if (!trimmed || loading || !target) return;
 
-                set(state => ({ entries: [...state.entries, { kind: 'user', key: nextKey(), content: trimmed }] }));
+                set(state => ({
+                    entries: [
+                        ...state.entries,
+                        { kind: 'user', key: nextKey(), content: trimmed, at: Date.now() },
+                    ],
+                }));
 
                 // The message is appended once, here. A queued retry re-sends
                 // the request but not this: the attempt that was turned away

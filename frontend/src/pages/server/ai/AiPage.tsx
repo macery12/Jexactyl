@@ -7,6 +7,8 @@ import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
 import { useFlashes } from '@/state/flashes';
 import { AgentChat } from '@/components/ai/AgentChat';
+import { useFillViewport } from '@/components/ai/useFillViewport';
+import { ConversationRail } from '@/components/ai/ConversationRail';
 import { DeleteConversationModal } from '@/components/ai/DeleteConversationModal';
 import {
     deleteConversation,
@@ -15,19 +17,24 @@ import {
     toggleSaveConversation,
     type AiConversation,
 } from '@/api/ai';
-import { ConversationRail } from './ConversationRail';
 
 // The full-page assistant: history rail plus the shared conversation view.
 //
 // Chat state lives in the agent store rather than here, so a turn started in
 // the dock drawer is the same turn this page shows — and navigating away
 // mid-turn does not abandon it.
+//
+// The rail is the shared component rather than one of its own. It used to be a
+// local file that the admin assistant had a second, divergent copy of; the
+// grouping, the bookmarks and the expiry labels are now the same code on both
+// routes, which is the only way they stay the same design.
 
 const RAIL_KEY = 'v2:ai:rail';
 
 export default function AiPage() {
     const server = useServer();
     const everest = useFlags(s => s.everest);
+    const fillRef = useFillViewport<HTMLDivElement>();
 
     const canUseAssistant = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
 
@@ -68,11 +75,11 @@ export default function AiPage() {
     );
 
     const [railOpen, setRailOpen] = useState(
-        () => window.matchMedia('(min-width: 768px)').matches && localStorage.getItem(RAIL_KEY) !== 'closed',
+        () => window.matchMedia('(min-width: 1024px)').matches && localStorage.getItem(RAIL_KEY) !== 'closed',
     );
     const [deleteTarget, setDeleteTarget] = useState<AiConversation | null>(null);
 
-    const desktopRail = () => window.matchMedia('(min-width: 768px)').matches;
+    const desktopRail = () => window.matchMedia('(min-width: 1024px)').matches;
     const toggleRail = () => {
         setRailOpen(open => {
             if (desktopRail()) localStorage.setItem(RAIL_KEY, open ? 'closed' : 'open');
@@ -118,19 +125,27 @@ export default function AiPage() {
     }
 
     return (
-        <div className="relative flex h-[calc(100vh-10.5rem)] min-h-[420px] gap-3 overflow-hidden">
+        // Fills whatever the layout gives it instead of guessing the shell's
+        // chrome height. `h-[calc(100vh-10.5rem)]` was a hardcoded assumption
+        // that broke the moment a banner appeared above it, leaving either dead
+        // space or a second scrollbar.
+        <div
+            ref={fillRef}
+            className="relative flex overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70"
+        >
             {railOpen && (
                 <>
                     <button
                         type="button"
                         aria-label={m['server.ai.hideHistory']()}
                         onClick={() => setRailOpen(false)}
-                        className="absolute inset-0 z-10 bg-black/50 md:hidden"
+                        className="absolute inset-0 z-10 bg-black/50 lg:hidden"
                     />
                     <ConversationRail
                         conversations={conversations}
                         loading={conversationsLoading}
                         activeId={conversationId}
+                        newChatLabel={m['server.ai.newChat']()}
                         onNewChat={() => {
                             newChat();
                             closeMobileRail();
@@ -139,23 +154,23 @@ export default function AiPage() {
                         onToggleSave={handleToggleSave}
                         onDelete={setDeleteTarget}
                         onClose={() => setRailOpen(false)}
-                        className="absolute inset-y-0 left-0 z-20 w-[min(16rem,calc(100%-3rem))] shadow-2xl md:static md:z-auto md:w-64 md:shadow-none"
+                        className="absolute inset-y-0 left-0 z-20 w-[min(14rem,calc(100%-3rem))] shadow-2xl lg:static lg:z-auto lg:w-56 lg:shadow-none"
                     />
                 </>
             )}
 
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70">
-                <header className="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-3">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <header className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--color-border-strong)] px-3">
                     <button
                         type="button"
                         onClick={toggleRail}
                         title={railOpen ? m['server.ai.hideHistory']() : m['server.ai.showHistory']()}
-                        className="rounded-md p-1.5 text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
+                        className="rounded-sm p-1 text-[var(--color-ink-muted)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-ink)]"
                     >
-                        {railOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+                        {railOpen ? <PanelLeftClose className="h-3.5 w-3.5" /> : <PanelLeftOpen className="h-3.5 w-3.5" />}
                     </button>
-                    <span className="text-sm font-medium text-[var(--color-ink)]">{m['server.ai.title']()}</span>
-                    <span className="truncate text-xs text-[var(--color-ink-faint)]">{server.name}</span>
+                    <span className="text-[13px] font-medium text-[var(--color-ink)]">{m['server.ai.title']()}</span>
+                    <span className="truncate text-[11.5px] text-[var(--color-ink-faint)]">{server.name}</span>
                 </header>
 
                 <AgentChat />

@@ -6,6 +6,7 @@ import { useServer } from '@/components/server/ServerContext';
 import { useFlags } from '@/state/flags';
 import { useAgentChat } from '@/state/agentChat';
 import { AgentChatView } from './AgentChatView';
+import { sessionCounters, type DetailGroup } from './detailFields';
 
 // The server assistant: everything server-specific about a conversation, over
 // the shared view. Rendered identically by the full page and the dock drawer;
@@ -17,6 +18,8 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
     const queryClient = useQueryClient();
 
     const loading = useAgentChat(s => s.loading);
+    const entries = useAgentChat(s => s.entries);
+    const step = useAgentChat(s => s.step);
 
     const agentAvailable = Boolean(everest?.ai.enabled && everest.ai.feature_agent);
 
@@ -45,6 +48,46 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
         );
     }
 
+    const counters = sessionCounters(entries);
+
+    // Deliberately thinner than the admin column. Node, lane, ticket and the
+    // audit link are operator concerns; a customer looking at their own server
+    // has no use for them, and a column padded out with rows that mean nothing
+    // to the person reading is worse than a short one.
+    const detail: DetailGroup[] = [
+        {
+            label: m['server.ai.detail.groupServer'](),
+            rows: [
+                { label: m['server.ai.detail.server'](), value: server.name },
+                {
+                    label: m['server.ai.detail.state'](),
+                    value: server.status ?? m['server.ai.detail.unknown'](),
+                    tone: server.status === 'running' ? 'good' : server.status ? 'warn' : 'default',
+                },
+            ],
+        },
+        {
+            label: m['server.ai.detail.groupTurn'](),
+            rows: step
+                ? [
+                      {
+                          label: m['server.ai.detail.step'](),
+                          value: `${step.step} / ${step.maxSteps}`,
+                          meter: step.maxSteps > 0 ? step.step / step.maxSteps : undefined,
+                      },
+                  ]
+                : [],
+        },
+        {
+            label: m['server.ai.detail.groupChat'](),
+            rows: [
+                { label: m['server.ai.detail.turns'](), value: String(counters.turns) },
+                { label: m['server.ai.detail.reads'](), value: String(counters.reads) },
+                { label: m['server.ai.detail.changes'](), value: String(counters.changes) },
+            ],
+        },
+    ];
+
     return (
         <AgentChatView
             store={useAgentChat}
@@ -54,6 +97,7 @@ export function AgentChat({ compact = false }: { compact?: boolean }) {
             emptySubtitle={m['server.ai.emptyAgentSubtitle']({ name: server.name })}
             placeholder={m['server.ai.composerAgentPlaceholder']()}
             disclaimer={m['server.ai.agentDisclaimer']()}
+            detail={detail}
             suggestions={[
                 m['server.ai.suggestions.crash'](),
                 m['server.ai.suggestions.performance'](),

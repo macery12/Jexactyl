@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Check, ChevronRight, CircleAlert, X } from 'lucide-react';
+import { AlertTriangle, ChevronRight } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
@@ -40,17 +40,58 @@ export function ToolCallRow({
     const hasResult = entry.result !== undefined && entry.result !== null;
     const expandable = hasArgs || hasResult;
 
+    // Collapsed, this is a log line rather than a card: a status LED, the verb,
+    // its argument, and the outcome, all on one monospace baseline. The card it
+    // used to be — a bordered rectangle filled at 40% opacity over a border at
+    // 25% — was very nearly invisible, and a turn that runs twelve of them read
+    // as grey mush on exactly the surface where the audit trail matters most.
+    // Twelve log lines read as a log, which is what they are.
     return (
-        <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)]/40">
+        <div className={cn(open && 'bg-[var(--color-surface-2)]/40')}>
             <button
                 type="button"
                 onClick={() => expandable && setOpen(o => !o)}
                 disabled={!expandable}
                 className={cn(
-                    'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs',
-                    expandable && 'transition-colors hover:bg-[var(--color-surface-2)]',
+                    'flex w-full items-center gap-2.5 py-1 text-left font-mono text-[11px]',
+                    expandable && 'transition-colors hover:text-[var(--color-ink)]',
                 )}
             >
+                <StatusLed status={entry.status} />
+
+                <ToolIcon tool={entry.tool} className="h-3 w-3 shrink-0 text-[var(--color-ink-faint)]" />
+
+                <span className="shrink-0 text-[var(--brand-bright)]">
+                    {toolLifecycleLabel(entry.tool, entry.status)}
+                </span>
+
+                {target && (
+                    <span className="min-w-0 flex-1 truncate text-[var(--color-ink)]">{target}</span>
+                )}
+                {!target && <span className="flex-1" />}
+
+                {entry.risk === 'destructive' && entry.status !== 'running' && (
+                    <AlertTriangle className="h-3 w-3 shrink-0 text-[var(--color-warning)]" />
+                )}
+
+                <span
+                    className={cn(
+                        'flex shrink-0 items-center gap-1.5 text-[10px]',
+                        entry.status === 'partial'
+                            ? 'text-[var(--color-warning)]'
+                            : entry.status === 'error'
+                              ? 'text-[var(--color-danger)]'
+                              : 'text-[var(--color-ink-faint)]',
+                    )}
+                >
+                    {/* Only calls slow enough to be worth noticing are timed; a
+                        millisecond count on every row is clutter. */}
+                    {entry.durationMs !== undefined && entry.durationMs >= 1000 && (
+                        <span className="tabular-nums">{(entry.durationMs / 1000).toFixed(1)}s</span>
+                    )}
+                    {entry.summary && <span className="max-w-[14rem] truncate">{entry.summary}</span>}
+                </span>
+
                 <ChevronRight
                     className={cn(
                         'h-3 w-3 shrink-0 text-[var(--color-ink-faint)] transition-transform',
@@ -58,57 +99,10 @@ export function ToolCallRow({
                         open && 'rotate-90',
                     )}
                 />
-                <ToolIcon tool={entry.tool} className="h-3.5 w-3.5 shrink-0 text-[var(--color-ink-muted)]" />
-
-                <span className="shrink-0 font-medium text-[var(--color-ink)]">
-                    {toolLifecycleLabel(entry.tool, entry.status)}
-                </span>
-
-                {target && (
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-ink-muted)]">
-                        {target}
-                    </span>
-                )}
-                {!target && <span className="flex-1" />}
-
-                {entry.risk === 'destructive' && entry.status !== 'running' && (
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
-                )}
-
-                {entry.status === 'pending' || entry.status === 'running' ? (
-                    <Spinner className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                    <span
-                        className={cn(
-                            'flex shrink-0 items-center gap-1 text-[11px]',
-                            entry.status === 'ok'
-                                ? 'text-[var(--color-ink-faint)]'
-                                : entry.status === 'partial'
-                                  ? 'text-[var(--color-warning)]'
-                                  : 'text-[var(--color-danger)]',
-                        )}
-                    >
-                        {/* Only calls slow enough to be worth noticing are
-                            timed; a millisecond count on every row is clutter. */}
-                        {entry.durationMs !== undefined && entry.durationMs >= 1000 && (
-                            <span className="font-mono tabular-nums text-[var(--color-ink-faint)]">
-                                {(entry.durationMs / 1000).toFixed(1)}s
-                            </span>
-                        )}
-                        {entry.summary && <span className="max-w-[16rem] truncate">{entry.summary}</span>}
-                        {entry.status === 'ok' ? (
-                            <Check className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                        ) : entry.status === 'partial' ? (
-                            <CircleAlert className="h-3.5 w-3.5" />
-                        ) : (
-                            <X className="h-3.5 w-3.5" />
-                        )}
-                    </span>
-                )}
             </button>
 
             {open && (
-                <div className="space-y-2 border-t border-[var(--color-border)] px-2.5 py-2">
+                <div className="space-y-2 border-l border-[var(--color-border-strong)] py-2 pl-3">
                     {hasArgs && (
                         <div>
                             <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
@@ -131,6 +125,35 @@ export function ToolCallRow({
                 </div>
             )}
         </div>
+    );
+}
+
+/**
+ * The outcome of a call, as one dot.
+ *
+ * A running call keeps its spinner — motion is the only honest way to say "still
+ * going" — but a settled one does not need a glyph and a word and a colour to
+ * say it worked. At this density a coloured dot in a fixed column is read
+ * faster than any icon, and twelve of them form a scannable margin down the
+ * left of the turn.
+ */
+function StatusLed({ status }: { status: ToolEntry['status'] }) {
+    if (status === 'pending' || status === 'running') {
+        return <Spinner className="h-3 w-3 shrink-0" />;
+    }
+
+    return (
+        <span
+            aria-hidden
+            className={cn(
+                'h-1.5 w-1.5 shrink-0 rounded-full',
+                status === 'ok'
+                    ? 'bg-[var(--color-accent)]'
+                    : status === 'partial'
+                      ? 'bg-[var(--color-warning)]'
+                      : 'bg-[var(--color-danger)]',
+            )}
+        />
     );
 }
 
