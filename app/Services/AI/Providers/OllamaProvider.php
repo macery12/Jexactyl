@@ -101,7 +101,7 @@ class OllamaProvider extends AbstractProvider
 
         foreach ($this->readNdjson($body) as $frame) {
             if (isset($frame['error'])) {
-                throw new AIServiceException('The AI provider returned an error.');
+                throw new AIServiceException(self::PROVIDER_REJECTED_MESSAGE);
             }
 
             $message = $frame['message'] ?? [];

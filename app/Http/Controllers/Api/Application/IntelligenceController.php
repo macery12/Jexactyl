@@ -3,18 +3,22 @@
 namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Models\Setting;
+use Illuminate\Support\Str;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
+use Everest\Services\AI\Providers\AbstractProvider;
 use Everest\Services\Authorization\AdminAuthorizer;
 use Everest\Services\AI\Inference\ProviderReadiness;
+use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Http\Requests\Api\Application\Intelligence;
 use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
@@ -176,17 +180,43 @@ class IntelligenceController extends ApplicationApiController
         }
 
         $start = microtime(true);
+        $readiness = app(ProviderReadiness::class);
+        $config = $this->factory->config();
+        $failureMessage = null;
 
         try {
-            $ok = $this->factory->make()->health();
+            $provider = $this->factory->make();
+            $ok = $provider->health();
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
 
-            $result = $ok
-                ? ['status' => 'ok', 'latency_ms' => $latencyMs]
-                : ['status' => 'error', 'message' => 'AI service returned an unexpected response.', 'latency_ms' => $latencyMs];
-        } catch (\Exception) {
+            if ($ok) {
+                $result = ['status' => 'ok', 'latency_ms' => $latencyMs];
+            } else {
+                $failureMessage = $provider instanceof AbstractProvider
+                    ? $provider->lastFailure()
+                    : null;
+                if ($failureMessage === null) {
+                    $state = $readiness->state();
+                    $failureMessage = !$state['ready'] && is_string($state['reason'])
+                        ? $state['reason']
+                        : AbstractProvider::INVALID_RESPONSE_MESSAGE;
+                }
+                $result = [
+                    'status' => 'error',
+                    'message' => $this->adminAiDiagnostic($failureMessage, 'connection_test'),
+                    'latency_ms' => $latencyMs,
+                ];
+            }
+        } catch (\Throwable $e) {
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            $result = ['status' => 'error', 'message' => 'Unable to reach the configured AI service.', 'latency_ms' => $latencyMs];
+            $failureMessage = $e instanceof AIServiceException
+                ? $e->getMessage()
+                : 'The panel could not initialize the configured AI provider. Verify the provider, endpoint, API key, and model.';
+            $result = [
+                'status' => 'error',
+                'message' => $this->adminAiDiagnostic($failureMessage, 'connection_test', $e),
+                'latency_ms' => $latencyMs,
+            ];
         }
 
         Cache::put($cacheKey, $result, 300);
@@ -196,13 +226,10 @@ class IntelligenceController extends ApplicationApiController
         // pressed Test is entitled to have that answer count immediately, rather
         // than being told the assistant is offline for another fifteen seconds
         // by a verdict they have visibly superseded.
-        $readiness = app(ProviderReadiness::class);
-        $config = $this->factory->config();
-
         if ($result['status'] === 'ok') {
             $readiness->markReachable($config);
         } else {
-            $readiness->markUnreachable($config, ProviderReadiness::UNREACHABLE_MESSAGE);
+            $readiness->markUnreachable($config, $failureMessage ?? ProviderReadiness::UNREACHABLE_MESSAGE);
         }
 
         return response()->json($result, $result['status'] === 'ok' ? 200 : 502);
@@ -226,8 +253,18 @@ class IntelligenceController extends ApplicationApiController
 
         try {
             $models = $this->factory->make()->listModels();
-        } catch (\Exception) {
-            return response()->json(['error' => 'Unable to list models from the configured AI service.'], 502);
+        } catch (AIServiceException $e) {
+            return response()->json([
+                'message' => $this->adminAiDiagnostic($e->getMessage(), 'list_models', $e),
+            ], 502);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => $this->adminAiDiagnostic(
+                    'The panel could not list models from the configured AI service. Verify the provider endpoint and API compatibility.',
+                    'list_models',
+                    $e,
+                ),
+            ], 502);
         }
 
         Cache::put($cacheKey, $models, 300);
@@ -261,12 +298,38 @@ class IntelligenceController extends ApplicationApiController
             }
 
             return response()->json($provider->probeToolCalling($config->model));
-        } catch (\Throwable) {
+        } catch (AIServiceException $e) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'The live tool-calling test failed.',
+                'message' => $this->adminAiDiagnostic($e->getMessage(), 'tool_calling_test', $e),
+            ], 502);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $this->adminAiDiagnostic(
+                    'The live tool-calling test encountered an internal panel error. Verify the selected model and inspect the panel logs.',
+                    'tool_calling_test',
+                    $e,
+                ),
             ], 502);
         }
+    }
+
+    /** Attach a copyable reference to an admin-facing failure and its safe log context. */
+    private function adminAiDiagnostic(string $message, string $operation, ?\Throwable $exception = null): string
+    {
+        $reference = Str::upper(Str::random(10));
+        $config = $this->factory->config();
+
+        Log::warning('AI administration operation failed.', array_filter([
+            'reference' => $reference,
+            'operation' => $operation,
+            'provider' => $config->provider,
+            'model' => $config->model ?: 'unknown',
+            'exception' => $exception !== null ? $exception::class : null,
+        ]));
+
+        return rtrim($message) . ' Administrator reference: ' . $reference . '.';
     }
 
     /**

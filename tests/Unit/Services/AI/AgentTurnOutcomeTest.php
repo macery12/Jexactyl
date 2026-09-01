@@ -65,7 +65,11 @@ class AgentTurnOutcomeTest extends TestCase
         $this->assertSame('error', $usage->status);
         // Our own exceptions are written for this audience, so they survive
         // intact — that is the whole reason the type is distinguished.
-        $this->assertSame($message, $usage->error_message);
+        $this->assertStringStartsWith($message, (string) $usage->error_message);
+        $this->assertMatchesRegularExpression(
+            '/Administrator reference: [A-Z0-9]{10}\./',
+            (string) $usage->error_message,
+        );
         $this->assertStringContainsString($message, $body);
     }
 
@@ -112,8 +116,9 @@ class AgentTurnOutcomeTest extends TestCase
             $this->assertStringNotContainsString($sentinel, $stored, 'stored: ' . $sentinel);
         }
 
-        $this->assertStringContainsString('The AI ran into a problem', $body);
-        $this->assertSame('The AI ran into a problem. Please try again.', $stored);
+        $this->assertStringContainsString('internal panel error', $body);
+        $this->assertStringContainsString('contact an administrator', $stored);
+        $this->assertMatchesRegularExpression('/Administrator reference: [A-Z0-9]{10}\./', $stored);
     }
 
     /*

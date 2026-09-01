@@ -304,8 +304,32 @@ trait HandlesAgentTurns
         $state = app(ProviderReadiness::class)->state();
 
         if (!$state['ready']) {
-            abort(503, (string) $state['reason']);
+            $this->rejectAgentRequest((string) $state['reason'], 'provider_not_ready');
         }
+    }
+
+    /**
+     * Refuse a request before its stream opens while preserving a safe sentence
+     * for the browser and a searchable reference for operators.
+     */
+    protected function rejectAgentRequest(string $message, string $reason): never
+    {
+        $reference = Str::upper(Str::random(10));
+        $config = $this->providerFactory()->config();
+
+        Log::warning('AI agent request rejected before streaming.', [
+            'reference' => $reference,
+            'reason' => $reason,
+            'provider' => $config->provider,
+            'model' => $config->model ?: 'unknown',
+        ]);
+
+        throw new ServiceUnavailableHttpException(5, $message, null, 0, ['X-AI-Error-Safe' => '1', 'X-AI-Error-Reference' => $reference]);
+    }
+
+    protected function withAgentErrorReference(string $message, string $reference): string
+    {
+        return rtrim($message) . ' Administrator reference: ' . $reference . '.';
     }
 
     /**
@@ -532,7 +556,16 @@ trait HandlesAgentTurns
                         'resolved_at' => now(),
                     ]);
 
-                Log::error('AI agent stream failed for user ' . $userId . ': ' . $e->getMessage());
+                $reference = Str::upper(Str::random(10));
+                Log::error('AI agent turn failed.', [
+                    'reference' => $reference,
+                    'turn' => $turnId,
+                    'user' => $userId,
+                    'provider' => $this->providerFactory()->config()->provider,
+                    'model' => $model ?: 'unknown',
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ]);
 
                 // Only our own messages are quotable. Anything else can
                 // carry SQL, absolute paths or internal detail — which
@@ -540,7 +573,8 @@ trait HandlesAgentTurns
                 // stored row are read by a browser.
                 $error = $e instanceof AIServiceException
                     ? $e->getMessage()
-                    : 'The AI ran into a problem. Please try again.';
+                    : 'The AI assistant encountered an internal panel error before it could finish. Please try again; if it happens again, contact an administrator.';
+                $error = $this->withAgentErrorReference($error, $reference);
                 $this->send(AgentEvent::error($error));
             }
 
@@ -551,7 +585,16 @@ trait HandlesAgentTurns
             $persistenceFailed = !$recorder->touch($conversation, $context);
             if ($persistenceFailed) {
                 $status = 'error';
-                $error = 'The turn finished, but its conversation state could not be persisted.';
+                $reference = Str::upper(Str::random(10));
+                $error = $this->withAgentErrorReference(
+                    'The turn finished, but its conversation state could not be saved. Reload the conversation before retrying.',
+                    $reference,
+                );
+                Log::warning('AI conversation state could not be persisted.', [
+                    'reference' => $reference,
+                    'turn' => $turnId,
+                    'user' => $userId,
+                ]);
             }
 
             try {
@@ -578,18 +621,24 @@ trait HandlesAgentTurns
                 ]);
                 $usageReconciled = true;
             } catch (\Throwable $e) {
-                Log::warning('Failed to write AI usage log: ' . $e->getMessage());
-                $this->send(AgentEvent::error(
-                    'The turn ended, but its terminal state could not be persisted. Reload before retrying.'
-                ));
+                $reference = Str::upper(Str::random(10));
+                Log::warning('Failed to write AI usage log.', [
+                    'reference' => $reference,
+                    'turn' => $turnId,
+                    'user' => $userId,
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ]);
+                $this->send(AgentEvent::error($this->withAgentErrorReference(
+                    'The turn ended, but its final status could not be saved. Reload before retrying.',
+                    $reference,
+                )));
 
                 return;
             }
 
             if ($persistenceFailed) {
-                $this->send(AgentEvent::error(
-                    'The turn ended, but its conversation state could not be persisted. Reload before retrying.'
-                ));
+                $this->send(AgentEvent::error((string) $error));
 
                 return;
             }
@@ -641,7 +690,7 @@ trait HandlesAgentTurns
             // stream, where the error frame quotes our own exceptions. Asking
             // before the stream opens means saying it in HTTP instead, or the
             // user gets a bare 500 in place of a sentence explaining the wait.
-            throw new ServiceUnavailableHttpException(5, $e->getMessage(), $e);
+            $this->rejectAgentRequest($e->getMessage(), 'inference_admission_refused');
         }
     }
 

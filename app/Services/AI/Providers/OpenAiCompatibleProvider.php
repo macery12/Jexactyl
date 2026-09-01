@@ -84,7 +84,7 @@ class OpenAiCompatibleProvider extends AbstractProvider
             }
 
             if (isset($data['error'])) {
-                throw new AIServiceException('The AI provider returned an error.');
+                throw new AIServiceException(self::PROVIDER_REJECTED_MESSAGE);
             }
 
             if (isset($data['usage']) && is_array($data['usage'])) {

@@ -17,6 +17,18 @@ use Everest\Exceptions\Service\AI\AIServiceException;
 
 abstract class AbstractProvider implements AiProvider
 {
+    public const PROVIDER_REJECTED_MESSAGE = 'The AI provider rejected the request or returned an error. The assistant could not complete this message. Please try again; if it continues, ask an administrator to check the provider configuration and logs.';
+
+    public const INVALID_RESPONSE_MESSAGE = 'The AI provider returned a response the panel could not read. Please try again; if it continues, ask an administrator to verify that the endpoint and model are compatible.';
+
+    public const AUTHENTICATION_ERROR_MESSAGE = 'The AI provider rejected the configured credentials. Ask an administrator to verify the provider API key.';
+
+    public const ENDPOINT_OR_MODEL_ERROR_MESSAGE = 'The AI provider could not find the configured endpoint or model. Ask an administrator to verify the AI endpoint and selected model.';
+
+    public const RATE_LIMIT_MESSAGE = 'The AI provider is busy or rate-limited and could not answer. Please wait a moment and try again.';
+
+    public const INCOMPATIBLE_REQUEST_MESSAGE = 'The AI provider rejected the request format. Ask an administrator to verify that the selected model and endpoint are compatible with this panel.';
+
     /**
      * How long completed responses are cached for. Identical prompts within this
      * window are served from cache instead of re-generating — a large win for
@@ -31,6 +43,9 @@ abstract class AbstractProvider implements AiProvider
     public const PROBE_CACHE_TTL = 300;
 
     private ?Client $client = null;
+
+    /** Safe explanation for the most recent failed provider operation. */
+    private ?string $lastFailure = null;
 
     /** One opaque namespace for every missing-id call emitted by this response driver. */
     private string $syntheticCallNamespace;
@@ -51,6 +66,11 @@ abstract class AbstractProvider implements AiProvider
     public function config(): ProviderConfig
     {
         return $this->providerConfig;
+    }
+
+    public function lastFailure(): ?string
+    {
+        return $this->lastFailure;
     }
 
     protected function client(): Client
@@ -88,11 +108,11 @@ abstract class AbstractProvider implements AiProvider
     protected function assertConfigured(): void
     {
         if ($this->providerConfig->requiresApiKey() && $this->providerConfig->apiKey === '') {
-            throw new AIServiceException('AI API key is not configured.');
+            throw new AIServiceException('The AI provider has no API key configured. Ask an administrator to configure one before using the assistant.');
         }
 
         if ($this->providerConfig->endpoint === '') {
-            throw new AIServiceException('AI endpoint is not configured.');
+            throw new AIServiceException('No AI service endpoint is configured. Ask an administrator to configure one before using the assistant.');
         }
     }
 
@@ -208,11 +228,11 @@ abstract class AbstractProvider implements AiProvider
         $decoded = json_decode($response->getBody()->getContents(), true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new AIServiceException('Failed to decode AI service response: ' . json_last_error_msg());
+            throw new AIServiceException(self::INVALID_RESPONSE_MESSAGE);
         }
 
         if (isset($decoded['error'])) {
-            throw new AIServiceException('The AI provider returned an error.');
+            throw new AIServiceException(self::PROVIDER_REJECTED_MESSAGE);
         }
 
         return is_array($decoded) ? $decoded : [];
@@ -266,13 +286,29 @@ abstract class AbstractProvider implements AiProvider
         // the endpoint answered. Not every OpenAI-compatible server implements
         // `/models`, and a 404 there must not be allowed to read as an outage
         // and lock the assistant out of a host that is running perfectly well.
+        $message = $this->transportErrorMessage($status);
+        $this->lastFailure = $message;
+
         if ($status === null || $status >= 500) {
-            $this->noteUnreachable();
+            $this->noteUnreachable($message);
         } else {
             $this->noteReachable();
         }
 
-        return new AIServiceException('Failed to communicate with AI service.');
+        return new AIServiceException($message);
+    }
+
+    /** A safe, actionable sentence selected only from the HTTP status. */
+    protected function transportErrorMessage(?int $status): string
+    {
+        return match (true) {
+            in_array($status, [401, 403], true) => self::AUTHENTICATION_ERROR_MESSAGE,
+            $status === 404 => self::ENDPOINT_OR_MODEL_ERROR_MESSAGE,
+            $status === 429 => self::RATE_LIMIT_MESSAGE,
+            in_array($status, [400, 409, 422], true) => self::INCOMPATIBLE_REQUEST_MESSAGE,
+            $status === 408 || $status === null || $status >= 500 => ProviderReadiness::UNREACHABLE_MESSAGE,
+            default => self::PROVIDER_REJECTED_MESSAGE,
+        };
     }
 
     /**
@@ -284,11 +320,11 @@ abstract class AbstractProvider implements AiProvider
         app(ProviderReadiness::class)->markReachable($this->providerConfig);
     }
 
-    protected function noteUnreachable(): void
+    protected function noteUnreachable(string $message = ProviderReadiness::UNREACHABLE_MESSAGE): void
     {
         app(ProviderReadiness::class)->markUnreachable(
             $this->providerConfig,
-            ProviderReadiness::UNREACHABLE_MESSAGE,
+            $message,
         );
     }
 

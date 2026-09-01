@@ -16,7 +16,10 @@ use Everest\Services\AI\Data\AiResponse;
 use Everest\Services\AI\Data\AiToolCall;
 use Everest\Services\AI\Data\AiStreamEvent;
 use Everest\Services\AI\Data\ProviderConfig;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Everest\Services\AI\Providers\OllamaProvider;
+use Everest\Services\AI\Providers\AbstractProvider;
+use Everest\Services\AI\Inference\ProviderReadiness;
 use Everest\Services\AI\Providers\AnthropicProvider;
 use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
@@ -148,7 +151,7 @@ class ProviderDriverTest extends TestCase
             $provider->chat(new AiRequest([AiMessage::user('prompt-secret')]));
             $this->fail('The failed provider request should throw.');
         } catch (AIServiceException $exception) {
-            $this->assertSame('Failed to communicate with AI service.', $exception->getMessage());
+            $this->assertSame(ProviderReadiness::UNREACHABLE_MESSAGE, $exception->getMessage());
             $this->assertStringNotContainsString('prompt-secret', $exception->getMessage());
         }
     }
@@ -167,8 +170,54 @@ class ProviderDriverTest extends TestCase
             iterator_to_array($provider->stream(new AiRequest([AiMessage::user('prompt-secret')])));
             $this->fail('The provider error frame should throw.');
         } catch (AIServiceException $exception) {
-            $this->assertSame('The AI provider returned an error.', $exception->getMessage());
+            $this->assertSame(AbstractProvider::PROVIDER_REJECTED_MESSAGE, $exception->getMessage());
             $this->assertStringNotContainsString('prompt-secret', $exception->getMessage());
+        }
+    }
+
+    #[DataProvider('providerHttpErrorMessages')]
+    public function testProviderHttpErrorsBecomeActionableSafeMessages(int $status, string $message): void
+    {
+        $provider = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE),
+            $this->stack([new Response($status, [], '{"error":"provider-secret"}')]),
+        );
+
+        try {
+            $provider->chat(new AiRequest([AiMessage::user('prompt-secret')]));
+            $this->fail('The provider request should have failed.');
+        } catch (AIServiceException $exception) {
+            $this->assertSame($message, $exception->getMessage());
+            $this->assertSame($message, $provider->lastFailure());
+            $this->assertStringNotContainsString('provider-secret', $exception->getMessage());
+            $this->assertStringNotContainsString('prompt-secret', $exception->getMessage());
+        }
+    }
+
+    public static function providerHttpErrorMessages(): array
+    {
+        return [
+            'bad credentials' => [401, AbstractProvider::AUTHENTICATION_ERROR_MESSAGE],
+            'missing endpoint or model' => [404, AbstractProvider::ENDPOINT_OR_MODEL_ERROR_MESSAGE],
+            'rate limited' => [429, AbstractProvider::RATE_LIMIT_MESSAGE],
+            'incompatible request' => [422, AbstractProvider::INCOMPATIBLE_REQUEST_MESSAGE],
+            'provider unavailable' => [503, ProviderReadiness::UNREACHABLE_MESSAGE],
+        ];
+    }
+
+    public function testMalformedProviderResponseHasCompatibilityGuidanceWithoutParserDetails(): void
+    {
+        $provider = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE),
+            $this->stack([new Response(200, [], '{not-json')]),
+        );
+
+        try {
+            $provider->chat(new AiRequest([AiMessage::user('test')]));
+            $this->fail('The malformed response should have failed.');
+        } catch (AIServiceException $exception) {
+            $this->assertSame(AbstractProvider::INVALID_RESPONSE_MESSAGE, $exception->getMessage());
+            $this->assertStringNotContainsString('Syntax error', $exception->getMessage());
         }
     }
 
@@ -532,7 +581,7 @@ class ProviderDriverTest extends TestCase
         );
 
         $this->expectException(AIServiceException::class);
-        $this->expectExceptionMessage('AI API key is not configured.');
+        $this->expectExceptionMessage('The AI provider has no API key configured.');
 
         $provider->chat(new AiRequest([AiMessage::user('Test')]));
     }

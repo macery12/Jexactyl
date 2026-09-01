@@ -68,6 +68,7 @@ export default function ProviderPage() {
         data: models = [],
         isFetching: modelsFetching,
         isError: modelsQueryError,
+        error: modelsQueryFailure,
     } = useQuery({
         queryKey: modelsKey,
         queryFn: () => getAiModels(false),
@@ -130,8 +131,11 @@ export default function ProviderPage() {
         setTestResult(null);
         try {
             setTestResult(await testAiConnection(true));
-        } catch {
-            setTestResult({ status: 'error', message: m['common.states.genericError']() });
+        } catch (error) {
+            setTestResult({
+                status: 'error',
+                message: firstError(error) ?? m['common.states.genericError'](),
+            });
         } finally {
             setTesting(false);
         }
@@ -156,6 +160,7 @@ export default function ProviderPage() {
     const discovered = !probeOutdated && models.length > 0;
     const modelsRefreshing = modelsFetching || refreshModels.isPending;
     const modelsError = modelsQueryError || refreshModels.isError;
+    const modelsFailure = refreshModels.error ?? modelsQueryFailure;
     const testedCapabilities = !probeOutdated
         && inference?.capabilities?.model === settings.model
         ? inference.capabilities
@@ -387,7 +392,9 @@ export default function ProviderPage() {
                 </div>
 
                 {modelsError && !probeOutdated && (
-                    <p className="text-xs text-[var(--color-warning)]">{m['admin.ai.settings.modelsUnavailable']()}</p>
+                    <p className="text-xs text-[var(--color-warning)]">
+                        {firstError(modelsFailure) ?? m['admin.ai.settings.modelsUnavailable']()}
+                    </p>
                 )}
 
                 {value.provider === 'openai_compatible' && (

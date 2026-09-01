@@ -31,12 +31,25 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $handler = file_get_contents(base_path('app/Exceptions/Handler.php'));
         $trait = file_get_contents(base_path('app/Http/Controllers/Api/Concerns/HandlesAgentTurns.php'));
 
-        $this->assertStringContainsString('data?.errors?.[0]?.detail', $reader);
+        $this->assertStringContainsString('apiErrorDetail(await response.json())', $reader);
         $this->assertStringContainsString("'detail' => \$e instanceof HttpExceptionInterface", $handler);
 
         // And admission refusals have to become an HttpException to reach that
         // branch at all: the gate's own exception type renders as a bare 500.
         $this->assertStringContainsString('ServiceUnavailableHttpException', $trait);
+    }
+
+    public function testPreStreamFailuresAlwaysHaveSafeActionableFallbacks(): void
+    {
+        $reader = file_get_contents(base_path('frontend/src/lib/aiStream.ts'));
+        $trait = file_get_contents(base_path('app/Http/Controllers/Api/Concerns/HandlesAgentTurns.php'));
+
+        $this->assertStringNotContainsString('Request failed (${response.status})', $reader);
+        $this->assertStringContainsString('The AI provider is unavailable or not responding right now', $reader);
+        $this->assertStringContainsString('The connection to the panel failed before the assistant could respond', $reader);
+        $this->assertStringContainsString("response.headers.get('X-AI-Error-Safe') === '1'", $reader);
+        $this->assertStringContainsString("'X-AI-Error-Reference' => \$reference", $trait);
+        $this->assertStringContainsString("'reference' => \$reference", $trait);
     }
 
     public function testDecisionsCommitOnlyAfterHttpAcknowledgement(): void

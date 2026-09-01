@@ -421,8 +421,11 @@ class AgentController extends ClientApiController
             ->capabilities($this->factory->model());
 
         if (!$capabilities->supportsTools) {
-            abort(503, $capabilities->warnings[0]
-                ?? 'The configured AI model does not support tool calling, so the agent cannot run.');
+            $this->rejectAgentRequest(
+                $capabilities->warnings[0]
+                    ?? 'The configured AI model does not support tool calling, so the agent cannot run.',
+                'model_does_not_support_tools',
+            );
         }
     }
 

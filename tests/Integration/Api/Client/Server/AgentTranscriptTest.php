@@ -455,6 +455,11 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         );
 
         $response->assertStatus(503);
+        $response->assertHeader('X-AI-Error-Safe', '1');
+        $this->assertMatchesRegularExpression(
+            '/^[A-Z0-9]{10}$/',
+            (string) $response->headers->get('X-AI-Error-Reference'),
+        );
         $this->assertStringContainsString('did not free up in time', (string) $response->json('errors.0.detail'));
         $this->assertNotNull($response->headers->get('Retry-After'));
     }
@@ -474,6 +479,7 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         );
 
         $response->assertStatus(503);
+        $response->assertHeader('X-AI-Error-Safe', '1');
         $this->assertStringContainsString('already have an AI request', (string) $response->json('errors.0.detail'));
 
         // The refused attempt keeps nothing: one place, still held by the first.
@@ -542,6 +548,11 @@ class AgentTranscriptTest extends ClientApiIntegrationTestCase
         );
 
         $response->assertStatus(503);
+        $response->assertHeader('X-AI-Error-Safe', '1');
+        $this->assertMatchesRegularExpression(
+            '/^[A-Z0-9]{10}$/',
+            (string) $response->headers->get('X-AI-Error-Reference'),
+        );
 
         // The sentence the composer puts in the transcript. It travels in the
         // panel's own envelope because the stream never opened — there is no
