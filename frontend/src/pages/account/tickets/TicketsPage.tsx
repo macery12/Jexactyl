@@ -109,6 +109,7 @@ export default function TicketsPage() {
                                         <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">
                                             {m['tickets.ref']({ id: t.id })} ·{' '}
                                             {m['tickets.updatedAgo']({ ago: timeAgo(t.lastReplyAt ?? t.createdAt) })}
+                                            {t.server ? ` · ${t.server.name}` : ''}
                                         </p>
                                     </div>
                                     <PriorityBadge priority={t.priority} className="hidden sm:inline-flex" />

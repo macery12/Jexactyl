@@ -47,7 +47,10 @@ class OpenAiCompatibleProvider extends AbstractProvider
             $content,
             $toolCalls,
             $this->mapFinishReason($choice['finish_reason'] ?? null, $toolCalls),
-            $this->parseUsage($data['usage'] ?? []),
+            $this->parseUsage(
+                is_array($data['usage'] ?? null) ? $data['usage'] : [],
+                is_array($data['timings'] ?? null) ? $data['timings'] : [],
+            ),
             $data['model'] ?? $this->resolveModel($request),
         );
     }
@@ -85,7 +88,10 @@ class OpenAiCompatibleProvider extends AbstractProvider
             }
 
             if (isset($data['usage']) && is_array($data['usage'])) {
-                $usage = $this->parseUsage($data['usage']);
+                $usage = $this->parseUsage(
+                    $data['usage'],
+                    is_array($data['timings'] ?? null) ? $data['timings'] : [],
+                );
             }
 
             $choice = $data['choices'][0] ?? null;
@@ -235,7 +241,11 @@ class OpenAiCompatibleProvider extends AbstractProvider
             // not reliable enough to operate the panel agent.
             toolChoice: AiRequest::TOOL_CHOICE_AUTO,
             model: $model,
-            maxTokens: 64,
+            // Thinking models may spend the first 100+ tokens deciding to
+            // make even this trivial call. Give the probe enough room to
+            // finish the structured call instead of falsely treating a
+            // reasoning-only, length-truncated response as no tool support.
+            maxTokens: 256,
             temperature: 0,
             noCache: true,
         ));
@@ -348,6 +358,21 @@ class OpenAiCompatibleProvider extends AbstractProvider
                     'strict' => true,
                 ],
             ];
+        }
+
+        // A recovery request must override both common control paths. Current
+        // llama.cpp accepts `reasoning_effort` but its Qwen templates keep
+        // thinking unless `enable_thinking` is also disabled; other compatible
+        // servers may honour the standardized effort field instead. Do not send
+        // either extension on ordinary requests: generic servers remain free to
+        // use their launch/template configuration, as they did before recovery
+        // was added. Hosted OpenAI requests keep provider-specific behaviour.
+        if (
+            $this->providerConfig->provider === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE
+            && !$request->reasoning
+        ) {
+            $payload['reasoning_effort'] = 'none';
+            $payload['chat_template_kwargs'] = ['enable_thinking' => false];
         }
 
         if ($stream && $this->supportsStreamOptions()) {
@@ -485,12 +510,19 @@ class OpenAiCompatibleProvider extends AbstractProvider
         return $out;
     }
 
-    protected function parseUsage(array $usage): array
+    protected function parseUsage(array $usage, array $timings = []): array
     {
-        return $this->normaliseUsage(
+        $normalised = $this->normaliseUsage(
             isset($usage['prompt_tokens']) ? (int) $usage['prompt_tokens'] : null,
             isset($usage['completion_tokens']) ? (int) $usage['completion_tokens'] : null,
             isset($usage['total_tokens']) ? (int) $usage['total_tokens'] : null,
         );
+
+        if (isset($timings['predicted_ms']) && is_numeric($timings['predicted_ms'])) {
+            $normalised['generation_duration_ms'] = (float) $timings['predicted_ms'];
+            $normalised['generation_timing_source'] = 'llama_cpp_timings';
+        }
+
+        return $normalised;
     }
 }

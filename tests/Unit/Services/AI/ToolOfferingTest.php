@@ -99,9 +99,12 @@ class ToolOfferingTest extends TestCase
     {
         $offered = $this->planner()->plan($this->context(), 0)->names();
 
-        foreach (SharedTools::ALWAYS_OFFERED as $name) {
+        foreach (SharedTools::ESSENTIAL_ALWAYS_OFFERED as $name) {
             $this->assertContains($name, $offered, $name . ' must never be spent against the budget.');
         }
+
+        $this->assertNotContains(SharedTools::BATCH, $offered);
+        $this->assertNotContains(SharedTools::LOAD_TOOLS, $offered);
     }
 
     /**
@@ -113,7 +116,7 @@ class ToolOfferingTest extends TestCase
         $set = $this->planner()->plan($this->context(), 6);
 
         $this->assertLessThanOrEqual(6, $set->billableSize());
-        $this->assertGreaterThan(6, $set->size(), 'The exempt tools should be offered on top of the budget.');
+        $this->assertSame(8, $set->size(), 'Tiny models should receive six capabilities plus two controls.');
     }
 
     /*
@@ -229,8 +232,8 @@ class ToolOfferingTest extends TestCase
     /**
      * A budget that can hold the whole surface holds the whole surface.
      *
-     * Retrieval is what a *small* budget needs. A frontier model given 32 slots
-     * against a 26-tool surface should behave exactly as the panel did before any
+     * Retrieval is what a *small* budget needs. A hosted model whose budget
+     * covers the complete surface should behave exactly as the panel did before any
      * of this existed — making it search for something it could simply have been
      * shown is a step spent and a chance to search badly. This is the one thing
      * the old `groupsInPlay()` had right, and it is kept.
@@ -247,6 +250,19 @@ class ToolOfferingTest extends TestCase
         sort($offered);
 
         $this->assertSame($callable, $offered);
+    }
+
+    public function testTheHostedProfileCannotFallBehindTheRegisteredCapabilities(): void
+    {
+        $registeredCapabilities = count(array_filter(
+            $this->registry()->all(),
+            fn (ToolDefinition $definition): bool => $definition->scope !== ToolDefinition::SCOPE_SHARED,
+        ));
+
+        $this->assertGreaterThanOrEqual(
+            $registeredCapabilities,
+            ToolBudget::profiles()[ToolBudget::PROFILE_FRONTIER]['schemas'],
+        );
     }
 
     /**

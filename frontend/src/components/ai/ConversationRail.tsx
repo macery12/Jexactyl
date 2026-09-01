@@ -3,31 +3,8 @@ import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Spinner } from '@/components/ui/Spinner';
 
-// The conversation history, grouped.
-//
-// One component for both assistants. It used to be two: this one, and a
-// hand-rolled `<aside>` inside the admin page that had drifted into a different
-// width, a different radius, a different breakpoint, a `×` glyph instead of a
-// trash icon, and no bookmarks, expiry or loading state at all. Two accidental
-// designs for one thing is not a decision anybody made; it is what happens when
-// a surface is copied instead of shared.
-//
-// Grouping is what makes it more than a list. An open assist session — a
-// conversation being held inside a customer's server — is the one chat you must
-// never lose track of, so it is lifted out of chronological order into its own
-// group. Saved chats come next because they were deliberately kept; everything
-// else is recent, and says when it expires.
-//
-// The hover-revealed controls carry `pointer-events-none` while hidden, which is
-// not tidying. `opacity-0` alone leaves them fully hit-testable: they hold their
-// layout box at the right edge of every row and call `stopPropagation()`, so a
-// click landing there was swallowed — the row would not open, and the second
-// click, now that hovering had faded them in, could delete the conversation
-// instead. That was the "history needs a double-click" bug, and an invisible
-// delete button fourteen pixels from where people click to open things.
-//
-// `focus-visible` re-enables them for the keyboard, which the opacity rule alone
-// had made unreachable.
+// Shared by both assistants. Active assist sessions stay above saved and recent chats.
+// Hidden desktop actions also disable pointer events so they cannot swallow row clicks.
 
 /** The fields both assistants' conversation shapes already share. */
 export interface RailConversation {
@@ -53,12 +30,7 @@ export function ConversationRail<T extends RailConversation>({
     conversations: T[];
     loading?: boolean;
     activeId: number | null;
-    /**
-     * The conversation holding an open assist session, if any.
-     *
-     * Only ever the active one — an assist session belongs to the conversation
-     * it was opened from, and the store holds exactly one.
-     */
+    /** The active conversation holding an assist session, if any. */
     assistingId?: number | null;
     onNewChat: () => void;
     onOpen: (conversation: T) => void;

@@ -28,9 +28,22 @@ trait DefinesToolSchemas
         return ['type' => 'string', 'description' => $description];
     }
 
-    private static function integer(string $description): array
-    {
-        return ['type' => 'integer', 'description' => $description];
+    private static function integer(
+        string $description,
+        ?int $minimum = null,
+        ?int $maximum = null,
+    ): array {
+        $schema = ['type' => 'integer', 'description' => $description];
+
+        if ($minimum !== null) {
+            $schema['minimum'] = $minimum;
+        }
+
+        if ($maximum !== null) {
+            $schema['maximum'] = $maximum;
+        }
+
+        return $schema;
     }
 
     private static function number(

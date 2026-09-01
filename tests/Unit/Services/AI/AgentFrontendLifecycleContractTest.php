@@ -110,22 +110,28 @@ class AgentFrontendLifecycleContractTest extends TestCase
     public function testConversationHistoryIsUsableOnSmallScreensAndDeletionIsAcknowledged(): void
     {
         $serverPage = file_get_contents(base_path('frontend/src/pages/server/ai/AiPage.tsx'));
-        $serverRail = file_get_contents(base_path('frontend/src/pages/server/ai/ConversationRail.tsx'));
         $adminPage = file_get_contents(base_path('frontend/src/pages/admin/assistant/AssistantPage.tsx'));
+        $sharedRail = file_get_contents(base_path('frontend/src/components/ai/ConversationRail.tsx'));
         $delete = file_get_contents(base_path('frontend/src/components/ai/DeleteConversationModal.tsx'));
 
-        $this->assertStringContainsString("window.matchMedia('(min-width: 768px)')", $serverPage);
-        $this->assertStringContainsString('absolute inset-y-0 left-0 z-20', $serverPage);
-        $this->assertStringContainsString('md:static', $serverPage);
-        $this->assertStringContainsString('closeMobileRail', $serverPage);
-
-        $this->assertStringContainsString('historyOpen', $adminPage);
-        $this->assertStringContainsString('lg:static', $adminPage);
-        $this->assertStringContainsString("m['server.ai.showHistory']()", $adminPage);
+        foreach ([$serverPage, $adminPage] as $page) {
+            $this->assertStringContainsString("window.matchMedia('(min-width: 1024px)')", $page);
+            $this->assertStringContainsString('absolute inset-y-0 left-0 z-20', $page);
+            $this->assertStringContainsString('lg:static', $page);
+            $this->assertStringContainsString('closeMobileRail', $page);
+            $this->assertStringContainsString("m['server.ai.showHistory']()", $page);
+            $this->assertStringContainsString('@/components/ai/ConversationRail', $page);
+        }
 
         // Hover cannot be a requirement on a touch screen.
-        $this->assertStringContainsString('opacity-100 md:pointer-events-none md:opacity-0', $serverRail);
-        $this->assertStringContainsString('opacity-100 transition-opacity lg:opacity-0', $adminPage);
+        $this->assertStringContainsString(
+            'opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100',
+            $sharedRail,
+        );
+        $this->assertStringContainsString(
+            'lg:pointer-events-none lg:opacity-0 lg:group-hover:pointer-events-auto lg:group-hover:opacity-100',
+            $sharedRail,
+        );
 
         // The irreversible request begins only in the confirmation dialog. A
         // failure keeps it mounted; success is the only mutation path that
@@ -189,8 +195,11 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $this->assertStringContainsString('++transcriptGeneration', $store);
         $this->assertStringContainsString('const generation = beginTranscriptLoad(target, conv.id)', $serverPage);
         $this->assertStringContainsString('loadTranscript(target, conv.id, generation, messages, redactions)', $serverPage);
-        $this->assertStringContainsString('beginTranscriptLoad(ADMIN_AGENT_TARGET, id)', $adminPage);
-        $this->assertStringContainsString('if (applied && conversation.assist)', $adminPage);
+        $this->assertStringContainsString(
+            'beginTranscriptLoad(ADMIN_AGENT_TARGET, conversation.id)',
+            $adminPage,
+        );
+        $this->assertStringContainsString('if (applied && loaded.assist)', $adminPage);
     }
 
     /**

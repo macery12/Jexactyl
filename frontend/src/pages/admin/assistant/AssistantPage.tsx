@@ -21,22 +21,7 @@ import {
     type AdminAgentConversation,
 } from '@/api/adminAi';
 
-// The admin assistant, as a page of its own at the top of the sidebar.
-//
-// It began as a tab inside Admin → AI, which put a conversation you might return
-// to several times a day three clicks deep, behind a section that is otherwise
-// provider configuration and telemetry. Admin → AI is now what its name says;
-// this is the thing you actually talk to.
-//
-// Unlike the server assistant it has no chat/agent toggle: a plain chat about the
-// panel's own records cannot read them, so there is nothing for the cheaper path
-// to answer.
-//
-// The history rail is the shared component. It used to be about seventy lines of
-// hand-rolled `<aside>` right here, which had drifted from the server route's
-// rail into a different width, a different breakpoint, a `×` glyph for delete,
-// and no bookmarks, expiry labels or loading state at all — two accidental
-// designs for one thing, neither of them chosen.
+// The admin assistant uses the shared conversation rail and agent-only workflow.
 
 const RAIL_KEY = 'v2:admin:ai:rail';
 
@@ -111,15 +96,9 @@ export default function AssistantPage() {
                 loaded.id,
                 generation,
                 loaded.messages
-                    // The role column can hold `system`, but a turn never writes
-                    // one — and a system prompt is not part of the transcript a
-                    // person reads back.
+                    // System prompts are not part of the user-visible transcript.
                     .filter(message => message.role !== 'system')
-                    // Passed through whole. Nulling the call id and arguments
-                    // here is what made a reopened transcript show every tool
-                    // row with empty arguments and a synthetic id, so two
-                    // parallel calls to the same tool became one indistinct
-                    // pair — on the surface where the audit matters most.
+                    // Preserve call identity and arguments for reopened audit rows.
                     .map(message => ({
                         role: message.role as ChatRole,
                         content: message.content,
@@ -144,10 +123,6 @@ export default function AssistantPage() {
         }
     };
 
-    // Ends the session server-side and takes the banner down. The access was
-    // being re-checked on every turn anyway; this is so an administrator who has
-    // finished can say so and watch it stop, rather than having to trust that
-    // opening a new chat was enough.
     const endAssist = async () => {
         if (conversationId === null) {
             setAssist(null);

@@ -33,7 +33,7 @@ class TicketController extends ApplicationApiController
             throw new QueryValueOutOfRangeHttpException('per_page', 1, 100);
         }
 
-        $tickets = QueryBuilder::for(Ticket::query())
+        $tickets = QueryBuilder::for(Ticket::query()->with('server'))
             ->allowedFilters(...['id', 'title', 'status', 'priority', 'created_at'])
             ->allowedSorts(...['id', 'title', 'status', 'priority', 'created_at', 'last_reply_at'])
             ->paginate($perPage);
@@ -51,6 +51,7 @@ class TicketController extends ApplicationApiController
         $ticket = Ticket::create([
             'title' => $request['title'],
             'user_id' => $request['user_id'],
+            'server_id' => $request['server_id'] ?? null,
             'assigned_to' => $request['assigned_to'] ?? null,
             'status' => $request['status'] ?? Ticket::STATUS_PENDING,
             'priority' => $request['priority'] ?? Ticket::PRIORITY_MEDIUM,
@@ -61,7 +62,7 @@ class TicketController extends ApplicationApiController
             ->description('A ticket was created')
             ->log();
 
-        return $this->fractal->item($ticket)
+        return $this->fractal->item($ticket->load('server'))
             ->transformWith(TicketTransformer::class)
             ->respond(Response::HTTP_CREATED);
     }
@@ -71,7 +72,7 @@ class TicketController extends ApplicationApiController
      */
     public function view(Tickets\ViewTicketRequest $request, Ticket $ticket): array
     {
-        return $this->fractal->item($ticket)
+        return $this->fractal->item($ticket->load('server'))
             ->transformWith(TicketTransformer::class)
             ->toArray();
     }
@@ -89,7 +90,7 @@ class TicketController extends ApplicationApiController
             ->description('A ticket was updated')
             ->log();
 
-        return $this->fractal->item($ticket)
+        return $this->fractal->item($ticket->load('server'))
             ->transformWith(TicketTransformer::class)
             ->toArray();
     }

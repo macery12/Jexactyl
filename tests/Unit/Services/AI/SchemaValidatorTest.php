@@ -25,7 +25,10 @@ class SchemaValidatorTest extends TestCase
                 'lines' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 500],
                 'recursive' => ['type' => 'boolean'],
                 'mode' => ['type' => 'string', 'enum' => ['read', 'write']],
-                'files' => ['type' => 'array', 'items' => ['type' => 'string']],
+                'files' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'string'],
+                ],
             ],
             'required' => ['path'],
             'additionalProperties' => false,
@@ -81,6 +84,26 @@ class SchemaValidatorTest extends TestCase
 
         $this->assertTrue($result['valid']);
         $this->assertSame(['one.txt'], $result['value']['files']);
+    }
+
+    public function testEnforcesArrayItemBoundsAfterCoercion(): void
+    {
+        $schema = $this->schema();
+        $schema['properties']['files']['minItems'] = 2;
+        $schema['properties']['files']['maxItems'] = 3;
+
+        $tooFew = $this->validator->validate(['path' => '/a', 'files' => ['one.txt']], $schema);
+        $valid = $this->validator->validate(['path' => '/a', 'files' => ['one.txt', 'two.txt']], $schema);
+        $tooMany = $this->validator->validate(
+            ['path' => '/a', 'files' => ['one.txt', 'two.txt', 'three.txt', 'four.txt']],
+            $schema
+        );
+
+        $this->assertFalse($tooFew['valid']);
+        $this->assertStringContainsString('at least 2 items', $tooFew['errors'][0]);
+        $this->assertTrue($valid['valid']);
+        $this->assertFalse($tooMany['valid']);
+        $this->assertStringContainsString('more than 3 items', $tooMany['errors'][0]);
     }
 
     public function testMatchesEnumMembersRegardlessOfCasing(): void

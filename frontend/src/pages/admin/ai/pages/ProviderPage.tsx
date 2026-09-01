@@ -214,9 +214,11 @@ export default function ProviderPage() {
                         desc={
                             value.provider === 'openai_compatible'
                                 ? m['admin.ai.settings.modeCompatibleHint']()
-                                : capabilities.selfHosted
+                                : value.provider === 'ollama'
                                   ? m['admin.ai.settings.modeOllamaHint']()
-                                  : m['admin.ai.settings.modeOpenaiHint']()
+                                  : value.provider === 'anthropic'
+                                    ? m['admin.ai.settings.modeAnthropicHint']()
+                                    : m['admin.ai.settings.modeOpenaiHint']()
                         }
                     >
                         <Select
@@ -231,8 +233,8 @@ export default function ProviderPage() {
                                 patch({ provider: next as AiProvider, endpoint: DEFAULT_ENDPOINTS[next as AiProvider], key: '' })
                             }
                             options={[
-                                { value: 'anthropic', label: m['admin.ai.providerAnthropic']() },
                                 { value: 'openai', label: m['admin.ai.providerOpenai']() },
+                                { value: 'anthropic', label: m['admin.ai.providerAnthropic']() },
                                 { value: 'ollama', label: m['admin.ai.providerOllama']() },
                                 { value: 'openai_compatible', label: m['admin.ai.providerCompatible']() },
                             ]}

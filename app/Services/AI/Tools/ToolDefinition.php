@@ -209,12 +209,19 @@ class ToolDefinition
      * responses are sized for a UI, not a context window — a directory listing
      * can carry ten thousand entries.
      */
-    public function shape(ToolResult $result): ToolResult
+    public function shape(ToolResult $result, array $arguments = []): ToolResult
     {
         if (!$result->ok || !is_callable($this->resultShaper)) {
             return $result;
         }
 
-        return ToolResult::ok(($this->resultShaper)($result->data), $result->truncated);
+        $shaped = ($this->resultShaper)($result->data, $arguments);
+
+        // Most shapers only replace the raw data. A small number need to
+        // describe a deliberately partial result (a page or line range) before
+        // the generic byte cap runs, so they may return the complete result.
+        return $shaped instanceof ToolResult
+            ? $shaped
+            : ToolResult::ok($shaped, $result->truncated);
     }
 }

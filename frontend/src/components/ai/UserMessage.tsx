@@ -38,7 +38,7 @@ export function UserMessage({ content, speaker }: { content: string; speaker?: s
     const pasted = lines.length > 2;
 
     return (
-        <div className="flex flex-col items-end gap-1 self-end">
+        <div className="flex w-fit max-w-[min(46ch,80%)] flex-col items-end gap-1 self-end">
             {speaker && (
                 <span className="pr-0.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-[var(--color-ink-faint)]">
                     {speaker}
@@ -47,7 +47,7 @@ export function UserMessage({ content, speaker }: { content: string; speaker?: s
 
             <div
                 className={cn(
-                    'max-w-[min(46ch,80%)] whitespace-pre-wrap break-words px-3.5 py-2 text-[13.5px] leading-relaxed text-[var(--color-ink)]',
+                    'max-w-full whitespace-pre-wrap break-words px-3.5 py-2 text-[13.5px] leading-relaxed text-[var(--color-ink)]',
                     // Three rounded corners and a tucked-in bottom-right points
                     // the block back at the composer it came from, which is the
                     // direction the eye is already travelling. Not a bubble — a

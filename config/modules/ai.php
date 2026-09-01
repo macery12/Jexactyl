@@ -225,10 +225,13 @@ return [
          * How many complete tool schemas the model is offered in one step.
          *
          * Null means "work it out from the model", which is the default and
-         * almost always the right answer. `ToolBudget` reads the size and context
-         * window the provider reports and picks a profile: 8 schemas for anything
-         * under about 8B, 12 up to about 20B, 20 above that, 32 for a hosted
-         * frontier model. Nothing is hidden by a low number — the agent reaches
+         * almost always the right answer. `ToolBudget` prefers an exact parameter
+         * count, then a count embedded in names such as `Qwen3-1.7B-Q8_0.gguf`,
+         * then provider-family and quantized-size fallbacks. It offers 6 schemas
+         * through 3B, 8 through 7B, 12 through 14B, and 20 above that. Hosted
+         * OpenAI and Anthropic providers receive the complete permitted tool
+         * surface regardless of model name. Nothing is hidden by a low number —
+         * the agent reaches
          * the rest of the catalogue through `search_tools` — so the only thing
          * this trades is a step spent searching against a model's ability to
          * choose correctly between more options.
@@ -239,10 +242,9 @@ return [
          * telling you it is being shown too many, and a bigger number will not
          * fix it.
          *
-         * The four tools that are always offered — search_tools, load_tools,
-         * ask_user, batch — are not counted against this. None of them is a
-         * capability, and spending the budget on them would defeat what the
-         * budget is for.
+         * Tiny models always receive search_tools and ask_user in addition to
+         * this number. Larger profiles also receive load_tools and batch. Those
+         * selected host controls are not counted against the capability budget.
          */
         'max_tools' => env('AI_AGENT_MAX_TOOLS'),
 

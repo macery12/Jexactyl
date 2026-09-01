@@ -239,6 +239,7 @@ export default function AdminTicketDetailPage() {
                     <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-xs text-[var(--color-ink-muted)]">
                         <Meta label={m['admin.tickets.col.requester']()} value={ticket.user?.username ?? '—'} />
                         <Meta label={m['admin.tickets.email']()} value={ticket.user?.email ?? '—'} />
+                        <Meta label={m['tickets.field.server']()} value={ticket.server?.name ?? '—'} />
                         <Meta label={m['admin.tickets.opened']()} value={timeAgo(ticket.createdAt)} />
                         <Meta
                             label={m['admin.tickets.col.lastReply']()}

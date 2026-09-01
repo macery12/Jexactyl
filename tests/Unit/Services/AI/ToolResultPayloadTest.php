@@ -7,9 +7,74 @@ use Illuminate\Http\JsonResponse;
 use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Tools\ToolExecutor;
 use Everest\Services\AI\Tools\ToolDefinition;
+use Everest\Services\AI\Tools\Definitions\ServerTools;
 
 class ToolResultPayloadTest extends TestCase
 {
+    public function testFileReadReturnsLineMetadataAndAConcreteNextRange(): void
+    {
+        $definition = collect(ServerTools::all())->firstWhere('name', 'files_read');
+        $contents = implode("\n", array_map(static fn (int $line): string => 'line ' . $line, range(1, 450)));
+
+        $result = $definition->shape(ToolResult::ok($contents), ['file' => '/installer.log']);
+        $data = $result->data;
+
+        $this->assertTrue($result->truncated);
+        $this->assertSame(450, $data['total_lines']);
+        $this->assertSame(1, $data['start_line']);
+        $this->assertSame(200, $data['end_line']);
+        $this->assertSame([
+            'file' => '/installer.log',
+            'start_line' => 201,
+            'end_line' => 400,
+        ], $data['next']);
+        $this->assertSame('Lines 1-200 of 450', $result->summary());
+    }
+
+    public function testFileReadCanSearchLiteralTextWithLineContext(): void
+    {
+        $definition = collect(ServerTools::all())->firstWhere('name', 'files_read');
+        $contents = "starting\nloading libraries\nERROR failed to install\nCaused by missing artifact\nfinished";
+
+        $result = $definition->shape(ToolResult::ok($contents), [
+            'file' => '/installer.log',
+            'query' => 'error',
+            'context_lines' => 1,
+        ]);
+        $data = $result->data;
+
+        $this->assertFalse($result->truncated);
+        $this->assertSame(5, $data['total_lines']);
+        $this->assertSame(1, $data['match_count']);
+        $this->assertSame(3, $data['matches'][0]['line']);
+        $this->assertSame('loading libraries', $data['matches'][0]['before'][0]['text']);
+        $this->assertSame('Caused by missing artifact', $data['matches'][0]['after'][0]['text']);
+        $this->assertSame('1 match in 5 lines', $result->summary());
+    }
+
+    public function testFileSearchKeepsItsMatchCountAndContinuationWithinTheResultBudget(): void
+    {
+        $definition = collect(ServerTools::all())->firstWhere('name', 'files_read');
+        $contents = implode("\n", array_map(
+            static fn (int $line): string => sprintf('ERROR line %d %s', $line, str_repeat('detail ', 100)),
+            range(1, 50),
+        ));
+
+        $result = $definition->shape(ToolResult::ok($contents), [
+            'file' => '/installer.log',
+            'query' => 'error',
+            'context_lines' => 0,
+        ]);
+        $data = $result->data;
+
+        $this->assertTrue($result->truncated);
+        $this->assertSame(50, $data['match_count']);
+        $this->assertSame(count($data['matches']), $data['shown_matches']);
+        $this->assertLessThan(50, $data['shown_matches']);
+        $this->assertSame($data['matches'][array_key_last($data['matches'])]['line'] + 1, $data['next']['start_line']);
+        $this->assertLessThanOrEqual(8192, strlen($result->toModelPayload()));
+    }
+
     public function testLargeDecodedCollectionIsShapedBeforeItsFinalByteCap(): void
     {
         $rows = array_map(fn (int $id) => [

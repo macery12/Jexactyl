@@ -71,9 +71,10 @@ class IntelligenceController extends ApplicationApiController
                 // Null means auto. Kept null rather than resolved, so the form
                 // can tell "the operator chose 12" from "the panel worked out 12"
                 // — the second has to keep tracking the model when it changes.
-                'max_tools' => config('modules.ai.agent.max_tools') === null
-                    ? null
-                    : (int) config('modules.ai.agent.max_tools'),
+                // Read the normalized value from ToolBudget. The settings table
+                // stores null as an empty string, and casting that string here
+                // previously returned 0 and made Auto switch off after refresh.
+                'max_tools' => $this->budget->manualSchemas(),
                 'max_batch_calls' => (int) config('modules.ai.agent.max_batch_calls', 25),
                 'allow_destructive_batches' => boolval(config('modules.ai.agent.allow_destructive_batches', false)),
 
@@ -82,7 +83,12 @@ class IntelligenceController extends ApplicationApiController
                 'tool_budget' => [
                     'profile' => $this->budget->profile(),
                     'schemas' => $this->budget->schemas(),
+                    'total_schemas' => $this->budget->totalSchemas(),
                     'results' => $this->budget->results(),
+                    'source' => $this->budget->source(),
+                    'confidence' => $this->budget->confidence(),
+                    'reason' => $this->budget->reason(),
+                    'parameter_count' => $this->budget->parameterCount(),
                 ],
             ],
 

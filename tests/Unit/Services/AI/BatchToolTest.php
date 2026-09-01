@@ -146,25 +146,17 @@ class BatchToolTest extends TestCase
         $this->assertContains(SharedTools::BATCH, $admin);
     }
 
-    /**
-     * Like `ask_user`, a batch is a mechanism rather than a capability: spending
-     * budget on it would let a small model lose the one tool that lets it make
-     * more than one change without asking twenty times.
-     *
-     * Asked at a budget of zero, which is below anything an operator can
-     * configure, so the assertion is about the tier rather than about whether the
-     * number happened to leave room.
-     */
-    public function testTheBatchToolIsExemptFromTheToolBudget(): void
+    /** Tiny starts with only the essential controls; batch remains discoverable. */
+    public function testTinyCoreOmitsBatchAndLoadTools(): void
     {
         $planner = new WorkingSetPlanner(app(ToolRegistry::class), new PrerequisiteResolver());
 
         $offered = $planner->plan($this->context(), 0)->names();
 
-        $this->assertContains(SharedTools::BATCH, $offered);
         $this->assertContains(SharedTools::ASK_USER, $offered);
         $this->assertContains(SharedTools::SEARCH_TOOLS, $offered);
-        $this->assertContains(SharedTools::LOAD_TOOLS, $offered);
+        $this->assertNotContains(SharedTools::BATCH, $offered);
+        $this->assertNotContains(SharedTools::LOAD_TOOLS, $offered);
     }
 
     /*

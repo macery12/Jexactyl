@@ -174,6 +174,10 @@ class OllamaProvider extends AbstractProvider
             'model' => $this->resolveModel($request),
             'messages' => $this->buildMessages($request),
             'stream' => $stream,
+            // Native Ollama exposes thinking as an explicit request switch.
+            // Carry the panel setting on every turn so "off" is real too;
+            // merely parsing message.thinking made the control display-only.
+            'think' => $request->reasoning,
             'keep_alive' => $this->providerConfig->keepAlive,
             'options' => [
                 'num_ctx' => $this->resolveContextWindow($request),
@@ -377,10 +381,17 @@ class OllamaProvider extends AbstractProvider
 
     protected function extractUsage(array $frame): array
     {
-        return $this->normaliseUsage(
+        $usage = $this->normaliseUsage(
             isset($frame['prompt_eval_count']) ? (int) $frame['prompt_eval_count'] : null,
             isset($frame['eval_count']) ? (int) $frame['eval_count'] : null,
         );
+
+        if (isset($frame['eval_duration']) && is_numeric($frame['eval_duration'])) {
+            $usage['generation_duration_ms'] = (float) $frame['eval_duration'] / 1_000_000;
+            $usage['generation_timing_source'] = 'ollama_eval_duration';
+        }
+
+        return $usage;
     }
 
     /*
@@ -429,9 +440,14 @@ class OllamaProvider extends AbstractProvider
                 supportsTools: $supportsTools,
                 supportsStructuredOutput: true,
                 supportsParallelToolCalls: true,
+                supportsReasoning: in_array('thinking', $capabilities, true),
                 selfHosted: true,
                 maxContextTokens: $this->extractContextLength($data['model_info'] ?? []),
                 modelSizeBytes: isset($data['size']) ? (int) $data['size'] : null,
+                modelParameterCount: $this->extractParameterCount(
+                    $data['details'] ?? [],
+                    $data['model_info'] ?? [],
+                ),
                 warnings: $warnings,
             );
         });
@@ -454,6 +470,28 @@ class OllamaProvider extends AbstractProvider
         }
 
         return null;
+    }
+
+    /**
+     * Prefer the exact GGUF count, then Ollama's human-readable `4.3B` label.
+     */
+    protected function extractParameterCount(mixed $details, mixed $modelInfo): ?int
+    {
+        if (is_array($modelInfo)) {
+            $count = $modelInfo['general.parameter_count'] ?? null;
+            if (is_numeric($count) && (int) $count > 0) {
+                return (int) $count;
+            }
+        }
+
+        $label = is_array($details) ? ($details['parameter_size'] ?? null) : null;
+        if (!is_string($label) || preg_match('/(\d+(?:\.\d+)?)\s*([BM])/i', $label, $match) !== 1) {
+            return null;
+        }
+
+        $multiplier = strtoupper($match[2]) === 'B' ? 1_000_000_000 : 1_000_000;
+
+        return (int) round((float) $match[1] * $multiplier);
     }
 
     public function listModels(): array

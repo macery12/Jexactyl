@@ -119,7 +119,7 @@ class ToolDiscoveryServiceTest extends TestCase
         $result = $this->service()->search($context, ['query' => 'reticulate the splines'], 12, 3);
 
         $this->assertFalse($result->ok);
-        $this->assertSame('tool_not_found', $result->code);
+        $this->assertSame('capability_unavailable', $result->code);
         $this->assertSame([], $context->pinned);
     }
 
@@ -217,8 +217,23 @@ class ToolDiscoveryServiceTest extends TestCase
         );
 
         $this->assertFalse($result->ok);
-        $this->assertSame('tool_not_found', $result->code);
+        $this->assertSame('capability_unavailable', $result->code);
+        $this->assertFalse($result->retryable);
         $this->assertSame([], $context->pinned);
+    }
+
+    public function testAReinstallHallucinationIsAnAuthoritativeBoundary(): void
+    {
+        $result = $this->service()->load(
+            $this->context(),
+            ['tools' => ['reinstall'], 'reason' => 'user chose reinstall'],
+            12,
+        );
+
+        $this->assertFalse($result->ok);
+        $this->assertSame('capability_unavailable', $result->code);
+        $this->assertFalse($result->retryable);
+        $this->assertStringContainsString('cannot create a capability', (string) $result->detail);
     }
 
     /**

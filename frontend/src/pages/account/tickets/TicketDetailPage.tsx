@@ -130,6 +130,7 @@ export default function TicketDetailPage() {
                         <Row label={m['tickets.field.priority']()}>
                             <PriorityBadge priority={ticket.priority} />
                         </Row>
+                        <Meta label={m['tickets.field.server']()} value={ticket.server?.name ?? '—'} />
                         <Meta label={m['tickets.field.opened']()} value={timeAgo(ticket.createdAt)} />
                         <Meta
                             label={m['tickets.field.lastReply']()}

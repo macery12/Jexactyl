@@ -4,6 +4,9 @@ namespace Everest\Services\AI\Agent;
 
 use Everest\Models\Setting;
 use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Tools\Definitions\AdminTools;
+use Everest\Services\AI\Tools\Definitions\ServerTools;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
  * How many complete tool schemas this model can choose between in one step.
@@ -11,7 +14,8 @@ use Everest\Services\AI\ProviderFactory;
  * A context window says how much a model can *hold*, not how many similar
  * options it can *discriminate between* — a 3B model with a 128K window still
  * calls the first tool whose schema parses when handed twenty. So the budget
- * comes from model size first and window second, and the profile table is a
+ * comes from exact parameter metadata first, then a recognizable model name,
+ * with provider-family and quantized-byte fallbacks. The profile table is a
  * starting point to be measured rather than a capability claim.
  *
  * `agent:max_tools` overrides it. Left unset it means "work it out," the useful
@@ -19,11 +23,13 @@ use Everest\Services\AI\ProviderFactory;
  */
 class ToolBudget
 {
+    public const PROFILE_TINY = 'tiny';
     public const PROFILE_SMALL = 'small';
     public const PROFILE_MEDIUM = 'medium';
     public const PROFILE_LARGE = 'large';
     public const PROFILE_FRONTIER = 'frontier';
     public const PROFILE_MANUAL = 'manual';
+    public const PROFILE_CALIBRATED = 'calibrated';
 
     /**
      * Schemas per step, and search results per query, for each profile.
@@ -35,24 +41,24 @@ class ToolBudget
      * front door instead.
      */
     private const PROFILES = [
+        // Six leaves room for every phase's reserved set and several task tools;
+        // Tiny also omits the two nonessential host controls from its base set.
+        self::PROFILE_TINY => ['schemas' => 6, 'results' => 3],
         self::PROFILE_SMALL => ['schemas' => 8, 'results' => 3],
         self::PROFILE_MEDIUM => ['schemas' => 12, 'results' => 5],
         self::PROFILE_LARGE => ['schemas' => 20, 'results' => 8],
-        self::PROFILE_FRONTIER => ['schemas' => 32, 'results' => 8],
+        // Resolved dynamically so adding a registered capability cannot
+        // silently put it behind discovery for hosted providers.
+        self::PROFILE_FRONTIER => ['schemas' => 0, 'results' => 8],
     ];
-
-    /**
-     * Size thresholds, in bytes as Ollama reports them — quantised on-disk weights,
-     * not parameter counts. Roughly 8B and 20B at common quantisations.
-     */
-    private const SMALL_MAX_BYTES = 6 * 1024 * 1024 * 1024;
-    private const MEDIUM_MAX_BYTES = 14 * 1024 * 1024 * 1024;
 
     /**
      * The floor, whatever anyone configures.
      *
-     * Four is the size of `ALWAYS_OFFERED`. Below it the agent cannot see the
-     * tool that finds tools, which is not a small model — it is a broken one.
+     * Discovery and safety controls are offered in addition to this number:
+     * search_tools and ask_user on Tiny, with load_tools and batch added above
+     * Tiny. Four capability slots is the smallest useful manual working set;
+     * Auto uses six so every phase remains navigable.
      */
     public const MIN_SCHEMAS = 4;
 
@@ -60,8 +66,19 @@ class ToolBudget
 
     private ?int $schemas = null;
 
-    public function __construct(private ProviderFactory $factory)
-    {
+    private ?string $source = null;
+
+    private ?string $confidence = null;
+
+    private ?string $reason = null;
+
+    private ?int $parameterCount = null;
+
+    public function __construct(
+        private ProviderFactory $factory,
+        private ModelToolProfileDetector $detector,
+        private ToolBudgetCalibration $calibration,
+    ) {
     }
 
     /**
@@ -85,7 +102,7 @@ class ToolBudget
     {
         $this->resolve();
 
-        if ($this->profile === self::PROFILE_MANUAL) {
+        if (in_array($this->profile, [self::PROFILE_MANUAL, self::PROFILE_CALIBRATED], true)) {
             return max(3, min(8, (int) ceil($this->schemas / 4)));
         }
 
@@ -100,6 +117,59 @@ class ToolBudget
         $this->resolve();
 
         return $this->profile;
+    }
+
+    /** Explicit operator value, or null while automatic detection is active. */
+    public function manualSchemas(): ?int
+    {
+        $this->resolve();
+
+        return $this->profile === self::PROFILE_MANUAL ? $this->schemas : null;
+    }
+
+    /** Total schemas the model sees, including discovery and safety controls. */
+    public function totalSchemas(): int
+    {
+        return $this->schemas() + count(SharedTools::alwaysOfferedFor($this->schemas()));
+    }
+
+    public function source(): string
+    {
+        $this->resolve();
+
+        return $this->source;
+    }
+
+    public function confidence(): string
+    {
+        $this->resolve();
+
+        return $this->confidence;
+    }
+
+    public function reason(): string
+    {
+        $this->resolve();
+
+        return $this->reason;
+    }
+
+    public function parameterCount(): ?int
+    {
+        $this->resolve();
+
+        return $this->parameterCount;
+    }
+
+    /** Re-read operator settings or a calibration saved during this process. */
+    public function forgetResolvedProfile(): void
+    {
+        $this->profile = null;
+        $this->schemas = null;
+        $this->source = null;
+        $this->confidence = null;
+        $this->reason = null;
+        $this->parameterCount = null;
     }
 
     private function resolve(): void
@@ -118,53 +188,64 @@ class ToolBudget
         if ($configured !== null && $configured !== '' && (int) $configured > 0) {
             $this->profile = self::PROFILE_MANUAL;
             $this->schemas = max(self::MIN_SCHEMAS, (int) $configured);
+            $this->source = self::PROFILE_MANUAL;
+            $this->confidence = ModelToolProfileDetector::CONFIDENCE_HIGH;
+            $this->reason = 'Using the tool limit set by the operator.';
 
             return;
         }
 
-        $this->profile = $this->detect();
-        $this->schemas = self::PROFILES[$this->profile]['schemas'];
+        try {
+            $measured = $this->calibration->find($this->factory->config());
+        } catch (\Throwable) {
+            $measured = null;
+        }
+
+        if ($measured !== null) {
+            $this->profile = self::PROFILE_CALIBRATED;
+            $this->schemas = max(self::MIN_SCHEMAS, (int) $measured['schemas']);
+            $this->source = self::PROFILE_CALIBRATED;
+            $this->confidence = ModelToolProfileDetector::CONFIDENCE_HIGH;
+            $this->reason = 'Using the repeated tool-selection calibration saved for this exact provider, endpoint, model, and reasoning mode. This measures schema selection capacity, not safety or task completion.';
+
+            return;
+        }
+
+        $detected = $this->detect();
+        $this->profile = $detected['profile'];
+        $this->schemas = $this->profile === self::PROFILE_FRONTIER
+            ? self::fullCapabilityCount()
+            : self::PROFILES[$this->profile]['schemas'];
+        $this->source = $detected['source'];
+        $this->confidence = $detected['confidence'];
+        $this->reason = $detected['reason'];
+        $this->parameterCount = $detected['parameter_count'];
     }
 
     /**
      * Work out the profile from what the provider will tell us about the model.
      *
-     * Probing must never be able to break a turn, so every failure — an
-     * unreachable Ollama, a provider with no capability endpoint, a model that
-     * reports no size — lands on medium. That is the honest answer to "we do not
-     * know": small enough that a weak model is not overwhelmed, large enough that
-     * a capable one is not crippled, and wrong in a way an operator can see and
-     * correct on the settings page.
+     * Probing must never be able to break a turn. The detector can still use the
+     * configured provider and model name after an endpoint failure; a completely
+     * unknown local model receives the conservative small profile, while an
+     * hosted provider receives the complete permitted tool surface. The settings
+     * page exposes the source and confidence so an operator can see and override
+     * that decision.
      */
-    private function detect(): string
+    private function detect(): array
     {
+        $provider = '';
+        $model = '';
+
         try {
+            $provider = $this->factory->provider();
             $model = $this->factory->model();
             $capabilities = $this->factory->make()->capabilities($model);
         } catch (\Throwable) {
-            return self::PROFILE_MEDIUM;
+            return $this->detector->detect($provider, $model);
         }
 
-        // A hosted frontier model is not sized in bytes and does not need to be.
-        if (!$capabilities->selfHosted) {
-            return self::PROFILE_FRONTIER;
-        }
-
-        $bytes = $capabilities->modelSizeBytes;
-
-        if ($bytes === null || $bytes <= 0) {
-            // No size reported. A generous context window is weak evidence of a
-            // capable model — weak enough to move one step, not two.
-            return ($capabilities->maxContextTokens ?? 0) >= 65_536
-                ? self::PROFILE_LARGE
-                : self::PROFILE_MEDIUM;
-        }
-
-        if ($bytes < self::SMALL_MAX_BYTES) {
-            return self::PROFILE_SMALL;
-        }
-
-        return $bytes < self::MEDIUM_MAX_BYTES ? self::PROFILE_MEDIUM : self::PROFILE_LARGE;
+        return $this->detector->detect($provider, $model, $capabilities);
     }
 
     /**
@@ -174,6 +255,19 @@ class ToolBudget
      */
     public static function profiles(): array
     {
-        return self::PROFILES;
+        $profiles = self::PROFILES;
+        $profiles[self::PROFILE_FRONTIER]['schemas'] = self::fullCapabilityCount();
+
+        return $profiles;
+    }
+
+    /**
+     * A hosted request can only see one permission-filtered surface at a time,
+     * but budgeting for every registered non-host capability is a cheap,
+     * future-proof upper bound. Shared controls are added separately.
+     */
+    private static function fullCapabilityCount(): int
+    {
+        return count(ServerTools::all()) + count(AdminTools::all());
     }
 }

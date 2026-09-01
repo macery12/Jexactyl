@@ -38,9 +38,16 @@ export interface AiAgentSettings {
 }
 
 export interface AiToolBudget {
-    profile: 'small' | 'medium' | 'large' | 'frontier' | 'manual';
+    profile: 'tiny' | 'small' | 'medium' | 'large' | 'frontier' | 'manual' | 'calibrated';
+    /** Capability schemas; discovery and safety controls are excluded. */
     schemas: number;
+    /** Everything sent to the model, including the profile's core controls. */
+    total_schemas: number;
     results: number;
+    source: 'metadata' | 'model_name' | 'provider_family' | 'model_bytes' | 'fallback' | 'manual' | 'calibrated';
+    confidence: 'high' | 'medium' | 'low';
+    reason: string;
+    parameter_count: number | null;
 }
 
 export interface AiConcurrencySettings {
@@ -154,10 +161,9 @@ export interface AiInferenceState {
          */
         supports_sampling: boolean;
         /**
-         * Whether the driver can *ask* the model to reason, which is narrower
-         * than whether the model does. Only Anthropic has a request-side switch;
-         * elsewhere thinking is read off the response if it appears, so the
-         * panel's reasoning toggle changes nothing in either direction.
+         * Whether the configured driver/model accepts an explicit reasoning
+         * request. Anthropic and Ollama have native controls; compatible servers
+         * may instead control reasoning in their launch configuration.
          */
         supports_reasoning: boolean;
         self_hosted: boolean;
@@ -169,6 +175,8 @@ export interface AiInferenceState {
         supports_parallel_tool_calls: boolean;
         /** On-disk size of a local model, where the endpoint reports one. */
         model_size_bytes: number | null;
+        /** Unquantized model parameter count, where the endpoint reports one. */
+        model_parameter_count: number | null;
         /** Whether tool support was checked at model level rather than assumed from the protocol. */
         tool_support_verified: boolean;
         warnings: string[];

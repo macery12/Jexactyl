@@ -17,10 +17,168 @@ use Everest\Services\AI\Data\AiStreamEvent;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Contracts\AiProvider;
 use Everest\Services\AI\Data\ProviderCapabilities;
+use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /** Regression coverage for a real Qwen trajectory that ended on "I will…". */
 class AgentFollowThroughTest extends TestCase
 {
+    public function testUnavailableCapabilityForcesAToolFreeConclusion(): void
+    {
+        config()->set('modules.ai.agent.max_steps', 5);
+        config()->set('modules.ai.agent.reasoning', false);
+
+        $provider = new ScriptedFollowThroughProvider([
+            [
+                AiStreamEvent::toolCall(new AiToolCall(
+                    'missing-reinstall',
+                    'load_tools',
+                    ['tools' => ['reinstall'], 'reason' => 'The user selected reinstall'],
+                )),
+                AiStreamEvent::done(AiResponse::FINISH_TOOL_CALLS),
+            ],
+            [
+                AiStreamEvent::text('Reinstall is not available to this assistant, so I did not change the server. Use the panel Reinstall action manually.'),
+                AiStreamEvent::done(),
+            ],
+        ]);
+        $this->app->instance(ProviderFactory::class, new ScriptedFollowThroughFactory($provider));
+
+        $server = new Server();
+        $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        $server->name = 'Capability boundary test';
+        $server->setRelation('egg', null);
+        $context = (new AgentContext(
+            User::factory()->make(['id' => 7]),
+            $server,
+            'turn-capability-boundary',
+        ))->withMessages([AiMessage::user('Reinstall it.')]);
+
+        $events = [];
+        app(AgentRunner::class)->run($context, static function (AgentEvent $event) use (&$events): void {
+            $events[] = $event->toArray();
+        });
+
+        $this->assertCount(2, $provider->requests);
+        $this->assertNotEmpty($provider->requests[0]->tools);
+        $this->assertStringContainsString('Never invent `/root` or `/startup` prefixes', (string) $provider->requests[0]->systemPrompt);
+        $this->assertSame([], $provider->requests[1]->tools);
+        $this->assertStringContainsString('# Required conclusion', (string) $provider->requests[1]->systemPrompt);
+        $this->assertTrue($this->hasDoneReason($events, 'capability_boundary'));
+        $this->assertStringContainsString('did not change', (string) $context->messages[array_key_last($context->messages)]->content);
+    }
+
+    public function testQuestionLimitForcesAFinalAnswerInsteadOfAnotherQuestion(): void
+    {
+        config()->set('modules.ai.agent.max_steps', 4);
+        config()->set('modules.ai.agent.reasoning', false);
+        $provider = new ScriptedFollowThroughProvider([
+            [
+                AiStreamEvent::toolCall(new AiToolCall('extra-question', SharedTools::ASK_USER, [
+                    'question' => 'Which option should I try now?',
+                    'options' => [
+                        ['label' => 'Reinstall'],
+                        ['label' => 'More details'],
+                    ],
+                ])),
+                AiStreamEvent::done(AiResponse::FINISH_TOOL_CALLS),
+            ],
+            [AiStreamEvent::text('I cannot ask another question in this turn, and no additional action was taken.'), AiStreamEvent::done()],
+        ]);
+        $this->app->instance(ProviderFactory::class, new ScriptedFollowThroughFactory($provider));
+
+        $server = new Server();
+        $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        $server->name = 'Question boundary test';
+        $server->setRelation('egg', null);
+        $context = (new AgentContext(User::factory()->make(['id' => 7]), $server, 'turn-question-boundary'))
+            ->withMessages([AiMessage::user('Continue.')]);
+        $context->questions = SharedTools::MAX_QUESTIONS_PER_TURN;
+
+        $events = [];
+        app(AgentRunner::class)->run($context, static function (AgentEvent $event) use (&$events): void {
+            $events[] = $event->toArray();
+        });
+
+        $this->assertCount(2, $provider->requests);
+        $this->assertSame([], $provider->requests[1]->tools);
+        $this->assertTrue($this->hasDoneReason($events, 'capability_boundary'));
+        $this->assertFalse($context->suspended);
+    }
+
+    public function testThirdConsecutiveDiscoveryCallForcesAConclusion(): void
+    {
+        config()->set('modules.ai.agent.max_steps', 6);
+        config()->set('modules.ai.agent.reasoning', false);
+        $provider = new ScriptedFollowThroughProvider([
+            [AiStreamEvent::toolCall(new AiToolCall('search-1', SharedTools::SEARCH_TOOLS, ['query' => 'files'])), AiStreamEvent::done(AiResponse::FINISH_TOOL_CALLS)],
+            [AiStreamEvent::toolCall(new AiToolCall('search-2', SharedTools::SEARCH_TOOLS, ['query' => 'backups'])), AiStreamEvent::done(AiResponse::FINISH_TOOL_CALLS)],
+            [AiStreamEvent::toolCall(new AiToolCall('search-3', SharedTools::SEARCH_TOOLS, ['query' => 'startup'])), AiStreamEvent::done(AiResponse::FINISH_TOOL_CALLS)],
+            [AiStreamEvent::text('I stopped searching and used the capability boundary already established.'), AiStreamEvent::done()],
+        ]);
+        $this->app->instance(ProviderFactory::class, new ScriptedFollowThroughFactory($provider));
+
+        $server = new Server();
+        $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        $server->name = 'Discovery boundary test';
+        $server->setRelation('egg', null);
+        $user = \Mockery::mock(User::class)->makePartial();
+        $user->id = 7;
+        $user->shouldReceive('can')->andReturn(true);
+        $context = (new AgentContext($user, $server, 'turn-discovery-boundary'))
+            ->withMessages([AiMessage::user('Find a way to do it.')]);
+
+        $events = [];
+        app(AgentRunner::class)->run($context, static function (AgentEvent $event) use (&$events): void {
+            $events[] = $event->toArray();
+        });
+
+        $this->assertCount(4, $provider->requests, json_encode([
+            'events' => $events,
+            'messages' => array_map(static fn (AiMessage $message) => $message->toArray(), $context->messages),
+        ], JSON_UNESCAPED_SLASHES) ?: 'Unable to encode trajectory.');
+        $this->assertSame([], $provider->requests[3]->tools);
+        $this->assertTrue($this->hasDoneReason($events, 'capability_boundary'));
+    }
+
+    public function testReasoningOnlyStopIsRetriedOnceWithoutReasoning(): void
+    {
+        config()->set('modules.ai.agent.max_steps', 3);
+        config()->set('modules.ai.agent.reasoning', true);
+
+        $provider = new ScriptedFollowThroughProvider([
+            [
+                AiStreamEvent::reasoning('I have enough evidence and should answer.'),
+                AiStreamEvent::done(),
+            ],
+            [
+                AiStreamEvent::text('The server is currently running.'),
+                AiStreamEvent::done(),
+            ],
+        ]);
+        $this->app->instance(ProviderFactory::class, new ScriptedFollowThroughFactory($provider));
+
+        $server = new Server();
+        $server->uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+        $server->name = 'Reasoning recovery test';
+        $server->setRelation('egg', null);
+        $context = (new AgentContext(
+            User::factory()->make(['id' => 7]),
+            $server,
+            'turn-reasoning-recovery',
+        ))->withMessages([AiMessage::user('Is it running?')]);
+
+        $events = [];
+        app(AgentRunner::class)->run($context, static function (AgentEvent $event) use (&$events): void {
+            $events[] = $event->toArray();
+        });
+
+        $this->assertCount(2, $provider->requests);
+        $this->assertTrue($provider->requests[0]->reasoning);
+        $this->assertFalse($provider->requests[1]->reasoning);
+        $this->assertTrue($this->hasDoneReason($events, 'complete'));
+        $this->assertSame('The server is currently running.', $context->messages[array_key_last($context->messages)]->content);
+    }
+
     public function testAnIntentionOnlyResponseIsRecoveredIntoAToolCallInsteadOfCompleting(): void
     {
         config()->set('modules.ai.agent.max_steps', 5);

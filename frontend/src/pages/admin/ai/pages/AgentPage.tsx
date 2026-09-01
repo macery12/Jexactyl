@@ -131,6 +131,12 @@ export default function AgentPage() {
                                 ? m['admin.ai.settings.maxToolsAutoHint']({
                                       profile: td(`admin.ai.settings.profile.${budget.profile}`, budget.profile),
                                       schemas: String(budget.schemas),
+                                      total: String(budget.total_schemas),
+                                      confidence: td(
+                                          `admin.ai.settings.confidence.${budget.confidence}`,
+                                          budget.confidence,
+                                      ),
+                                      reason: budget.reason,
                                   })
                                 : m['admin.ai.settings.maxToolsHint']()
                         }

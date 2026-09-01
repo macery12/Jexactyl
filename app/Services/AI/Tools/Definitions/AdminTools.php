@@ -67,6 +67,8 @@ class AdminTools
      */
     public const ASSIST_ALLOW_WRITES = 'admin_assist_allow_writes';
 
+    public const TICKET_CONTEXT = 'admin_ticket_context';
+
     private const BASE = '/api/application';
 
     /**
@@ -769,6 +771,25 @@ class AdminTools
                     'last_reply_at' => $t['last_reply_at'] ?? null,
                 ], self::LIST_LIMIT),
                 queryFields: ['filter', 'per_page', 'page'],
+            ),
+
+            new ToolDefinition(
+                name: self::TICKET_CONTEXT,
+                description: 'Read one verified support ticket and its conversation together in a compact context result. Get the numeric id from admin_tickets_list first. This is read-only and does not access the linked customer server; use admin_assist_server separately if server evidence is needed.',
+                parameters: self::object([
+                    'ticket' => self::string('The numeric ticket id returned by admin_tickets_list.'),
+                ], ['ticket']),
+                method: 'GET',
+                uriTemplate: '',
+                risk: ToolDefinition::RISK_SAFE,
+                scope: ToolDefinition::SCOPE_ADMIN,
+                permissions: [AdminRole::TICKETS_READ],
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_SUPPORT,
+                    aliases: ['read ticket and messages', 'get the full ticket context', 'what did the ticket say', 'read the support conversation'],
+                    tags: ['support', 'tickets', 'messages', 'context', 'read'],
+                ),
+                hostHandled: true,
             ),
 
             new ToolDefinition(

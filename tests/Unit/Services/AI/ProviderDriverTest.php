@@ -59,6 +59,71 @@ class ProviderDriverTest extends TestCase
         ]);
     }
 
+    public function testEveryProviderTransportsTheSameCompleteToolContracts(): void
+    {
+        $tools = [
+            $this->tool(),
+            new AiTool('server_status', 'Read server status', AiTool::emptySchema()),
+        ];
+        $request = new AiRequest(
+            messages: [AiMessage::user('inspect the server')],
+            tools: $tools,
+            noCache: true,
+        );
+
+        $ollama = new OllamaProvider(
+            $this->config(ProviderConfig::PROVIDER_OLLAMA),
+            $this->stack([new Response(200, [], json_encode([
+                'message' => ['role' => 'assistant', 'content' => 'ok'],
+                'done' => true,
+            ]))]),
+        );
+        $ollama->chat($request);
+        $ollamaTools = array_map(
+            static fn (array $tool): array => $tool['function'],
+            $this->sentPayload()['tools'],
+        );
+
+        $openAi = new OpenAiCompatibleProvider(
+            $this->config(ProviderConfig::PROVIDER_OPENAI, [
+                'endpoint' => 'https://api.openai.com/v1',
+                'apiKey' => 'sk-test',
+            ]),
+            $this->stack([new Response(200, [], json_encode([
+                'choices' => [[
+                    'message' => ['content' => 'ok'],
+                    'finish_reason' => 'stop',
+                ]],
+            ]))]),
+        );
+        $openAi->chat($request);
+        $openAiTools = array_map(
+            static fn (array $tool): array => $tool['function'],
+            $this->sentPayload()['tools'],
+        );
+
+        $anthropic = new AnthropicProvider(
+            $this->config(ProviderConfig::PROVIDER_ANTHROPIC, [
+                'endpoint' => 'https://api.anthropic.com/v1',
+                'apiKey' => 'sk-ant-test',
+            ]),
+            $this->stack([new Response(200, [], json_encode([
+                'content' => [['type' => 'text', 'text' => 'ok']],
+                'stop_reason' => 'end_turn',
+            ]))]),
+        );
+        $anthropic->chat($request);
+        $anthropicTools = array_map(static fn (array $tool): array => [
+            'name' => $tool['name'],
+            'description' => $tool['description'],
+            'parameters' => $tool['input_schema'],
+        ], $this->sentPayload()['tools']);
+
+        $this->assertSame($ollamaTools, $openAiTools);
+        $this->assertSame($openAiTools, $anthropicTools);
+        $this->assertSame(['files_read', 'server_status'], array_column($anthropicTools, 'name'));
+    }
+
     public function testTransportErrorsDoNotLogOrExposeProviderBodies(): void
     {
         Log::shouldReceive('error')
@@ -140,6 +205,7 @@ class ProviderDriverTest extends TestCase
             'done_reason' => 'stop',
             'prompt_eval_count' => 12,
             'eval_count' => 5,
+            'eval_duration' => 100_000_000,
         ]))]);
 
         $provider = new OllamaProvider($this->config(ProviderConfig::PROVIDER_OLLAMA), $stack);
@@ -148,6 +214,7 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('Hello from Ollama!', $response->content);
         $this->assertSame(12, $response->usage['prompt_tokens']);
         $this->assertSame(5, $response->usage['completion_tokens']);
+        $this->assertSame(100.0, $response->usage['generation_duration_ms']);
 
         // The native API is what honours num_ctx and keep_alive; the /v1 shim
         // silently discards both.
@@ -157,7 +224,21 @@ class ProviderDriverTest extends TestCase
         $this->assertArrayHasKey('options', $payload);
         $this->assertArrayHasKey('num_ctx', $payload['options']);
         $this->assertSame(512, $payload['options']['num_predict']);
+        $this->assertFalse($payload['think']);
         $this->assertSame('10m', $payload['keep_alive']);
+    }
+
+    public function testOllamaTransportsTheRequestedReasoningMode(): void
+    {
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'message' => ['role' => 'assistant', 'content' => 'Done.'],
+            'done' => true,
+        ]))]);
+
+        $provider = new OllamaProvider($this->config(ProviderConfig::PROVIDER_OLLAMA), $stack);
+        $provider->chat((new AiRequest([AiMessage::user('Think first')], noCache: true))->withReasoning());
+
+        $this->assertTrue($this->sentPayload()['think']);
     }
 
     public function testOllamaSendsToolsAndSizesContextToTheRequest(): void
@@ -328,7 +409,11 @@ class ProviderDriverTest extends TestCase
     {
         $stack = $this->stack([new Response(200, [], json_encode([
             'capabilities' => ['completion', 'tools', 'thinking'],
-            'model_info' => ['llama.context_length' => 131072],
+            'model_info' => [
+                'llama.context_length' => 131072,
+                'general.parameter_count' => 4_300_000_000,
+            ],
+            'details' => ['parameter_size' => '8B'],
         ]))]);
 
         $provider = new OllamaProvider(
@@ -339,8 +424,26 @@ class ProviderDriverTest extends TestCase
         $capabilities = $provider->capabilities();
 
         $this->assertTrue($capabilities->supportsTools);
+        $this->assertTrue($capabilities->supportsReasoning);
         $this->assertSame([], $capabilities->warnings);
         $this->assertTrue($capabilities->selfHosted);
+        $this->assertSame(4_300_000_000, $capabilities->modelParameterCount);
+    }
+
+    public function testOllamaCapabilityProbeFallsBackToTheParameterSizeLabel(): void
+    {
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'capabilities' => ['completion', 'tools'],
+            'model_info' => ['qwen3.context_length' => 32768],
+            'details' => ['parameter_size' => '1.7B'],
+        ]))]);
+
+        $provider = new OllamaProvider(
+            $this->config(ProviderConfig::PROVIDER_OLLAMA, ['model' => 'qwen3']),
+            $stack,
+        );
+
+        $this->assertSame(1_700_000_000, $provider->capabilities()->modelParameterCount);
     }
 
     /*
@@ -364,6 +467,7 @@ class ProviderDriverTest extends TestCase
                 'finish_reason' => 'tool_calls',
             ]],
             'usage' => ['prompt_tokens' => 30, 'completion_tokens' => 8, 'total_tokens' => 38],
+            'timings' => ['predicted_ms' => 160.0],
         ]))]);
 
         $provider = new OpenAiCompatibleProvider(
@@ -381,6 +485,7 @@ class ProviderDriverTest extends TestCase
         // Arguments arrive as a JSON string here, unlike Ollama's native API.
         $this->assertSame(['path' => '/eula.txt'], $response->toolCalls[0]->arguments);
         $this->assertSame(38, $response->totalTokens());
+        $this->assertSame(160.0, $response->usage['generation_duration_ms']);
 
         $payload = $this->sentPayload();
         $this->assertSame('function', $payload['tools'][0]['type']);
@@ -454,6 +559,32 @@ class ProviderDriverTest extends TestCase
         $this->assertFalse($provider->capabilities()->toolSupportVerified);
     }
 
+    public function testOpenAiCompatibleTransportsPerRequestReasoningControl(): void
+    {
+        $reply = static fn (): Response => new Response(200, [], json_encode([
+            'choices' => [[
+                'message' => ['content' => 'ok'],
+                'finish_reason' => 'stop',
+            ]],
+        ]));
+        $stack = $this->stack([$reply(), $reply()]);
+        $provider = new OpenAiCompatibleProvider($this->config(
+            ProviderConfig::PROVIDER_OPENAI_COMPATIBLE,
+            ['endpoint' => 'http://127.0.0.1:8080/v1'],
+        ), $stack);
+
+        $provider->chat((new AiRequest([AiMessage::user('think')], noCache: true))->withReasoning());
+        $provider->chat(new AiRequest([AiMessage::user('answer directly')], noCache: true));
+
+        $this->assertArrayNotHasKey('reasoning_effort', $this->sentPayload(0));
+        $this->assertArrayNotHasKey('chat_template_kwargs', $this->sentPayload(0));
+        $this->assertSame('none', $this->sentPayload(1)['reasoning_effort']);
+        $this->assertSame(
+            ['enable_thinking' => false],
+            $this->sentPayload(1)['chat_template_kwargs'],
+        );
+    }
+
     public function testOpenAiCompatibleCanVerifyAndCacheToolCallingForTheExactModel(): void
     {
         Cache::flush();
@@ -486,7 +617,7 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('/v1/chat/completions', $this->sentPath());
         $this->assertSame('capability_probe', $payload['tools'][0]['function']['name']);
         $this->assertSame(AiRequest::TOOL_CHOICE_AUTO, $payload['tool_choice']);
-        $this->assertSame(64, $payload['max_tokens']);
+        $this->assertSame(256, $payload['max_tokens']);
         $this->assertSame(0, $payload['temperature']);
         $this->assertFalse($payload['stream']);
 

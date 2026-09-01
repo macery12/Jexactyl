@@ -729,6 +729,25 @@ class AssistSessionTest extends TestCase
         $this->assertNull($context->targetServer());
     }
 
+    public function testOpeningTheSameAssistSessionAgainIsIdempotent(): void
+    {
+        $server = $this->server();
+        $context = new AgentContext(User::factory()->make(['id' => 7]), null, 'turn-idempotent-assist');
+        $context->bindAssist($this->binding(), $server);
+
+        $runner = (new \ReflectionClass(AgentRunner::class))->newInstanceWithoutConstructor();
+        $result = (new \ReflectionMethod(AgentRunner::class, 'openAssist'))->invoke(
+            $runner,
+            $context,
+            ['server' => (string) $server->id, 'reason' => 'continue diagnosis'],
+            fn () => null,
+        );
+
+        $this->assertTrue($result->ok);
+        $this->assertTrue($result->data['already_open']);
+        $this->assertStringContainsString('do not open it again', $result->data['note']);
+    }
+
     public function testEscalationKeepsReadOnlyAuthorityWhenItsAuditCannotBeWritten(): void
     {
         $admin = User::factory()->make(['id' => 7]);

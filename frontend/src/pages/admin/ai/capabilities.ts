@@ -94,10 +94,9 @@ export interface AiCapabilities {
     /**
      * Whether the reasoning toggle does anything.
      *
-     * False does not mean "this model cannot reason" — it means the driver has
-     * no way to ask, so the setting is inert in both directions. A reasoning
-     * model on Ollama will still think with the toggle off, and the panel will
-     * still render it, because the thinking arrives on the response either way.
+     * False does not mean "this model cannot reason" — it means this endpoint
+     * cannot accept an explicit request from the panel. Some compatible servers
+     * still reason according to their own launch or template configuration.
      */
     reasoning: boolean;
 }

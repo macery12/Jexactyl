@@ -4,6 +4,7 @@ namespace Everest\Services\AI\Agent;
 
 use Everest\Services\AI\Tools\ToolDefinition;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
+use Everest\Services\AI\Tools\Definitions\ServerTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 
 /**
@@ -48,9 +49,7 @@ class WorkingSet
             'admin_users_list',
         ],
         self::PHASE_READ_ASSIST => [
-            'server_status',
-            'startup_list',
-            'files_list',
+            ServerTools::DIAGNOSTIC_SNAPSHOT,
             'files_read',
             AdminTools::ASSIST_ALLOW_WRITES,
         ],
@@ -68,7 +67,7 @@ class WorkingSet
      *
      * Spent after everything else, and only while there is room. Without this the
      * planner leaves slots empty — a server turn with nothing pinned would offer
-     * `server_status` and the four discovery tools, and *every* question would
+     * `server_status` and the core host controls, and *every* question would
      * cost a search step before it could cost an answer. That is a worse trade
      * than the old cumulative groups made, and it would have been made on every
      * single turn.
@@ -79,6 +78,7 @@ class WorkingSet
      */
     public const PREFERRED = [
         self::PHASE_SERVER => [
+            ServerTools::DIAGNOSTIC_SNAPSHOT,
             'files_list',
             'files_read',
             'activity_recent',
@@ -99,6 +99,7 @@ class WorkingSet
             'admin_server_view',
             'admin_user_view',
             'admin_tickets_list',
+            AdminTools::TICKET_CONTEXT,
             'admin_activity',
             'admin_ticket_view',
             // Beside the view, because on this surface the two are one action.
@@ -113,6 +114,7 @@ class WorkingSet
             'admin_orders_list',
         ],
         self::PHASE_READ_ASSIST => [
+            ServerTools::DIAGNOSTIC_SNAPSHOT,
             'activity_recent',
             'minecraft_server_info',
             'mods_installed',
@@ -139,12 +141,14 @@ class WorkingSet
      *                          reason recorded separately — a removal the model is
      *                          not told about is the failure mode this whole design
      *                          replaced
+     * @param string[] $unbudgeted host controls that did not consume a capability slot
      */
     public function __construct(
         public readonly array $definitions,
         public readonly string $phase,
         public readonly array $pinned = [],
         public readonly array $dropped = [],
+        public readonly array $unbudgeted = SharedTools::ALWAYS_OFFERED,
     ) {
     }
 
@@ -167,14 +171,14 @@ class WorkingSet
     }
 
     /**
-     * Schemas offered, excluding the four that are always there.
+     * Schemas offered, excluding the host controls selected for this profile.
      *
      * The number an operator's `max_tools` is actually about: discovery and the
      * safety exits are not capability and never compete with it for room.
      */
     public function billableSize(): int
     {
-        return count(array_diff($this->names(), SharedTools::ALWAYS_OFFERED));
+        return count(array_diff($this->names(), $this->unbudgeted));
     }
 
     /**

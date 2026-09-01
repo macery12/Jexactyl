@@ -22,7 +22,7 @@ class AiResponse
 
     /**
      * @param AiToolCall[] $toolCalls
-     * @param array $usage {prompt_tokens: ?int, completion_tokens: ?int, total_tokens: ?int}
+     * @param array $usage token counts and optional provider-native timing metrics
      */
     public function __construct(
         public readonly ?string $content,

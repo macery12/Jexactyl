@@ -391,6 +391,7 @@ class ReasoningChannelTest extends TestCase
 
         $this->assertSame('Weighing it up.', $reasoning);
         $this->assertSame('The answer.', $text);
+        $this->assertTrue($this->sentPayload()['think']);
     }
 
     /**

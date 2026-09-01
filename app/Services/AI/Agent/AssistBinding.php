@@ -3,6 +3,8 @@
 namespace Everest\Services\AI\Agent;
 
 use Everest\Models\Permission;
+use Everest\Services\AI\Tools\Definitions\AdminTools;
+use Everest\Services\AI\Tools\Definitions\ServerTools;
 
 /**
  * An administrator's audited session on a customer's server — the way past a
@@ -66,6 +68,7 @@ class AssistBinding
      * refused at dispatch, which is the correct way round.
      */
     public const READ_TOOLS = [
+        ServerTools::DIAGNOSTIC_SNAPSHOT,
         'server_status',
         'activity_recent',
         'startup_list',
@@ -96,6 +99,7 @@ class AssistBinding
      * the record of this server and of the person who reported it.
      */
     public const COMPANION_TOOLS = [
+        AdminTools::TICKET_CONTEXT,
         'admin_server_view',
         'admin_user_view',
         'admin_ticket_view',

@@ -154,7 +154,8 @@ class WorkingSetPlanner
 
         // Tier 1: never capped. Not capability — the way out of a position the
         // agent cannot otherwise leave, and the way it reaches everything else.
-        foreach (SharedTools::ALWAYS_OFFERED as $name) {
+        $unbudgeted = SharedTools::alwaysOfferedFor($budget);
+        foreach ($unbudgeted as $name) {
             if (isset($callable[$name])) {
                 $offered[$name] = $callable[$name];
             }
@@ -199,7 +200,7 @@ class WorkingSetPlanner
 
         // Tier 7: if the whole catalogue still fits, offer the whole catalogue.
         //
-        // A frontier model with a budget of 32 and a 26-tool surface can hold
+        // A hosted model whose budget covers the full surface can hold
         // everything, and making it search for a tool it could simply have been
         // shown is pure overhead — a step spent, and a chance to search badly.
         // Retrieval is what a *small* budget needs; a large one should behave
@@ -220,6 +221,7 @@ class WorkingSetPlanner
             $phase,
             array_values(array_intersect($context->pinned, array_keys($offered))),
             array_values(array_unique($dropped)),
+            $unbudgeted,
         );
     }
 

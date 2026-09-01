@@ -56,7 +56,7 @@ class AgentIdentifierEvidenceTest extends TestCase
         $context->push(AiMessage::assistant(null, [$second]));
 
         $this->assertSame(
-            'suspended',
+            'concluding',
             $handle->invoke($runner, $context, $second, [$definition], $emit),
         );
 
@@ -67,7 +67,8 @@ class AgentIdentifierEvidenceTest extends TestCase
 
         $this->assertStringContainsString('unverified_identifier', (string) $toolMessages[1]->content);
         $this->assertStringContainsString('repeated_invariant_violation', (string) $toolMessages[2]->content);
-        $this->assertSame('no_progress', $this->doneReason($events));
+        $this->assertTrue($context->conclusionRequired);
+        $this->assertNull($this->doneReason($events), 'The runner, not handleCall, performs the tool-free conclusion pass.');
         $this->assertFalse($this->hasEvent($events, 'tool_call'));
     }
 

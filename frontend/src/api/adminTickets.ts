@@ -22,11 +22,19 @@ export interface AdminTicketMessage {
     createdAt: string;
 }
 
+export interface TicketServer {
+    id: number;
+    identifier: string;
+    name: string;
+}
+
 export interface AdminTicket {
     id: number;
     title: string;
     status: TicketStatus;
     priority: TicketPriority;
+    serverId: number | null;
+    server: TicketServer | null;
     user: TicketParticipant | null;
     assignedTo: TicketParticipant | null;
     lastReplyAt: string | null;
@@ -95,6 +103,8 @@ interface RawTicket {
         title: string;
         status: TicketStatus;
         priority: TicketPriority;
+        server_id?: number | null;
+        server?: TicketServer | null;
         user?: RawUser | null;
         assigned_to?: RawUser | null;
         last_reply_at: string | null;
@@ -114,6 +124,8 @@ function mapTicket(row: RawTicket): AdminTicket {
         title: a.title,
         status: a.status,
         priority: a.priority,
+        serverId: a.server_id ?? null,
+        server: a.server ?? null,
         user: mapParticipant(a.user),
         assignedTo: mapParticipant(a.assigned_to),
         lastReplyAt: a.last_reply_at,

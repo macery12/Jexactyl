@@ -29,6 +29,12 @@ class TicketTransformer extends Transformer
             'title' => $model->title,
             'status' => $model->status,
             'priority' => $model->priority,
+            'server_id' => $model->server_id,
+            'server' => $model->server === null ? null : [
+                'id' => $model->server->id,
+                'identifier' => $model->server->uuidShort,
+                'name' => $model->server->name,
+            ],
             'last_reply_at' => $model->last_reply_at?->toIso8601String(),
             'created_at' => $model->created_at->toIso8601String(),
             'updated_at' => $model->updated_at?->toIso8601String(),

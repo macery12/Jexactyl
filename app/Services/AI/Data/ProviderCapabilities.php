@@ -19,16 +19,17 @@ class ProviderCapabilities
      *                               control attached to nothing.
      * @param bool $supportsReasoning whether the driver can *ask* for reasoning,
      *                                narrower than whether the model does any.
-     *                                Only Anthropic has a request-side switch;
-     *                                the other drivers read thinking off the
-     *                                response and send nothing to cause it, so the
-     *                                toggle would change nothing in either
-     *                                direction.
+     *                                Anthropic and native Ollama have a
+     *                                request-side switch. Generic compatible
+     *                                endpoints remain server-controlled because
+     *                                their request extension is not portable.
      * @param bool $selfHosted whether inference runs on hardware we own, and
      *                         therefore needs slot-based admission control
      * @param bool $toolSupportVerified whether `supportsTools` comes from a
      *                                  model-level probe rather than the wire
      *                                  protocol accepting a `tools` field
+     * @param int|null $modelParameterCount exact unquantized parameter count,
+     *                                      where the provider exposes it
      * @param string[] $warnings admin-facing problems that do not block use
      */
     public function __construct(
@@ -41,6 +42,7 @@ class ProviderCapabilities
         public readonly bool $selfHosted = false,
         public readonly ?int $maxContextTokens = null,
         public readonly ?int $modelSizeBytes = null,
+        public readonly ?int $modelParameterCount = null,
         public readonly array $warnings = [],
         public readonly bool $toolSupportVerified = true,
     ) {
@@ -76,6 +78,7 @@ class ProviderCapabilities
             'self_hosted' => $this->selfHosted,
             'max_context_tokens' => $this->maxContextTokens,
             'model_size_bytes' => $this->modelSizeBytes,
+            'model_parameter_count' => $this->modelParameterCount,
             'warnings' => $this->warnings,
             'tool_support_verified' => $this->toolSupportVerified,
         ];

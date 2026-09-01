@@ -15,10 +15,9 @@ use Everest\Services\AI\Tools\ToolDefinition;
  * overrides. The synthesised meta-tool they replace was invisible to the
  * catalogue and impossible to disable or override.
  *
- * All four are exempt from the working-set budget, since none is a capability:
- * `ask_user` is the way out of a position the agent cannot otherwise leave,
- * `batch` avoids asking twenty times, and the discovery tools are how it reaches
- * anything else at all.
+ * The selected core controls are exempt from the working-set budget. Tiny models
+ * always get search_tools and ask_user; load_tools and batch remain discoverable
+ * but are not paid for in every prompt. Larger profiles receive all four.
  */
 class SharedTools
 {
@@ -43,7 +42,7 @@ class SharedTools
     public const LOAD_TOOLS = 'load_tools';
 
     /**
-     * The tools that are always offered, in every phase, on every surface.
+     * The full core set used above the Tiny profile.
      *
      * Ordered deliberately: discovery first, because a model reading its own tool
      * list top-down should meet the way out of "I have no tool for this" before
@@ -55,6 +54,20 @@ class SharedTools
         self::ASK_USER,
         self::BATCH,
     ];
+
+    /** The minimum navigable surface for models with the Tiny tool budget. */
+    public const ESSENTIAL_ALWAYS_OFFERED = [
+        self::SEARCH_TOOLS,
+        self::ASK_USER,
+    ];
+
+    /** @return string[] */
+    public static function alwaysOfferedFor(int $capabilityBudget): array
+    {
+        return $capabilityBudget <= 6
+            ? self::ESSENTIAL_ALWAYS_OFFERED
+            : self::ALWAYS_OFFERED;
+    }
 
     public const CATEGORY_DISCOVERY = 'discovery';
     public const CATEGORY_CONVERSATION = 'conversation';

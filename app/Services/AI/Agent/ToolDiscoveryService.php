@@ -61,10 +61,11 @@ class ToolDiscoveryService
             // cannot do it — and an empty list reads as an invitation to search
             // again with different words, which is how the loop starts.
             return ToolResult::error(
-                'tool_not_found',
+                'capability_unavailable',
                 sprintf(
-                    'Nothing matches "%s". Either the panel cannot do this, or you are not allowed to. '
-                        . 'Say so rather than searching again with different words.',
+                    'No available tool implements "%s" in this session. This is an authoritative capability '
+                        . 'boundary: do not search for synonyms or offer to perform the action. Explain the '
+                        . 'limitation and, if useful, give a clearly manual panel step.',
                     $exact !== '' ? $exact : $query,
                 ),
             );
@@ -126,12 +127,13 @@ class ToolDiscoveryService
             // load leaves the model believing it holds something it does not, and
             // the next call fails somewhere less legible than here.
             return ToolResult::error(
-                'tool_not_found',
+                'capability_unavailable',
                 sprintf(
-                    'No tool called %s is available here. Use search_tools to find what you want by description.',
+                    'No available tool implements %s in this session. Loading a name or the user choosing an '
+                        . 'option cannot create a capability. Do not search for synonyms or offer to execute it; '
+                        . 'explain the limitation and label any panel instructions as manual.',
                     implode(', ', array_map(fn ($n) => '"' . $n . '"', $unknown)),
                 ),
-                retryable: true,
             );
         }
 
@@ -196,7 +198,7 @@ class ToolDiscoveryService
         }
 
         foreach ($this->planner->catalogue($context) as $definition) {
-            if (in_array($definition->name, SharedTools::ALWAYS_OFFERED, true)) {
+            if (in_array($definition->name, SharedTools::ESSENTIAL_ALWAYS_OFFERED, true)) {
                 continue;
             }
 

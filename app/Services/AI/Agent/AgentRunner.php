@@ -25,6 +25,7 @@ use Everest\Services\AI\Support\ToolCallSalvager;
 use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Services\AI\Tools\Definitions\AdminTools;
+use Everest\Services\AI\Tools\Definitions\ServerTools;
 use Everest\Services\AI\Tools\Definitions\SharedTools;
 use Everest\Services\AI\Data\AiToolCall as ToolCallData;
 use Everest\Exceptions\Http\Connection\DaemonConnectionException;
@@ -58,6 +59,7 @@ class AgentRunner
         private ProgressGuard $progress,
         private IdentifierEvidenceGuard $identifierEvidence,
         private ToolBudget $budget,
+        private TurnExecutionPolicy $executionPolicy,
     ) {
     }
 
@@ -90,7 +92,9 @@ class AgentRunner
             // registered name or one of its precise intent phrases has already
             // done the retrieval; making the model spend a step rediscovering it
             // is the most annoying failure this mechanism can produce.
-            $this->discovery->pinUserIntentTools($context, $this->lastUserMessage($context));
+            $message = $this->lastUserMessage($context);
+            $this->executionPolicy->apply($context, $message);
+            $this->discovery->pinUserIntentTools($context, $message);
 
             $this->loop($context, $emit, $startedAt);
         } catch (\Throwable $e) {
@@ -145,8 +149,9 @@ class AgentRunner
     {
         $maxSteps = $this->maxSteps();
         $deadline = $this->beginDeadline($context, $startedAt);
+        $conclusionPassUsed = false;
 
-        while ($context->step < $maxSteps) {
+        while ($context->step < $maxSteps || ($context->conclusionRequired && !$conclusionPassUsed)) {
             if ($this->stopRequested($context)) {
                 $emit(AgentEvent::done($context->revoked ? 'revoked' : 'cancelled'));
 
@@ -162,8 +167,9 @@ class AgentRunner
             ++$context->step;
             $emit(AgentEvent::step($context->step, $maxSteps));
 
-            $set = $this->offerings($context);
-            $definitions = $set->definitions;
+            $concluding = $context->conclusionRequired;
+            $conclusionPassUsed = $conclusionPassUsed || $concluding;
+            $definitions = $concluding ? [] : $this->offerings($context)->definitions;
             $tools = $this->registry->toAiTools($definitions);
 
             if (!$this->hasTime($context)) {
@@ -177,6 +183,59 @@ class AgentRunner
             $calls = $response['calls'];
             $text = $response['text'];
             $reasoning = $response['reasoning'];
+
+            // Some local reasoning templates emit a complete thought, stop,
+            // and never transition to either `content` or `tool_calls`. From
+            // the user's perspective the assistant simply disappears. Never
+            // expose the thought as the answer; retry the exact step once with
+            // reasoning disabled so the model has to use a public channel.
+            if ($calls === [] && trim($text) === '' && $response['reasoning_observed']) {
+                Log::notice('AI agent is retrying a reasoning-only empty response without reasoning.', [
+                    'turn' => $context->turnId,
+                    'step' => $context->step,
+                ]);
+
+                if (!$this->hasTime($context)) {
+                    $emit(AgentEvent::done('time_limit'));
+
+                    return;
+                }
+
+                $response = $this->callModel($context, $tools, $emit, false);
+                $calls = $response['calls'];
+                $text = $response['text'];
+                $reasoning = $response['reasoning'];
+
+                if (!$concluding && $calls === [] && trim($text) === '') {
+                    throw new AIServiceException('The model stopped without providing an answer or a tool call. Please try again.');
+                }
+            }
+
+            // This pass is deliberately tool-free. Even if a weak provider
+            // hallucinates another structured call, the host does not execute
+            // it; a blank response falls back to the boundary established by
+            // the panel rather than restarting the loop.
+            if ($concluding) {
+                $final = trim($text);
+                if ($final === '') {
+                    $final = $context->conclusionFallback
+                        ?? 'The requested action is not available in this session, so no change was made.';
+                    $emit(AgentEvent::text($final));
+                }
+
+                $context->push(AiMessage::assistant($final));
+                $emit(AgentEvent::done('capability_boundary'));
+
+                return;
+            }
+
+            // An empty stop without a reasoning event is just as invalid, but
+            // there is no alternate channel to recover. Surface a truthful
+            // error instead of persisting a blank assistant message and marking
+            // the turn complete.
+            if ($calls === [] && trim($text) === '') {
+                throw new AIServiceException('The model stopped without providing an answer or a tool call. Please try again.');
+            }
 
             if (count($calls) > $this->maxCallsPerResponse()) {
                 Log::warning('AI agent response exceeded the per-response tool-call cap.', [
@@ -262,6 +321,11 @@ class AgentRunner
 
                 if ($outcome === 'suspended') {
                     return;
+                }
+
+                if ($outcome === 'concluding') {
+                    $this->answerUnrunCalls($context);
+                    break;
                 }
             }
         }
@@ -377,10 +441,14 @@ class AgentRunner
      * @param AiTool[] $tools
      * @param callable(AgentEvent): void $emit
      *
-     * @return array{text: string, calls: ToolCallData[], reasoning: array<int, array>}
+     * @return array{text: string, calls: ToolCallData[], reasoning: array<int, array>, reasoning_observed: bool}
      */
-    protected function callModel(AgentContext $context, array $tools, callable $emit): array
-    {
+    protected function callModel(
+        AgentContext $context,
+        array $tools,
+        callable $emit,
+        ?bool $reasoning = null,
+    ): array {
         $provider = $this->factory->make($this->remainingSeconds($context));
 
         $request = (new AiRequest(
@@ -397,7 +465,7 @@ class AgentRunner
             // Tool selection benefits from determinism far more than prose
             // does; the configured temperature applies to the final answer.
             temperature: $tools !== [] ? 0.0 : null,
-        ))->withReasoning($this->reasoningEnabled());
+        ))->withReasoning($reasoning ?? $this->reasoningEnabled());
 
         // The prompt mints tokens of its own — a server whose name is an email
         // address, say — and they are minted before a single token of the answer
@@ -408,6 +476,7 @@ class AgentRunner
         $text = '';
         $calls = [];
         $reasoning = [];
+        $reasoningObserved = false;
 
         foreach ($provider->stream($request) as $event) {
             switch ($event->type) {
@@ -417,17 +486,19 @@ class AgentRunner
                     break;
 
                 case AiStreamEvent::TYPE_REASONING:
+                    $reasoningObserved = $reasoningObserved || (string) $event->text !== '';
                     $emit(AgentEvent::reasoning((string) $event->text));
                     break;
 
                 case AiStreamEvent::TYPE_REASONING_BLOCK:
+                    $reasoningObserved = true;
                     $reasoning[] = $event->reasoningBlock;
                     break;
 
                     // Named but not yet fully written. Announced so the UI can say
                     // what is coming while the arguments are still arriving.
                 case AiStreamEvent::TYPE_TOOL_CALL_START:
-                    if ($event->toolCall !== null) {
+                    if ($tools !== [] && $event->toolCall !== null) {
                         $emit(AgentEvent::toolPending($event->toolCall->id, $event->toolCall->name));
                     }
                     break;
@@ -452,7 +523,12 @@ class AgentRunner
             }
         }
 
-        return ['text' => $text, 'calls' => $calls, 'reasoning' => $reasoning];
+        return [
+            'text' => $text,
+            'calls' => $calls,
+            'reasoning' => $reasoning,
+            'reasoning_observed' => $reasoningObserved,
+        ];
     }
 
     /**
@@ -556,7 +632,14 @@ class AgentRunner
         }
 
         if ($definition === null || !$offered) {
-            $this->pushToolResult($context, $call, $this->unofferedCall($context, $call, $definition));
+            $result = $this->unofferedCall($context, $call, $definition);
+            $this->pushToolResult($context, $call, $result);
+
+            if ($this->requiresConclusion($result)) {
+                $this->requireConclusion($context, $result);
+
+                return 'concluding';
+            }
 
             return 'continued';
         }
@@ -581,6 +664,33 @@ class AgentRunner
         // proposal, approval or audit record. Unknown lookalikes remain literal.
         $arguments = $this->restoreFileWriteArguments($context, $definition, $arguments);
 
+        $isDiscovery = in_array($definition->name, [SharedTools::SEARCH_TOOLS, SharedTools::LOAD_TOOLS], true);
+        if ($isDiscovery && $context->discoveryCallsInARow >= 2) {
+            $result = ToolResult::error(
+                'discovery_exhausted',
+                'Two consecutive tool-discovery attempts have already run without an intervening action. '
+                    . 'Do not search for more synonyms. Explain the capability boundary or use the evidence already gathered.',
+            );
+            $emit(AgentEvent::toolCall($call->id, $definition->name, $arguments, ToolDefinition::RISK_SAFE));
+            $emit(AgentEvent::toolResult(
+                $call->id,
+                $definition->name,
+                false,
+                $result->summary(),
+                outcome: $result->outcome,
+            ));
+            $this->pushToolResult($context, $call, $result);
+            $this->requireConclusion($context, $result);
+
+            return 'concluding';
+        }
+
+        if ($isDiscovery) {
+            ++$context->discoveryCallsInARow;
+        } else {
+            $context->discoveryCallsInARow = 0;
+        }
+
         if ($definition->name !== SharedTools::BATCH) {
             $refusal = $this->identifierEvidence->validate($context, $definition, $arguments);
             if ($refusal !== null) {
@@ -593,6 +703,18 @@ class AgentRunner
                     $emit,
                 );
             }
+        }
+
+        if ($definition->name !== SharedTools::BATCH && !$this->executionPolicy->permits($context, $definition)) {
+            return $this->refuseInvariant(
+                $context,
+                $call,
+                $definition,
+                $this->executionPolicy->refusal($context, $definition),
+                'execution_policy:read_only',
+                $emit,
+                'I stopped because this diagnosis-only turn repeatedly attempted to make a change.',
+            );
         }
 
         // `files_write` is a text editor, not an upload primitive. Enforce that
@@ -635,6 +757,18 @@ class AgentRunner
             foreach ($arguments['calls'] as $child) {
                 $childDefinition = $this->registry->find($child['tool']);
                 if ($childDefinition !== null) {
+                    if (!$this->executionPolicy->permits($context, $childDefinition)) {
+                        return $this->refuseInvariant(
+                            $context,
+                            $call,
+                            $definition,
+                            $this->executionPolicy->refusal($context, $childDefinition),
+                            'execution_policy:read_only',
+                            $emit,
+                            'I stopped because this diagnosis-only turn repeatedly attempted to make a change.',
+                        );
+                    }
+
                     $refusal = $this->identifierEvidence->validate(
                         $context,
                         $childDefinition,
@@ -711,16 +845,51 @@ class AgentRunner
 
         $this->releasePin($context, $definition, $result);
 
-        if ($verdict['halt']) {
-            $context->push(AiMessage::assistant(
-                'I stopped because I was repeating the same step without getting anywhere.'
-            ));
-            $emit(AgentEvent::done('no_progress'));
+        if ($this->requiresConclusion($verdict['result'])) {
+            $this->requireConclusion($context, $verdict['result']);
 
-            return 'suspended';
+            return 'concluding';
+        }
+
+        if ($verdict['halt']) {
+            $this->requireConclusion(
+                $context,
+                $verdict['result'],
+                'I could not make further progress because the same operation kept repeating. No additional change was made.',
+            );
+
+            return 'concluding';
         }
 
         return 'continued';
+    }
+
+    protected function requiresConclusion(ToolResult $result): bool
+    {
+        return in_array($result->code, [
+            'capability_unavailable',
+            'discovery_exhausted',
+            'question_limit',
+            'session_already_open',
+            'tool_disabled',
+            'tool_not_permitted',
+        ], true);
+    }
+
+    protected function requireConclusion(
+        AgentContext $context,
+        ToolResult $result,
+        ?string $fallback = null,
+    ): void {
+        $detail = trim((string) $result->detail);
+        $context->requireConclusion(
+            $detail !== ''
+                ? $detail
+                : 'A host-enforced boundary stopped further tool execution.',
+            $fallback ?? ($detail !== ''
+                ? $detail
+                : 'The panel stopped further tool execution at a safety boundary. No additional change was made.'),
+        );
     }
 
     /**
@@ -760,12 +929,13 @@ class AgentRunner
     {
         if ($definition === null) {
             return ToolResult::error(
-                'tool_not_found',
+                'capability_unavailable',
                 sprintf(
-                    'There is no tool called "%s". Use search_tools to find what you need by description.',
+                    'There is no available tool called "%s" in this authorized session. Do not search for '
+                        . 'synonyms or claim the action can be executed. Explain the limitation and label any '
+                        . 'panel instructions as manual.',
                     $call->name,
                 ),
-                retryable: true,
             );
         }
 
@@ -855,13 +1025,19 @@ class AgentRunner
         }
 
         if ($context->questions >= SharedTools::MAX_QUESTIONS_PER_TURN) {
-            $this->pushToolResult($context, $call, ToolResult::error(
+            $result = ToolResult::error(
                 'question_limit',
                 'You have already asked as many questions as this turn allows. Make a reasonable '
-                    . 'assumption, say clearly which one you made, and carry on.',
-            ));
+                    . 'assumption, state the limitation, and give a final answer without offering another choice.',
+            );
+            $this->pushToolResult($context, $call, $result);
+            $this->requireConclusion(
+                $context,
+                $result,
+                'I cannot ask another question in this turn. No additional action was taken.',
+            );
 
-            return 'continued';
+            return 'concluding';
         }
 
         ++$context->questions;
@@ -898,6 +1074,17 @@ class AgentRunner
         $result = match ($definition->name) {
             AdminTools::ASSIST_SERVER => $this->openAssist($context, $arguments, $emit),
             AdminTools::ASSIST_ALLOW_WRITES => $this->escalateAssist($context, $arguments, $emit),
+            AdminTools::TICKET_CONTEXT => $this->runCompositeReads($context, $call, [
+                'ticket' => ['admin_ticket_view', ['ticket' => (string) ($arguments['ticket'] ?? '')]],
+                'messages' => ['admin_ticket_messages', ['ticket' => (string) ($arguments['ticket'] ?? '')]],
+            ]),
+            ServerTools::DIAGNOSTIC_SNAPSHOT => $this->runCompositeReads($context, $call, [
+                'status' => ['server_status', []],
+                'recent_activity' => ['activity_recent', []],
+                'startup' => ['startup_list', []],
+                'minecraft' => ['minecraft_server_info', []],
+                'root_files' => ['files_list', ['directory' => '/']],
+            ]),
             SharedTools::BATCH => $this->runBatch($context, $call, $arguments, $approvedRisk, $emit),
             // Discovery runs here rather than being intercepted earlier, so it
             // goes through validation and the disable list like everything else.
@@ -921,6 +1108,101 @@ class AgentRunner
     }
 
     /**
+     * Execute a small, fixed collection of existing read tools behind one
+     * model-facing call. Every child keeps its own authorization, audit row,
+     * response shaping, redaction, timeout, and failure result; the facade is
+     * convenience, never a new authority path.
+     *
+     * @param array<string, array{0: string, 1: array<string, mixed>}> $sources
+     */
+    protected function runCompositeReads(
+        AgentContext $context,
+        ToolCallData $parent,
+        array $sources,
+    ): ToolResult {
+        $evidence = [];
+        $limitations = [];
+        $truncated = false;
+        $index = 0;
+
+        foreach ($sources as $label => [$tool, $arguments]) {
+            $definition = $this->registry->find($tool);
+
+            if ($definition === null || $definition->hostHandled || !$this->usable($context, $definition)) {
+                $limitations[$label] = [
+                    'error' => 'unavailable',
+                    'message' => 'This evidence source is not available with the current scope and permissions.',
+                ];
+                ++$index;
+
+                continue;
+            }
+
+            $validation = $this->registry->validate($definition, $arguments);
+            if (!$validation['valid']) {
+                $limitations[$label] = [
+                    'error' => 'invalid_composite_definition',
+                    'message' => implode(' ', $validation['errors']),
+                ];
+                ++$index;
+
+                continue;
+            }
+
+            $digest = substr(hash('sha256', implode("\0", [
+                $context->turnId,
+                (string) $context->step,
+                $parent->id,
+                'composite',
+            ])), 0, 32);
+            $child = new ToolCallData(
+                ToolCallData::derivedBatchId($digest, $index),
+                $definition->name,
+                $validation['value'],
+                $parent->id,
+                $index,
+            );
+            $result = $this->runTool(
+                $context,
+                $child,
+                $definition,
+                $validation['value'],
+                ToolDefinition::RISK_SAFE,
+            );
+
+            if ($result->ok) {
+                $evidence[$label] = $result->data;
+                $truncated = $truncated || $result->truncated;
+            } else {
+                $limitations[$label] = array_filter([
+                    'error' => $result->code,
+                    'message' => $result->detail,
+                    'retryable' => $result->retryable ?: null,
+                ], static fn (mixed $value): bool => $value !== null);
+            }
+
+            ++$index;
+        }
+
+        if ($evidence === []) {
+            return ToolResult::error(
+                'diagnostic_sources_unavailable',
+                'None of the composite read sources was available. Use a permitted narrow read or report the access boundary.',
+                fields: ['limitations' => $limitations],
+            );
+        }
+
+        return ToolResult::ok(array_filter([
+            'evidence' => $evidence,
+            'limitations' => $limitations ?: null,
+            'complete' => $limitations === [],
+            'note' => $limitations === []
+                ? 'Use this evidence before requesting narrower reads.'
+                : 'Some evidence was unavailable. Do not infer values for the missing sources.',
+        ], static fn (mixed $value): bool => $value !== null), $truncated);
+    }
+
+    /**
      * Bind this turn to a customer's server. The administrator has already
      * approved it — the tool is WRITE tier, so the call suspended through an
      * approval card. What remains is checking the grant is still real: the
@@ -931,6 +1213,37 @@ class AgentRunner
      */
     protected function openAssist(AgentContext $context, array $arguments, callable $emit): ToolResult
     {
+        // Opening the session is idempotent. A small model often repeats the
+        // gateway after it has entered the server phase; requiring a second
+        // one-time grant turns that harmless retry into a misleading auth error.
+        $activeServer = $context->targetServer();
+        if ($context->assist !== null && $activeServer !== null) {
+            $requested = trim((string) ($arguments['server'] ?? ''));
+            $identifiers = array_values(array_filter([
+                isset($activeServer->id) ? (string) $activeServer->id : null,
+                isset($activeServer->uuid) ? (string) $activeServer->uuid : null,
+                isset($activeServer->uuidShort) ? (string) $activeServer->uuidShort : null,
+            ], static fn (?string $value): bool => $value !== null && $value !== ''));
+
+            if ($requested === '' || in_array($requested, $identifiers, true)) {
+                return ToolResult::ok([
+                    'already_open' => true,
+                    'server' => $activeServer->name,
+                    'access' => $context->assist->writable ? 'read-write' : 'read-only',
+                    'tools' => $context->assist->tools(),
+                    'note' => 'This assist session is already open. Continue with the server tools; do not open it again.',
+                ]);
+            }
+
+            return ToolResult::error(
+                'session_already_open',
+                sprintf(
+                    'An assist session is already open on %s. This turn cannot retarget it to another server.',
+                    $activeServer->name,
+                ),
+            );
+        }
+
         $grant = $context->pendingAssistGrant;
         if ($grant === null || $grant->phase !== AssistGrant::PHASE_OPEN) {
             return ToolResult::error('invalid_authority', 'The approved assist grant could not be authenticated.');
@@ -1498,7 +1811,10 @@ class AgentRunner
         )->withIdempotencyKey($context->idempotencyKeyFor($call->id));
 
         try {
-            $result = $definition->shape($this->dispatch($context, $definition, $invocation));
+            $result = $definition->shape(
+                $this->dispatch($context, $definition, $invocation),
+                $arguments,
+            );
             $result = $this->redact($context, $result)->capped($this->toolResultBytes());
         } catch (\Throwable $e) {
             // The executor renders almost everything into a failed result, so
@@ -1551,7 +1867,9 @@ class AgentRunner
         $expected = match ($definition->name) {
             'admin_server_view' => ['server', $server->getKey()],
             'admin_user_view' => ['user', $server->owner_id],
-            'admin_ticket_view', 'admin_ticket_messages' => ['ticket', $context->assist->ticketId],
+            AdminTools::TICKET_CONTEXT,
+            'admin_ticket_view',
+            'admin_ticket_messages' => ['ticket', $context->assist->ticketId],
             default => null,
         };
 
@@ -1924,6 +2242,7 @@ class AgentRunner
         ToolResult $result,
         string $family,
         callable $emit,
+        string $haltMessage = 'I stopped because I repeatedly tried to use an identifier that no listing had verified.',
     ): string {
         $verdict = $this->progress->evaluateInvariant($context, $family, $result);
 
@@ -1933,12 +2252,9 @@ class AgentRunner
             return 'continued';
         }
 
-        $context->push(AiMessage::assistant(
-            'I stopped because I repeatedly tried to use an identifier that no listing had verified.'
-        ));
-        $emit(AgentEvent::done('no_progress'));
+        $this->requireConclusion($context, $verdict['result'], $haltMessage);
 
-        return 'suspended';
+        return 'concluding';
     }
 
     /**
@@ -2166,6 +2482,7 @@ class AgentRunner
         return max(1, min(8, $this->maxBatchCalls()));
     }
 
+    /** @phpstan-impure Reads the wall clock through now(). */
     protected function hasTime(AgentContext $context): bool
     {
         return $this->now() < $this->beginDeadline($context);

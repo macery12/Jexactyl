@@ -129,6 +129,23 @@ class SchemaValidator
             return $value;
         }
 
+        $itemCount = count($value);
+        if (isset($schema['minItems']) && $itemCount < (int) $schema['minItems']) {
+            $errors[] = sprintf(
+                '%s must contain at least %d items.',
+                $this->label($path),
+                (int) $schema['minItems']
+            );
+        }
+
+        if (isset($schema['maxItems']) && $itemCount > (int) $schema['maxItems']) {
+            $errors[] = sprintf(
+                '%s may not contain more than %d items.',
+                $this->label($path),
+                (int) $schema['maxItems']
+            );
+        }
+
         $itemSchema = is_array($schema['items'] ?? null) ? $schema['items'] : null;
         if ($itemSchema !== null) {
             foreach ($value as $index => $item) {

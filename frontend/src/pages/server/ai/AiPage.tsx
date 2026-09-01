@@ -18,16 +18,7 @@ import {
     type AiConversation,
 } from '@/api/ai';
 
-// The full-page assistant: history rail plus the shared conversation view.
-//
-// Chat state lives in the agent store rather than here, so a turn started in
-// the dock drawer is the same turn this page shows — and navigating away
-// mid-turn does not abandon it.
-//
-// The rail is the shared component rather than one of its own. It used to be a
-// local file that the admin assistant had a second, divergent copy of; the
-// grouping, the bookmarks and the expiry labels are now the same code on both
-// routes, which is the only way they stay the same design.
+// Chat state is shared with the drawer so navigation does not abandon a turn.
 
 const RAIL_KEY = 'v2:ai:rail';
 
@@ -54,12 +45,9 @@ export default function AiPage() {
         if (!canUseAssistant) return;
 
         bind(server.uuid);
-        // The page and the drawer are two views of one conversation; showing
-        // both at once would be redundant and fight for scroll.
         setDrawer(false);
 
-        // Landing here directly — a reload, a bookmark, a link — is exactly the
-        // case that used to show an empty page while a turn was still running.
+        // Restore a running turn when this page is opened directly.
         resumeActive();
     }, [bind, canUseAssistant, resumeActive, setDrawer, server.uuid]);
 
@@ -125,10 +113,6 @@ export default function AiPage() {
     }
 
     return (
-        // Fills whatever the layout gives it instead of guessing the shell's
-        // chrome height. `h-[calc(100vh-10.5rem)]` was a hardcoded assumption
-        // that broke the moment a banner appeared above it, leaving either dead
-        // space or a second scrollbar.
         <div
             ref={fillRef}
             className="relative flex overflow-hidden rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)]/70"

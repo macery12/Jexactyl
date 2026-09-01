@@ -296,6 +296,24 @@ class ToolResult
             return $this->truncated ? 'Read (truncated)' : 'Done';
         }
 
+        if (isset($this->data['total_lines']) && is_numeric($this->data['total_lines'])) {
+            $total = (int) $this->data['total_lines'];
+
+            if (array_key_exists('query', $this->data)) {
+                $matches = (int) ($this->data['match_count'] ?? 0);
+
+                return sprintf('%d match%s in %d lines', $matches, $matches === 1 ? '' : 'es', $total);
+            }
+
+            $start = $this->data['start_line'] ?? null;
+            $end = $this->data['end_line'] ?? null;
+            if (is_numeric($start) && is_numeric($end)) {
+                return sprintf('Lines %d-%d of %d', (int) $start, (int) $end, $total);
+            }
+
+            return $total === 1 ? '1 line' : sprintf('%d lines', $total);
+        }
+
         // Anything built by the list shaper reports how much it found, which is
         // the one fact a collapsed row can usefully show. When the endpoint
         // paginated, the number worth showing is how many records exist rather

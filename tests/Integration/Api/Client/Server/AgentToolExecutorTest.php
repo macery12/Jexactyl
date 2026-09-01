@@ -105,6 +105,17 @@ class AgentToolExecutorTest extends ClientApiIntegrationTestCase
                 $properties,
                 sprintf('Tool "%s" must not accept a server argument.', $definition->name)
             );
+
+            if ($definition->hostHandled) {
+                $this->assertSame(
+                    '',
+                    $definition->uriTemplate,
+                    sprintf('Host-handled tool "%s" must not dispatch an API route.', $definition->name)
+                );
+
+                continue;
+            }
+
             $this->assertStringContainsString(
                 '{server}',
                 $definition->uriTemplate,

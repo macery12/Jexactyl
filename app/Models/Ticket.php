@@ -69,10 +69,9 @@ class Ticket extends Model
      */
     protected $fillable = [
         'user_id',
-        // Which server the ticket is about, when the customer said. Nothing
-        // writes it yet — ticket creation does not ask — but the AI assistant
-        // reads it, and falls back to listing what the reporter owns when it is
-        // null.
+        // Which server the ticket is about, selected by the customer when they
+        // open it. Optional for billing or account questions; support and the AI
+        // assistant can use it directly instead of inferring from message text.
         'server_id',
         'title',
         'assigned_to',

@@ -69,6 +69,11 @@ class AgentContext
 
     public int $repairs = 0;
 
+    /** The authority inferred from the user's request, persisted across pauses. */
+    public string $turnMode = TurnExecutionPolicy::MODE_STANDARD;
+
+    public ?string $turnModeReason = null;
+
     /**
      * Tool-cap truncations already reported this turn, keyed by what was dropped,
      * so a recomputed cap does not write the same warning twelve times. Not
@@ -85,6 +90,19 @@ class AgentContext
      * that is unsure will happily spend the turn asking instead of looking.
      */
     public int $questions = 0;
+
+    /** Consecutive catalogue operations; bounded so synonym searches cannot consume a turn. */
+    public int $discoveryCallsInARow = 0;
+
+    /**
+     * A host-enforced final-answer pass after a terminal capability or progress
+     * boundary. No tools are offered during that pass.
+     */
+    public bool $conclusionRequired = false;
+
+    public ?string $conclusionInstruction = null;
+
+    public ?string $conclusionFallback = null;
 
     /**
      * How many times the turn has changed state in a way that makes repeating a
@@ -182,6 +200,13 @@ class AgentContext
         return $this->executionKey === null
             ? null
             : hash('sha256', $this->executionKey . ':' . $callId);
+    }
+
+    public function requireConclusion(string $instruction, string $fallback): void
+    {
+        $this->conclusionRequired = true;
+        $this->conclusionInstruction = $instruction;
+        $this->conclusionFallback = $fallback;
     }
 
     /**
@@ -451,7 +476,13 @@ class AgentContext
             'call_signatures' => $this->callSignatures,
             'step' => $this->step,
             'repairs' => $this->repairs,
+            'turn_mode' => $this->turnMode,
+            'turn_mode_reason' => $this->turnModeReason,
             'questions' => $this->questions,
+            'discovery_calls_in_a_row' => $this->discoveryCallsInARow,
+            'conclusion_required' => $this->conclusionRequired,
+            'conclusion_instruction' => $this->conclusionInstruction,
+            'conclusion_fallback' => $this->conclusionFallback,
             'tool_calls' => $this->toolCalls,
             'usage' => $this->usage,
             'console_buffer' => $this->consoleBuffer,
@@ -492,7 +523,21 @@ class AgentContext
 
         $context->step = (int) ($state['step'] ?? 0);
         $context->repairs = (int) ($state['repairs'] ?? 0);
+        $context->turnMode = ($state['turn_mode'] ?? null) === TurnExecutionPolicy::MODE_READ_ONLY
+            ? TurnExecutionPolicy::MODE_READ_ONLY
+            : TurnExecutionPolicy::MODE_STANDARD;
+        $context->turnModeReason = is_string($state['turn_mode_reason'] ?? null)
+            ? $state['turn_mode_reason']
+            : null;
         $context->questions = (int) ($state['questions'] ?? 0);
+        $context->discoveryCallsInARow = max(0, (int) ($state['discovery_calls_in_a_row'] ?? 0));
+        $context->conclusionRequired = (bool) ($state['conclusion_required'] ?? false);
+        $context->conclusionInstruction = is_string($state['conclusion_instruction'] ?? null)
+            ? $state['conclusion_instruction']
+            : null;
+        $context->conclusionFallback = is_string($state['conclusion_fallback'] ?? null)
+            ? $state['conclusion_fallback']
+            : null;
         $context->toolCalls = max(0, (int) ($state['tool_calls'] ?? 0));
         $context->addUsage(is_array($state['usage'] ?? null) ? $state['usage'] : []);
         $context->redactions = RedactionMap::fromArray($state['redactions'] ?? null);

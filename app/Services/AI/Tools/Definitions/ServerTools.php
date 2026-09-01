@@ -3,6 +3,7 @@
 namespace Everest\Services\AI\Tools\Definitions;
 
 use Everest\Models\Permission;
+use Everest\Services\AI\Tools\ToolResult;
 use Everest\Services\AI\Tools\ToolDiscovery;
 use Everest\Services\AI\Tools\ToolDefinition;
 
@@ -27,6 +28,13 @@ use Everest\Services\AI\Tools\ToolDefinition;
 class ServerTools
 {
     use DefinesToolSchemas;
+
+    public const DIAGNOSTIC_SNAPSHOT = 'server_diagnostic_snapshot';
+
+    private const FILE_READ_MAX_LINES = 200;
+    private const FILE_READ_MAX_BYTES = 8192;
+    private const FILE_SEARCH_MAX_MATCHES = 20;
+    private const FILE_SEARCH_MAX_BYTES = 6500;
 
     public const CATEGORY_DIAGNOSTICS = 'diagnostics';
     public const CATEGORY_POWER = 'power';
@@ -83,6 +91,21 @@ class ServerTools
     private static function core(): array
     {
         return [
+            new ToolDefinition(
+                name: self::DIAGNOSTIC_SNAPSHOT,
+                description: 'Collect one compact read-only diagnostic snapshot: current state and resources, recent activity, startup command and image, detected Minecraft version or loader, and the server root listing. Use this first for broad "not starting", crash, or stopped-server diagnosis; use narrower read tools afterward only when the snapshot points to them. Each source is permission-checked separately and unavailable evidence is reported rather than guessed.',
+                parameters: self::object([]),
+                method: 'GET',
+                uriTemplate: '',
+                risk: ToolDefinition::RISK_SAFE,
+                discovery: new ToolDiscovery(
+                    category: self::CATEGORY_DIAGNOSTICS,
+                    aliases: ['diagnose why server stopped', 'server is not starting', 'collect server diagnostics', 'startup failure diagnosis', 'why did the server crash'],
+                    tags: ['server', 'diagnostics', 'snapshot', 'startup', 'crash', 'read'],
+                ),
+                hostHandled: true,
+            ),
+
             new ToolDefinition(
                 name: 'server_status',
                 description: 'Get the server\'s current state and live resource usage (CPU, memory, disk, uptime). Use this first when diagnosing a problem.',
@@ -186,7 +209,7 @@ class ServerTools
 
             new ToolDefinition(
                 name: 'startup_list',
-                description: 'List the server\'s startup variables and their current values, plus the resolved startup command. Many game and modpack settings live here rather than in a config file.',
+                description: 'List the server\'s startup variables and their current values, plus the resolved startup command. Many game and modpack settings live here rather than in a config file. Paths referenced by the command are relative to the server data root: @unix_args.txt means files_read /unix_args.txt, never /root/unix_args.txt or /startup/unix_args.txt.',
                 parameters: self::object([]),
                 method: 'GET',
                 uriTemplate: self::BASE . '/startup',
@@ -215,6 +238,7 @@ class ServerTools
                     return [
                         'variables' => $variables,
                         'startup_command' => $data['meta']['startup_command'] ?? null,
+                        'path_note' => 'Relative paths in startup_command resolve from the server data root /. For example, @unix_args.txt is /unix_args.txt. Do not prepend /root or /startup.',
                         // Singular is the image in use; plural is the egg's
                         // allowlist, keyed by the label the panel shows. These
                         // were one key once, and a model reading "docker_image"
@@ -317,9 +341,13 @@ class ServerTools
 
             new ToolDefinition(
                 name: 'files_read',
-                description: 'Read a text file from the server. Always read a config file before editing it so you can preserve everything unrelated to the requested change.',
+                description: 'Read or search a UTF-8 text file from the server. The result reports total lines. For large logs, do not repeat an identical truncated read: pass start_line/end_line to page through it, or query to find case-insensitive literal text such as "ERROR" or "Exception" with nearby lines. Always read a complete config file before editing it so you can preserve unrelated settings.',
                 parameters: self::object([
                     'file' => self::string('Absolute path from the server root, e.g. "/config/iceandfire-common.toml".'),
+                    'start_line' => self::integer('Optional first line to read or search, using 1-based line numbers.', 1),
+                    'end_line' => self::integer('Optional last line to read or search, inclusive. A plain read returns at most 200 lines and provides the next range.', 1),
+                    'query' => self::string('Optional case-insensitive literal text to find in the selected line range, e.g. "ERROR", "Exception", or "Caused by".'),
+                    'context_lines' => self::integer('Lines of context before and after each query match. Defaults to 2; maximum 5.', 0, 5),
                 ], ['file']),
                 method: 'GET',
                 uriTemplate: self::BASE . '/files/contents',
@@ -327,9 +355,10 @@ class ServerTools
                 discovery: new ToolDiscovery(
                     category: self::CATEGORY_FILES,
                     aliases: ['read a file', 'open a file', 'view file contents', 'show me the config', 'check the logs', 'read server.properties', 'cat'],
-                    tags: ['server', 'files', 'configuration', 'logs', 'read'],
+                    tags: ['server', 'files', 'configuration', 'logs', 'read', 'search', 'grep', 'lines'],
                 ),
                 queryFields: ['file'],
+                resultShaper: static fn (mixed $data, array $arguments): ToolResult => self::shapeFileRead($data, $arguments),
             ),
 
             new ToolDefinition(
@@ -360,6 +389,205 @@ class ServerTools
             ),
 
         ];
+    }
+
+    /**
+     * Turn the node's all-or-nothing file endpoint into a context-safe reader.
+     *
+     * Wings still enforces the server and file permission. The panel only
+     * narrows the returned text after that authorised read, so ranges and
+     * searches add no filesystem authority and never become shell execution.
+     */
+    private static function shapeFileRead(mixed $data, array $arguments): ToolResult
+    {
+        $content = is_string($data) ? $data : '';
+        $content = str_replace(["\r\n", "\r"], "\n", $content);
+        $lines = $content === '' ? [] : explode("\n", $content);
+
+        // A terminal newline ends the final real line; it does not create a
+        // phantom extra line in the model-facing numbering.
+        if ($lines !== [] && end($lines) === '') {
+            array_pop($lines);
+        }
+
+        $total = count($lines);
+        $file = (string) ($arguments['file'] ?? '');
+        $start = max(1, (int) ($arguments['start_line'] ?? 1));
+        $requestedEnd = isset($arguments['end_line'])
+            ? max($start, (int) $arguments['end_line'])
+            : $total;
+        $end = min($total, $requestedEnd);
+        $query = trim(mb_substr((string) ($arguments['query'] ?? ''), 0, 200));
+
+        if ($query !== '') {
+            return self::shapeFileSearch($file, $lines, $total, $start, $end, $query, $arguments);
+        }
+
+        if ($total === 0) {
+            return ToolResult::ok([
+                'file' => $file,
+                'total_lines' => 0,
+                'start_line' => null,
+                'end_line' => null,
+                'content' => '',
+                'complete' => true,
+                'note' => 'The file is empty.',
+            ]);
+        }
+
+        if ($start > $total) {
+            return ToolResult::ok([
+                'file' => $file,
+                'total_lines' => $total,
+                'start_line' => $start,
+                'end_line' => null,
+                'content' => '',
+                'complete' => false,
+                'note' => sprintf('start_line %d is past the end of this %d-line file.', $start, $total),
+                'next' => ['file' => $file, 'start_line' => 1, 'end_line' => min($total, self::FILE_READ_MAX_LINES)],
+            ]);
+        }
+
+        $end = min($end, $start + self::FILE_READ_MAX_LINES - 1);
+        $selected = array_slice($lines, $start - 1, $end - $start + 1);
+        [$selectedContent, $shownLines, $lineTruncated] = self::boundedFileLines($selected);
+        $actualEnd = $shownLines > 0 ? $start + $shownLines - 1 : $start;
+        $complete = $start === 1 && $actualEnd >= $total && !$lineTruncated;
+        $hasMoreAfter = $actualEnd < $total;
+
+        $result = [
+            'file' => $file,
+            'total_lines' => $total,
+            'start_line' => $start,
+            'end_line' => $actualEnd,
+            'content' => $selectedContent,
+            'complete' => $complete,
+            'has_more_before' => $start > 1,
+            'has_more_after' => $hasMoreAfter,
+        ];
+
+        if ($hasMoreAfter) {
+            $result['next'] = [
+                'file' => $file,
+                'start_line' => $actualEnd + 1,
+                'end_line' => min($total, $actualEnd + self::FILE_READ_MAX_LINES),
+            ];
+            $result['note'] = 'Partial file. Use next for the following range, or query to search the whole file without rereading the same lines.';
+        } elseif ($start > 1) {
+            $result['note'] = 'This range reaches the end of the file; earlier lines were not returned.';
+        }
+
+        return ToolResult::ok($result, !$complete);
+    }
+
+    private static function shapeFileSearch(
+        string $file,
+        array $lines,
+        int $total,
+        int $start,
+        int $end,
+        string $query,
+        array $arguments,
+    ): ToolResult {
+        $contextLines = max(0, min(5, (int) ($arguments['context_lines'] ?? 2)));
+        $matches = [];
+        $matchCount = 0;
+        $lastShownLine = null;
+
+        if ($start <= $total) {
+            for ($index = $start - 1; $index < $end; ++$index) {
+                if (mb_stripos($lines[$index], $query) === false) {
+                    continue;
+                }
+
+                ++$matchCount;
+                $lineNumber = $index + 1;
+                $before = [];
+                for ($near = max($start - 1, $index - $contextLines); $near < $index; ++$near) {
+                    $before[] = ['line' => $near + 1, 'text' => self::clipFileLine($lines[$near])];
+                }
+                $after = [];
+                for ($near = $index + 1; $near <= min($end - 1, $index + $contextLines); ++$near) {
+                    $after[] = ['line' => $near + 1, 'text' => self::clipFileLine($lines[$near])];
+                }
+
+                $match = array_filter([
+                    'line' => $lineNumber,
+                    'text' => self::clipFileLine($lines[$index]),
+                    'before' => $before ?: null,
+                    'after' => $after ?: null,
+                ], static fn (mixed $value): bool => $value !== null);
+
+                if (
+                    count($matches) >= self::FILE_SEARCH_MAX_MATCHES
+                    || strlen(json_encode([...$matches, $match], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE) ?: '') > self::FILE_SEARCH_MAX_BYTES
+                ) {
+                    continue;
+                }
+
+                $matches[] = $match;
+                $lastShownLine = $lineNumber;
+            }
+        }
+
+        $shown = count($matches);
+        $result = [
+            'file' => $file,
+            'total_lines' => $total,
+            'query' => $query,
+            'case_sensitive' => false,
+            'searched_start_line' => $start,
+            'searched_end_line' => $end,
+            'match_count' => $matchCount,
+            'shown_matches' => $shown,
+            'matches' => $matches,
+            'note' => $matchCount === 0
+                ? 'No literal match was found in the selected range. Try another specific error phrase or read a relevant range.'
+                : sprintf('Found %d matching line%s; showing %d.', $matchCount, $matchCount === 1 ? '' : 's', $shown),
+        ];
+
+        if ($matchCount > $shown && $lastShownLine !== null && $lastShownLine < $end) {
+            $result['next'] = [
+                'file' => $file,
+                'start_line' => $lastShownLine + 1,
+                'end_line' => $end,
+                'query' => $query,
+                'context_lines' => $contextLines,
+            ];
+        }
+
+        return ToolResult::ok($result, $matchCount > $shown);
+    }
+
+    /** @return array{string, int, bool} */
+    private static function boundedFileLines(array $lines): array
+    {
+        $shown = [];
+        $bytes = 0;
+        $lineTruncated = false;
+
+        foreach ($lines as $line) {
+            $separator = $shown === [] ? '' : "\n";
+            $needed = strlen($separator) + strlen($line);
+            if ($bytes + $needed <= self::FILE_READ_MAX_BYTES) {
+                $shown[] = $line;
+                $bytes += $needed;
+                continue;
+            }
+
+            if ($shown === []) {
+                $shown[] = mb_strcut($line, 0, self::FILE_READ_MAX_BYTES, 'UTF-8');
+            }
+            $lineTruncated = true;
+            break;
+        }
+
+        return [implode("\n", $shown), count($shown), $lineTruncated];
+    }
+
+    private static function clipFileLine(string $line): string
+    {
+        return strlen($line) <= 500 ? $line : mb_strcut($line, 0, 500, 'UTF-8') . '…';
     }
 
     /*
