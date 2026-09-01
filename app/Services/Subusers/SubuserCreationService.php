@@ -65,11 +65,17 @@ class SubuserCreationService
                 throw new ServerSubuserExistsException(trans('exceptions.subusers.subuser_exists'));
             }
 
-            return $this->subuserRepository->create([
+            $subuser = $this->subuserRepository->create([
                 'user_id' => $user->id,
                 'server_id' => $lockedServer->id,
                 'permissions' => array_unique($permissions),
             ]);
+
+            if (!$subuser instanceof Subuser) {
+                throw new \LogicException('The subuser repository did not return a Subuser model.');
+            }
+
+            return $subuser;
         });
     }
 }
