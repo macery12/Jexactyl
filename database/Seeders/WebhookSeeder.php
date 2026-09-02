@@ -105,9 +105,8 @@ class WebhookSeeder extends Seeder
      */
     public function run()
     {
-        $created = 0;
-        $updated = 0;
-        $this->command->alert('Seeding Webhook Events');
+        $created = [];
+        $existing = 0;
 
         foreach ($this->events as $event) {
             if (!WebhookEvent::where('key', $event)->exists()) {
@@ -117,17 +116,23 @@ class WebhookSeeder extends Seeder
                     'enabled' => true,
                 ]);
 
-                ++$created;
-                $this->command->info('Event ' . $event . ' was added');
+                $created[] = $event;
             } else {
-                ++$updated;
-                $this->command->warn('Event ' . $event . ' already exists, skipping');
+                ++$existing;
             }
         }
 
-        $this->command->info('Created ' . $created . ' webhook events');
-        $this->command->info('Skipped ' . $updated . ' webhook events');
-        $this->command->info('---');
-        $this->command->info('Verified ' . $created + $updated . ' webhook events');
+        $this->command->info(sprintf(
+            'Added %d missing webhook events; found %d existing webhook events.',
+            count($created),
+            $existing,
+        ));
+
+        if ($created !== []) {
+            $this->command->comment('Missing webhook events added:');
+            foreach ($created as $event) {
+                $this->command->line('  + ' . $event);
+            }
+        }
     }
 }

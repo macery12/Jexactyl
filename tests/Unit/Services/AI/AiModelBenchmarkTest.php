@@ -16,7 +16,6 @@ use Everest\Services\AI\Agent\SystemPromptBuilder;
 use Everest\Services\AI\Data\ProviderCapabilities;
 use Everest\Services\AI\Benchmark\AiModelBenchmark;
 use Everest\Services\AI\Agent\ToolBudgetCalibration;
-use Everest\Services\AI\Benchmark\BenchmarkDiscordReport;
 use Everest\Services\AI\Benchmark\BenchmarkMarkdownReport;
 use Everest\Services\AI\Benchmark\BenchmarkProviderPolicy;
 use Everest\Services\AI\Benchmark\AdvancedAiModelBenchmark;
@@ -104,22 +103,6 @@ class AiModelBenchmarkTest extends TestCase
         $this->assertStringContainsString('### Open-ticket diagnosis with a linked server', $report);
         $this->assertStringContainsString('"trajectory_summary":', $report);
         $this->assertStringContainsString('Advanced cases separate outcome, safety, grounding', $report);
-    }
-
-    public function testCombinedReportIsDiscordReadyAndIncludesMeasuredThroughput(): void
-    {
-        $basic = (new AiModelBenchmark())->run(new PassingBenchmarkProvider());
-        $advanced = (new AdvancedAiModelBenchmark())->run(new PassingAdvancedBenchmarkProvider());
-
-        $report = (new BenchmarkDiscordReport())->render($basic, $advanced);
-
-        $this->assertStringContainsString('# AI Benchmark — benchmark-model', $report);
-        $this->assertStringContainsString('50.00 tok/s (provider-reported decode timing', $report);
-        $this->assertStringContainsString('- GPU / accelerator: __________', $report);
-        $this->assertStringContainsString('- Basic: none', $report);
-        $this->assertStringContainsString('- Advanced: none', $report);
-        $this->assertLessThanOrEqual(2000, mb_strlen($report));
-        $this->assertNotNull($advanced['summary']['median_first_token_ms']);
     }
 
     public function testAdvancedSuiteCanCompleteWithinTheMinimumMeasuredWorkingSet(): void
@@ -469,7 +452,7 @@ class AiModelBenchmarkTest extends TestCase
         }
     }
 
-    public function testAllSuiteWritesBasicAndAdvancedReportsTogether(): void
+    public function testAllSuiteWritesOnlyBasicAndAdvancedReportsTogether(): void
     {
         $provider = new PassingAdvancedBenchmarkProvider('Qwen/Test:9B');
         $this->app->instance(ProviderFactory::class, new BenchmarkProviderFactory($provider));
@@ -485,12 +468,10 @@ class AiModelBenchmarkTest extends TestCase
             ])->assertSuccessful();
 
             $this->assertFileExists($directory . '/qwen-test-9b.md');
+            $this->assertFileExists($directory . '/qwen-test-9b.json');
             $this->assertFileExists($directory . '/qwen-test-9b-advanced.md');
-            $this->assertFileExists($directory . '/qwen-test-9b-discord.md');
-            $this->assertStringContainsString(
-                '**Hardware**',
-                (string) $files->get($directory . '/qwen-test-9b-discord.md'),
-            );
+            $this->assertFileExists($directory . '/qwen-test-9b-advanced.json');
+            $this->assertFileDoesNotExist($directory . '/qwen-test-9b-discord.md');
         } finally {
             $files->deleteDirectory($directory);
         }

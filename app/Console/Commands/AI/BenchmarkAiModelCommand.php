@@ -11,7 +11,6 @@ use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Benchmark\AiModelBenchmark;
 use Everest\Services\AI\Agent\ToolBudgetCalibration;
-use Everest\Services\AI\Benchmark\BenchmarkDiscordReport;
 use Everest\Services\AI\Benchmark\BenchmarkMarkdownReport;
 use Everest\Services\AI\Benchmark\BenchmarkProviderPolicy;
 use Everest\Services\AI\Benchmark\AdvancedAiModelBenchmark;
@@ -34,7 +33,6 @@ class BenchmarkAiModelCommand extends Command
         AiModelBenchmark $benchmark,
         AdvancedAiModelBenchmark $advancedBenchmark,
         BenchmarkMarkdownReport $markdown,
-        BenchmarkDiscordReport $discordReport,
         Filesystem $files,
         ToolBudget $toolBudget,
         ToolBudgetCalibration $calibration,
@@ -162,7 +160,6 @@ class BenchmarkAiModelCommand extends Command
         $this->components->warn('The benchmark sends live inference requests, but synthetic tool calls are never executed.');
 
         $reachable = true;
-        $results = [];
         foreach ($suites as $suite) {
             $stem = $this->modelFilenameStem($config->model, $suite);
             $path = $directory . DIRECTORY_SEPARATOR . $stem . '.md';
@@ -223,7 +220,6 @@ class BenchmarkAiModelCommand extends Command
                     $result,
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
                 ) . "\n");
-                $results[$suite] = $result;
             } catch (\Throwable $exception) {
                 $this->error(sprintf(
                     '%s benchmark failed before a report could be completed: %s',
@@ -251,13 +247,6 @@ class BenchmarkAiModelCommand extends Command
             $this->line('Report: ' . $path);
             $this->line('Raw trace: ' . $jsonPath);
             $reachable = $reachable && $result['health']['reachable'];
-        }
-
-        if (isset($results['basic'], $results['advanced'])) {
-            $summaryPath = $directory . DIRECTORY_SEPARATOR
-                . $this->modelFilenameStem($config->model, 'basic') . '-discord.md';
-            $files->put($summaryPath, $discordReport->render($results['basic'], $results['advanced']));
-            $this->line('Discord summary: ' . $summaryPath);
         }
 
         return $reachable ? self::SUCCESS : self::FAILURE;

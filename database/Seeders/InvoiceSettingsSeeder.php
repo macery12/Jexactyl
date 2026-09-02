@@ -15,6 +15,8 @@ class InvoiceSettingsSeeder extends Seeder
     public function run(): void
     {
         if (DB::table('invoice_settings')->exists()) {
+            $this->command->info('Added 0 missing invoice settings rows; found 1 existing row.');
+
             return;
         }
 
@@ -23,5 +25,8 @@ class InvoiceSettingsSeeder extends Seeder
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        $this->command->info('Added 1 missing invoice settings row; found 0 existing rows.');
+        $this->command->line('  + Default invoice settings');
     }
 }

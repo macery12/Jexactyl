@@ -49,5 +49,18 @@ class EmailNotificationSettingsSeeder extends Seeder
         if (!empty($insert)) {
             DB::table('email_notification_settings')->insert($insert);
         }
+
+        $this->command->info(sprintf(
+            'Added %d missing email notification settings; found %d existing settings.',
+            count($insert),
+            count($defaults) - count($insert),
+        ));
+
+        if ($insert !== []) {
+            $this->command->comment('Missing email notification settings added:');
+            foreach ($insert as $row) {
+                $this->command->line('  + ' . $row['template_key']);
+            }
+        }
     }
 }

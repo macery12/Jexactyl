@@ -24,12 +24,6 @@ class AppSettingsCommand extends Command
         'cookie' => 'Cookie',
     ];
 
-    public const QUEUE_DRIVERS = [
-        'redis' => 'Redis (recommended)',
-        'database' => 'MySQL Database',
-        'sync' => 'Sync',
-    ];
-
     protected $description = 'Configure basic environment settings for the Panel.';
 
     protected $signature = 'p:environment:setup
@@ -39,7 +33,6 @@ class AppSettingsCommand extends Command
                             {--timezone= : The timezone to use for Panel times.}
                             {--cache= : The cache driver backend to use.}
                             {--session= : The session driver backend to use.}
-                            {--queue= : The queue driver backend to use.}
                             {--redis-host= : Redis host to use for connections.}
                             {--redis-pass= : Password used to connect to redis.}
                             {--redis-port= : Port to connect to redis over.}
@@ -106,12 +99,10 @@ class AppSettingsCommand extends Command
             array_key_exists($selected, self::SESSION_DRIVERS) ? $selected : null
         );
 
-        $selected = config('queue.default', 'redis');
-        $this->variables['QUEUE_CONNECTION'] = $this->option('queue') ?? $this->choice(
-            'Queue Driver',
-            self::QUEUE_DRIVERS,
-            array_key_exists($selected, self::QUEUE_DRIVERS) ? $selected : null
-        );
+        // Horizon can only supervise Redis queues, so allowing another driver
+        // here would leave a fresh installation with no queue workers.
+        $this->variables['QUEUE_CONNECTION'] = 'redis';
+        $this->output->comment('Queue Driver: Redis (required by Horizon).');
 
         if (!is_null($this->option('settings-ui'))) {
             $this->variables['APP_ENVIRONMENT_ONLY'] = $this->option('settings-ui') == 'true' ? 'false' : 'true';
