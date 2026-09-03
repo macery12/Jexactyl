@@ -19,6 +19,10 @@ export interface QueueWarning {
 export interface QueueLane {
     /** Stable key from config/queue.php, e.g. `mail`. */
     lane: string;
+    /** What the lane carries, in an operator's words -- "Modpack installs". */
+    title: string;
+    /** One sentence on why the lane exists. Null for a lane with no configured description. */
+    summary: string | null;
     /** The queue name actually used on the driver, which operators can rename. */
     queue: string;
     connection: string;
@@ -59,10 +63,64 @@ export interface QueueSnapshot {
 }
 
 export interface QueueJobMetric {
+    /** The job class, which is what Horizon measures and what the logs carry. */
     job: string;
+    /** Stable slug, safe in a React key or a message id. */
+    key: string;
+    /** Human name from the catalogue, or a prettified class basename. */
+    title: string;
+    summary: string | null;
+    lane: string | null;
+    /** False when the class is not catalogued -- an extension's job, usually. */
+    known: boolean;
     processed: number | null;
     avgRuntimeMs: number | null;
     windowMinutes: number | null;
+}
+
+/**
+ * One live worker process, as reported by its own heartbeat.
+ *
+ * `job` is what it is running *right now*; null means idle. `busySeconds` is
+ * how long it has been on that job, which is the difference between a healthy
+ * hour-long modpack install and a wedged process.
+ */
+export interface QueueProcess {
+    host: string;
+    pid: number | null;
+    connection: string | null;
+    queues: string[];
+    seenAt: string | null;
+    job: string | null;
+    jobTitle: string | null;
+    jobStartedAt: string | null;
+    busySeconds: number | null;
+}
+
+/**
+ * A Horizon supervisor and the processes it owns.
+ *
+ * This is the grouping the flat worker list never had: six rows of host:pid
+ * are one healthy supervisor, not six problems.
+ */
+export interface QueuePool {
+    /** Supervisor name from config, or `unmanaged` for processes it does not own. */
+    name: string;
+    title: string;
+    summary: string | null;
+    connection: string | null;
+    queues: string[];
+    lanes: string[];
+    /** Horizon's own status string, null when Horizon is not running. */
+    status: string | null;
+    /** False when the pool is correctly unstaffed because its module is off. */
+    expected: boolean;
+    configuredProcesses: number | null;
+    /** The ceiling from config/horizon.php, so a count can read as "3 of 6". */
+    maxProcesses: number | null;
+    processes: QueueProcess[];
+    processCount: number;
+    busyCount: number;
 }
 
 export interface QueueWorker {
@@ -78,6 +136,28 @@ export interface QueueSupervisor {
     status: string | null;
     processes: number;
     queues: string[];
+}
+
+/**
+ * The Laravel scheduler, which is upstream of the whole queue.
+ *
+ * Reported here because a stopped cron produces no queue symptom at all: every
+ * lane stays clear and every worker stays green, because nothing is being
+ * dispatched to them. `severity` is judged on the server so the page and the
+ * warning list cannot disagree about what counts as stale.
+ */
+export interface QueueScheduler {
+    /** When `schedule:run` last started. Null means it has not since boot. */
+    ranAt: string | null;
+    secondsAgo: number | null;
+    host: string | null;
+    pid: number | null;
+    /** `unknown` is "never seen", which is not the same as stale. */
+    severity: 'ok' | 'stale' | 'down' | 'unknown';
+    staleAfterSeconds: number;
+    /** Newest first, one entry per task -- the only view of work that runs inline. */
+    recent: { task: string; ranAt: string; runtimeMs: number | null; ok: boolean }[];
+    lastFailure: { task: string; ranAt: string; error: string } | null;
 }
 
 export interface QueueHealth {
@@ -100,7 +180,10 @@ export interface QueueHealth {
     totalDepth: number;
     lanes: QueueLane[];
     jobs: QueueJobMetric[];
+    /** Flat list of live processes. Prefer `pools`, which groups them. */
     workers: QueueWorker[];
+    pools: QueuePool[];
+    scheduler: QueueScheduler;
     failed: {
         total: number | null;
         lastDay: number | null;
@@ -130,8 +213,14 @@ export interface FailedJob {
     failedAt: string | null;
     exceptionClass: string | null;
     exceptionMessage: string;
+    /** Human name from the catalogue; the class stays on `job`. */
+    title: string;
+    /** What running this job does -- read before pressing Retry. */
+    summary: string | null;
     /** Full stack trace, present only when a single job is fetched. */
     exception?: string;
+    /** Redacted payload, present only when a single job is fetched. */
+    payload?: Record<string, unknown>;
 }
 
 export interface FailedJobPage {
@@ -158,4 +247,63 @@ export async function getFailedJob(uuid: string): Promise<FailedJob> {
 /** Pushes the job back onto its original queue and deletes the failed record. */
 export async function retryFailedJob(uuid: string): Promise<void> {
     await http.post(`/api/application/queues/failed/${uuid}/retry`);
+}
+
+/** Pushes a selection back onto their queues. Returns how many actually went. */
+export async function retryFailedJobs(uuids: string[]): Promise<{ retried: number; requested: number }> {
+    const { data } = await http.post<{ retried: number; requested: number }>('/api/application/queues/failed/retry', {
+        uuids,
+    });
+    return data;
+}
+
+/**
+ * Discards one failure. Unrecoverable -- the row is the only copy of the
+ * payload, so the caller must confirm first.
+ */
+export async function deleteFailedJob(uuid: string): Promise<void> {
+    await http.delete(`/api/application/queues/failed/${uuid}`);
+}
+
+/** Discards a selection. Same warning as above, times the selection. */
+export async function deleteFailedJobs(uuids: string[]): Promise<{ deleted: number; requested: number }> {
+    const { data } = await http.delete<{ deleted: number; requested: number }>('/api/application/queues/failed', {
+        data: { uuids },
+    });
+    return data;
+}
+
+/**
+ * A scoped sweep. One of `queue` or `olderThanDays` must be present -- the API
+ * refuses an unscoped call rather than treating it as "delete everything".
+ */
+export interface SweepScope {
+    queue?: string | null;
+    olderThanDays?: number | null;
+}
+
+/**
+ * `remaining` is what the scope still matches afterwards. One sweep takes at
+ * most a fixed number of rows, so that a request cannot walk an unbounded table
+ * and die part-way through; a wider scope leaves a remainder rather than
+ * silently reporting the lane clear.
+ */
+export async function sweepFailedJobs(scope: SweepScope): Promise<{ deleted: number; remaining: number }> {
+    const { data } = await http.delete<{ deleted: number; remaining: number }>('/api/application/queues/failed', {
+        data: scope,
+    });
+    return data;
+}
+
+/**
+ * How many rows a sweep would take, so a confirmation can name the number, and
+ * the per-request cap so it can say when more than one pass will be needed.
+ * Refuses an unscoped call, exactly as the sweep itself does.
+ */
+export async function previewSweep(scope: SweepScope): Promise<{ count: number; cap: number }> {
+    const { data } = await http.post<{ count: number; cap: number }>(
+        '/api/application/queues/failed/sweep-preview',
+        scope,
+    );
+    return data;
 }

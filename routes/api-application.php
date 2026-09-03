@@ -10,8 +10,12 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::get('/overview', [Application\OverviewController::class, 'index']);
     Route::get('/queues', [Application\QueueHealthController::class, 'index']);
     Route::get('/queues/failed', [Application\QueueHealthController::class, 'failed']);
-    Route::get('/queues/failed/{uuid}', [Application\QueueHealthController::class, 'show']);
-    Route::post('/queues/failed/{uuid}/retry', [Application\QueueHealthController::class, 'retry']);
+    Route::get('/queues/failed/{uuid}', [Application\QueueHealthController::class, 'show'])->whereUuid('uuid');
+    Route::post('/queues/failed/{uuid}/retry', [Application\QueueHealthController::class, 'retry'])->whereUuid('uuid');
+    Route::post('/queues/failed/retry', [Application\QueueHealthController::class, 'retryMany']);
+    Route::post('/queues/failed/sweep-preview', [Application\QueueHealthController::class, 'sweepPreview']);
+    Route::delete('/queues/failed/{uuid}', [Application\QueueHealthController::class, 'destroy'])->whereUuid('uuid');
+    Route::delete('/queues/failed', [Application\QueueHealthController::class, 'destroyMany']);
 
     Route::get('/activity', Application\ActivityLogController::class);
     Route::get('/activity/users', [Application\ActivityLogController::class, 'users']);

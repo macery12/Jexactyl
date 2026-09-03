@@ -33,9 +33,28 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | Query Binding Masking
+    |--------------------------------------------------------------------------
+    |
+    | Laravel interpolates a query's bindings straight into the QueryException
+    | message it throws. That message travels: it is written to the panel log,
+    | and a query that fails inside a queued job is stored verbatim in the
+    | `failed_jobs` table, which the admin queue page reads back. A failed write
+    | would otherwise put its column values -- password hashes, tokens, billing
+    | details -- in front of anyone holding `queues.read`.
+    |
+    | Masked bindings cost a little at debug time: the statement is still
+    | reported in full, with `?` where the values were. Set DB_MASK_BINDINGS to
+    | false locally if you need them back.
+    |
+    */
+
     'connections' => [
         'sqlite' => [
             'driver' => 'sqlite',
+            'mask_bindings_in_exception_messages' => env('DB_MASK_BINDINGS', true),
             'url' => env('DATABASE_URL'),
             'database' => env('DB_DATABASE', ':memory:'),
             'prefix' => '',
@@ -44,6 +63,7 @@ return [
 
         'mysql' => [
             'driver' => 'mysql',
+            'mask_bindings_in_exception_messages' => env('DB_MASK_BINDINGS', true),
             'url' => env('DATABASE_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
@@ -68,6 +88,7 @@ return [
 
         'pgsql' => [
             'driver' => 'pgsql',
+            'mask_bindings_in_exception_messages' => env('DB_MASK_BINDINGS', true),
             'url' => env('DATABASE_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),

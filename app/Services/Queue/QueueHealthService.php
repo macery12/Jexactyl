@@ -3,6 +3,7 @@
 namespace Everest\Services\Queue;
 
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Contracts\Cache\LockProvider;
 use Laravel\Horizon\Contracts\MetricsRepository;
 use Laravel\Horizon\Contracts\WorkloadRepository;
+use Everest\Services\Schedules\SchedulerHeartbeat;
 use Laravel\Horizon\Contracts\SupervisorRepository;
 use Laravel\Horizon\Contracts\MasterSupervisorRepository;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
@@ -37,6 +39,8 @@ class QueueHealthService
         private QueueWorkerHeartbeat $heartbeat,
         private HorizonEnvironmentGuard $guard,
         private QueueWaitEstimator $waits,
+        private JobCatalogue $catalogue,
+        private SchedulerHeartbeat $scheduler,
         private CacheRepository $cache,
     ) {
     }
@@ -101,6 +105,8 @@ class QueueHealthService
     private function compute(): array
     {
         $workload = $this->workloadByQueue();
+        $scheduler = $this->scheduler->snapshot();
+        $workers = $this->heartbeat->workers();
         $consumed = $this->heartbeat->consumedQueues();
         $masters = $this->masters();
         $supervisors = $this->supervisors();
@@ -138,8 +144,14 @@ class QueueHealthService
                 default => $pending * (float) $metrics['avgRuntimeMs'],
             };
 
+            $meta = $this->catalogue->describeLane($lane);
+
             $lanes[] = [
                 'lane' => $lane,
+                // What the lane is for. A key on its own does not tell an
+                // operator why `mods` is allowed to be an hour behind.
+                'title' => $meta['title'],
+                'summary' => $meta['summary'],
                 'queue' => $queue,
                 'connection' => $this->topology->resolvedConnectionFor($lane),
                 'long' => $this->topology->isLong($lane),
@@ -180,9 +192,16 @@ class QueueHealthService
             'totalDepth' => $totalDepth,
             'lanes' => $lanes,
             'jobs' => $this->jobMetrics(),
-            'workers' => $this->heartbeat->workers(),
+            'workers' => $workers,
+            // The same processes, grouped under the supervisor that owns them.
+            // `workers` stays for anything reading the flat list.
+            'pools' => $this->pools($supervisors, $workers),
             'failed' => $this->failedJobs(),
-            'warnings' => $this->warnings($lanes, $masters),
+            // Cron, which is upstream of everything here. A panel whose
+            // scheduler has stopped looks perfectly healthy from the queue
+            // alone: lanes clear, workers green, nothing being fed to them.
+            'scheduler' => $scheduler,
+            'warnings' => $this->warnings($lanes, $masters, $scheduler),
         ];
     }
 
@@ -191,12 +210,17 @@ class QueueHealthService
      *
      * @param list<array<string, mixed>> $lanes
      * @param list<array<string, mixed>> $masters
+     * @param array<string, mixed> $scheduler
      *
      * @return list<array{code: string, severity: string, message: string}>
      */
-    private function warnings(array $lanes, array $masters): array
+    private function warnings(array $lanes, array $masters, array $scheduler): array
     {
         $warnings = [];
+
+        foreach ($this->schedulerWarnings($scheduler) as $warning) {
+            $warnings[] = $warning;
+        }
 
         foreach ($this->guard->problems() as $problem) {
             $warnings[] = ['code' => $problem['code'], 'severity' => 'critical', 'message' => $problem['problem'] . ' ' . $problem['fix']];
@@ -265,6 +289,164 @@ class QueueHealthService
 
             return null;
         }
+    }
+
+    /**
+     * Worker processes grouped under the supervisor that owns them.
+     *
+     * The flat list this replaces was the single most confusing thing on the
+     * page: six rows of `host:pid` look like six separate problems, when they
+     * are one healthy supervisor running six processes. Horizon knows the
+     * supervisors and the heartbeat knows the live processes; neither alone can
+     * draw the tree, so it is assembled here.
+     *
+     * Processes that match no configured supervisor are not dropped. A hand
+     * started `queue:work` is exactly the kind of thing an operator needs to
+     * find out about, so it lands in its own group rather than vanishing.
+     *
+     * @param list<array<string, mixed>> $supervisors
+     * @param list<array<string, mixed>> $workers
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function pools(array $supervisors, array $workers): array
+    {
+        $meta = (array) config('queue.supervisor_meta', []);
+        $pools = [];
+        $claimed = [];
+
+        foreach ($this->topology->horizonSupervisors() as $name => $definition) {
+            $queues = $definition['queue'];
+
+            // Horizon prefixes supervisor names with the master's hostname, so
+            // match on the configured name as a suffix rather than exactly.
+            $reported = collect($supervisors)->first(
+                fn (array $supervisor) => is_string($supervisor['name'] ?? null)
+                    && str_ends_with($supervisor['name'], $name)
+            );
+
+            $processes = [];
+
+            foreach ($workers as $index => $worker) {
+                if (isset($claimed[$index]) || array_intersect($worker['queues'] ?? [], $queues) === []) {
+                    continue;
+                }
+
+                // A lane name can appear under two supervisors only if the
+                // connections differ, so the connection settles the tie.
+                if (($worker['connection'] ?? null) !== null
+                    && $worker['connection'] !== $definition['connection']) {
+                    continue;
+                }
+
+                $claimed[$index] = true;
+                $processes[] = $this->presentProcess($worker);
+            }
+
+            $lanes = array_values(array_filter(array_map(
+                fn (string $queue) => $this->topology->laneForQueue($queue),
+                $queues
+            )));
+
+            $pools[] = [
+                'name' => $name,
+                'title' => (string) ($meta[$name]['title'] ?? $name),
+                'summary' => isset($meta[$name]['summary']) ? (string) $meta[$name]['summary'] : null,
+                'connection' => $definition['connection'],
+                'queues' => array_values($queues),
+                'lanes' => $lanes,
+                'status' => $reported['status'] ?? null,
+                // Whether this supervisor is *meant* to be staffed right now.
+                // A pool sized to zero because its module is off is correct,
+                // not broken, and must not be drawn as an outage.
+                'expected' => $lanes === [] || collect($lanes)->contains(fn (string $lane) => $this->topology->isExpected($lane)),
+                'configuredProcesses' => $reported['processes'] ?? null,
+                'maxProcesses' => $this->configuredProcessCeiling($name),
+                'processes' => $processes,
+                'processCount' => count($processes),
+                'busyCount' => count(array_filter($processes, fn (array $process) => $process['job'] !== null)),
+            ];
+        }
+
+        $orphans = array_values(array_map(
+            fn (array $worker) => $this->presentProcess($worker),
+            array_values(array_diff_key($workers, $claimed))
+        ));
+
+        if ($orphans !== []) {
+            $pools[] = [
+                'name' => 'unmanaged',
+                'title' => 'Unmanaged workers',
+                'summary' => 'Processes draining a queue outside the configured supervisors, such as a hand-started queue:work.',
+                'connection' => null,
+                'queues' => array_values(array_unique(array_merge(...array_map(
+                    fn (array $process) => $process['queues'],
+                    $orphans
+                )))),
+                'lanes' => [],
+                'status' => null,
+                'expected' => false,
+                'configuredProcesses' => null,
+                'maxProcesses' => null,
+                'processes' => $orphans,
+                'processCount' => count($orphans),
+                'busyCount' => count(array_filter($orphans, fn (array $process) => $process['job'] !== null)),
+            ];
+        }
+
+        return $pools;
+    }
+
+    /**
+     * One worker process, with its current job named rather than left as a
+     * class -- and with how long it has been on it, which is the difference
+     * between a healthy long install and a wedged process.
+     *
+     * @param array<string, mixed> $worker
+     *
+     * @return array<string, mixed>
+     */
+    private function presentProcess(array $worker): array
+    {
+        $job = isset($worker['job']) && is_string($worker['job']) ? $worker['job'] : null;
+        $startedAt = isset($worker['jobStartedAt']) && is_string($worker['jobStartedAt'])
+            ? $worker['jobStartedAt']
+            : null;
+
+        $busySeconds = null;
+
+        if ($startedAt !== null) {
+            try {
+                $busySeconds = max(0, now()->diffInSeconds(Carbon::parse($startedAt), true));
+            } catch (\Throwable) {
+                $busySeconds = null;
+            }
+        }
+
+        return [
+            'host' => $worker['host'] ?? 'unknown',
+            'pid' => $worker['pid'] ?? null,
+            'connection' => $worker['connection'] ?? null,
+            'queues' => $worker['queues'] ?? [],
+            'seenAt' => $worker['seenAt'] ?? null,
+            'job' => $job,
+            'jobTitle' => $job === null ? null : $this->catalogue->describe($job)['title'],
+            'jobStartedAt' => $startedAt,
+            'busySeconds' => $busySeconds === null ? null : (int) $busySeconds,
+        ];
+    }
+
+    /**
+     * The ceiling Horizon was configured with, so the page can show "3 of 6"
+     * rather than an unanchored process count. `maxProcesses` is only set on
+     * balanced supervisors; the fixed ones carry `processes` instead.
+     */
+    private function configuredProcessCeiling(string $supervisor): ?int
+    {
+        $defaults = (array) config('horizon.defaults.' . $supervisor, []);
+        $ceiling = $defaults['maxProcesses'] ?? $defaults['processes'] ?? null;
+
+        return is_numeric($ceiling) ? (int) $ceiling : null;
     }
 
     /**
@@ -358,6 +540,11 @@ class QueueHealthService
             return collect($metrics->measuredJobs())
                 ->map(fn ($job) => [
                     'job' => $job,
+                    // Horizon measures by class. Name it, so the busiest-jobs
+                    // list is readable without decoding a namespace per row.
+                    ...collect($this->catalogue->describe((string) $job))
+                        ->only(['key', 'title', 'summary', 'lane', 'known'])
+                        ->all(),
                     ...$this->windowed('job', $job),
                 ])
                 ->sortByDesc('processed')
@@ -428,6 +615,61 @@ class QueueHealthService
             'avgRuntimeMs' => $processed > 0 ? round($runtimeSum / $processed, 2) : null,
             'windowMinutes' => $earliest === null ? null : max(1, (int) round((time() - $earliest) / 60)),
         ] + ($withSeries ? ['series' => $series] : []);
+    }
+
+    /**
+     * Whether cron is still calling the scheduler.
+     *
+     * Reported alongside the queue warnings rather than on a page of its own:
+     * an operator asking "is the panel healthy" is asking one question, and the
+     * answer has two halves that fail independently. A stopped cron produces no
+     * queue symptom whatsoever -- lanes stay clear and workers stay green,
+     * because nothing is being dispatched to them.
+     *
+     * "Never seen" is kept separate from "stale". A panel that started a minute
+     * ago has no heartbeat yet and that is not evidence of a missing cron entry,
+     * so it names the entry to add instead of reporting an outage.
+     *
+     * @param array<string, mixed> $scheduler
+     *
+     * @return list<array{code: string, severity: string, message: string}>
+     */
+    private function schedulerWarnings(array $scheduler): array
+    {
+        $seconds = (int) ($scheduler['secondsAgo'] ?? 0);
+
+        return match ($scheduler['severity'] ?? 'unknown') {
+            'unknown' => [[
+                'code' => 'scheduler_never_seen',
+                'severity' => 'warning',
+                'message' => 'The task scheduler has not run since this panel started. If that does not change within a minute, add the cron entry: * * * * * php artisan schedule:run >> /dev/null 2>&1',
+            ]],
+            'down' => [[
+                'code' => 'scheduler_down',
+                'severity' => 'critical',
+                'message' => sprintf(
+                    'The task scheduler last ran %s ago. Scheduled work — server schedules, billing renewals, pruning — is not running. Check the cron entry: * * * * * php artisan schedule:run',
+                    $this->humanSeconds($seconds),
+                ),
+            ]],
+            'stale' => [[
+                'code' => 'scheduler_stale',
+                'severity' => 'warning',
+                'message' => sprintf('The task scheduler last ran %s ago; it should run every minute.', $this->humanSeconds($seconds)),
+            ]],
+            default => [],
+        };
+    }
+
+    private function humanSeconds(int $seconds): string
+    {
+        if ($seconds < 120) {
+            return $seconds . ' seconds';
+        }
+
+        return $seconds < 7200
+            ? intdiv($seconds, 60) . ' minutes'
+            : intdiv($seconds, 3600) . ' hours';
     }
 
     /**

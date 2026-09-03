@@ -5,15 +5,21 @@ namespace Everest\Providers;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\ServiceProvider;
+use Everest\Services\Queue\JobCatalogue;
 use Illuminate\Cache\RateLimiting\Limit;
 use Everest\Services\Queue\QueueTopology;
+use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Services\Queue\QueueWaitEstimator;
 use Illuminate\Console\Events\CommandStarting;
 use Everest\Services\Queue\QueueWorkerHeartbeat;
+use Everest\Services\Schedules\SchedulerHeartbeat;
+use Illuminate\Console\Events\ScheduledTaskFailed;
 use Everest\Services\Queue\HorizonEnvironmentGuard;
+use Illuminate\Console\Events\ScheduledTaskFinished;
 
 /**
  * Wires the panel's queue topology.
@@ -41,6 +47,10 @@ class QueueServiceProvider extends ServiceProvider
 
         $this->app->singleton(QueueWorkerHeartbeat::class, fn ($app) => new QueueWorkerHeartbeat($app['cache']->store()));
 
+        $this->app->singleton(SchedulerHeartbeat::class, fn ($app) => new SchedulerHeartbeat($app['cache']->store()));
+
+        $this->app->singleton(JobCatalogue::class, fn ($app) => new JobCatalogue($app['config'], $app->make(QueueTopology::class)));
+
         $this->app->singleton(QueueWaitEstimator::class, fn ($app) => new QueueWaitEstimator($app['config'], $app->make(QueueTopology::class)));
     }
 
@@ -50,6 +60,7 @@ class QueueServiceProvider extends ServiceProvider
         $this->registerRoutes();
         $this->registerRateLimiters();
         $this->registerHeartbeat();
+        $this->registerSchedulerHeartbeat();
         $this->guardWorkerStartup();
         $this->sizeConditionalSupervisors();
         $this->configureHorizon();
@@ -110,9 +121,66 @@ class QueueServiceProvider extends ServiceProvider
 
         // Looping stops for the duration of a job, so a worker part-way through
         // an hour-long modpack install would otherwise be declared dead 90
-        // seconds in. Extend the record to cover the job before it starts.
+        // seconds in. Extend the record to cover the job before it starts, and
+        // record what the job *is* while we are here -- that is what lets the
+        // admin page say "busy 41m on Install modpack" instead of listing a PID.
         $this->app['events']->listen(JobProcessing::class, function (JobProcessing $event) {
-            $this->app->make(QueueWorkerHeartbeat::class)->holdThroughJob($event->job->timeout());
+            $this->app->make(QueueWorkerHeartbeat::class)->startJob(
+                $event->job->resolveName(),
+                $event->job->timeout(),
+            );
+        });
+
+        // Both outcomes clear the job off the record. Without the failure case
+        // a worker that threw would advertise that job until its next beat.
+        $this->app['events']->listen(JobProcessed::class, function () {
+            $this->app->make(QueueWorkerHeartbeat::class)->finishJob();
+        });
+
+        $this->app['events']->listen(JobFailed::class, function () {
+            $this->app->make(QueueWorkerHeartbeat::class)->finishJob();
+        });
+    }
+
+    /**
+     * Record that cron is invoking the scheduler.
+     *
+     * Wired here, beside the queue heartbeat, because the two are reported
+     * together: the admin queue page is the only place that can say a panel is
+     * healthy, and it cannot say that from lane depth alone. If the cron entry
+     * stops, every lane stays clear and every worker stays green while nothing
+     * scheduled runs -- the queue is genuinely fine, it is just not being fed.
+     *
+     * `schedule:run` starting is the signal rather than a task finishing. A tick
+     * where nothing was due still proves cron is alive, and most of this panel's
+     * per-minute tasks sit behind module flags.
+     *
+     * Recording only. Nothing here can start, stop or trigger a scheduled task,
+     * and the page that reads it has no endpoint that could.
+     */
+    private function registerSchedulerHeartbeat(): void
+    {
+        $this->app['events']->listen(CommandStarting::class, function (CommandStarting $event) {
+            if ($event->command === 'schedule:run') {
+                $this->app->make(SchedulerHeartbeat::class)->beat();
+            }
+        });
+
+        // Which tasks actually ran. This is the only visibility the panel has
+        // into scheduled work that does its job inline rather than dispatching
+        // a job -- most of config/schedule, and none of it visible on a queue.
+        $this->app['events']->listen(ScheduledTaskFinished::class, function (ScheduledTaskFinished $event) {
+            $this->app->make(SchedulerHeartbeat::class)->recordFinished(
+                $event->task->getSummaryForDisplay(),
+                $event->runtime * 1000,
+            );
+        });
+
+        $this->app['events']->listen(ScheduledTaskFailed::class, function (ScheduledTaskFailed $event) {
+            $this->app->make(SchedulerHeartbeat::class)->recordFailed(
+                $event->task->getSummaryForDisplay(),
+                $event->exception->getMessage(),
+            );
         });
     }
 

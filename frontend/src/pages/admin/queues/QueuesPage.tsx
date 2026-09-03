@@ -1,19 +1,247 @@
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, CircleSlash, Cpu, ListOrdered, XCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
 import { timeAgo } from '@/lib/format';
-import { getQueueHealth, type QueueHealth, type QueueLane, type QueueWarning } from '@/api/adminQueues';
-import { Sparkline } from './Sparkline';
+import { getQueueHealth, type QueueHealth, type QueueWarning } from '@/api/adminQueues';
+import { LanesPanel } from './LanesPanel';
+import { WorkerPools } from './WorkerPools';
+import { JobTypesPanel } from './JobTypesPanel';
 import { FailedJobsPanel } from './FailedJobsPanel';
 
-const panel = 'rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)]/60';
+const TABS = ['lanes', 'workers', 'failed', 'jobs'] as const;
+type Tab = (typeof TABS)[number];
 
-function formatMs(value: number | null): string {
-    // Horizon reports 0 for "never measured", which would read as "instant".
-    if (value === null || value <= 0) return '—';
-    return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
+/**
+ * Worker-queue health.
+ *
+ * One status line and four tabs, rather than four stacked tables. The summary
+ * is a sentence in the toolbar because that is all it needs to be: an operator
+ * opening this page is asking "is anything wrong", and only then "where". The
+ * tab labels carry the counts, so a problem on a tab you are not looking at
+ * still announces itself.
+ */
+export default function QueuesPage() {
+    const [params, setParams] = useSearchParams();
+
+    const { data, isLoading } = useQuery({
+        queryKey: ['admin', 'queues'],
+        queryFn: getQueueHealth,
+        refetchInterval: 15_000,
+    });
+
+    const requested = params.get('tab');
+    const tab: Tab = TABS.includes(requested as Tab) ? (requested as Tab) : 'lanes';
+
+    if (isLoading || !data) {
+        return (
+            <div className="flex justify-center py-16">
+                <Spinner />
+            </div>
+        );
+    }
+
+    const failedCount = data.failed.total ?? 0;
+    const problems = data.warnings.filter(warning => warning.severity === 'critical').length;
+
+    return (
+        <div className="space-y-4">
+            <Toolbar data={data} />
+
+            {data.warnings.length > 0 ? (
+                <ul className="space-y-2">
+                    {data.warnings.map((warning, index) => (
+                        <WarningRow key={`${warning.code}-${index}`} warning={warning} />
+                    ))}
+                </ul>
+            ) : (
+                <p className="flex items-center gap-2 rounded-md border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
+                    {m['admin.queues.healthy']()}
+                </p>
+            )}
+
+            <div
+                role="tablist"
+                aria-label={m['admin.queues.title']()}
+                className="inline-flex w-fit gap-1 rounded-lg bg-[var(--color-surface-2)] p-1"
+            >
+                <TabButton id="lanes" active={tab} onSelect={setParams} label={m['admin.queues.tab.lanes']()} />
+                <TabButton
+                    id="workers"
+                    active={tab}
+                    onSelect={setParams}
+                    label={m['admin.queues.tab.workers']()}
+                    badge={problems > 0 ? String(problems) : undefined}
+                    tone="danger"
+                />
+                <TabButton
+                    id="failed"
+                    active={tab}
+                    onSelect={setParams}
+                    label={m['admin.queues.tab.failed']()}
+                    badge={failedCount > 0 ? String(failedCount) : undefined}
+                    tone="danger"
+                />
+                <TabButton id="jobs" active={tab} onSelect={setParams} label={m['admin.queues.tab.jobs']()} />
+            </div>
+
+            <div role="tabpanel" aria-label={m['admin.queues.title']()}>
+                {tab === 'lanes' && <LanesPanel lanes={data.lanes} windowMinutes={data.metricsWindowMinutes} />}
+                {tab === 'workers' && <WorkerPools pools={data.pools} running={data.horizon.running} scheduler={data.scheduler} />}
+                {tab === 'failed' && <FailedJobsPanel summary={data.failed} />}
+                {tab === 'jobs' && <JobTypesPanel jobs={data.jobs} windowMinutes={data.metricsWindowMinutes} />}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * The whole summary, as one line of type.
+ *
+ * Four tiles with coloured rails made this read as a dashboard rather than as
+ * an instrument; a sentence with three numbers in it says the same thing and
+ * lets colour mean something when it does appear.
+ */
+function Toolbar({ data }: { data: QueueHealth }) {
+    const { running, paused } = data.horizon;
+
+    const longestWait = Math.max(0, ...data.lanes.map(lane => lane.waitSeconds ?? 0));
+    const overTarget = data.lanes.some(
+        lane =>
+            lane.waitSeconds !== null &&
+            lane.waitThresholdSeconds !== null &&
+            lane.waitSeconds > lane.waitThresholdSeconds,
+    );
+    const failed = data.failed.total ?? 0;
+    const scheduler = data.scheduler.severity;
+
+    return (
+        <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--color-border-strong)] pb-3">
+            <h1 className="text-base font-semibold text-[var(--color-ink)]">{m['admin.queues.title']()}</h1>
+
+            <p className="flex flex-wrap items-center gap-x-1.5 font-mono text-xs text-[var(--color-ink-muted)]">
+                <span
+                    className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        !running
+                            ? 'bg-[var(--color-danger)]'
+                            : paused
+                              ? 'bg-[var(--color-warning)]'
+                              : 'bg-[var(--color-accent)]',
+                    )}
+                    aria-hidden="true"
+                />
+                <span className={cn(!running && 'font-semibold text-[var(--color-danger)]')}>
+                    {!running
+                        ? m['admin.queues.status.stopped']()
+                        : paused
+                          ? m['admin.queues.status.paused']()
+                          : m['admin.queues.status.running']()}
+                </span>
+                <Sep />
+                <span className="text-[var(--color-ink)]">{data.totalDepth}</span>
+                {m['admin.queues.bar.queued']()}
+                <Sep />
+                <span className={cn(overTarget ? 'font-semibold text-[var(--color-warning)]' : 'text-[var(--color-ink)]')}>
+                    {longestWait}s
+                </span>
+                {m['admin.queues.bar.longestWait']()}
+                <Sep />
+                <span className={cn(failed > 0 ? 'font-semibold text-[var(--color-danger)]' : 'text-[var(--color-ink)]')}>
+                    {failed}
+                </span>
+                {m['admin.queues.bar.failed']()}
+                <Sep />
+                {/* Cron, in the same line as Horizon, because "is the panel
+                    healthy" is one question with two halves that fail
+                    independently -- and only one of them has a queue symptom. */}
+                <span
+                    className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        scheduler === 'ok'
+                            ? 'bg-[var(--color-accent)]'
+                            : scheduler === 'down'
+                              ? 'bg-[var(--color-danger)]'
+                              : 'bg-[var(--color-warning)]',
+                    )}
+                    aria-hidden="true"
+                />
+                <span
+                    className={cn(
+                        scheduler === 'down' && 'font-semibold text-[var(--color-danger)]',
+                        scheduler === 'stale' && 'font-semibold text-[var(--color-warning)]',
+                    )}
+                >
+                    {m['admin.queues.bar.cron']()}
+                </span>
+                <span className={cn(scheduler === 'ok' ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-muted)]')}>
+                    {data.scheduler.secondsAgo === null
+                        ? m['admin.queues.scheduler.never']()
+                        : m['admin.queues.scheduler.ago']({ seconds: data.scheduler.secondsAgo })}
+                </span>
+            </p>
+
+            <span className="ml-auto text-xs text-[var(--color-ink-faint)]">
+                {m['admin.queues.updated']({ time: timeAgo(data.generatedAt) })}
+            </span>
+        </header>
+    );
+}
+
+function Sep() {
+    return <span className="px-0.5 text-[var(--color-ink-faint)]">·</span>;
+}
+
+function TabButton({
+    id,
+    active,
+    onSelect,
+    label,
+    badge,
+    tone,
+}: {
+    id: Tab;
+    active: Tab;
+    onSelect: (next: URLSearchParams) => void;
+    label: string;
+    badge?: string;
+    tone?: 'danger';
+}) {
+    const selected = active === id;
+
+    return (
+        <button
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            // The tab lives in the URL so a reload, or a link pasted into a
+            // ticket, lands on the thing that was being looked at.
+            onClick={() => onSelect(id === 'lanes' ? new URLSearchParams() : new URLSearchParams({ tab: id }))}
+            className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                selected
+                    ? 'bg-[var(--color-surface)] text-[var(--color-ink)] shadow-sm'
+                    : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]',
+            )}
+        >
+            {label}
+            {badge && (
+                <span
+                    className={cn(
+                        'rounded-full px-1.5 text-[10px] font-semibold tabular-nums',
+                        tone === 'danger'
+                            ? 'bg-[var(--color-danger)]/15 text-[var(--color-danger)]'
+                            : 'bg-[var(--color-surface-2)] text-[var(--color-ink-muted)]',
+                    )}
+                >
+                    {badge}
+                </span>
+            )}
+        </button>
+    );
 }
 
 function WarningRow({ warning }: { warning: QueueWarning }) {
@@ -25,309 +253,17 @@ function WarningRow({ warning }: { warning: QueueWarning }) {
             className={cn(
                 'flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-sm',
                 critical
-                    ? 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 text-[var(--color-danger)]'
-                    : 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]',
+                    ? 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10'
+                    : 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10',
             )}
         >
-            <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+            <Icon
+                className={cn(
+                    'mt-0.5 h-4 w-4 shrink-0',
+                    critical ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]',
+                )}
+            />
             <span className="text-[var(--color-ink)]">{warning.message}</span>
         </li>
-    );
-}
-
-/**
- * Whether a lane is being drained is the single most useful cell here: it
- * separates "slow" from "nothing is listening", which look identical from a
- * queue depth alone.
- */
-function ConsumerCell({ lane }: { lane: QueueLane }) {
-    if (lane.consumed) {
-        return (
-            <span className="inline-flex items-center gap-1.5 text-[var(--color-success)]">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {m['admin.queues.consumer.yes']()}
-            </span>
-        );
-    }
-
-    // A lane whose module is switched off is correctly unstaffed, not broken.
-    if (!lane.expected) {
-        return (
-            <span className="inline-flex items-center gap-1.5 text-[var(--color-ink-faint)]">
-                <CircleSlash className="h-3.5 w-3.5" />
-                {m['admin.queues.consumer.na']()}
-            </span>
-        );
-    }
-
-    return (
-        <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--color-danger)]">
-            <XCircle className="h-3.5 w-3.5" />
-            {m['admin.queues.consumer.none']()}
-        </span>
-    );
-}
-
-/**
- * Everything on the lane, with the ready subset called out only when it differs
- * -- two near-identical numbers side by side on every row would be noise, but
- * the gap between them is worth seeing: it is work that is in flight or not due
- * yet, neither of which a worker can be blamed for.
- */
-function DepthCell({ lane }: { lane: QueueLane }) {
-    const split = lane.ready !== null && lane.depth !== null && lane.ready !== lane.depth;
-
-    return (
-        <div className={cn('font-mono tabular-nums', (lane.depth ?? 0) > 0 ? 'text-[var(--color-ink)]' : 'text-[var(--color-ink-faint)]')}>
-            {lane.depth ?? '—'}
-            {split && (
-                <div className="text-[0.65rem] font-normal text-[var(--color-ink-faint)]">
-                    {m['admin.queues.readyOf']({ ready: lane.ready ?? 0 })}
-                </div>
-            )}
-        </div>
-    );
-}
-
-/**
- * Estimated time to clear, flagged once it passes the lane's own target from
- * config/horizon.php. Null is rendered as unknown rather than zero: a lane
- * holding work the panel has no runtime sample for cannot be estimated, and
- * showing "0s" there is exactly how a real backlog would hide.
- */
-function WaitCell({ lane }: { lane: QueueLane }) {
-    if (lane.waitSeconds === null) {
-        return <span className="text-[var(--color-ink-faint)]">—</span>;
-    }
-
-    const over = lane.waitThresholdSeconds !== null && lane.waitSeconds > lane.waitThresholdSeconds;
-
-    return (
-        <span className={over ? 'font-semibold text-[var(--color-warning)]' : 'text-[var(--color-ink-muted)]'}>
-            {lane.waitSeconds}s
-        </span>
-    );
-}
-
-function StatusPill({ data }: { data: QueueHealth }) {
-    const { running, paused } = data.horizon;
-
-    const tone = !running
-        ? 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 text-[var(--color-danger)]'
-        : paused
-          ? 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]'
-          : 'border-[var(--color-success)]/40 bg-[var(--color-success)]/10 text-[var(--color-success)]';
-
-    const label = !running
-        ? m['admin.queues.status.stopped']()
-        : paused
-          ? m['admin.queues.status.paused']()
-          : m['admin.queues.status.running']();
-
-    return <span className={cn('rounded-full border px-2.5 py-0.5 text-xs font-semibold', tone)}>{label}</span>;
-}
-
-export default function QueuesPage() {
-    const { data, isLoading } = useQuery({
-        queryKey: ['admin', 'queues'],
-        queryFn: getQueueHealth,
-        refetchInterval: 15_000,
-    });
-
-    if (isLoading || !data) {
-        return (
-            <div className="flex justify-center py-16">
-                <Spinner />
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-5">
-            <header className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                    <h1 className="text-lg font-semibold text-[var(--color-ink)]">{m['admin.queues.title']()}</h1>
-                    <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.queues.subtitle']()}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <StatusPill data={data} />
-                    <span className="text-xs text-[var(--color-ink-faint)]">
-                        {m['admin.queues.updated']({ time: timeAgo(data.generatedAt) })}
-                    </span>
-                </div>
-            </header>
-
-            {data.warnings.length > 0 ? (
-                <ul className="space-y-2">
-                    {data.warnings.map((warning, index) => (
-                        <WarningRow key={`${warning.code}-${index}`} warning={warning} />
-                    ))}
-                </ul>
-            ) : (
-                <p className="flex items-center gap-2 rounded-md border border-[var(--color-success)]/40 bg-[var(--color-success)]/10 px-3 py-2.5 text-sm text-[var(--color-ink)]">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--color-success)]" />
-                    {m['admin.queues.healthy']()}
-                </p>
-            )}
-
-            <section className={cn(panel, 'overflow-hidden')}>
-                <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
-                    <ListOrdered className="h-4 w-4 text-[var(--color-ink-muted)]" />
-                    <h2 className="text-sm font-semibold text-[var(--color-ink)]">{m['admin.queues.lanes.title']()}</h2>
-                    {data.metricsWindowMinutes !== null && (
-                        <span className="ml-auto text-xs text-[var(--color-ink-faint)]">
-                            {m['admin.queues.metricsWindow']({ minutes: data.metricsWindowMinutes })}
-                        </span>
-                    )}
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[54rem] text-sm">
-                        <thead className="text-left text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">
-                            <tr className="border-b border-[var(--color-border)]">
-                                <th className="px-4 py-2 font-medium">{m['admin.queues.col.lane']()}</th>
-                                <th className="px-4 py-2 font-medium">{m['admin.queues.col.consumer']()}</th>
-                                <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.depth']()}</th>
-                                <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.wait']()}</th>
-                                <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.processed']()}</th>
-                                <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.runtime']()}</th>
-                                <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.trend']()}</th>
-                                <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.retryAfter']()}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {data.lanes.map((lane) => {
-                                // A staffed lane that has never seen work is not
-                                // broken, but a row of zeroes reads exactly like
-                                // one. Say so instead of leaving it ambiguous.
-                                const idle = lane.consumed && (lane.processed ?? 0) === 0 && (lane.depth ?? 0) === 0;
-
-                                return (
-                                    <tr key={lane.lane} className="border-b border-[var(--color-border)] last:border-0">
-                                        <td className="px-4 py-2.5">
-                                            <span className="font-medium text-[var(--color-ink)]">{lane.lane}</span>
-                                            <span className="ml-2 font-mono text-xs text-[var(--color-ink-faint)]">
-                                                {lane.connection}:{lane.queue}
-                                            </span>
-                                            {idle && (
-                                                <div className="text-xs text-[var(--color-ink-faint)]">{m['admin.queues.lane.idle']()}</div>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-2.5">
-                                            <ConsumerCell lane={lane} />
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right">
-                                            <DepthCell lane={lane} />
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right font-mono tabular-nums">
-                                            <WaitCell lane={lane} />
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right font-mono tabular-nums text-[var(--color-ink-muted)]">
-                                            {lane.processed ?? '—'}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right font-mono tabular-nums text-[var(--color-ink-muted)]">
-                                            {formatMs(lane.avgRuntimeMs)}
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right text-[var(--color-accent)]">
-                                            <Sparkline
-                                                className="inline-block align-middle"
-                                                points={lane.series.map((point) => point.throughput)}
-                                            />
-                                        </td>
-                                        <td className="px-4 py-2.5 text-right font-mono tabular-nums text-[var(--color-ink-faint)]">
-                                            {lane.retryAfter === null ? '—' : `${lane.retryAfter}s`}
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <div className={cn('grid gap-5', data.jobs.length > 0 && 'lg:grid-cols-2')}>
-                <section className={cn(panel, 'p-4')}>
-                    <div className="mb-3 flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-[var(--color-ink-muted)]" />
-                        <h2 className="text-sm font-semibold text-[var(--color-ink)]">{m['admin.queues.workers.title']()}</h2>
-                    </div>
-                    {data.workers.length === 0 ? (
-                        <p className="text-sm text-[var(--color-ink-muted)]">{m['admin.queues.workers.none']()}</p>
-                    ) : (
-                        <ul className="space-y-2 text-sm">
-                            {data.workers.map((worker) => (
-                                <li key={`${worker.host}-${worker.pid}`} className="flex flex-wrap items-baseline gap-x-2">
-                                    <span className="font-mono text-[var(--color-ink)]">
-                                        {worker.host}:{worker.pid}
-                                    </span>
-                                    <span className="text-xs text-[var(--color-ink-muted)]">{worker.queues.join(', ')}</span>
-                                    <span className="ml-auto text-xs text-[var(--color-ink-faint)]">{timeAgo(worker.seenAt)}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                    {(data.horizon.supervisors.length > 0 || data.horizon.masters.length > 0) && (
-                        <ul className="mt-3 space-y-1 border-t border-[var(--color-border)] pt-3 text-xs text-[var(--color-ink-muted)]">
-                            {data.horizon.masters.map((master) => (
-                                <li key={`master-${master.name}`} className="text-[var(--color-ink-faint)]">
-                                    {m['admin.queues.master.line']({
-                                        name: master.name ?? '?',
-                                        status: master.status ?? '?',
-                                        pid: master.pid ?? 0,
-                                    })}
-                                </li>
-                            ))}
-                            {data.horizon.supervisors.map((supervisor) => (
-                                <li key={supervisor.name}>
-                                    {m['admin.queues.supervisor.line']({
-                                        name: supervisor.name ?? '?',
-                                        status: supervisor.status ?? '?',
-                                        processes: supervisor.processes,
-                                    })}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </section>
-
-                {data.jobs.length > 0 && (
-                    <section className={cn(panel, 'overflow-hidden')}>
-                        <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
-                            <h2 className="text-sm font-semibold text-[var(--color-ink)]">{m['admin.queues.jobs.title']()}</h2>
-                            {data.metricsWindowMinutes !== null && (
-                                <span className="ml-auto text-xs text-[var(--color-ink-faint)]">
-                                    {m['admin.queues.metricsWindow']({ minutes: data.metricsWindowMinutes })}
-                                </span>
-                            )}
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[32rem] text-sm">
-                                <thead className="text-left text-xs uppercase tracking-wide text-[var(--color-ink-faint)]">
-                                    <tr className="border-b border-[var(--color-border)]">
-                                        <th className="px-4 py-2 font-medium">{m['admin.queues.col.job']()}</th>
-                                        <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.processed']()}</th>
-                                        <th className="px-4 py-2 text-right font-medium">{m['admin.queues.col.runtime']()}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {data.jobs.slice(0, 15).map((job) => (
-                                        <tr key={job.job} className="border-b border-[var(--color-border)] last:border-0">
-                                            <td className="px-4 py-2 font-mono text-xs text-[var(--color-ink)]">{job.job}</td>
-                                            <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--color-ink-muted)]">
-                                                {job.processed ?? '—'}
-                                            </td>
-                                            <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--color-ink-muted)]">
-                                                {formatMs(job.avgRuntimeMs)}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </section>
-                )}
-            </div>
-
-            <FailedJobsPanel summary={data.failed} />
-        </div>
     );
 }

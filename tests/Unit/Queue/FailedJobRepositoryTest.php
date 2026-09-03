@@ -196,4 +196,145 @@ class FailedJobRepositoryTest extends TestCase
         $this->assertSame([], $this->repository()->paginate()['items']);
         $this->assertNull($this->repository()->find((string) Str::uuid()));
     }
+
+    /**
+     * The list endpoint is gated on `queues.read`, the lowest of the three
+     * queue capabilities -- and Laravel puts a query's bindings into the
+     * exception message it throws. Masking the payload and not this would have
+     * left the leak in the half nobody thinks to look at.
+     */
+    public function testAnExceptionMessageIsMaskedBeforeItReachesTheList(): void
+    {
+        config(['modules.ai.privacy.enabled' => false]);
+
+        $this->recordFailure(exception: 'QueryException: SQLSTATE[23000] (SQL: insert into users (password) '
+            . 'values ($2y$10$abcdefghijklmnopqrstuvABCDEFGHIJKLMNOPQRSTUVWXYZ01234))');
+
+        $item = $this->repository()->paginate()['items'][0];
+
+        $this->assertStringNotContainsString('$2y$10$abcdefghij', $item['exceptionMessage']);
+        $this->assertStringContainsString('[redacted]', $item['exceptionMessage']);
+        $this->assertSame('QueryException', $item['exceptionClass'], 'Masking must not cost the class name.');
+    }
+
+    public function testTheTraceIsMaskedToo(): void
+    {
+        config(['modules.ai.privacy.enabled' => false]);
+
+        $uuid = $this->recordFailure(exception: "RuntimeException: refused\n#0 connect(mysql://panel:sup3rSecret@db/panel)");
+
+        $this->assertStringNotContainsString('sup3rSecret', $this->repository()->find($uuid)['exception']);
+    }
+
+    /**
+     * The audit log needs the job and the queue, not a rebuilt payload. Keeping
+     * the two apart is what stops a bulk discard paying for a redaction pass
+     * per row that nothing ever reads.
+     */
+    public function testTheSummaryCarriesIdentityWithoutTheTraceOrPayload(): void
+    {
+        $uuid = $this->recordFailure();
+
+        $summary = $this->repository()->summary($uuid);
+
+        $this->assertSame('Everest\\Jobs\\Email\\SendEmailJob', $summary['job']);
+        $this->assertSame('mail', $summary['queue']);
+        $this->assertArrayNotHasKey('payload', $summary);
+        $this->assertArrayNotHasKey('exception', $summary);
+        $this->assertNull($this->repository()->summary((string) Str::uuid()));
+    }
+
+    public function testDiscardingRemovesTheRowAndReportsWhetherItWentAway(): void
+    {
+        $uuid = $this->recordFailure();
+
+        $this->assertTrue($this->repository()->delete($uuid));
+        $this->assertSame(0, DB::table('failed_jobs')->count());
+        $this->assertFalse($this->repository()->delete($uuid), 'A second discard has nothing to discard.');
+    }
+
+    public function testDiscardingASelectionReportsWhatActuallyWent(): void
+    {
+        $first = $this->recordFailure();
+        $second = $this->recordFailure(queue: 'dns');
+        $this->recordFailure(queue: 'mods');
+
+        $this->assertSame(2, $this->repository()->deleteMany([$first, $second, (string) Str::uuid()]));
+        $this->assertSame(1, DB::table('failed_jobs')->count());
+    }
+
+    /**
+     * There is deliberately no shape of this call that means "delete
+     * everything": an unscoped flush is one mis-click away from destroying
+     * every payload in the retention window.
+     */
+    public function testAnUnscopedSweepIsRefusedRatherThanTreatedAsAll(): void
+    {
+        $this->recordFailure();
+
+        $this->assertNull($this->repository()->purge(null, null));
+        $this->assertNull($this->repository()->purge('', null));
+        $this->assertSame(1, DB::table('failed_jobs')->count());
+    }
+
+    public function testASweepTakesOnlyWhatItsScopeNames(): void
+    {
+        $this->recordFailure(queue: 'mail', failedAt: now()->subDays(30)->toDateTimeString());
+        $this->recordFailure(queue: 'dns', failedAt: now()->subDays(30)->toDateTimeString());
+        $this->recordFailure(queue: 'mail');
+
+        $this->assertSame(1, $this->repository()->countMatching('mail', 7));
+        $this->assertSame(1, $this->repository()->purge('mail', 7));
+        $this->assertSame(2, DB::table('failed_jobs')->count());
+    }
+
+    /**
+     * A sweep that walks an unbounded table is a request that does not finish:
+     * it dies on the time limit part-way through, having destroyed rows nobody
+     * can afterwards enumerate. It takes a page and reports the remainder.
+     */
+    public function testASweepIsCappedSoOneRequestCannotWalkTheWholeTable(): void
+    {
+        $rows = [];
+        for ($i = 0; $i < FailedJobRepository::MAX_SWEEP_ROWS + 3; ++$i) {
+            $uuid = (string) Str::uuid();
+            $rows[] = [
+                'uuid' => $uuid,
+                'connection' => 'database',
+                'queue' => 'mail',
+                'payload' => json_encode(['uuid' => $uuid, 'displayName' => 'SomeJob']),
+                'failed_at' => now()->subDays(30)->toDateTimeString(),
+                'exception' => 'RuntimeException: nope',
+            ];
+        }
+        DB::table('failed_jobs')->insert($rows);
+
+        $this->assertSame(FailedJobRepository::MAX_SWEEP_ROWS, $this->repository()->purge('mail', 7));
+        $this->assertSame(3, $this->repository()->countMatching('mail', 7), 'The remainder has to be reportable.');
+    }
+
+    /**
+     * `queue:retry` reads a lone id of `all` as "retry every failure in the
+     * table". Nothing shaped like a uuid can reach that sentinel, but an
+     * endpoint that turns one request into an unbounded one is not something to
+     * leave standing on the strength of a validation rule alone.
+     */
+    public function testTheRetryAllSentinelIsNotReachableThroughASelection(): void
+    {
+        $this->recordFailure();
+        $this->recordFailure(queue: 'dns');
+
+        $this->assertSame(0, $this->repository()->retryMany(['all']));
+        $this->assertSame(2, DB::table('failed_jobs')->count(), 'Nothing may be retried by naming the sentinel.');
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
+    public function testRetryingASelectionReportsWhatActuallyWent(): void
+    {
+        $first = $this->recordFailure();
+        $second = $this->recordFailure(queue: 'dns');
+
+        $this->assertSame(2, $this->repository()->retryMany([$first, $second, (string) Str::uuid()]));
+        $this->assertSame(0, DB::table('failed_jobs')->count());
+    }
 }

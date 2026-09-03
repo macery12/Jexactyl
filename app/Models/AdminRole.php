@@ -76,6 +76,7 @@ class AdminRole extends Model
 
     public const QUEUES_READ = 'queues.read';
     public const QUEUES_RETRY = 'queues.retry';
+    public const QUEUES_DELETE = 'queues.delete';
 
     public const API_READ = 'api.read';
     public const API_CREATE = 'api.create';
@@ -242,6 +243,7 @@ class AdminRole extends Model
             'keys' => [
                 'read' => 'View queue health, worker status, and the failed-job list.',
                 'retry' => 'Re-dispatch a failed job onto its queue.',
+                'delete' => 'Discard failed jobs. The payload is destroyed with the record.',
             ],
         ],
         'api' => [

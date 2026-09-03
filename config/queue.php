@@ -209,6 +209,149 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Lane Descriptions
+    |--------------------------------------------------------------------------
+    |
+    | What each lane is *for*, in an operator's words. The admin queue page
+    | reads these so a lane is not just a key: `mods` on its own says nothing
+    | about why it is allowed to be an hour behind.
+    |
+    | Keyed by lane, so renaming the queue a lane resolves to (QUEUE_MODS) does
+    | not orphan the description.
+    |
+    */
+
+    'lane_meta' => [
+        'critical' => [
+            'title' => 'Billing & invoices',
+            'summary' => 'Work that must not wait behind anything bulk. Processed in strict priority order.',
+        ],
+        'schedules' => [
+            'title' => 'Server schedules',
+            'summary' => 'Scheduled power actions, console commands and backups.',
+        ],
+        'mail' => [
+            'title' => 'Outbound email',
+            'summary' => 'Queued messages and the deferred-send flush.',
+        ],
+        'dns' => [
+            'title' => 'Custom domains',
+            'summary' => 'DNS records for server custom domains, rate limited per provider.',
+        ],
+        'mods' => [
+            'title' => 'Modpack installs',
+            'summary' => 'Modpack and mod downloads. A single job here legitimately runs for hours.',
+        ],
+        'agent' => [
+            'title' => 'AI assistant turns',
+            'summary' => 'Durable assistant turns and their tool calls. Never retried automatically.',
+        ],
+        'standard' => [
+            'title' => 'Everything else',
+            'summary' => 'Unrouted work, including jobs dispatched by extensions.',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Supervisor Descriptions
+    |--------------------------------------------------------------------------
+    |
+    | Horizon supervisors named for what they do. The admin page groups worker
+    | processes under these, because `supervisor-mods` with one PID under it is
+    | not something an operator should have to decode -- and a flat list of
+    | six anonymous PIDs is exactly what the page used to show.
+    |
+    | Keys must match the supervisor names in QueueTopology::horizonSupervisors().
+    |
+    */
+
+    'supervisor_meta' => [
+        'supervisor-interactive' => [
+            'title' => 'Interactive work',
+            'summary' => 'Everything a person is waiting on: invoices, schedules, mail and DNS.',
+        ],
+        'supervisor-mods' => [
+            'title' => 'Modpack installs',
+            'summary' => 'One process on the long connection. A job here may legitimately run for hours.',
+        ],
+        'supervisor-agent' => [
+            'title' => 'AI assistant turns',
+            'summary' => 'Sized to the inference concurrency the AI gate already enforces.',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Job Catalogue
+    |--------------------------------------------------------------------------
+    |
+    | Job class => what it is, for anywhere a human reads a job name: the admin
+    | queue page, the failed-job list, `p:queue:health`. Without it the only
+    | thing those surfaces can show is the FQCN, which tells an operator
+    | nothing about what re-running it would actually do.
+    |
+    | Anything absent falls back to a prettified class basename, so an
+    | extension's job still reads as "Sync billing" rather than as a namespace.
+    | Extensions may add entries by merging into this key from their own
+    | service provider.
+    |
+    | Keep `summary` to one sentence, in the present tense, describing the
+    | effect of the job running -- that sentence is what an admin reads before
+    | deciding whether to press Retry.
+    |
+    */
+
+    'catalogue' => [
+        Everest\Jobs\Billing\GenerateInvoiceJob::class => [
+            'title' => 'Generate invoice',
+            'summary' => 'Bills a subscription period and writes the invoice record.',
+        ],
+
+        Everest\Jobs\Schedule\RunTaskJob::class => [
+            'title' => 'Run scheduled task',
+            'summary' => 'Runs one step of a server schedule -- a power action, console command or backup -- and queues the next step.',
+        ],
+
+        Everest\Jobs\Email\SendEmailJob::class => [
+            'title' => 'Send email',
+            'summary' => 'Delivers one queued message through the configured mail transport.',
+        ],
+        Everest\Jobs\Email\ProcessDeferredEmailsJob::class => [
+            'title' => 'Flush deferred email',
+            'summary' => 'Releases messages held back by the deferred-send window.',
+        ],
+
+        Everest\Jobs\CustomDomains\ProvisionServerCustomDomainsJob::class => [
+            'title' => 'Provision custom domains',
+            'summary' => 'Creates the DNS records for every custom domain on a server.',
+        ],
+        Everest\Jobs\CustomDomains\ProvisionCustomDomainRecordJob::class => [
+            'title' => 'Provision domain record',
+            'summary' => 'Creates or updates one DNS record at the domain provider.',
+        ],
+        Everest\Jobs\CustomDomains\CleanupServerCustomDomainsJob::class => [
+            'title' => 'Remove custom domains',
+            'summary' => 'Deletes the DNS records left behind by a removed server or domain.',
+        ],
+
+        Everest\Jobs\InstallModpackJob::class => [
+            'title' => 'Install modpack',
+            'summary' => 'Downloads and unpacks a modpack onto a server. Runs for minutes to hours.',
+        ],
+        Everest\Jobs\DownloadModJob::class => [
+            'title' => 'Download mod',
+            'summary' => "Fetches a single mod file into a server's mod directory.",
+        ],
+
+        Everest\Jobs\AI\RunAgentTurnJob::class => [
+            'title' => 'Run AI assistant turn',
+            'summary' => 'Executes one durable assistant turn, including its tool calls.',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Failed Queue Jobs
     |--------------------------------------------------------------------------
     |

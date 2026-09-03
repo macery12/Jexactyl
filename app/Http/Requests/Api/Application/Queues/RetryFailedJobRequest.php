@@ -16,4 +16,18 @@ class RetryFailedJobRequest extends ApplicationApiRequest
     {
         return AdminRole::QUEUES_RETRY;
     }
+
+    public function rules(): array
+    {
+        return [
+            // Present only on the bulk endpoint. Bounded so one request cannot
+            // re-run the entire failed table -- every one of these does real
+            // work: sends mail, calls a node, charges a card.
+            'uuids' => 'sometimes|array|min:1|max:100',
+            // A format, not just a length: `queue:retry` treats a lone id of
+            // `all` as "retry every failure in the table", and an id that must
+            // look like a uuid can never be that.
+            'uuids.*' => 'required|uuid',
+        ];
+    }
 }

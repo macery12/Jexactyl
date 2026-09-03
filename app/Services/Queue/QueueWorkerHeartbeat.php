@@ -70,6 +70,44 @@ class QueueWorkerHeartbeat
     }
 
     /**
+     * Note what this worker just picked up, and keep it visible for the length
+     * of the job.
+     *
+     * The job name is what turns a row of anonymous PIDs into something an
+     * operator can act on: a process that has been on the same modpack install
+     * for forty minutes is healthy, and a process that has been on a five
+     * second job for forty minutes is not, and those two look identical without
+     * it.
+     */
+    public function startJob(string $job, ?int $timeoutSeconds): void
+    {
+        if ($this->currentRecord === null) {
+            return;
+        }
+
+        $this->currentRecord['job'] = $job;
+        $this->currentRecord['jobStartedAt'] = now()->toIso8601ZuluString();
+
+        $this->holdThroughJob($timeoutSeconds);
+    }
+
+    /**
+     * The job finished, one way or another. The worker itself is still alive,
+     * so the record stays -- only the job comes off it, otherwise every idle
+     * process would keep advertising the last thing it happened to run.
+     */
+    public function finishJob(): void
+    {
+        if ($this->currentRecord === null || !isset($this->currentRecord['job'])) {
+            return;
+        }
+
+        unset($this->currentRecord['job'], $this->currentRecord['jobStartedAt']);
+
+        $this->write(self::TTL_SECONDS);
+    }
+
+    /**
      * Keep this worker visible for the length of a job it is about to run.
      *
      * `Looping` fires only *between* jobs -- Worker::daemonShouldRun() raises it
@@ -109,7 +147,7 @@ class QueueWorkerHeartbeat
     /**
      * Every worker seen recently.
      *
-     * @return list<array{host: string, pid: int|null, connection: ?string, queues: list<string>, seenAt: string}>
+     * @return list<array{host: string, pid: int|null, connection: ?string, queues: list<string>, seenAt: string, job?: string, jobStartedAt?: string}>
      */
     public function workers(): array
     {
