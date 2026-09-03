@@ -568,6 +568,11 @@ class AgentRunner
                 messages: $this->promptBuilder->contextualize($context, $repairMessages),
                 systemPrompt: $this->promptBuilder->build($context, $tools),
                 tools: $tools,
+                // This is not an ordinary agent step: the model has already
+                // announced or malformed an action and is being asked to
+                // recover that exact action. Leaving tool choice on `auto`
+                // lets hosted models narrate the promise a second time.
+                toolChoice: AiRequest::TOOL_CHOICE_REQUIRED,
                 temperature: 0.0,
             ))->withResponseSchema($this->salvager->repairSchema($tools));
 

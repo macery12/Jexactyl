@@ -48,8 +48,8 @@ class AgentFrontendLifecycleContractTest extends TestCase
         $this->assertStringContainsString('The AI provider is unavailable or not responding right now', $reader);
         $this->assertStringContainsString('The connection to the panel failed before the assistant could respond', $reader);
         $this->assertStringContainsString("response.headers.get('X-AI-Error-Safe') === '1'", $reader);
-        $this->assertStringContainsString("'X-AI-Error-Reference' => \$reference", $trait);
-        $this->assertStringContainsString("'reference' => \$reference", $trait);
+        $this->assertStringNotContainsString('X-AI-Error-Reference', $trait);
+        $this->assertStringNotContainsString('Administrator reference:', $reader);
     }
 
     public function testDecisionsCommitOnlyAfterHttpAcknowledgement(): void

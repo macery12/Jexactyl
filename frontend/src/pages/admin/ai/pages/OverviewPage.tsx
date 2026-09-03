@@ -101,6 +101,8 @@ function ConnectionCard() {
     const providerLabel =
         settings?.provider === 'ollama'
             ? m['admin.ai.providerOllama']()
+            : settings?.provider === 'openrouter'
+              ? m['admin.ai.providerOpenrouter']()
             : settings?.provider === 'anthropic'
               ? m['admin.ai.providerAnthropic']()
               : settings?.provider === 'openai_compatible'

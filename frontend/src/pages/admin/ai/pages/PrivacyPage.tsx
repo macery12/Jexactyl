@@ -6,6 +6,7 @@ import { SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/ed
 import type { AiPiiCategory } from '@/api/adminAi';
 import { useAiSettingsForm } from '../useAiSettingsForm';
 import { AiLoadError } from '../LoadError';
+import { SettingNotice } from '../SettingNotice';
 
 // What is stripped out of tool results and panel-attached context before a
 // request leaves the building. Never applied to what the administrator types:
@@ -38,6 +39,7 @@ export default function PrivacyPage() {
     }
 
     const available = settings.privacy?.available ?? [];
+    const forced = settings.privacy?.forced ?? false;
 
     // Rebuilt in `available` order on every change rather than appended to, so
     // toggling a category off and back on does not leave the list looking
@@ -63,16 +65,23 @@ export default function PrivacyPage() {
                 title={m['admin.ai.settings.privacy']()}
                 desc={m['admin.ai.pages.privacyDesc']()}
             >
+                {forced && (
+                    <SettingNotice title={m['admin.ai.settings.privacyForcedTitle']()}>
+                        {m['admin.ai.settings.privacyForcedBody']()}
+                    </SettingNotice>
+                )}
+
                 <ToggleGroup>
                     <ToggleRow
                         label={m['admin.ai.settings.privacyEnabled']()}
                         desc={m['admin.ai.settings.privacyEnabledHint']()}
                         checked={value.enabled}
                         onChange={next => patch({ enabled: next })}
+                        disabled={forced}
                     />
                 </ToggleGroup>
 
-                <div className={cn('flex flex-col gap-3', !value.enabled && 'opacity-55')}>
+                <div className={cn('flex flex-col gap-3', (!value.enabled || forced) && 'opacity-55')}>
                     <div>
                         <p className="text-sm font-medium text-[var(--color-ink)]">
                             {m['admin.ai.settings.privacyCategories']()}
@@ -88,15 +97,15 @@ export default function PrivacyPage() {
                                 key={category}
                                 className={cn(
                                     'flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--color-border)] px-3 py-2 transition-colors',
-                                    value.enabled && 'hover:border-[var(--color-border-strong)]',
-                                    !value.enabled && 'pointer-events-none',
+                                    value.enabled && !forced && 'hover:border-[var(--color-border-strong)]',
+                                    (!value.enabled || forced) && 'pointer-events-none',
                                 )}
                             >
                                 <input
                                     type="checkbox"
                                     className="mt-0.5 accent-[var(--brand)]"
                                     checked={value.categories.includes(category)}
-                                    disabled={!value.enabled}
+                                    disabled={!value.enabled || forced}
                                     onChange={event => toggle(category, event.target.checked)}
                                 />
                                 <span className="min-w-0">
@@ -111,6 +120,12 @@ export default function PrivacyPage() {
                         ))}
                     </div>
                 </div>
+
+                {forced && (
+                    <p className="text-xs text-[var(--color-warning)]">
+                        {m['admin.ai.settings.privacyProseLimit']()}
+                    </p>
+                )}
             </SectionCard>
 
             <SaveBar dirty={form.dirty} saving={form.saving} onDiscard={form.discard} />

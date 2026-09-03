@@ -38,7 +38,11 @@ class ModelToolProfileDetector
         // 1.7B model to the hosted fallback.
         $selfHosted = match (true) {
             in_array($provider, ProviderConfig::SELF_HOSTED, true) => true,
-            in_array($provider, [ProviderConfig::PROVIDER_OPENAI, ProviderConfig::PROVIDER_ANTHROPIC], true) => false,
+            in_array($provider, [
+                ProviderConfig::PROVIDER_OPENAI,
+                ProviderConfig::PROVIDER_ANTHROPIC,
+                ProviderConfig::PROVIDER_OPENROUTER,
+            ], true) => false,
             default => $capabilities === null ? true : $capabilities->selfHosted,
         };
 
@@ -149,7 +153,11 @@ class ModelToolProfileDetector
             self::CONFIDENCE_HIGH,
             sprintf(
                 'Hosted %s models receive the complete permitted tool surface; model-size tiers apply only to self-hosted providers.',
-                $provider === ProviderConfig::PROVIDER_ANTHROPIC ? 'Anthropic' : 'OpenAI',
+                match ($provider) {
+                    ProviderConfig::PROVIDER_ANTHROPIC => 'Anthropic',
+                    ProviderConfig::PROVIDER_OPENROUTER => 'OpenRouter',
+                    default => 'OpenAI',
+                },
             ),
         );
     }

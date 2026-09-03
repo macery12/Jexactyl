@@ -38,13 +38,6 @@ function apiErrorDetail(data: unknown): string | undefined {
     return undefined;
 }
 
-function appendErrorReference(message: string, response: Response): string {
-    const reference = response.headers.get('X-AI-Error-Reference')?.trim();
-    if (!reference || !/^[a-zA-Z0-9-]{6,64}$/.test(reference) || message.includes(reference)) return message;
-
-    return `${message} Administrator reference: ${reference}.`;
-}
-
 async function failedResponseMessage(response: Response): Promise<string> {
     let message: string | undefined;
 
@@ -68,7 +61,7 @@ async function failedResponseMessage(response: Response): Promise<string> {
             ? 'The panel or AI provider encountered an unexpected service error. Please try again shortly.'
             : `The panel could not start the AI request (HTTP ${response.status}). Please reload and try again.`);
 
-    return appendErrorReference(message, response);
+    return message;
 }
 
 // SSE client for the panel's agent endpoint.

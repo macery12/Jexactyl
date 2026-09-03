@@ -228,6 +228,7 @@ class AgentFollowThroughTest extends TestCase
         $this->assertCount(3, $provider->requests);
         $this->assertNull($provider->requests[0]->responseSchema);
         $this->assertNotNull($provider->requests[1]->responseSchema);
+        $this->assertSame(AiRequest::TOOL_CHOICE_REQUIRED, $provider->requests[1]->toolChoice);
         $this->assertNull($provider->requests[2]->responseSchema);
 
         $repairMessage = $provider->requests[1]->messages[array_key_last($provider->requests[1]->messages)];

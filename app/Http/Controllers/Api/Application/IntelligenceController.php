@@ -3,7 +3,6 @@
 namespace Everest\Http\Controllers\Api\Application;
 
 use Everest\Models\Setting;
-use Illuminate\Support\Str;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Everest\Models\AiUsageLog;
@@ -42,11 +41,13 @@ class IntelligenceController extends ApplicationApiController
      */
     public function index(GetIntelligenceRequest $request): JsonResponse
     {
+        $config = $this->factory->config();
+
         return response()->json([
             'enabled' => boolval(config('modules.ai.enabled', false)),
-            'key' => !empty(config('modules.ai.key')),
-            'endpoint' => config('modules.ai.endpoint', ''),
-            'model' => config('modules.ai.model', ''),
+            'key' => $config->apiKey !== '',
+            'endpoint' => $config->endpoint,
+            'model' => $config->model,
 
             // `mode` predates multi-provider support and is still what old
             // installs are configured with, so the resolved provider is
@@ -116,6 +117,7 @@ class IntelligenceController extends ApplicationApiController
                 'enabled' => $this->redactor->enabled(),
                 'categories' => $this->redactor->activeKinds(),
                 'available' => PiiRedactor::KINDS,
+                'forced' => $this->redactor->forced(),
             ],
         ]);
     }
@@ -315,21 +317,19 @@ class IntelligenceController extends ApplicationApiController
         }
     }
 
-    /** Attach a copyable reference to an admin-facing failure and its safe log context. */
+    /** Log safe context for an admin-facing failure without decorating the UI message. */
     private function adminAiDiagnostic(string $message, string $operation, ?\Throwable $exception = null): string
     {
-        $reference = Str::upper(Str::random(10));
         $config = $this->factory->config();
 
         Log::warning('AI administration operation failed.', array_filter([
-            'reference' => $reference,
             'operation' => $operation,
             'provider' => $config->provider,
             'model' => $config->model ?: 'unknown',
             'exception' => $exception !== null ? $exception::class : null,
         ]));
 
-        return rtrim($message) . ' Administrator reference: ' . $reference . '.';
+        return rtrim($message);
     }
 
     /**

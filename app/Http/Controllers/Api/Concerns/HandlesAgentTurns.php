@@ -310,26 +310,19 @@ trait HandlesAgentTurns
 
     /**
      * Refuse a request before its stream opens while preserving a safe sentence
-     * for the browser and a searchable reference for operators.
+     * for the browser and structured context for operators.
      */
     protected function rejectAgentRequest(string $message, string $reason): never
     {
-        $reference = Str::upper(Str::random(10));
         $config = $this->providerFactory()->config();
 
         Log::warning('AI agent request rejected before streaming.', [
-            'reference' => $reference,
             'reason' => $reason,
             'provider' => $config->provider,
             'model' => $config->model ?: 'unknown',
         ]);
 
-        throw new ServiceUnavailableHttpException(5, $message, null, 0, ['X-AI-Error-Safe' => '1', 'X-AI-Error-Reference' => $reference]);
-    }
-
-    protected function withAgentErrorReference(string $message, string $reference): string
-    {
-        return rtrim($message) . ' Administrator reference: ' . $reference . '.';
+        throw new ServiceUnavailableHttpException(5, $message, null, 0, ['X-AI-Error-Safe' => '1']);
     }
 
     /**
@@ -556,9 +549,7 @@ trait HandlesAgentTurns
                         'resolved_at' => now(),
                     ]);
 
-                $reference = Str::upper(Str::random(10));
                 Log::error('AI agent turn failed.', [
-                    'reference' => $reference,
                     'turn' => $turnId,
                     'user' => $userId,
                     'provider' => $this->providerFactory()->config()->provider,
@@ -574,7 +565,6 @@ trait HandlesAgentTurns
                 $error = $e instanceof AIServiceException
                     ? $e->getMessage()
                     : 'The AI assistant encountered an internal panel error before it could finish. Please try again; if it happens again, contact an administrator.';
-                $error = $this->withAgentErrorReference($error, $reference);
                 $this->send(AgentEvent::error($error));
             }
 
@@ -585,13 +575,8 @@ trait HandlesAgentTurns
             $persistenceFailed = !$recorder->touch($conversation, $context);
             if ($persistenceFailed) {
                 $status = 'error';
-                $reference = Str::upper(Str::random(10));
-                $error = $this->withAgentErrorReference(
-                    'The turn finished, but its conversation state could not be saved. Reload the conversation before retrying.',
-                    $reference,
-                );
+                $error = 'The turn finished, but its conversation state could not be saved. Reload the conversation before retrying.';
                 Log::warning('AI conversation state could not be persisted.', [
-                    'reference' => $reference,
                     'turn' => $turnId,
                     'user' => $userId,
                 ]);
@@ -621,18 +606,15 @@ trait HandlesAgentTurns
                 ]);
                 $usageReconciled = true;
             } catch (\Throwable $e) {
-                $reference = Str::upper(Str::random(10));
                 Log::warning('Failed to write AI usage log.', [
-                    'reference' => $reference,
                     'turn' => $turnId,
                     'user' => $userId,
                     'exception' => $e::class,
                     'message' => $e->getMessage(),
                 ]);
-                $this->send(AgentEvent::error($this->withAgentErrorReference(
+                $this->send(AgentEvent::error(
                     'The turn ended, but its final status could not be saved. Reload before retrying.',
-                    $reference,
-                )));
+                ));
 
                 return;
             }

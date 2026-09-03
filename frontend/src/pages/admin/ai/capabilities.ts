@@ -12,6 +12,7 @@ import type { AiAdminSettings, AiInferenceState, AiProvider } from '@/api/adminA
 export const DEFAULT_ENDPOINTS: Record<AiProvider, string> = {
     anthropic: 'https://api.anthropic.com/v1',
     openai: 'https://api.openai.com/v1',
+    openrouter: 'https://openrouter.ai/api/v1',
     ollama: 'http://127.0.0.1:11434/v1',
     openai_compatible: '',
 };
@@ -127,10 +128,11 @@ export function resolveCapabilities(
     const probe = settings && inference?.capabilities?.model === settings.model ? inference.capabilities : null;
 
     return {
-        // Self-hosted OpenAI-compatible servers may accept a key, but servers such as
-        // llama.cpp commonly run without one. Bare Ollama has no key field.
-        apiKey: !isOllama,
-        apiKeyOptional: provider === 'openai_compatible',
+        // Local servers normally run without authentication, but both native
+        // Ollama deployments behind a proxy and OpenAI-compatible servers may
+        // require a Bearer token. The drivers already send one when configured.
+        apiKey: true,
+        apiKeyOptional: !hosted,
         keepAlive: isOllama,
         contextWindow: isOllama,
         queue: !hosted,
@@ -144,11 +146,13 @@ export function resolveCapabilities(
         presets:
             provider === 'openai_compatible'
                 ? []
-                : provider === 'anthropic'
-                  ? ANTHROPIC_PRESETS
-                  : hosted
-                    ? OPENAI_PRESETS
-                    : OLLAMA_PRESETS,
+                : provider === 'openrouter'
+                  ? []
+                  : provider === 'anthropic'
+                    ? ANTHROPIC_PRESETS
+                    : hosted
+                      ? OPENAI_PRESETS
+                      : OLLAMA_PRESETS,
         selfHosted: !hosted,
         probedModel: probe?.model ?? null,
         shimmedOllama: provider === 'openai_compatible' && OLLAMA_PORT.test(settings?.endpoint ?? ''),

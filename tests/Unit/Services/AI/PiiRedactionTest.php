@@ -5,7 +5,9 @@ namespace Everest\Tests\Unit\Services\AI;
 use Everest\Models\User;
 use Everest\Models\Setting;
 use Everest\Tests\TestCase;
+use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\AgentContext;
+use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
 use Everest\Services\AI\Privacy\RedactionMap;
 
@@ -34,8 +36,36 @@ class PiiRedactionTest extends TestCase
         // the previous test's value in place for the rest of the process.
         Setting::forget('settings::modules:ai:privacy:enabled');
         Setting::forget('settings::modules:ai:privacy:categories');
+        Setting::forget('settings::modules:ai:provider');
 
         $this->redactor = app(PiiRedactor::class);
+    }
+
+    public function testOpenRouterForcesEveryCategoryWithoutOverwritingStoredPreferences(): void
+    {
+        $provider = ProviderConfig::PROVIDER_OPENROUTER;
+        $factory = \Mockery::mock(ProviderFactory::class);
+        $factory->shouldReceive('provider')->andReturnUsing(static function () use (&$provider): string {
+            return $provider;
+        });
+        $this->app->instance(ProviderFactory::class, $factory);
+
+        Setting::set('settings::modules:ai:privacy:enabled', false);
+        Setting::set('settings::modules:ai:privacy:categories', json_encode([PiiRedactor::KIND_EMAIL]));
+
+        $this->assertTrue($this->redactor->forced());
+        $this->assertTrue($this->redactor->enabled());
+        $this->assertSame(PiiRedactor::KINDS, $this->redactor->activeKinds());
+        $this->assertNotSame('person@example.com', $this->redactor->redact(
+            ['email' => 'person@example.com'],
+            new RedactionMap(),
+        )['email']);
+
+        $provider = ProviderConfig::PROVIDER_OLLAMA;
+
+        $this->assertFalse($this->redactor->forced());
+        $this->assertFalse($this->redactor->enabled());
+        $this->assertSame([PiiRedactor::KIND_EMAIL], $this->redactor->activeKinds());
     }
 
     /*

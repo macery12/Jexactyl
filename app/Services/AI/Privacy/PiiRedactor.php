@@ -3,6 +3,8 @@
 namespace Everest\Services\AI\Privacy;
 
 use Everest\Models\Setting;
+use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Data\ProviderConfig;
 
 /**
  * Strips personal data out of everything on its way to the model. Exact
@@ -585,6 +587,10 @@ class PiiRedactor
 
     public function enabled(): bool
     {
+        if ($this->forced()) {
+            return true;
+        }
+
         return (bool) Setting::get(
             'settings::modules:ai:privacy:enabled',
             config('modules.ai.privacy.enabled', true)
@@ -600,6 +606,10 @@ class PiiRedactor
      */
     public function activeKinds(): array
     {
+        if ($this->forced()) {
+            return self::KINDS;
+        }
+
         $stored = Setting::get('settings::modules:ai:privacy:categories');
 
         if (!is_string($stored) || $stored === '') {
@@ -618,5 +628,11 @@ class PiiRedactor
         // Intersected against the canonical list so the order is the declared
         // one and an unknown category cannot reach the walker.
         return array_values(array_intersect(self::KINDS, $decoded));
+    }
+
+    /** OpenRouter always receives fully redacted panel context and tool output. */
+    public function forced(): bool
+    {
+        return app(ProviderFactory::class)->provider() === ProviderConfig::PROVIDER_OPENROUTER;
     }
 }

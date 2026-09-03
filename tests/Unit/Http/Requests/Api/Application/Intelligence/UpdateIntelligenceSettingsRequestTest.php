@@ -6,6 +6,7 @@ use Everest\Tests\TestCase;
 use Everest\Services\AI\ProviderFactory;
 use Illuminate\Support\Facades\Validator;
 use Everest\Services\AI\Data\ProviderConfig;
+use Everest\Services\AI\Providers\OpenRouterProvider;
 use Everest\Http\Requests\Api\Application\Intelligence\UpdateIntelligenceSettingsRequest;
 
 /**
@@ -130,6 +131,39 @@ class UpdateIntelligenceSettingsRequestTest extends TestCase
         ]));
 
         $this->assertNotContains('endpoint', $errors);
+    }
+
+    public function testOpenRouterRejectsEveryEndpointAndModelOverride(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OPENROUTER,
+            'endpoint' => 'https://openrouter.ai/api/v1/alternate',
+            'model' => 'vendor/model:free',
+        ]));
+
+        $this->assertContains('endpoint', $errors);
+        $this->assertContains('model', $errors);
+
+        $blankErrors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OPENROUTER,
+            'endpoint' => '',
+            'model' => '',
+        ]));
+        $this->assertContains('endpoint', $blankErrors);
+        $this->assertContains('model', $blankErrors);
+    }
+
+    public function testSelectingOpenRouterActivatesCanonicalConnectionAndClearsCredential(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $normalized = $this->request(['provider' => ProviderConfig::PROVIDER_OPENROUTER])->normalize();
+
+        $this->assertSame(OpenRouterProvider::ENDPOINT, $normalized['endpoint']);
+        $this->assertSame(OpenRouterProvider::MODEL, $normalized['model']);
+        $this->assertSame('', $normalized['key']);
     }
 
     public function testChangingProviderBlanksAnUnsuppliedEndpointAndKey(): void

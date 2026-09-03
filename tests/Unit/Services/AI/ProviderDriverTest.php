@@ -734,6 +734,24 @@ class ProviderDriverTest extends TestCase
         $this->assertSame('ok', $provider->chat(new AiRequest([AiMessage::user('x')]))->content);
     }
 
+    public function testOllamaSendsAnOptionalBearerKeyWhenConfigured(): void
+    {
+        $provider = new OllamaProvider(
+            $this->config(ProviderConfig::PROVIDER_OLLAMA, ['apiKey' => 'local-secret']),
+            $this->stack([new Response(200, [], json_encode([
+                'message' => ['content' => 'ok'],
+                'done' => true,
+            ]))]),
+        );
+
+        $provider->chat(new AiRequest([AiMessage::user('x')]));
+
+        $this->assertSame(
+            'Bearer local-secret',
+            $this->history[0]['request']->getHeaderLine('Authorization'),
+        );
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Anthropic
@@ -848,6 +866,33 @@ class ProviderDriverTest extends TestCase
         $legacy = new AnthropicProvider($config->withModel('claude-haiku-4-5'), $stack);
         $legacy->chat(new AiRequest([AiMessage::user('x')], temperature: 0.0));
         $this->assertArrayHasKey('temperature', $this->sentPayload(1));
+    }
+
+    public function testAnthropicModelListingUsesStableAliasesWithoutDatedSuffixes(): void
+    {
+        $stack = $this->stack([new Response(200, [], json_encode([
+            'data' => [
+                ['id' => 'claude-opus-4-5-20251101'],
+                ['id' => 'claude-opus-4-5'],
+                ['id' => 'claude-haiku-4-5-20251001'],
+                ['id' => 'claude-sonnet-5'],
+                ['id' => ''],
+            ],
+        ]))]);
+
+        $provider = new AnthropicProvider(
+            $this->config(ProviderConfig::PROVIDER_ANTHROPIC, [
+                'endpoint' => 'https://api.anthropic.com/v1',
+                'apiKey' => 'sk-ant-test',
+            ]),
+            $stack,
+        );
+
+        $this->assertSame([
+            ['id' => 'claude-opus-4-5', 'size' => null],
+            ['id' => 'claude-haiku-4-5', 'size' => null],
+            ['id' => 'claude-sonnet-5', 'size' => null],
+        ], $provider->listModels());
     }
 
     public function testAnthropicAssemblesStreamedToolUseBlocks(): void

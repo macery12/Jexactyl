@@ -6,7 +6,7 @@ import type { AgentTurnStatus, ChatRole, StoredMessage } from '@/api/ai';
 // analytics and the admin assistant. Mirrors V1's `api/routes/admin/ai/*`
 // against /api/application/ai/*.
 
-export type AiProvider = 'anthropic' | 'openai' | 'openai_compatible' | 'ollama';
+export type AiProvider = 'anthropic' | 'openai' | 'openrouter' | 'openai_compatible' | 'ollama';
 
 /** Providers the panel talks to over the network rather than paying per token. */
 export const SELF_HOSTED_PROVIDERS: AiProvider[] = ['ollama', 'openai_compatible'];
@@ -68,6 +68,8 @@ export type AiPiiCategory = 'email' | 'ip' | 'name' | 'phone' | 'address' | 'pay
 export interface AiPrivacySettings {
     enabled: boolean;
     categories: AiPiiCategory[];
+    /** True when the active provider requires every redaction category. */
+    forced: boolean;
     /** Every category the redactor knows, so the UI never hardcodes the list. */
     available: AiPiiCategory[];
 }

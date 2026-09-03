@@ -16,7 +16,8 @@ return [
     'enabled' => env('AI_ENABLED', false),
 
     /*
-     * Provider driver: 'anthropic', 'openai', 'openai_compatible' or 'ollama'.
+     * Provider driver: 'anthropic', 'openai', 'openrouter',
+     * 'openai_compatible' or 'ollama'.
      *
      * Replaces the older 'mode' setting below, which is still read as a
      * fallback so existing installs keep working untouched.
@@ -43,8 +44,8 @@ return [
     'endpoint' => env('AI_ENDPOINT', ''),
 
     /*
-     * Model used for every AI request. The panel has one provider connection,
-     * so keeping one model here makes the runtime match the settings UI.
+     * Model used for every AI request. OpenRouter ignores this value and uses
+     * its managed `openrouter/free` model router.
      */
     'model' => env('AI_MODEL', ''),
 

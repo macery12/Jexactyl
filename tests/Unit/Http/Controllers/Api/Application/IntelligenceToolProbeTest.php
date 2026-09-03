@@ -74,7 +74,7 @@ class IntelligenceToolProbeTest extends TestCase
         $this->assertSame('error', $response->getData(true)['status']);
     }
 
-    public function testFailedProbeExplainsTheProviderProblemAndIncludesALogReference(): void
+    public function testFailedProbeExplainsTheProviderProblemWithoutAnOpaqueReference(): void
     {
         $config = new ProviderConfig(
             provider: ProviderConfig::PROVIDER_OPENAI_COMPATIBLE,
@@ -98,7 +98,7 @@ class IntelligenceToolProbeTest extends TestCase
 
         $this->assertSame(502, $response->getStatusCode());
         $this->assertStringContainsString('selected model and endpoint are compatible', $message);
-        $this->assertMatchesRegularExpression('/Administrator reference: [A-Z0-9]{10}\./', $message);
+        $this->assertStringNotContainsString('Administrator reference:', $message);
     }
 
     public function testConnectionFailureShowsTheSpecificProviderDiagnosis(): void
@@ -126,7 +126,7 @@ class IntelligenceToolProbeTest extends TestCase
 
         $this->assertSame(502, $response->getStatusCode());
         $this->assertStringContainsString('rejected the configured credentials', $message);
-        $this->assertMatchesRegularExpression('/Administrator reference: [A-Z0-9]{10}\./', $message);
+        $this->assertStringNotContainsString('Administrator reference:', $message);
     }
 
     private function controller(ProviderFactory $factory): IntelligenceController

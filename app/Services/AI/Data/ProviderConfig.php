@@ -13,12 +13,14 @@ class ProviderConfig
 {
     public const PROVIDER_ANTHROPIC = 'anthropic';
     public const PROVIDER_OPENAI = 'openai';
+    public const PROVIDER_OPENROUTER = 'openrouter';
     public const PROVIDER_OPENAI_COMPATIBLE = 'openai_compatible';
     public const PROVIDER_OLLAMA = 'ollama';
 
     public const PROVIDERS = [
         self::PROVIDER_ANTHROPIC,
         self::PROVIDER_OPENAI,
+        self::PROVIDER_OPENROUTER,
         self::PROVIDER_OPENAI_COMPATIBLE,
         self::PROVIDER_OLLAMA,
     ];

@@ -7,6 +7,7 @@ use Everest\Services\AI\ProviderFactory;
 use Everest\Services\AI\Agent\AgentRunner;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Privacy\PiiRedactor;
+use Everest\Services\AI\Providers\OpenRouterProvider;
 use Everest\Http\Requests\Api\Application\ApplicationApiRequest;
 
 class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
@@ -17,6 +18,8 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
 
     public function rules(): array
     {
+        $openRouter = ((string) $this->input('provider', '') ?: $this->storedProvider()) === ProviderConfig::PROVIDER_OPENROUTER;
+
         return [
             'enabled' => 'nullable|bool',
             'key' => 'nullable',
@@ -86,8 +89,8 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
             // way to run unenforced is to leave `budget.enforce` off.
             'budget.monthly_tokens' => 'nullable|integer|min:0',
 
-            'endpoint' => ['nullable', $this->endpointRule()],
-            'model' => 'nullable|string|max:100',
+            'endpoint' => [...($openRouter ? ['sometimes', 'required'] : ['nullable']), $this->endpointRule()],
+            'model' => [...($openRouter ? ['sometimes', 'required'] : ['nullable']), 'string', 'max:100', $this->modelRule()],
         ];
     }
 
@@ -154,6 +157,11 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
      */
     private function resetProviderScopedSettings(array $normalized): array
     {
+        if (($normalized['provider'] ?? null) === ProviderConfig::PROVIDER_OPENROUTER) {
+            $normalized['endpoint'] ??= OpenRouterProvider::ENDPOINT;
+            $normalized['model'] ??= OpenRouterProvider::MODEL;
+        }
+
         if (!isset($normalized['provider']) || $normalized['provider'] === $this->storedProvider()) {
             return $normalized;
         }
@@ -245,6 +253,14 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
         $provider = (string) $this->input('provider', '') ?: $this->storedProvider();
 
         return function ($attribute, $value, $fail) use ($provider) {
+            if ($provider === ProviderConfig::PROVIDER_OPENROUTER) {
+                if (rtrim(trim((string) $value), '/') !== OpenRouterProvider::ENDPOINT) {
+                    $fail('OpenRouter must use the panel-managed https://openrouter.ai/api/v1 endpoint.');
+                }
+
+                return;
+            }
+
             if ($value === null || $value === '') {
                 return;
             }
@@ -285,6 +301,17 @@ class UpdateIntelligenceSettingsRequest extends ApplicationApiRequest
 
             if ($officialHost !== null && $host !== $officialHost) {
                 $fail(sprintf('The %s provider must use its official API host.', $provider));
+            }
+        };
+    }
+
+    private function modelRule(): callable
+    {
+        $provider = (string) $this->input('provider', '') ?: $this->storedProvider();
+
+        return static function ($attribute, $value, $fail) use ($provider): void {
+            if ($provider === ProviderConfig::PROVIDER_OPENROUTER && (string) $value !== OpenRouterProvider::MODEL) {
+                $fail('OpenRouter must use the panel-managed openrouter/free model router.');
             }
         };
     }

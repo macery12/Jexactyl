@@ -227,15 +227,15 @@ abstract class AbstractProvider implements AiProvider
 
         $decoded = json_decode($response->getBody()->getContents(), true);
 
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new AIServiceException(self::INVALID_RESPONSE_MESSAGE);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+            throw $this->invalidResponseException();
         }
 
-        if (isset($decoded['error'])) {
-            throw new AIServiceException(self::PROVIDER_REJECTED_MESSAGE);
+        if (array_key_exists('error', $decoded)) {
+            throw $this->providerErrorException($decoded['error']);
         }
 
-        return is_array($decoded) ? $decoded : [];
+        return $decoded;
     }
 
     /**
@@ -286,10 +286,10 @@ abstract class AbstractProvider implements AiProvider
         // the endpoint answered. Not every OpenAI-compatible server implements
         // `/models`, and a 404 there must not be allowed to read as an outage
         // and lock the assistant out of a host that is running perfectly well.
-        $message = $this->transportErrorMessage($status);
-        $this->lastFailure = $message;
+        $message = $this->transportErrorMessageFromException($e, $status);
+        $this->rememberFailure($message);
 
-        if ($status === null || $status >= 500) {
+        if ($this->transportFailureIsTemporarilyUnavailable($status)) {
             $this->noteUnreachable($message);
         } else {
             $this->noteReachable();
@@ -309,6 +309,51 @@ abstract class AbstractProvider implements AiProvider
             $status === 408 || $status === null || $status >= 500 => ProviderReadiness::UNREACHABLE_MESSAGE,
             default => self::PROVIDER_REJECTED_MESSAGE,
         };
+    }
+
+    /**
+     * Provider-specific drivers may safely inspect a response body here, but
+     * only to classify documented machine-readable fields. The base driver
+     * deliberately selects its message from status alone.
+     */
+    protected function transportErrorMessageFromException(GuzzleException $e, ?int $status): string
+    {
+        return $this->transportErrorMessage($status);
+    }
+
+    protected function transportFailureIsTemporarilyUnavailable(?int $status): bool
+    {
+        return $status === null || $status >= 500;
+    }
+
+    /** Turn an embedded provider error into a safe application exception. */
+    protected function providerErrorException(mixed $error): AIServiceException
+    {
+        $message = self::PROVIDER_REJECTED_MESSAGE;
+        $this->rememberFailure($message);
+
+        return new AIServiceException($message);
+    }
+
+    protected function invalidResponseException(): AIServiceException
+    {
+        $message = self::INVALID_RESPONSE_MESSAGE;
+        $this->rememberFailure($message);
+
+        return new AIServiceException($message);
+    }
+
+    /**
+     * Remember a browser-safe failure without retaining untrusted provider
+     * prose. Temporary failures can also stand in for the next readiness probe.
+     */
+    protected function rememberFailure(string $message, bool $temporarilyUnavailable = false): void
+    {
+        $this->lastFailure = $message;
+
+        if ($temporarilyUnavailable) {
+            $this->noteUnreachable($message);
+        }
     }
 
     /**
@@ -463,7 +508,15 @@ abstract class AbstractProvider implements AiProvider
 
         $decoded = json_decode($response->getBody()->getContents(), true);
 
-        return is_array($decoded) ? $decoded : [];
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+            throw $this->invalidResponseException();
+        }
+
+        if (array_key_exists('error', $decoded)) {
+            throw $this->providerErrorException($decoded['error']);
+        }
+
+        return $decoded;
     }
 
     /**

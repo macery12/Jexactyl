@@ -4,7 +4,6 @@ namespace Everest\Jobs\AI;
 
 use Everest\Jobs\Job;
 use Everest\Models\Server;
-use Illuminate\Support\Str;
 use Everest\Models\AiUsageLog;
 use Everest\Models\AiConversation;
 use Illuminate\Support\Facades\Log;
@@ -189,15 +188,12 @@ class RunAgentTurnJob extends Job implements ShouldQueue
      */
     private function finishWithoutRunning(string $status, string $message): void
     {
-        if ($status !== 'revoked' && !str_contains($message, 'Administrator reference:')) {
-            $reference = Str::upper(Str::random(10));
+        if ($status !== 'revoked') {
             Log::warning('Durable AI agent turn stopped before execution.', [
-                'reference' => $reference,
                 'turn' => $this->turnId,
                 'status' => $status,
                 'reason' => $message,
             ]);
-            $message = rtrim($message) . ' Administrator reference: ' . $reference . '.';
         }
 
         try {

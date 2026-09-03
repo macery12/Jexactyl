@@ -74,6 +74,7 @@ class InferenceGateTest extends TestCase
         $gate = $this->gate(ProviderConfig::PROVIDER_ANTHROPIC);
 
         $this->assertFalse($gate->applies());
+        $this->assertFalse($this->gate(ProviderConfig::PROVIDER_OPENROUTER)->applies());
 
         // Callers get the same lease shape either way so the turn code has no branch.
         $admission = $gate->admit('user-1');

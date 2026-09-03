@@ -192,6 +192,12 @@ class AnthropicProvider extends AbstractProvider
                         yield AiStreamEvent::toolCallStart($blocks[$index]['id'], $blocks[$index]['name']);
                     } elseif (($block['type'] ?? '') === 'thinking') {
                         $thoughts[$index] = ['type' => 'thinking', 'thinking' => '', 'signature' => ''];
+
+                        // Claude may spend a while thinking before its first
+                        // readable summary delta. Announce the block now so the
+                        // UI shows an active Thinking row instead of looking
+                        // stalled during that gap.
+                        yield AiStreamEvent::reasoning('');
                     } elseif (($block['type'] ?? '') === 'redacted_thinking') {
                         // Encrypted by the API rather than shown. Nothing to
                         // display, but it still has to be echoed back or the
@@ -326,7 +332,11 @@ class AnthropicProvider extends AbstractProvider
         // Sampling parameters and thinking are mutually exclusive: a model that
         // takes both rejects temperature once thinking is on.
         if ($thinking) {
-            $payload['thinking'] = ['type' => 'adaptive'];
+            // Claude 5 defaults display to `omitted`: it still generates and
+            // bills thinking tokens, but returns no readable thinking text.
+            // Explicit summarized display is what makes the reasoning channel
+            // visible and streamable in the panel.
+            $payload['thinking'] = ['type' => 'adaptive', 'display' => 'summarized'];
         } elseif (!$this->rejectsSamplingParams($model)) {
             $payload['temperature'] = $this->resolveTemperature($request);
         }
@@ -563,10 +573,24 @@ class AnthropicProvider extends AbstractProvider
     {
         $data = $this->getJson('models', $this->providerConfig->connectTimeout);
 
-        return array_values(array_map(
-            fn ($m) => ['id' => (string) ($m['id'] ?? 'unknown'), 'size' => null],
-            $data['data'] ?? []
-        ));
+        $models = [];
+
+        foreach ($data['data'] ?? [] as $model) {
+            $id = trim((string) ($model['id'] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+
+            // Anthropic returns dated snapshots such as
+            // `claude-opus-4-5-20251101`. The undated alias is what operators
+            // should configure: it stays current without exposing a noisy,
+            // soon-stale release suffix in the model picker.
+            $id = preg_replace('/-\d{8}$/', '', $id) ?? $id;
+
+            $models[$id] = ['id' => $id, 'size' => null];
+        }
+
+        return array_values($models);
     }
 
     public function health(): bool

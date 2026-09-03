@@ -33,11 +33,33 @@ class OpenAiCompatibleProvider extends AbstractProvider
         }
 
         $data = $this->postJson(static::CHAT_PATH, $this->buildPayload($request, false));
-        $choice = $data['choices'][0] ?? [];
-        $message = $choice['message'] ?? [];
+        $choice = is_array($data['choices'][0] ?? null) ? $data['choices'][0] : [];
+        $message = is_array($choice['message'] ?? null) ? $choice['message'] : [];
+
+        if ($this->strictResponseValidation()) {
+            if (!is_array($data['choices'][0] ?? null) || !is_array($choice['message'] ?? null)) {
+                throw $this->invalidResponseException();
+            }
+            if (array_key_exists('error', $choice)) {
+                throw $this->providerErrorException($choice['error']);
+            }
+            if (array_key_exists('error', $message)) {
+                throw $this->providerErrorException($message['error']);
+            }
+            if (($choice['finish_reason'] ?? null) === 'error') {
+                throw $this->providerErrorException($choice['error'] ?? null);
+            }
+            if (in_array($choice['finish_reason'] ?? null, ['content_filter', 'refusal'], true)) {
+                throw $this->providerErrorException(['metadata' => ['error_type' => 'content_policy_violation']]);
+            }
+        }
 
         $content = isset($message['content']) ? trim((string) $message['content']) : null;
         $toolCalls = $this->parseToolCalls($message['tool_calls'] ?? []);
+
+        if ($this->strictResponseValidation() && ($content === null || $content === '') && $toolCalls === []) {
+            throw $this->emptyResponseException();
+        }
 
         if ($content !== null && $toolCalls === []) {
             $this->storeText($request, $content);
@@ -76,15 +98,27 @@ class OpenAiCompatibleProvider extends AbstractProvider
         $text = '';
         $finish = null;
         $usage = [];
+        $reasoningDetails = [];
+        $completionMarker = false;
 
         foreach ($this->readSse($body) as $frame) {
-            $data = $this->decodeSseData($frame['data']);
-            if ($data === null) {
+            if (trim($frame['data']) === '[DONE]') {
+                $completionMarker = true;
+
                 continue;
             }
 
-            if (isset($data['error'])) {
-                throw new AIServiceException(self::PROVIDER_REJECTED_MESSAGE);
+            $data = $this->decodeSseData($frame['data']);
+            if ($data === null) {
+                if ($this->strictResponseValidation() && trim($frame['data']) !== '') {
+                    throw $this->invalidResponseException();
+                }
+
+                continue;
+            }
+
+            if (array_key_exists('error', $data)) {
+                throw $this->providerErrorException($data['error']);
             }
 
             if (isset($data['usage']) && is_array($data['usage'])) {
@@ -99,11 +133,36 @@ class OpenAiCompatibleProvider extends AbstractProvider
                 continue;
             }
 
+            if (array_key_exists('error', $choice)) {
+                throw $this->providerErrorException($choice['error']);
+            }
+
             if (!empty($choice['finish_reason'])) {
                 $finish = (string) $choice['finish_reason'];
+
+                if ($finish === 'error') {
+                    throw $this->providerErrorException($choice['error'] ?? null);
+                }
+                if ($this->strictResponseValidation() && in_array($finish, ['content_filter', 'refusal'], true)) {
+                    throw $this->providerErrorException(['metadata' => ['error_type' => 'content_policy_violation']]);
+                }
             }
 
             $delta = $choice['delta'] ?? [];
+            if (!is_array($delta)) {
+                if ($this->strictResponseValidation()) {
+                    throw $this->invalidResponseException();
+                }
+
+                continue;
+            }
+
+            foreach ($this->reasoningDetailsFromDelta($delta) as $detail) {
+                // OpenRouter documents these as an ordered sequence of chunks
+                // which must be replayed without modification. Do not merge,
+                // sort or normalize them even when adjacent entries share an id.
+                $reasoningDetails[] = $detail;
+            }
 
             // Reasoning models on this wire format put their thinking on a
             // sibling key rather than in `content`. There is no agreed name for
@@ -148,6 +207,10 @@ class OpenAiCompatibleProvider extends AbstractProvider
             }
         }
 
+        if ($this->requiresStreamCompletionMarker() && !$completionMarker) {
+            throw $this->interruptedStreamException();
+        }
+
         ksort($pending);
         $emitted = [];
 
@@ -166,6 +229,10 @@ class OpenAiCompatibleProvider extends AbstractProvider
             yield AiStreamEvent::toolCall($toolCall);
         }
 
+        foreach ($reasoningDetails as $detail) {
+            yield AiStreamEvent::reasoningBlock($detail);
+        }
+
         if ($usage !== []) {
             yield AiStreamEvent::usage($usage);
         }
@@ -174,7 +241,43 @@ class OpenAiCompatibleProvider extends AbstractProvider
             $this->storeText($request, $text);
         }
 
+        if ($this->strictResponseValidation() && $emitted === [] && $text === '') {
+            throw $this->emptyResponseException();
+        }
+
         yield AiStreamEvent::done($this->mapFinishReason($finish, $emitted));
+    }
+
+    /** Hosted drivers can opt into rejecting malformed or ambiguous replies. */
+    protected function strictResponseValidation(): bool
+    {
+        return false;
+    }
+
+    /** Most compatible servers do not reliably send the terminal SSE sentinel. */
+    protected function requiresStreamCompletionMarker(): bool
+    {
+        return false;
+    }
+
+    /** @return array<int, array> */
+    protected function reasoningDetailsFromDelta(array $delta): array
+    {
+        return [];
+    }
+
+    protected function emptyResponseException(): AIServiceException
+    {
+        $this->rememberFailure(self::INVALID_RESPONSE_MESSAGE, true);
+
+        return new AIServiceException(self::INVALID_RESPONSE_MESSAGE);
+    }
+
+    protected function interruptedStreamException(): AIServiceException
+    {
+        $this->rememberFailure(self::INVALID_RESPONSE_MESSAGE, true);
+
+        return new AIServiceException(self::INVALID_RESPONSE_MESSAGE);
     }
 
     public function capabilities(?string $model = null): ProviderCapabilities

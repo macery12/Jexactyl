@@ -97,7 +97,10 @@ class ReasoningChannelTest extends TestCase
 
         $this->anthropic($stack)->chat((new AiRequest([AiMessage::user('x')]))->withReasoning());
 
-        $this->assertSame(['type' => 'adaptive'], $this->sentPayload()['thinking'] ?? null);
+        $this->assertSame(
+            ['type' => 'adaptive', 'display' => 'summarized'],
+            $this->sentPayload()['thinking'] ?? null,
+        );
     }
 
     /**
@@ -181,8 +184,13 @@ class ReasoningChannelTest extends TestCase
         $reasoning = '';
         $text = '';
         $blocks = [];
+        $reasoningEvents = 0;
 
         foreach ($this->anthropic($stack)->stream((new AiRequest([AiMessage::user('x')]))->withReasoning()) as $event) {
+            if ($event->type === AiStreamEvent::TYPE_REASONING) {
+                ++$reasoningEvents;
+            }
+
             match ($event->type) {
                 AiStreamEvent::TYPE_REASONING => $reasoning .= (string) $event->text,
                 AiStreamEvent::TYPE_TEXT => $text .= (string) $event->text,
@@ -195,6 +203,7 @@ class ReasoningChannelTest extends TestCase
         // the answer is the bug this whole separation exists to prevent.
         $this->assertSame('The user wants a product.', $reasoning);
         $this->assertSame('Let me look.', $text);
+        $this->assertSame(3, $reasoningEvents, 'The empty first event announces thinking before summary text arrives.');
 
         $this->assertCount(1, $blocks);
         $this->assertSame('thinking', $blocks[0]['type']);

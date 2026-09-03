@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CircleCheck, Cpu, HardDrive, KeyRound, Plug, RefreshCw, Trash2, TriangleAlert, Wifi, Wrench } from 'lucide-react';
+import { CircleCheck, Cpu, ExternalLink, HardDrive, KeyRound, Plug, RefreshCw, Trash2, TriangleAlert, Wifi, Wrench } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { Button } from '@/components/ui/Button';
@@ -25,6 +25,8 @@ import {
 } from '@/api/adminAi';
 import { DEFAULT_ENDPOINTS } from '../capabilities';
 import { AI_INFERENCE_KEY, AI_SETTINGS_KEY, useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
+
+const LOCAL_PROVIDER_CHOICE = 'local';
 
 function formatSize(bytes: number | null): string | null {
     if (!bytes) return null;
@@ -156,6 +158,7 @@ export default function ProviderPage() {
     // Saving a different provider discards the stored endpoint and key, so the
     // "key on file" affordances below must stop claiming one is kept.
     const providerChanged = value.provider !== settings.provider;
+    const localProvider = value.provider === 'ollama' || value.provider === 'openai_compatible';
     const probeOutdated = form.dirty;
     const discovered = !probeOutdated && models.length > 0;
     const modelsRefreshing = modelsFetching || refreshModels.isPending;
@@ -217,49 +220,89 @@ export default function ProviderPage() {
                     <FieldRow
                         label={m['admin.ai.settings.providerLabel']()}
                         desc={
-                            value.provider === 'openai_compatible'
-                                ? m['admin.ai.settings.modeCompatibleHint']()
-                                : value.provider === 'ollama'
-                                  ? m['admin.ai.settings.modeOllamaHint']()
+                            localProvider
+                                ? m['admin.ai.settings.modeLocalHint']()
+                                : value.provider === 'openrouter'
+                                  ? m['admin.ai.settings.modeOpenrouterHint']()
                                   : value.provider === 'anthropic'
                                     ? m['admin.ai.settings.modeAnthropicHint']()
                                     : m['admin.ai.settings.modeOpenaiHint']()
                         }
                     >
                         <Select
-                            value={value.provider}
-                            onChange={next =>
+                            value={localProvider ? LOCAL_PROVIDER_CHOICE : value.provider}
+                            onChange={next => {
+                                const provider = next === LOCAL_PROVIDER_CHOICE
+                                    ? 'ollama'
+                                    : next as AiProvider;
+
                                 // The endpoint and key are a single slot shared
                                 // by every provider, not one slot each, so the
                                 // previous provider's values cannot carry over:
                                 // a LAN Ollama address is not a valid Anthropic
                                 // endpoint, and its key would be rejected there.
                                 // The backend clears the stored pair to match.
-                                patch({ provider: next as AiProvider, endpoint: DEFAULT_ENDPOINTS[next as AiProvider], key: '' })
-                            }
+                                patch({
+                                    provider,
+                                    endpoint: DEFAULT_ENDPOINTS[provider],
+                                    key: '',
+                                    ...(provider === 'openrouter' ? { model: 'openrouter/free' } : {}),
+                                });
+                            }}
                             options={[
                                 { value: 'openai', label: m['admin.ai.providerOpenai']() },
                                 { value: 'anthropic', label: m['admin.ai.providerAnthropic']() },
-                                { value: 'ollama', label: m['admin.ai.providerOllama']() },
-                                { value: 'openai_compatible', label: m['admin.ai.providerCompatible']() },
+                                { value: 'openrouter', label: m['admin.ai.providerOpenrouter']() },
+                                { value: LOCAL_PROVIDER_CHOICE, label: m['admin.ai.providerLocal']() },
                             ]}
                         />
                     </FieldRow>
+
+                    {localProvider && (
+                        <FieldRow
+                            label={m['admin.ai.settings.localProtocol']()}
+                            desc={
+                                value.provider === 'ollama'
+                                    ? m['admin.ai.settings.modeOllamaHint']()
+                                    : m['admin.ai.settings.modeCompatibleHint']()
+                            }
+                        >
+                            <Select
+                                value={value.provider}
+                                onChange={next => {
+                                    const provider = next as AiProvider;
+
+                                    patch({
+                                        provider,
+                                        endpoint: DEFAULT_ENDPOINTS[provider],
+                                        key: '',
+                                    });
+                                }}
+                                options={[
+                                    { value: 'ollama', label: m['admin.ai.providerOllama']() },
+                                    { value: 'openai_compatible', label: m['admin.ai.providerCompatible']() },
+                                ]}
+                            />
+                        </FieldRow>
+                    )}
 
                     <FieldRow
                         label={m['admin.ai.settings.endpoint']()}
                         desc={
                             value.provider === 'openai_compatible'
                                 ? m['admin.ai.settings.endpointCompatibleHint']()
-                                : capabilities.selfHosted
-                                  ? m['admin.ai.settings.endpointOllamaHint']()
-                                  : m['admin.ai.settings.endpointOpenaiHint']()
+                                : value.provider === 'openrouter'
+                                  ? m['admin.ai.settings.endpointOpenrouterHint']()
+                                  : capabilities.selfHosted
+                                    ? m['admin.ai.settings.endpointOllamaHint']()
+                                    : m['admin.ai.settings.endpointOpenaiHint']()
                         }
                     >
                         <Input
                             value={value.endpoint}
                             onChange={event => patch({ endpoint: event.target.value })}
                             placeholder={DEFAULT_ENDPOINTS[value.provider] || 'https://…'}
+                            readOnly={value.provider === 'openrouter'}
                         />
                     </FieldRow>
 
@@ -299,6 +342,17 @@ export default function ProviderPage() {
                                     </Button>
                                 )}
                             </div>
+                            {value.provider === 'openrouter' && (
+                                <a
+                                    href="https://openrouter.ai/settings/keys"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-1.5 inline-flex items-center gap-1 text-xs text-[var(--brand)] hover:underline"
+                                >
+                                    {m['admin.ai.settings.openrouterManageKeys']()}
+                                    <ExternalLink className="h-3 w-3" />
+                                </a>
+                            )}
                         </FieldRow>
                     ) : (
                         <FieldRow label={m['admin.ai.settings.apiKey']()}>
@@ -323,7 +377,9 @@ export default function ProviderPage() {
                 <FieldRow
                     label={m['admin.ai.settings.model']()}
                     desc={
-                        !discovered
+                        value.provider === 'openrouter'
+                            ? m['admin.ai.settings.modelOpenrouterHint']()
+                            : !discovered
                             ? capabilities.presets.length > 0
                                 ? m['admin.ai.settings.modelPresetHint']()
                                 : m['admin.ai.settings.modelExactHint']()
@@ -337,8 +393,9 @@ export default function ProviderPage() {
                             value={value.model}
                             onChange={event => patch({ model: event.target.value })}
                             className="font-mono"
+                            readOnly={value.provider === 'openrouter'}
                         />
-                        <Button
+                        {value.provider !== 'openrouter' && <Button
                             type="button"
                             variant="outline"
                             size="icon"
@@ -351,11 +408,11 @@ export default function ProviderPage() {
                             disabled={modelsRefreshing || probeOutdated}
                         >
                             <RefreshCw className={cn('h-4 w-4', modelsRefreshing && 'animate-spin')} />
-                        </Button>
+                        </Button>}
                     </div>
                 </FieldRow>
 
-                <div className="flex flex-wrap gap-1.5">
+                {value.provider !== 'openrouter' && <div className="flex flex-wrap gap-1.5">
                     {discovered
                         ? models.map(model => {
                             const size = formatSize(model.size);
@@ -389,9 +446,15 @@ export default function ProviderPage() {
                                 {id}
                             </span>
                         ))}
-                </div>
+                </div>}
 
-                {modelsError && !probeOutdated && (
+                {value.provider === 'openrouter' && (
+                    <SettingNotice title={m['admin.ai.settings.openrouterFreeTitle']()}>
+                        {m['admin.ai.settings.openrouterFreeBody']()}
+                    </SettingNotice>
+                )}
+
+                {value.provider !== 'openrouter' && modelsError && !probeOutdated && (
                     <p className="text-xs text-[var(--color-warning)]">
                         {firstError(modelsFailure) ?? m['admin.ai.settings.modelsUnavailable']()}
                     </p>

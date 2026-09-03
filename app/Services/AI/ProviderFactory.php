@@ -8,6 +8,7 @@ use Everest\Services\AI\Contracts\AiProvider;
 use Everest\Services\AI\Providers\OllamaProvider;
 use Everest\Services\AI\Providers\AnthropicProvider;
 use Everest\Exceptions\Service\AI\AIServiceException;
+use Everest\Services\AI\Providers\OpenRouterProvider;
 use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 
 /**
@@ -25,6 +26,7 @@ class ProviderFactory
     public const DEFAULT_ENDPOINTS = [
         ProviderConfig::PROVIDER_ANTHROPIC => 'https://api.anthropic.com/v1',
         ProviderConfig::PROVIDER_OPENAI => 'https://api.openai.com/v1',
+        ProviderConfig::PROVIDER_OPENROUTER => OpenRouterProvider::ENDPOINT,
         ProviderConfig::PROVIDER_OLLAMA => 'http://127.0.0.1:11434/v1',
         ProviderConfig::PROVIDER_OPENAI_COMPATIBLE => '',
     ];
@@ -49,8 +51,13 @@ class ProviderFactory
      */
     public function fromConfig(ProviderConfig $config): AiProvider
     {
+        if ($config->provider === ProviderConfig::PROVIDER_OPENROUTER) {
+            $config = $this->canonicalOpenRouterConfig($config);
+        }
+
         return match ($config->provider) {
             ProviderConfig::PROVIDER_ANTHROPIC => new AnthropicProvider($config),
+            ProviderConfig::PROVIDER_OPENROUTER => new OpenRouterProvider($config),
             ProviderConfig::PROVIDER_OLLAMA => new OllamaProvider($config),
             ProviderConfig::PROVIDER_OPENAI,
             ProviderConfig::PROVIDER_OPENAI_COMPATIBLE => new OpenAiCompatibleProvider($config),
@@ -64,7 +71,9 @@ class ProviderFactory
         $provider = $this->provider();
 
         $endpoint = (string) $this->setting('endpoint', config('modules.ai.endpoint'));
-        if ($endpoint === '') {
+        if ($provider === ProviderConfig::PROVIDER_OPENROUTER) {
+            $endpoint = OpenRouterProvider::ENDPOINT;
+        } elseif ($endpoint === '') {
             $endpoint = self::DEFAULT_ENDPOINTS[$provider] ?? '';
         }
 
@@ -110,7 +119,29 @@ class ProviderFactory
      */
     public function model(): string
     {
+        if ($this->provider() === ProviderConfig::PROVIDER_OPENROUTER) {
+            return OpenRouterProvider::MODEL;
+        }
+
         return (string) ($this->setting('model', config('modules.ai.model')) ?: '');
+    }
+
+    /** Database, environment and direct factory callers cannot redirect OpenRouter. */
+    private function canonicalOpenRouterConfig(ProviderConfig $config): ProviderConfig
+    {
+        return new ProviderConfig(
+            provider: ProviderConfig::PROVIDER_OPENROUTER,
+            endpoint: OpenRouterProvider::ENDPOINT,
+            apiKey: $config->apiKey,
+            model: OpenRouterProvider::MODEL,
+            maxTokens: $config->maxTokens,
+            temperature: $config->temperature,
+            systemPrompt: $config->systemPrompt,
+            keepAlive: $config->keepAlive,
+            timeout: $config->timeout,
+            connectTimeout: $config->connectTimeout,
+            contextTokens: $config->contextTokens,
+        );
     }
 
     /**

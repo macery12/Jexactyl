@@ -100,6 +100,7 @@ class ModelToolProfileDetectorTest extends TestCase
             [ProviderConfig::PROVIDER_ANTHROPIC, 'claude-haiku-4-5'],
             [ProviderConfig::PROVIDER_ANTHROPIC, 'claude-sonnet-5'],
             [ProviderConfig::PROVIDER_ANTHROPIC, 'unrecognized-hosted-model'],
+            [ProviderConfig::PROVIDER_OPENROUTER, 'openrouter/free'],
         ];
 
         foreach ($cases as [$provider, $model]) {
