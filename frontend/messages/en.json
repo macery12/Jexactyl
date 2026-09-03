@@ -508,7 +508,7 @@
   "admin.ai.settings.queueDepth": "Queue depth",
   "admin.ai.settings.queueDepthHint": "Requests are refused once this many are waiting. 0 means no queue at all: a turn that cannot start immediately is refused.",
   "admin.ai.settings.queueHint": "A GPU serves a fixed number of requests at once. Past that, queueing keeps everyone moving instead of slowing everyone down.",
-  "admin.ai.settings.queueHostedNote": "Admission control applies to inference running on your own hardware. This provider is bounded by spend instead — see Budget & access.",
+  "admin.ai.settings.queueHostedNote": "Keep-alive, scheduled warm-up, and admission control apply only to inference running on your own hardware. This hosted provider does not need them; it is bounded by spend instead — see Budget & access.",
   "admin.ai.settings.reasoningInert": "this provider cannot request it",
   "admin.ai.settings.refreshModels": "Refresh installed models",
   "admin.ai.settings.removeKey": "Remove saved key",

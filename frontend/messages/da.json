@@ -508,7 +508,7 @@
   "admin.ai.settings.queueDepth": "Kødybde",
   "admin.ai.settings.queueDepthHint": "Anmodninger afvises, når så mange venter. 0 betyder, at der slet ikke er nogen kø: En agentkørsel, der ikke kan starte med det samme, afvises.",
   "admin.ai.settings.queueHint": "En GPU kan betjene et fast antal anmodninger ad gangen. Derefter sørger køen for, at alle kommer videre, uden at alle bliver langsommere.",
-  "admin.ai.settings.queueHostedNote": "Adgangskontrol gælder for inferens, der kører på din egen hardware. Denne udbyder er i stedet begrænset af forbrug - se Budget og adgang.",
+  "admin.ai.settings.queueHostedNote": "Hold-i-hukommelsen, planlagt opvarmning og adgangskontrol gælder kun for inferens på din egen hardware. Denne hostede udbyder har ikke brug for dem; den er i stedet begrænset af forbrug – se Budget og adgang.",
   "admin.ai.settings.reasoningInert": "denne udbyder kan ikke anmode om det",
   "admin.ai.settings.refreshModels": "Opdater installerede modeller",
   "admin.ai.settings.removeKey": "Slet gemt nøgle",

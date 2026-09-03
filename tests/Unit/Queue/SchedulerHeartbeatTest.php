@@ -98,6 +98,46 @@ class SchedulerHeartbeatTest extends TestCase
         $this->assertSame('Connection refused', $snapshot['lastFailure']['error']);
     }
 
+    public function testASuccessfulRetryClearsTheFailureForThatTask(): void
+    {
+        $heartbeat = $this->heartbeat();
+
+        $heartbeat->recordFailed('billing:suspend', 'Connection refused');
+        $heartbeat->recordFinished('billing:suspend', 25);
+
+        $this->assertNull($heartbeat->snapshot()['lastFailure']);
+    }
+
+    public function testAnotherTasksSuccessDoesNotClearTheFailure(): void
+    {
+        $heartbeat = $this->heartbeat();
+
+        $heartbeat->recordFailed('billing:suspend', 'Connection refused');
+        $heartbeat->recordFinished('billing:cleanup', 25);
+
+        $this->assertSame('billing:suspend', $heartbeat->snapshot()['lastFailure']['task']);
+    }
+
+    public function testSnapshotHidesARetainedFailureWhenRecentStateAlreadyShowsRecovery(): void
+    {
+        $cache = $this->app['cache']->store();
+        $cache->put('schedule:last-failure', [
+            'task' => 'p:ai:warm',
+            'ranAt' => now()->subHour()->toIso8601ZuluString(),
+            'ok' => false,
+            'error' => 'Connection refused',
+        ], 3600);
+        $cache->put('schedule:recent-tasks', [[
+            'task' => 'p:ai:warm',
+            'ranAt' => now()->toIso8601ZuluString(),
+            'runtimeMs' => 20,
+            'ok' => true,
+        ]], 3600);
+
+        $this->assertNull($this->heartbeat()->snapshot()['lastFailure']);
+        $this->assertNull($cache->get('schedule:last-failure'));
+    }
+
     /** A stack trace has no business in a cache entry rendered into a page. */
     public function testFailureMessagesAreBounded(): void
     {

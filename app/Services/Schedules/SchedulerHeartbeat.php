@@ -67,12 +67,21 @@ class SchedulerHeartbeat
      */
     public function recordFinished(string $task, ?float $runtimeMs = null): void
     {
+        $task = $this->normalise($task);
+
         $this->push([
-            'task' => $this->normalise($task),
+            'task' => $task,
             'ranAt' => now()->toIso8601ZuluString(),
             'runtimeMs' => $runtimeMs === null ? null : (int) round($runtimeMs),
             'ok' => true,
         ]);
+
+        // The warning represents a task that is still failing, not immutable
+        // history. Once that same task succeeds it has recovered.
+        $lastFailure = $this->read(self::FAILURE_KEY);
+        if (is_array($lastFailure) && ($lastFailure['task'] ?? null) === $task) {
+            $this->forget(self::FAILURE_KEY);
+        }
     }
 
     /**
@@ -111,6 +120,22 @@ class SchedulerHeartbeat
         $tick = $this->read(self::TICK_KEY);
         $ranAt = is_array($tick) && is_string($tick['ranAt'] ?? null) ? $tick['ranAt'] : null;
         $secondsAgo = $this->ageOf($ranAt);
+        $recent = $this->recent();
+        $lastFailure = $this->read(self::FAILURE_KEY);
+
+        // Reconcile cache entries written before recovery-clearing existed.
+        // The ring keeps only the newest result for each task, so a successful
+        // row for this task proves the retained failure is no longer current.
+        if (
+            is_array($lastFailure)
+            && collect($recent)->contains(
+                fn (array $row): bool => ($row['task'] ?? null) === ($lastFailure['task'] ?? null)
+                && ($row['ok'] ?? false) === true
+            )
+        ) {
+            $this->forget(self::FAILURE_KEY);
+            $lastFailure = null;
+        }
 
         return [
             'ranAt' => $ranAt,
@@ -122,8 +147,8 @@ class SchedulerHeartbeat
             // not yet evidence of anything.
             'severity' => $this->severity($secondsAgo),
             'staleAfterSeconds' => self::STALE_SECONDS,
-            'recent' => $this->recent(),
-            'lastFailure' => $this->read(self::FAILURE_KEY),
+            'recent' => $recent,
+            'lastFailure' => $lastFailure,
         ];
     }
 
@@ -214,6 +239,15 @@ class SchedulerHeartbeat
             return $this->cache->get($key);
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    private function forget(string $key): void
+    {
+        try {
+            $this->cache->forget($key);
+        } catch (\Throwable) {
+            // Advisory only, for the same reason reads and writes are guarded.
         }
     }
 }

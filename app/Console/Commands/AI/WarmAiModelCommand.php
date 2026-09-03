@@ -14,7 +14,15 @@ class WarmAiModelCommand extends Command
 
     protected $description = 'Keep the configured Ollama model loaded in memory so users never hit a cold start.';
 
-    public function handle(ProviderFactory $factory): int
+    /**
+     * Whether an Ollama warm-up is useful for the current configuration.
+     *
+     * The scheduler uses the same predicate so hosted providers do not launch
+     * a five-minute no-op process. The command repeats the check because it can
+     * also be invoked manually, and settings may change after a schedule tick
+     * has decided that the event is due.
+     */
+    public static function shouldRun(ProviderFactory $factory): bool
     {
         $enabled = filter_var(
             Setting::get('settings::modules:ai:enabled', config('modules.ai.enabled', false)),
@@ -26,7 +34,12 @@ class WarmAiModelCommand extends Command
         );
         $provider = $factory->provider();
 
-        if (!$enabled || !$warm || $provider !== ProviderConfig::PROVIDER_OLLAMA) {
+        return $enabled && $warm && $provider === ProviderConfig::PROVIDER_OLLAMA;
+    }
+
+    public function handle(ProviderFactory $factory): int
+    {
+        if (!self::shouldRun($factory)) {
             $this->line('AI warm-up skipped (disabled, warm-up off, or provider is not Ollama).');
 
             return Command::SUCCESS;
