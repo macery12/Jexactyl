@@ -10,10 +10,6 @@ on:
       - "develop"
       - "3.x-develop"
 
-defaults:
-  run:
-    working-directory: frontend
-
 jobs:
   lint:
     name: Lint
@@ -24,21 +20,19 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
-        with:
-          package_json_file: frontend/package.json
 
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm run lint
+        run: pnpm lint
 
   build:
     name: Build
@@ -53,20 +47,18 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v2
-        with:
-          package_json_file: frontend/package.json
 
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       # Runs the Paraglide compile (enforces i18n key coverage), tsc -b
       # (typecheck), then the Vite build.
       - name: Build
-        run: pnpm run build
+        run: pnpm build:frontend

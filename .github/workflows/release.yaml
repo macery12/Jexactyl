@@ -23,12 +23,11 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: |
-          pnpm install
-          pnpm --dir frontend install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm run build
+        # Release assembly has no configured Laravel runtime to reload.
+        run: pnpm build:frontend
 
       - name: Create release branch (keep version in config/app.php)
         env:

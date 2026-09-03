@@ -8,11 +8,11 @@
         "node": ">=20.19.0"
     },
     "scripts": {
-        "build": "pnpm --dir frontend run build",
+        "build": "pnpm --filter ./frontend run build",
+        "build:frontend": "pnpm --filter ./frontend run build",
         "postbuild": "bash ./scripts/reload-dev-services.sh",
-        "dev": "pnpm --dir frontend run dev",
-        "lint": "pnpm --dir frontend run lint",
-        "setup:frontend": "pnpm --dir frontend install",
+        "dev": "pnpm --filter ./frontend run dev",
+        "lint": "pnpm --filter ./frontend run lint",
         "clean": "rimraf public/build"
     },
     "devDependencies": {
