@@ -70,3 +70,5 @@ update.sh
 misc
 .claude/*
 
+# Local documentation
+/docs/
