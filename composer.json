@@ -28,7 +28,6 @@
         "phpseclib/phpseclib": "^3.0.52",
         "pragmarx/google2fa": "^9.0",
         "predis/predis": "^3.4",
-        "psr/cache": "~3.0.0",
         "s1lentium/iptools": "~1.2.0",
         "spatie/laravel-fractal": "^6.4",
         "spatie/laravel-query-builder": "^7.3",
