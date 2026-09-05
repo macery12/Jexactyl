@@ -14,8 +14,7 @@ use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Http\Controllers\Auth\Modules\AbstractSocialLoginController as Sso;
 
 /**
- * Covers the Discord callback end-to-end (the Google one differs only in how the
- * identity is fetched) plus the shared signup/link endpoints both providers use.
+ * Covers both provider callbacks plus the shared signup/link endpoints.
  */
 class SsoLoginTest extends IntegrationTestCase
 {
@@ -28,6 +27,9 @@ class SsoLoginTest extends IntegrationTestCase
         config()->set('modules.auth.discord.enabled', true);
         config()->set('modules.auth.discord.client_id', 'client-id');
         config()->set('modules.auth.discord.client_secret', 'client-secret');
+        config()->set('modules.auth.google.enabled', true);
+        config()->set('modules.auth.google.client_id', 'google-client-id');
+        config()->set('modules.auth.google.client_secret', 'google-client-secret');
     }
 
     /**
@@ -51,6 +53,110 @@ class SsoLoginTest extends IntegrationTestCase
         Session::put(Sso::STATE_SESSION_KEY, $state);
 
         return $this->get(route('auth.modules.discord.authenticate', ['code' => 'auth-code', 'state' => $state]));
+    }
+
+    private function fakeGoogle(
+        string $id,
+        string $email,
+        string $name = 'Google User',
+        ?string $picture = null,
+    ): void {
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response(['access_token' => 'google-token']),
+            'openidconnect.googleapis.com/v1/userinfo' => Http::response([
+                'sub' => $id,
+                'email' => $email,
+                'name' => $name,
+                'picture' => $picture,
+            ]),
+        ]);
+    }
+
+    private function hitGoogleCallback(string $state = 'google-state'): \Illuminate\Testing\TestResponse
+    {
+        Session::put(Sso::STATE_SESSION_KEY, $state);
+
+        return $this->get(route('auth.modules.google.authenticate', ['code' => 'auth-code', 'state' => $state]));
+    }
+
+    public function testGoogleAuthorizeUrlContainsAnIssuedState(): void
+    {
+        $url = $this->post('/auth/modules/google')->assertOk()->getContent();
+        $parts = parse_url($url);
+        parse_str($parts['query'] ?? '', $query);
+
+        $this->assertSame('accounts.google.com', $parts['host'] ?? null);
+        $this->assertSame('/o/oauth2/v2/auth', $parts['path'] ?? null);
+        $this->assertSame('google-client-id', $query['client_id'] ?? null);
+        $this->assertSame('code', $query['response_type'] ?? null);
+        $this->assertSame('openid profile email', $query['scope'] ?? null);
+        $this->assertSame(Session::get(Sso::STATE_SESSION_KEY), $query['state'] ?? null);
+    }
+
+    public function testGoogleCallbackLogsInALinkedIdentity(): void
+    {
+        $user = User::factory()->create();
+        UserOAuthAccount::create([
+            'user_id' => $user->id,
+            'provider' => UserOAuthAccount::PROVIDER_GOOGLE,
+            'provider_user_id' => 'google-9988',
+        ]);
+        $this->fakeGoogle('google-9988', $user->email);
+
+        $this->hitGoogleCallback()->assertRedirect('/');
+
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function testGoogleCallbackNormalizesANewIdentity(): void
+    {
+        $this->fakeGoogle(
+            'google-1122',
+            'google-user@m12labs.test-suite.net',
+            'New Google User',
+            'https://images.example/avatar.png',
+        );
+
+        $this->hitGoogleCallback()->assertRedirect('/auth/sso/link-choice');
+
+        $this->assertSame([
+            'provider' => UserOAuthAccount::PROVIDER_GOOGLE,
+            'id' => 'google-1122',
+            'email' => 'google-user@m12labs.test-suite.net',
+            'username' => 'New Google User',
+            'avatar' => 'https://images.example/avatar.png',
+        ], Session::get(Sso::REGISTRATION_SESSION_KEY));
+    }
+
+    public function testGoogleCallbackRejectsMismatchedAndReplayedState(): void
+    {
+        Http::fake();
+        Session::put(Sso::STATE_SESSION_KEY, 'expected-google-state');
+
+        $callback = route('auth.modules.google.authenticate', ['code' => 'auth-code']);
+        $this->get($callback . '&state=forged')
+            ->assertRedirect('/auth/login?sso_error=invalid_state');
+        $this->get($callback . '&state=expected-google-state')
+            ->assertRedirect('/auth/login?sso_error=invalid_state');
+
+        Http::assertNothingSent();
+    }
+
+    public function testGoogleCallbackRequiresAnAuthorizationCode(): void
+    {
+        Session::put(Sso::STATE_SESSION_KEY, 'google-state');
+
+        $this->get(route('auth.modules.google.authenticate', ['state' => 'google-state']))
+            ->assertRedirect('/auth/login?sso_error=missing_code');
+    }
+
+    public function testGoogleProviderFailureRedirectsInsteadOfThrowing(): void
+    {
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response(['error' => 'invalid_grant'], 400),
+        ]);
+
+        $this->hitGoogleCallback()->assertRedirect('/auth/login?sso_error=provider_error');
     }
 
     public function testCallbackLogsInAUserWithALinkedIdentity(): void

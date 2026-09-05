@@ -18,7 +18,6 @@
         "laravel/framework": "^13.0",
         "laravel/horizon": "^5.48",
         "laravel/sanctum": "^4.0",
-        "laravel/socialite": "^5.27",
         "laravel/tinker": "^3.0",
         "laravel/ui": "^4.6",
         "lcobucci/jwt": "^5.3",

@@ -5,9 +5,8 @@ namespace Everest\Services\Auth;
 /**
  * A normalised identity returned by an OAuth provider.
  *
- * Discord is called over raw HTTP and Google through Socialite, so each returns
- * a differently shaped object. Flattening both into this DTO keeps the account
- * resolution logic provider-agnostic.
+ * OAuth providers return differently shaped objects. Flattening them into this
+ * DTO keeps the account resolution logic provider-agnostic.
  */
 readonly class SocialIdentity
 {
