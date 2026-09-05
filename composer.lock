@@ -5834,16 +5834,16 @@
         },
         {
             "name": "spatie/laravel-query-builder",
-            "version": "7.3.3",
+            "version": "7.3.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/spatie/laravel-query-builder.git",
-                "reference": "eb1e0835018fff80900160d4bfd730c560c54ec4"
+                "reference": "595523f861caf751ebd29fc377ddc525cd2e3fb1"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/spatie/laravel-query-builder/zipball/eb1e0835018fff80900160d4bfd730c560c54ec4",
-                "reference": "eb1e0835018fff80900160d4bfd730c560c54ec4",
+                "url": "https://api.github.com/repos/spatie/laravel-query-builder/zipball/595523f861caf751ebd29fc377ddc525cd2e3fb1",
+                "reference": "595523f861caf751ebd29fc377ddc525cd2e3fb1",
                 "shasum": ""
             },
             "require": {
@@ -5904,7 +5904,7 @@
                     "type": "custom"
                 }
             ],
-            "time": "2026-08-07T11:50:57+00:00"
+            "time": "2026-09-03T13:42:08+00:00"
         },
         {
             "name": "staudenmeir/belongs-to-through",
