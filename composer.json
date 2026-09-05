@@ -35,7 +35,6 @@
         "spatie/laravel-query-builder": "^7.3",
         "staudenmeir/belongs-to-through": "^2.18",
         "stripe/stripe-php": "^20.2",
-        "symfony/http-client": "^7.4",
         "symfony/yaml": "^7.0",
         "twig/twig": "^3.12",
         "webmozart/assert": "^2.4"
