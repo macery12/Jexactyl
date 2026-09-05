@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "1d746fa7fe33eb6c72817858a8a8da92",
+    "content-hash": "b65415d4a75617fe9535809352e2efcf",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -3430,62 +3430,6 @@
                 "source": "https://github.com/Masterminds/html5-php/tree/2.11.0"
             },
             "time": "2026-08-18T06:18:41+00:00"
-        },
-        {
-            "name": "matriphe/iso-639",
-            "version": "v2.0.10",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/matriphe/php-iso-639.git",
-                "reference": "aa2ddce7eb9000570e6398bf52f114ebf9f0691a"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/matriphe/php-iso-639/zipball/aa2ddce7eb9000570e6398bf52f114ebf9f0691a",
-                "reference": "aa2ddce7eb9000570e6398bf52f114ebf9f0691a",
-                "shasum": ""
-            },
-            "require": {
-                "php": "8.*"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "^3.75",
-                "phpunit/phpunit": ">=10"
-            },
-            "suggest": {
-                "ext-mbstring": "For better multibyte character support in text transformations",
-                "ext-xdebug": "For code coverage when running tests"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Matriphe\\ISO639\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Muhammad Zamroni",
-                    "email": "halo@matriphe.com"
-                }
-            ],
-            "description": "PHP library to convert ISO-639-1 code to language name.",
-            "keywords": [
-                "639",
-                "iso",
-                "iso-639",
-                "lang",
-                "language",
-                "laravel"
-            ],
-            "support": {
-                "issues": "https://github.com/matriphe/php-iso-639/issues",
-                "source": "https://github.com/matriphe/php-iso-639/tree/v2.0.10"
-            },
-            "time": "2025-10-05T21:40:44+00:00"
         },
         {
             "name": "monolog/monolog",
