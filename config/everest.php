@@ -81,8 +81,8 @@ return [
     */
 
     'guzzle' => [
-        'timeout' => env('GUZZLE_TIMEOUT', 15),
-        'connect_timeout' => env('GUZZLE_CONNECT_TIMEOUT', 5),
+        'timeout' => (int) env('GUZZLE_TIMEOUT', 15),
+        'connect_timeout' => (int) env('GUZZLE_CONNECT_TIMEOUT', 5),
 
         /*
          * Archive operations block until the node finishes, which for a large
@@ -95,7 +95,7 @@ return [
          * blocks fifteen minutes on one tool call is indistinguishable from one
          * that has hung.
          */
-        'archive_timeout' => env('GUZZLE_ARCHIVE_TIMEOUT', 60 * 15),
+        'archive_timeout' => (int) env('GUZZLE_ARCHIVE_TIMEOUT', 60 * 15),
     ],
 
     /*

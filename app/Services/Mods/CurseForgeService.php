@@ -7,7 +7,7 @@ use Everest\Models\Setting;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
 
 /**
@@ -137,7 +137,7 @@ class CurseForgeService
 
             return $data;
         } catch (GuzzleException $e) {
-            if ($e instanceof RequestException && $e->hasResponse()) {
+            if ($e instanceof ResponseException) {
                 $status = $e->getResponse()->getStatusCode();
 
                 if ($status === 429 && $retryAttempt < 3) {
