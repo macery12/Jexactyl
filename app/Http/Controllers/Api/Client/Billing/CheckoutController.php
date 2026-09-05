@@ -56,7 +56,10 @@ class CheckoutController extends ClientApiController
         $stripeSecret = Setting::get('settings::modules:billing:keys:secret', config('modules.billing.keys.secret'));
         if ($stripeSecret) {
             try {
-                $this->stripe = new StripeClient($stripeSecret);
+                $this->stripe = new StripeClient([
+                    'api_key'        => $stripeSecret,
+                    'stripe_version' => '2026-06-24.dahlia',
+                ]);
             } catch (\Exception $e) {
                 \Log::error('Failed to initialize Stripe client', [
                     'error' => $e->getMessage(),

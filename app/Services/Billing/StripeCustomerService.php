@@ -30,7 +30,10 @@ class StripeCustomerService
     {
         $secret = Setting::get('settings::modules:billing:keys:secret', config('modules.billing.keys.secret'));
         if ($secret) {
-            $this->stripe = new StripeClient($secret);
+            $this->stripe = new StripeClient([
+                'api_key'        => $secret,
+                'stripe_version' => '2026-06-24.dahlia',
+            ]);
         }
     }
 
