@@ -4,7 +4,6 @@ import { Terminal as TerminalIcon, ChevronRight } from 'lucide-react';
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { SearchAddon } from '@xterm/addon-search';
 import { Panel } from './Panel';
 import { useServer } from '@/components/server/ServerContext';
 import { useServerSocket } from '@/state/serverSocket';
@@ -62,14 +61,12 @@ export function ConsolePanel() {
             lineHeight: 1.2,
             fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
             theme,
-            allowProposedApi: true,
             convertEol: true,
             scrollback: 2000,
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.loadAddon(new WebLinksAddon());
-        term.loadAddon(new SearchAddon());
         term.open(ref.current);
         fit.fit();
         termRef.current = term;
