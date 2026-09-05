@@ -25,7 +25,7 @@
         {% endblock %}
     {% endembed %}
     {% include "partials/button.twig" with {
-        url: appUrl ~ '/billing',
+        url: appUrl ~ '/billing/orders',
         text: 'View Billing History'
     } %}
     {% if invoiceDownloadUrl is not empty %}

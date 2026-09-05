@@ -6,7 +6,7 @@ use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
 
 class ModrinthService
@@ -150,7 +150,7 @@ class ModrinthService
 
             return $data;
         } catch (GuzzleException $e) {
-            if ($e instanceof RequestException && $e->hasResponse()) {
+            if ($e instanceof ResponseException) {
                 $statusCode = $e->getResponse()->getStatusCode();
 
                 if ($statusCode === 429) {

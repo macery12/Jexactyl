@@ -141,7 +141,7 @@ class OpenAiCompatibleProvider extends AbstractProvider
                 $finish = (string) $choice['finish_reason'];
 
                 if ($finish === 'error') {
-                    throw $this->providerErrorException($choice['error'] ?? null);
+                    throw $this->providerErrorException(null);
                 }
                 if ($this->strictResponseValidation() && in_array($finish, ['content_filter', 'refusal'], true)) {
                     throw $this->providerErrorException(['metadata' => ['error_type' => 'content_policy_violation']]);

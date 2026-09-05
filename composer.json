@@ -13,29 +13,24 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "composer/semver": "^3.0",
         "dedoc/scramble": "^0.13",
-        "doctrine/dbal": "^4.4",
-        "guzzlehttp/guzzle": "^7.10",
+        "guzzlehttp/guzzle": "^8.1.0",
         "hashids/hashids": "~5.0.0",
         "laravel/framework": "^13.0",
         "laravel/horizon": "^5.48",
         "laravel/sanctum": "^4.0",
-        "laravel/socialite": "^5.27",
         "laravel/tinker": "^3.0",
         "laravel/ui": "^4.6",
         "lcobucci/jwt": "^5.3",
         "league/flysystem-aws-s3-v3": "^3.34",
         "league/flysystem-memory": "^3.31",
-        "matriphe/iso-639": "^2.0",
-        "phpseclib/phpseclib": "^3.0.52",
+        "phpseclib/phpseclib": "^4.0.1",
         "pragmarx/google2fa": "^9.0",
         "predis/predis": "^3.4",
-        "psr/cache": "~3.0.0",
         "s1lentium/iptools": "~1.2.0",
         "spatie/laravel-fractal": "^6.4",
         "spatie/laravel-query-builder": "^7.3",
         "staudenmeir/belongs-to-through": "^2.18",
-        "stripe/stripe-php": "^20.2",
-        "symfony/http-client": "^7.4",
+        "stripe/stripe-php": "^21.3.1",
         "symfony/yaml": "^7.0",
         "twig/twig": "^3.12",
         "webmozart/assert": "^2.4"
@@ -87,9 +82,6 @@
         "sort-packages": true,
         "platform": {
             "php": "8.3.0"
-        },
-        "allow-plugins": {
-            "php-http/discovery": true
         }
     },
     "minimum-stability": "stable",

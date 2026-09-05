@@ -5,7 +5,7 @@ namespace Everest\Services\Email;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use Everest\Exceptions\Service\Email\ResendException;
 use Everest\Exceptions\Service\Email\ResendServerException;
 use Everest\Exceptions\Service\Email\ResendValidationException;
@@ -64,11 +64,11 @@ class ResendHttpClient
                 }
 
                 throw new ResendException('Unexpected status code: ' . $statusCode, $statusCode);
-            } catch (RequestException $e) {
+            } catch (ResponseException $e) {
                 $lastException = $e;
-                $statusCode = $e->getResponse()?->getStatusCode();
-                $responseBody = $e->getResponse()?->getBody()->getContents();
-                $headersMeta = $this->parseHeaders($e->getResponse()?->getHeaders() ?? []);
+                $statusCode = $e->getResponse()->getStatusCode();
+                $responseBody = $e->getResponse()->getBody()->getContents();
+                $headersMeta = $this->parseHeaders($e->getResponse()->getHeaders());
                 $errorData = $responseBody ? json_decode($responseBody, true) : null;
                 $errorMessage = $errorData['message'] ?? $e->getMessage();
 
@@ -108,7 +108,7 @@ class ResendHttpClient
                 }
 
                 // Unknown error
-                throw new ResendException($errorMessage, $statusCode ?? 0);
+                throw new ResendException($errorMessage, $statusCode);
             } catch (GuzzleException $e) {
                 Log::error('Resend HTTP client error', [
                     'error' => $e->getMessage(),

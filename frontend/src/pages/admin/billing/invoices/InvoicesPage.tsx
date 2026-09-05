@@ -183,7 +183,7 @@ export default function InvoicesPage() {
                                     <td className="px-4 py-3 font-mono text-sm text-[var(--color-ink)]">{inv.invoiceNumber}</td>
                                     <td className="px-4 py-3 text-sm text-[var(--color-ink-muted)]">{inv.user?.email ?? '—'}</td>
                                     <td className="whitespace-nowrap px-4 py-3 text-sm text-[var(--color-ink)]">
-                                        {inv.currency} {(inv.total / 100).toFixed(2)}
+                                        {inv.currency} {inv.total.toFixed(2)}
                                     </td>
                                     <td className="px-4 py-3">
                                         <StatusPill status={inv.status} />

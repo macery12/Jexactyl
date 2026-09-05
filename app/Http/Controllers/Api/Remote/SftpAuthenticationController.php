@@ -8,9 +8,9 @@ use Illuminate\Http\Request;
 use Everest\Facades\Activity;
 use Everest\Models\Permission;
 use Illuminate\Http\JsonResponse;
-use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib4\Crypt\PublicKeyLoader;
 use Everest\Http\Controllers\Controller;
-use phpseclib3\Exception\NoKeyLoadedException;
+use phpseclib4\Exception\BaseException;
 use Illuminate\Foundation\Auth\ThrottlesLogins;
 use Everest\Exceptions\Http\HttpForbiddenException;
 use Everest\Services\Servers\GetUserPermissionsService;
@@ -57,7 +57,7 @@ class SftpAuthenticationController extends Controller
             $key = null;
             try {
                 $key = PublicKeyLoader::loadPublicKey(trim($request->input('password')));
-            } catch (NoKeyLoadedException) {
+            } catch (BaseException) {
                 // do nothing
             }
 

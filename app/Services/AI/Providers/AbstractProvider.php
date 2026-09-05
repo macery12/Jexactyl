@@ -9,7 +9,7 @@ use Psr\Http\Message\StreamInterface;
 use Everest\Services\AI\Data\AiRequest;
 use Everest\Services\AI\Data\AiResponse;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use Everest\Services\AI\Data\ProviderConfig;
 use Everest\Services\AI\Contracts\AiProvider;
 use Everest\Services\AI\Inference\ProviderReadiness;
@@ -264,7 +264,7 @@ abstract class AbstractProvider implements AiProvider
 
     protected function wrapTransportError(GuzzleException $e): AIServiceException
     {
-        $status = $e instanceof RequestException && $e->hasResponse()
+        $status = $e instanceof ResponseException
             ? $e->getResponse()->getStatusCode()
             : null;
 

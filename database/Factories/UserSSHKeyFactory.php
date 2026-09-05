@@ -2,7 +2,7 @@
 
 namespace Database\Factories;
 
-use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib4\Crypt\PublicKeyLoader;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class UserSSHKeyFactory extends Factory

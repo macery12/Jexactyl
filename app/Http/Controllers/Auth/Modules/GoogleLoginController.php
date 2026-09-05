@@ -6,13 +6,16 @@ use Everest\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Everest\Models\UserOAuthAccount;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Http\RedirectResponse;
-use Laravel\Socialite\Facades\Socialite;
 use Everest\Services\Auth\SocialIdentity;
-use Laravel\Socialite\Two\GoogleProvider;
 
 class GoogleLoginController extends AbstractSocialLoginController
 {
+    private const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+    private const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+    private const IDENTITY_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
+
     protected function provider(): string
     {
         return UserOAuthAccount::PROVIDER_GOOGLE;
@@ -28,33 +31,15 @@ class GoogleLoginController extends AbstractSocialLoginController
         return Setting::get('settings::modules:auth:google:client_secret', config('modules.auth.google.client_secret'));
     }
 
-    /**
-     * Socialite provider configured from the admin-managed credentials.
-     *
-     * Built per call rather than in the constructor: the settings are editable at
-     * runtime, and a cached constructor read meant credential changes only took
-     * effect after a config clear.
-     */
-    private function driver(): GoogleProvider
-    {
-        /** @var GoogleProvider $provider */
-        $provider = Socialite::buildProvider(GoogleProvider::class, [
-            'client_id' => $this->clientId(),
-            'client_secret' => $this->clientSecret(),
-            'redirect' => route('auth.modules.google.authenticate'),
-        ]);
-
-        return $provider;
-    }
-
-    /**
-     * Socialite writes its own `state` into the session during redirect() and
-     * validates it in user(), so the panel does not add a second one here — the
-     * callback clears STATE_SESSION_KEY rather than checking it.
-     */
     protected function buildAuthorizeUrl(Request $request): string
     {
-        return $this->driver()->redirect()->getTargetUrl();
+        return self::AUTHORIZE_URL . '?' . http_build_query([
+            'client_id' => $this->clientId(),
+            'redirect_uri' => route('auth.modules.google.authenticate'),
+            'response_type' => 'code',
+            'scope' => 'openid profile email',
+            'state' => $this->issueState($request),
+        ]);
     }
 
     /**
@@ -70,32 +55,63 @@ class GoogleLoginController extends AbstractSocialLoginController
             return $this->failRedirect($request->input('error') === 'access_denied' ? 'cancelled' : 'provider_error');
         }
 
-        // Socialite owns state validation for this provider; drop our parallel
-        // copy so it cannot be replayed against a later attempt.
-        $request->session()->forget(self::STATE_SESSION_KEY);
+        if (!$this->stateIsValid($request)) {
+            return $this->failRedirect('invalid_state');
+        }
+
+        if (!$request->filled('code')) {
+            return $this->failRedirect('missing_code');
+        }
 
         try {
-            $account = $this->driver()->user();
+            $identity = $this->fetchIdentity($request->input('code'));
         } catch (\Throwable $e) {
-            // Covers InvalidStateException, a revoked code, and network failures.
-            // All of these previously escaped as an unhandled 500.
             Log::warning('Google SSO callback failed', ['exception' => $e->getMessage()]);
 
             return $this->failRedirect('provider_error');
         }
 
-        if (!$account->getId()) {
+        if (!$identity) {
             return $this->failRedirect('provider_error');
         }
 
-        $identity = new SocialIdentity(
-            provider: $this->provider(),
-            id: (string) $account->getId(),
-            email: $account->getEmail(),
-            username: $account->getNickname() ?: $account->getName(),
-            avatar: $account->getAvatar(),
-        );
-
         return $this->resolveIdentity($request, $identity);
+    }
+
+    /**
+     * Exchange the authorization code for the OpenID Connect user profile.
+     */
+    private function fetchIdentity(string $code): ?SocialIdentity
+    {
+        $token = Http::asForm()->post(self::TOKEN_URL, [
+            'client_id' => $this->clientId(),
+            'client_secret' => $this->clientSecret(),
+            'grant_type' => 'authorization_code',
+            'code' => $code,
+            'redirect_uri' => route('auth.modules.google.authenticate'),
+        ]);
+
+        $accessToken = $token->successful() ? $token->json('access_token') : null;
+        if (!is_string($accessToken) || $accessToken === '') {
+            return null;
+        }
+
+        $account = Http::withToken($accessToken)->acceptJson()->get(self::IDENTITY_URL);
+        $id = $account->successful() ? $account->json('sub') : null;
+        if (!is_string($id) || $id === '') {
+            return null;
+        }
+
+        $email = $account->json('email');
+        $username = $account->json('name');
+        $avatar = $account->json('picture');
+
+        return new SocialIdentity(
+            provider: $this->provider(),
+            id: $id,
+            email: is_string($email) ? $email : null,
+            username: is_string($username) ? $username : null,
+            avatar: is_string($avatar) ? $avatar : null,
+        );
     }
 }

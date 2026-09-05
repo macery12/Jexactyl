@@ -8,7 +8,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use Everest\Models\Allocation;
 use Everest\Exceptions\DisplayException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use Everest\Tests\Integration\IntegrationTestCase;
 use Everest\Repositories\Wings\DaemonServerRepository;
 use Everest\Services\Servers\BuildModificationService;
@@ -149,7 +149,7 @@ class BuildModificationServiceTest extends IntegrationTestCase
 
         $this->daemonServerRepository->expects('setServer->sync')->andThrows(
             new DaemonConnectionException(
-                new RequestException('Bad request', new Request('GET', '/test'), new Response())
+                new ResponseException('Bad request', new Request('GET', '/test'), new Response())
             )
         );
 

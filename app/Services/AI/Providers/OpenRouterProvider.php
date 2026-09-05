@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Services\AI\Data\AiMessage;
 use Everest\Services\AI\Data\AiRequest;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Exception\RequestException;
+use GuzzleHttp\Exception\ResponseException;
 use Everest\Services\AI\Data\ProviderCapabilities;
 use Everest\Exceptions\Service\AI\AIServiceException;
 
@@ -125,7 +125,7 @@ class OpenRouterProvider extends OpenAiCompatibleProvider
         $error = null;
         $retryAfter = null;
 
-        if ($e instanceof RequestException && $e->hasResponse()) {
+        if ($e instanceof ResponseException) {
             $response = $e->getResponse();
             $decoded = json_decode($response->getBody()->getContents(), true);
             if (is_array($decoded) && array_key_exists('error', $decoded)) {

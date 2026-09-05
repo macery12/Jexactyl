@@ -10,7 +10,6 @@ use Illuminate\Auth\Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Builder;
 use Everest\Models\Traits\HasAccessTokens;
-use Everest\Traits\Helpers\AvailableLanguages;
 use Illuminate\Auth\Passwords\CanResetPassword;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -103,7 +102,6 @@ class User extends Model implements
 {
     use Authenticatable;
     use Authorizable;
-    use AvailableLanguages;
     use CanResetPassword;
     use HasAccessTokens;
     use Notifiable;

@@ -152,7 +152,7 @@ export interface Invoice {
     uuid: string;
     invoiceNumber: string;
     status: InvoiceStatus;
-    total: number; // in minor units (cents)
+    total: number; // major currency units (for example, 4.00 USD)
     currency: string;
     generatedAt: string | null;
     orderType: string | null;

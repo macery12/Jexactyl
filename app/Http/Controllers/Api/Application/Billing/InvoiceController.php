@@ -7,6 +7,7 @@ use Everest\Models\Billing\Order;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Invoice;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\RedirectResponse;
 use Spatie\QueryBuilder\QueryBuilder;
 use Spatie\QueryBuilder\AllowedFilter;
 use Everest\Events\Email\PaymentReceived;
@@ -86,7 +87,7 @@ class InvoiceController extends ApplicationApiController
      * Get a download URL for the invoice.
      * Generates (or serves from cache) the PDF on demand.
      */
-    public function download(GetInvoicesRequest $request, string $uuid): JsonResponse
+    public function download(GetInvoicesRequest $request, string $uuid): JsonResponse|RedirectResponse
     {
         $invoice = Invoice::where('uuid', $uuid)->firstOrFail();
 
@@ -105,6 +106,10 @@ class InvoiceController extends ApplicationApiController
         }
 
         $url = url("/api/application/billing/invoices/{$uuid}/serve");
+
+        if (!$request->expectsJson()) {
+            return redirect()->to($url);
+        }
 
         return response()->json(['url' => $url, 'expires_in' => 86400]);
     }
@@ -235,7 +240,7 @@ class InvoiceController extends ApplicationApiController
             $invoice->refresh();
 
             $invoiceAbsPath = $this->pdfService->cachedAbsolutePath($invoice);
-            $downloadUrl = url("/api/client/billing/invoices/{$invoice->uuid}/download");
+            $downloadUrl = url("/api/client/billing/invoices/{$invoice->uuid}/serve");
 
             event(new PaymentReceived(
                 user: $order->user,

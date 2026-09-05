@@ -4,13 +4,13 @@ import { Terminal as TerminalIcon, ChevronRight } from 'lucide-react';
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { SearchAddon } from '@xterm/addon-search';
 import { Panel } from './Panel';
 import { useServer } from '@/components/server/ServerContext';
 import { useServerSocket } from '@/state/serverSocket';
 import { SocketEvent, SocketRequest } from '@/lib/Websocket';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
+import { enableXtermTouchScrolling, XtermWriteResizeQueue } from '@/lib/xtermCompatibility';
 
 import '../console.css';
 
@@ -37,12 +37,17 @@ const theme: ITheme = {
     brightCyan: '#89DDFF',
     brightWhite: '#ffffff',
     selectionBackground: 'rgba(109,94,252,0.4)',
+    scrollbarSliderBackground: 'rgba(255,255,255,0.18)',
+    scrollbarSliderHoverBackground: 'rgba(255,255,255,0.3)',
+    scrollbarSliderActiveBackground: 'rgba(255,255,255,0.42)',
 };
 
 export function ConsolePanel() {
     const server = useServer();
     const ref = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
+    const queueRef = useRef<XtermWriteResizeQueue | null>(null);
+    const replayLogsRef = useRef<() => void>(() => undefined);
     const instance = useServerSocket(s => s.instance);
     const connected = useServerSocket(s => s.connected);
     // Commands commonly contain passwords or tokens. Keep history in memory
@@ -62,41 +67,55 @@ export function ConsolePanel() {
             lineHeight: 1.2,
             fontFamily: "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
             theme,
-            allowProposedApi: true,
             convertEol: true,
             scrollback: 2000,
+            overviewRuler: { width: 8 },
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.loadAddon(new WebLinksAddon());
-        term.loadAddon(new SearchAddon());
         term.open(ref.current);
-        fit.fit();
+        const queue = new XtermWriteResizeQueue(term, fit, () => replayLogsRef.current());
+        const disableTouchScrolling = enableXtermTouchScrolling(ref.current, term);
+        queue.fit();
         termRef.current = term;
+        queueRef.current = queue;
 
-        const onResize = () => fit.fit();
+        const onResize = () => queue.fit();
         window.addEventListener('resize', onResize);
-        const ro = new ResizeObserver(() => fit.fit());
+        const ro = new ResizeObserver(() => queue.fit());
         ro.observe(ref.current);
 
         return () => {
             window.removeEventListener('resize', onResize);
             ro.disconnect();
+            disableTouchScrolling();
+            queue.dispose();
+            // Release any document-level drag handlers before xterm removes
+            // its DOM. This also protects the 6.0 unmount-during-drag edge.
+            term.element?.ownerDocument.dispatchEvent(new MouseEvent('mouseup'));
             term.dispose();
             termRef.current = null;
+            queueRef.current = null;
         };
     }, []);
 
     useEffect(() => {
         const term = termRef.current;
-        if (!instance || !term) return;
+        const queue = queueRef.current;
+        if (!instance || !term || !queue) return;
+
+        const replayLogs = () => {
+            if (connected) instance.send(SocketRequest.SEND_LOGS);
+        };
+        replayLogsRef.current = replayLogs;
 
         const write = (line: string, prelude = false) =>
-            term.writeln((prelude ? PRELUDE : '') + line.replace(/(?:\r\n|\r|\n)$/im, '') + '\u001b[0m');
+            queue.writeLine((prelude ? PRELUDE : '') + line.replace(/(?:\r\n|\r|\n)$/im, '') + '\u001b[0m');
 
         const onOutput = (line: unknown) => write(String(line ?? ''));
         const onDaemonError = (line: unknown) =>
-            term.writeln(PRELUDE + '\u001b[1m\u001b[41m' + String(line ?? '') + '\u001b[0m');
+            queue.writeLine(PRELUDE + '\u001b[1m\u001b[41m' + String(line ?? '') + '\u001b[0m');
         const onStatus = (state: unknown) => write(`Server marked as ${String(state)}...`, true);
 
         instance.on(SocketEvent.CONSOLE_OUTPUT, onOutput);
@@ -105,8 +124,7 @@ export function ConsolePanel() {
         instance.on(SocketEvent.STATUS, onStatus);
 
         if (connected) {
-            term.clear();
-            instance.send(SocketRequest.SEND_LOGS);
+            queue.clear(replayLogs);
         }
 
         return () => {
@@ -114,6 +132,7 @@ export function ConsolePanel() {
             instance.off(SocketEvent.INSTALL_OUTPUT, onOutput);
             instance.off(SocketEvent.DAEMON_ERROR, onDaemonError);
             instance.off(SocketEvent.STATUS, onStatus);
+            if (replayLogsRef.current === replayLogs) replayLogsRef.current = () => undefined;
         };
     }, [instance, connected]);
 

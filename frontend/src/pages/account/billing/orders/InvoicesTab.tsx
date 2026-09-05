@@ -101,7 +101,7 @@ export default function InvoicesTab() {
                                         {inv.orderType ? orderTypeLabel(inv.orderType) : '—'}
                                     </td>
                                     <td className="px-4 py-3 text-sm text-[var(--color-ink)]">
-                                        {money(inv.total / 100, inv.currency)}
+                                        {money(inv.total, inv.currency)}
                                     </td>
                                     <td className="px-4 py-3">
                                         <InvoiceStatusPill status={inv.status} />

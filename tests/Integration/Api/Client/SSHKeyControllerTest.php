@@ -3,7 +3,7 @@
 namespace Everest\Tests\Integration\Api\Client;
 
 use Everest\Models\User;
-use phpseclib3\Crypt\EC;
+use phpseclib4\Crypt\EC;
 use Everest\Models\UserSSHKey;
 
 class SSHKeyControllerTest extends ClientApiIntegrationTestCase
@@ -83,7 +83,7 @@ class SSHKeyControllerTest extends ClientApiIntegrationTestCase
             'public_key' => $key->public_key,
         ])
             ->assertUnprocessable()
-            ->assertJsonPath('errors.0.detail', 'RSA keys must be at least 2048 bytes in length.');
+            ->assertJsonPath('errors.0.detail', 'RSA keys must be at least 2048 bits in length.');
 
         $this->assertEquals(0, $user->sshKeys()->count());
     }
@@ -108,6 +108,21 @@ class SSHKeyControllerTest extends ClientApiIntegrationTestCase
         ])
             ->assertUnprocessable()
             ->assertJsonPath('errors.0.detail', 'The public key provided is not valid.');
+    }
+
+    public function testEncryptedPrivateKeyIsRejected(): void
+    {
+        $user = User::factory()->create();
+        $key = EC::createKey('Ed25519')->withPassword('secret');
+
+        $this->actingAs($user)->postJson('/api/client/account/ssh-keys', [
+            'name' => 'Encrypted private key',
+            'public_key' => $key->toString('PKCS8'),
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.0.detail', 'The public key provided is not valid.');
+
+        $this->assertEquals(0, $user->sshKeys()->count());
     }
 
     public function testPublicKeyCanBeStored()
