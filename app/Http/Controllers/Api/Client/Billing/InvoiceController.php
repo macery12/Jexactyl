@@ -5,6 +5,7 @@ namespace Everest\Http\Controllers\Api\Client\Billing;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\Invoice;
+use Illuminate\Http\RedirectResponse;
 use Spatie\QueryBuilder\QueryBuilder;
 use Everest\Services\Billing\InvoicePdfService;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
@@ -47,7 +48,7 @@ class InvoiceController extends ClientApiController
      * Ensure a PDF is ready and return a controller-served download URL.
      * PDF is generated on demand if the local cache has expired.
      */
-    public function download(Request $request, string $uuid): JsonResponse
+    public function download(Request $request, string $uuid): JsonResponse|RedirectResponse
     {
         $invoice = Invoice::where('uuid', $uuid)
             ->where('user_id', $request->user()->id)
@@ -64,6 +65,13 @@ class InvoiceController extends ClientApiController
         }
 
         $url = url("/api/client/billing/invoices/{$uuid}/serve");
+
+        // The panel requests this endpoint as JSON so it can open the returned
+        // URL in a new tab. Email links are normal browser navigations and
+        // should continue straight to the PDF instead of displaying that JSON.
+        if (!$request->expectsJson()) {
+            return redirect()->to($url);
+        }
 
         return response()->json(['url' => $url, 'expires_in' => 86400]);
     }

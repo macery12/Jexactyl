@@ -83,8 +83,8 @@ class GenerateInvoiceJob extends Job implements ShouldQueue, ShouldBeUnique
             $invoiceAbsPath = $pdfService->cachedAbsolutePath($invoice);
             $invoiceFileName = $invoice->invoice_number . '.pdf';
 
-            // Serve the invoice through the client download endpoint
-            $invoiceDownloadUrl = url("/api/client/billing/invoices/{$invoice->uuid}/download");
+            // Email buttons are browser links, so point directly at the PDF.
+            $invoiceDownloadUrl = url("/api/client/billing/invoices/{$invoice->uuid}/serve");
         } catch (\Throwable $e) {
             Log::error("GenerateInvoiceJob: Invoice generation failed for order {$this->orderId}: " . $e->getMessage(), [
                 'exception' => $e,

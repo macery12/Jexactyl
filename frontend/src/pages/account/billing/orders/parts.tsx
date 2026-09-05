@@ -73,6 +73,6 @@ export function ProcessorBadge({ processor }: { processor: PaymentProcessor }) {
     );
 }
 
-// Orders store totals in major currency units (dollars); invoices use minor
-// units (divided by the caller). Thin alias over the shared currency formatter.
+// Orders and invoices store totals in major currency units (for example, dollars).
+// Thin alias over the shared currency formatter.
 export const money = formatCurrency;

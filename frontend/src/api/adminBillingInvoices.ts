@@ -14,7 +14,7 @@ export interface AdminInvoice {
     dataSizeBytes: number | null;
     hasCachedPdf: boolean;
     pdfExpiresAt: string | null;
-    total: number; // minor units (cents)
+    total: number; // major currency units (for example, 4.00 USD)
     currency: string;
     generatedAt: string | null;
     expiresAt: string | null;
