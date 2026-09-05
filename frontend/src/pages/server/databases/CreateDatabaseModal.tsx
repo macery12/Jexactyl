@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';
 import { createDatabase } from '@/api/databases';

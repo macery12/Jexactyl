@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Check, Copy, CreditCard, KeyRound, Wallet, Webhook, type LucideIcon } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';

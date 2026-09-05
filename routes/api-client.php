@@ -219,15 +219,29 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
 
         Route::post('/command', [Client\Servers\CommandController::class, 'index']);
         Route::post('/power', [Client\Servers\PowerController::class, 'index']);
-        Route::post('/ai', [Client\Servers\AIController::class, 'index']);
+        // The tool-calling agent. `decide` resolves an action the turn
+        // suspended on — approvals arrive on a fresh request because the
+        // stream that asked for one closes when the turn suspends.
+        Route::post('/ai/agent', [Client\Servers\AgentController::class, 'start'])
+            ->middleware('throttle:ai.agent');
+        Route::post('/ai/agent/decide', [Client\Servers\AgentController::class, 'decide']);
+        Route::get('/ai/agent/turns/{turnId}', [Client\Servers\AgentController::class, 'turnStatus']);
+        // Rejoining a durable turn. `active` is what a freshly loaded page asks
+        // to discover there is one at all; `stream` replays from the cursor the
+        // client presents and then follows the turn live.
+        Route::get('/ai/agent/active', [Client\Servers\AgentController::class, 'activeTurn']);
+        Route::get('/ai/agent/turns/{turnId}/stream', [Client\Servers\AgentController::class, 'stream']);
+        // Stopping a turn and giving up a queue place are separate because the
+        // two states are: a queued turn has a ticket and no turn id, and
+        // nothing of it has run.
+        Route::post('/ai/agent/turns/{turnId}/cancel', [Client\Servers\AgentController::class, 'cancelTurn']);
+        Route::delete('/ai/agent/queue/{ticket}', [Client\Servers\AgentController::class, 'releaseQueue']);
 
         Route::prefix('/ai/conversations')->group(function () {
             Route::get('/', [Client\Servers\AIConversationController::class, 'index']);
-            Route::post('/', [Client\Servers\AIConversationController::class, 'store']);
             Route::get('/{conversationId}', [Client\Servers\AIConversationController::class, 'show']);
             Route::delete('/{conversationId}', [Client\Servers\AIConversationController::class, 'destroy']);
             Route::patch('/{conversationId}/save', [Client\Servers\AIConversationController::class, 'toggleSave']);
-            Route::post('/{conversationId}/messages', [Client\Servers\AIConversationController::class, 'appendMessages']);
         });
 
         Route::group(['prefix' => '/databases'], function () {

@@ -39,6 +39,31 @@ class ProductController extends ApplicationApiController
     }
 
     /**
+     * The product named in the URI, resolved *through* its category.
+     *
+     * The routes declare `{category:id}/products/{product:id}` and the group
+     * calls `scopeBindings()`, which reads as containment but is not: scoping
+     * only applies to route-model binding, and these parameters arrive as
+     * scalars the controller resolves itself. So `Product::findOrFail($product)`
+     * answered for any product under any category, and a wrong category id in
+     * the URI was simply ignored rather than being a 404.
+     *
+     * That is not a privilege escalation while billing capabilities are global,
+     * but it is the containment control this API claims to have — and the agent
+     * supplies both identifiers from model output, where a mismatched pair is
+     * exactly the mistake worth catching.
+     */
+    private function productIn(string $category, string $product): Product
+    {
+        $categoryModel = Category::findOrFail((int) $category);
+
+        return Product::query()
+            ->where('category_uuid', $categoryModel->uuid)
+            ->whereKey((int) $product)
+            ->firstOrFail();
+    }
+
+    /**
      * Get all categories associated with the panel.
      */
     public function index(GetBillingProductsRequest $request, string $category): array
@@ -69,34 +94,60 @@ class ProductController extends ApplicationApiController
      */
     private function attributesFrom(Request $request, ?bool $visibleDefault = true): array
     {
-        $limit = function (string $key, int $default = 0) use ($request): int {
-            $nested = $request->input("limits.$key");
+        $partial = $visibleDefault === null;
+        $attributes = [];
 
-            return (int) ($nested ?? $request->input("{$key}_limit") ?? $default);
-        };
+        foreach (['name', 'icon', 'description'] as $field) {
+            if (!$partial || $request->exists($field)) {
+                $attributes[$field] = $request->input($field);
+            }
+        }
 
-        // On update the caller may omit `visible` entirely; passing null as the
-        // default drops the key so the stored value is preserved rather than
-        // being silently reset to visible.
-        $visible = $request->has('visible')
-            ? ['visible' => $request->boolean('visible')]
-            : ($visibleDefault === null ? [] : ['visible' => $visibleDefault]);
+        // The single source of truth for what this plan costs: every cycle
+        // price is derived from it. A cast is applied only when the field is
+        // present, otherwise a PATCH with no price would manufacture 0.0.
+        if (!$partial || $request->exists('price')) {
+            $attributes['price'] = (float) $request->input('price');
+        }
 
-        return $visible + [
-            'name' => $request->input('name'),
-            'icon' => $request->input('icon'),
-            // The single source of truth for what this plan costs: every cycle
-            // price is derived from it. There is no separate billing basis.
-            'price' => (float) $request->input('price'),
-            'description' => $request->input('description'),
-            'cpu_limit' => $limit('cpu'),
-            'memory_limit' => $limit('memory'),
-            'disk_limit' => $limit('disk'),
-            'backup_limit' => $limit('backup'),
-            'database_limit' => $limit('database'),
-            'allocation_limit' => $limit('allocation'),
-            'subdomain_limit' => $limit('subdomain', 1),
+        if ($request->exists('visible')) {
+            $attributes['visible'] = $request->boolean('visible');
+        } elseif (!$partial) {
+            $attributes['visible'] = $visibleDefault;
+        }
+
+        $limits = [
+            'cpu' => 0,
+            'memory' => 0,
+            'disk' => 0,
+            'backup' => 0,
+            'database' => 0,
+            'allocation' => 0,
+            'subdomain' => 1,
         ];
+
+        foreach ($limits as $key => $default) {
+            $nested = "limits.$key";
+            $flat = "{$key}_limit";
+
+            if ($request->exists($nested)) {
+                $value = $request->input($nested);
+            } elseif ($request->exists($flat)) {
+                $value = $request->input($flat);
+            } elseif ($partial) {
+                continue;
+            } else {
+                $value = $default;
+            }
+
+            // subdomain_limit is documented and validated as nullable. All
+            // other limits are integers, including an explicit zero.
+            $attributes[$flat] = $value === null && $key === 'subdomain'
+                ? null
+                : (int) $value;
+        }
+
+        return $attributes;
     }
 
     /**
@@ -147,7 +198,7 @@ class ProductController extends ApplicationApiController
      */
     public function update(UpdateBillingProductRequest $request, string $category, string $product): Response
     {
-        $productModel = Product::findOrFail((int) $product);
+        $productModel = $this->productIn($category, $product);
         $attributes = $this->attributesFrom($request, null);
 
         try {
@@ -217,7 +268,7 @@ class ProductController extends ApplicationApiController
      */
     public function view(GetBillingProductRequest $request, string $category, string $product): array
     {
-        $productModel = Product::findOrFail((int) $product);
+        $productModel = $this->productIn($category, $product);
 
         return $this->fractal->item($productModel)
             ->transformWith(ProductTransformer::class)
@@ -229,10 +280,13 @@ class ProductController extends ApplicationApiController
      */
     public function delete(DeleteBillingProductRequest $request, string $category, string $product): Response
     {
-        [$productModel, $categoryUuid] = DB::transaction(function () use ($product): array {
+        $containingCategory = Category::findOrFail((int) $category)->uuid;
+
+        [$productModel, $categoryUuid] = DB::transaction(function () use ($product, $containingCategory): array {
             $this->deletionGuard->assertDeletable([(int) $product]);
             /** @var Product $productModel */
             $productModel = Product::query()
+                ->where('category_uuid', $containingCategory)
                 ->whereKey((int) $product)
                 ->lockForUpdate()
                 ->firstOrFail();

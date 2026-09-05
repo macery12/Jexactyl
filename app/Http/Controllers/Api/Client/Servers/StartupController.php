@@ -41,6 +41,11 @@ class StartupController extends ClientApiController
             ->transformWith(EggVariableTransformer::class)
             ->addMeta([
                 'startup_command' => $startup,
+                // Which image is *in use*, alongside the ones on offer. Reading
+                // the map alone tells you a server could run Java 8 and 19, not
+                // which of them it is running — and that is the whole question
+                // when a server that used to boot has stopped booting.
+                'docker_image' => $server->image,
                 'docker_images' => $server->egg->docker_images,
                 'raw_startup_command' => $server->startup,
             ])

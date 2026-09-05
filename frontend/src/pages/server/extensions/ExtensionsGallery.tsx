@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, Puzzle } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
 import { getServerExtensions, type ServerExtension } from '@/api/serverExtensions';
 import { Spinner } from '@/components/ui/Spinner';

@@ -3,6 +3,7 @@
 namespace Everest\Console;
 
 use Everest\Models\ActivityLog;
+use Everest\Services\AI\ProviderFactory;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Console\PruneCommand;
 use Everest\Console\Commands\AI\WarmAiModelCommand;
@@ -62,10 +63,14 @@ class Kernel extends ConsoleKernel
         // Execute scheduled commands for servers every minute, as if there was a normal cron running.
         $schedule->command(ProcessRunnableCommand::class)->everyMinute()->withoutOverlapping();
         $schedule->command(CleanServiceBackupFilesCommand::class)->daily();
-        $schedule->command(PruneAiConversationsCommand::class)->daily();
-        // Re-assert Ollama keep_alive before it lapses; the command exits
-        // immediately unless AI is enabled with warm-up on and mode=ollama.
-        $schedule->command(WarmAiModelCommand::class)->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command(PruneAiConversationsCommand::class)->hourly()->withoutOverlapping();
+        // Re-assert Ollama keep_alive before it lapses. Do not launch a child
+        // process for hosted providers or when warm-up is disabled; the command
+        // repeats this guard for manual invocations and settings-change races.
+        $schedule->command(WarmAiModelCommand::class)
+            ->everyFiveMinutes()
+            ->when(fn (ProviderFactory $factory): bool => WarmAiModelCommand::shouldRun($factory))
+            ->withoutOverlapping();
 
         if (config('backups.prune_age')) {
             // Every 30 minutes, run the backup pruning command so that any abandoned backups can be deleted.
@@ -89,11 +94,23 @@ class Kernel extends ConsoleKernel
             $schedule->command(ExpireInvoicesCommand::class)->dailyAt('02:00'); // Auto-cleanup data snapshots (if enabled)
         }
 
-        // Process deferred emails every 5 minutes
-        $schedule->command(ProcessDeferredEmailsCommand::class)->everyFiveMinutes();
+        // Process deferred emails every 5 minutes. Overlap protection matters
+        // here: without it, a slow run still holding its rows was joined by the
+        // next tick and both dispatched the same emails.
+        $schedule->command(ProcessDeferredEmailsCommand::class)->everyFiveMinutes()->withoutOverlapping();
 
         // Process jGuard delayed activations every minute
-        $schedule->command(ProcessJGuardActivationsCommand::class)->everyMinute();
+        $schedule->command(ProcessJGuardActivationsCommand::class)->everyMinute()->withoutOverlapping();
+
+        // failed_jobs is append-only and had nothing pruning it. A week is long
+        // enough to investigate a failure and short enough that the table stays
+        // small — which is also why it needs no extra index.
+        $schedule->command('queue:prune-failed', ['--hours' => 168])->weekly();
+
+        // Rolls the live throughput/runtime counters into a retained time series.
+        // Note this *deletes* the live counters as it goes, which is why the
+        // queue page reports over the retained window rather than the counters.
+        $schedule->command('horizon:snapshot')->everyFiveMinutes();
 
         // Send server renewal notices (run daily - checks for servers expiring in 7, 3, and 1 day)
         if (config('modules.billing.enabled')) {

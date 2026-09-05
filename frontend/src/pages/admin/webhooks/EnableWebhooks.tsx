@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { abs } from '@/lib/base';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Webhook } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useFlashes } from '@/state/flashes';

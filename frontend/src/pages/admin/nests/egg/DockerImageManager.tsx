@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import type { DockerRow } from '@/api/adminNests';

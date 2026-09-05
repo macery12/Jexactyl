@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, ShieldAlert, MailCheck, MailWarning, ArrowUpRight } from 'lucide-react';
 import { useSession } from '@/state/session';

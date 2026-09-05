@@ -58,9 +58,25 @@ CREATE TABLE `admin_roles` (
   `description` varchar(255) DEFAULT NULL,
   `sort_id` int(11) NOT NULL,
   `permissions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`permissions`)),
+  `is_system` tinyint(1) NOT NULL DEFAULT 0,
+  `is_owner` tinyint(1) NOT NULL DEFAULT 0,
+  `api_eligible` tinyint(1) NOT NULL DEFAULT 0,
   `color` varchar(191) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `admin_roles_id_unique` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_budget_reservations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_budget_reservations` (
+  `user_id` int(10) unsigned NOT NULL,
+  `token` char(36) NOT NULL,
+  `expires_at` timestamp NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`user_id`),
+  UNIQUE KEY `ai_budget_reservations_token_unique` (`token`),
+  CONSTRAINT `ai_budget_reservations_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ai_conversations`;
@@ -69,16 +85,20 @@ DROP TABLE IF EXISTS `ai_conversations`;
 CREATE TABLE `ai_conversations` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `user_id` int(10) unsigned NOT NULL,
-  `server_uuid` char(36) NOT NULL,
+  `server_uuid` char(36) DEFAULT NULL,
+  `scope` varchar(16) NOT NULL DEFAULT 'server',
   `title` varchar(255) NOT NULL DEFAULT 'New conversation',
+  `redactions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`redactions`)),
+  `assist` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`assist`)),
   `is_saved` tinyint(1) NOT NULL DEFAULT 0,
   `expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `ai_conversations_user_id_server_uuid_index` (`user_id`,`server_uuid`),
-  KEY `ai_conversations_server_uuid_foreign` (`server_uuid`),
   KEY `ai_conversations_expires_at_index` (`expires_at`),
+  KEY `ai_conversations_server_uuid_foreign` (`server_uuid`),
+  KEY `ai_conversations_user_id_scope_index` (`user_id`,`scope`),
   CONSTRAINT `ai_conversations_server_uuid_foreign` FOREIGN KEY (`server_uuid`) REFERENCES `servers` (`uuid`) ON DELETE CASCADE,
   CONSTRAINT `ai_conversations_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -89,12 +109,100 @@ DROP TABLE IF EXISTS `ai_messages`;
 CREATE TABLE `ai_messages` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `conversation_id` bigint(20) unsigned NOT NULL,
-  `role` enum('user','assistant') NOT NULL,
+  `role` enum('user','assistant','system','tool') NOT NULL,
   `content` text NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `tool_calls` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`tool_calls`)),
+  `tool_call_id` varchar(128) DEFAULT NULL,
+  `tool_name` varchar(64) DEFAULT NULL,
+  `step` smallint(5) unsigned DEFAULT NULL,
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
   PRIMARY KEY (`id`),
   KEY `ai_messages_conversation_id_index` (`conversation_id`),
   CONSTRAINT `ai_messages_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_pending_actions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_pending_actions` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `turn_id` char(36) NOT NULL,
+  `conversation_id` bigint(20) unsigned NOT NULL,
+  `user_id` int(10) unsigned NOT NULL,
+  `server_uuid` char(36) DEFAULT NULL,
+  `scope` varchar(16) NOT NULL DEFAULT 'server',
+  `tool_name` varchar(64) NOT NULL,
+  `tool_call_id` varchar(128) DEFAULT NULL,
+  `risk` varchar(16) NOT NULL,
+  `arguments` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`arguments`)),
+  `state` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`state`)),
+  `assist_grant` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`assist_grant`)),
+  `assist_grant_mac` char(64) DEFAULT NULL,
+  `step` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `status` varchar(16) NOT NULL DEFAULT 'pending',
+  `execution_key` char(36) DEFAULT NULL,
+  `claimed_at` timestamp NULL DEFAULT NULL,
+  `resolved_at` timestamp NULL DEFAULT NULL,
+  `failure_reason` varchar(255) DEFAULT NULL,
+  `expires_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ai_pending_actions_turn_id_unique` (`turn_id`),
+  UNIQUE KEY `ai_pending_actions_execution_key_unique` (`execution_key`),
+  KEY `ai_pending_actions_user_status_expires_index` (`user_id`,`status`,`expires_at`),
+  KEY `ai_pending_actions_user_server_status_index` (`user_id`,`server_uuid`,`status`),
+  KEY `ai_pending_actions_updated_status_index` (`updated_at`,`status`),
+  KEY `ai_pending_actions_conversation_id_index` (`conversation_id`),
+  CONSTRAINT `ai_pending_actions_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ai_pending_actions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_tool_calls`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_tool_calls` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `turn_id` char(36) NOT NULL,
+  `conversation_id` bigint(20) unsigned DEFAULT NULL,
+  `user_id` int(10) unsigned DEFAULT NULL,
+  `server_uuid` char(36) DEFAULT NULL,
+  `scope` varchar(16) NOT NULL DEFAULT 'server',
+  `tool_call_id` varchar(128) DEFAULT NULL,
+  `batch_parent_tool_call_id` varchar(128) DEFAULT NULL,
+  `batch_index` smallint(5) unsigned DEFAULT NULL,
+  `tool_name` varchar(64) NOT NULL,
+  `risk` varchar(16) NOT NULL,
+  `step` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `arguments` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`arguments`)),
+  `result_summary` text DEFAULT NULL,
+  `status` varchar(24) NOT NULL DEFAULT 'pending_approval',
+  `http_status` smallint(5) unsigned DEFAULT NULL,
+  `duration_ms` int(10) unsigned DEFAULT NULL,
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
+  `resolved_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ai_tool_calls_turn_call_index` (`turn_id`,`tool_call_id`),
+  KEY `ai_tool_calls_created_at_index` (`created_at`),
+  KEY `ai_tool_calls_conversation_id_index` (`conversation_id`),
+  KEY `ai_tool_calls_user_id_index` (`user_id`),
+  CONSTRAINT `ai_tool_calls_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ai_tool_calls_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_turn_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_turn_events` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `turn_id` char(36) NOT NULL,
+  `seq` int(10) unsigned NOT NULL,
+  `type` varchar(32) NOT NULL,
+  `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`payload`)),
+  `created_at` timestamp(3) NOT NULL DEFAULT current_timestamp(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ai_turn_events_turn_seq_unique` (`turn_id`,`seq`),
+  KEY `ai_turn_events_created_at_index` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ai_usage_logs`;
@@ -105,21 +213,30 @@ CREATE TABLE `ai_usage_logs` (
   `user_id` int(10) unsigned DEFAULT NULL,
   `server_uuid` char(36) DEFAULT NULL,
   `conversation_id` bigint(20) unsigned DEFAULT NULL,
+  `turn_id` char(36) DEFAULT NULL,
+  `step` smallint(5) unsigned DEFAULT NULL,
+  `tool_calls_count` smallint(5) unsigned NOT NULL DEFAULT 0,
   `model` varchar(100) NOT NULL,
   `source` varchar(20) NOT NULL DEFAULT 'client',
   `prompt_tokens` int(10) unsigned DEFAULT NULL,
   `completion_tokens` int(10) unsigned DEFAULT NULL,
   `total_tokens` int(10) unsigned DEFAULT NULL,
   `latency_ms` int(10) unsigned DEFAULT NULL,
-  `status` enum('success','error') NOT NULL DEFAULT 'success',
+  `status` enum('success','error','suspended','running','cancelled') NOT NULL DEFAULT 'success',
   `cached` tinyint(1) NOT NULL DEFAULT 0,
   `error_message` text DEFAULT NULL,
+  `heartbeat_at` timestamp NULL DEFAULT NULL,
+  `deadline_at` timestamp NULL DEFAULT NULL,
+  `cancel_requested_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
+  UNIQUE KEY `ai_usage_logs_turn_unique` (`turn_id`),
   KEY `ai_usage_logs_created_at_index` (`created_at`),
   KEY `ai_usage_logs_conversation_id_foreign` (`conversation_id`),
   KEY `ai_usage_logs_user_id_index` (`user_id`),
   KEY `ai_usage_logs_server_uuid_index` (`server_uuid`),
+  KEY `ai_usage_logs_user_created_index` (`user_id`,`created_at`),
+  KEY `ai_usage_logs_user_status_id_index` (`user_id`,`status`,`id`),
   CONSTRAINT `ai_usage_logs_conversation_id_foreign` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE SET NULL,
   CONSTRAINT `ai_usage_logs_server_uuid_foreign` FOREIGN KEY (`server_uuid`) REFERENCES `servers` (`uuid`) ON DELETE SET NULL,
   CONSTRAINT `ai_usage_logs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -193,6 +310,7 @@ DROP TABLE IF EXISTS `api_keys`;
 CREATE TABLE `api_keys` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `user_id` int(10) unsigned NOT NULL,
+  `admin_role_id` int(10) unsigned DEFAULT NULL,
   `key_type` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `identifier` char(16) DEFAULT NULL,
   `token` text NOT NULL,
@@ -215,6 +333,8 @@ CREATE TABLE `api_keys` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `api_keys_identifier_unique` (`identifier`),
   KEY `api_keys_user_id_foreign` (`user_id`),
+  KEY `api_keys_admin_role_id_foreign` (`admin_role_id`),
+  CONSTRAINT `api_keys_admin_role_id_foreign` FOREIGN KEY (`admin_role_id`) REFERENCES `admin_roles` (`id`),
   CONSTRAINT `api_keys_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -268,6 +388,7 @@ CREATE TABLE `backups` (
   `uuid` char(36) NOT NULL,
   `is_successful` tinyint(1) NOT NULL DEFAULT 0,
   `upload_id` text DEFAULT NULL,
+  `upload_size` bigint(20) unsigned DEFAULT NULL,
   `is_locked` tinyint(3) unsigned NOT NULL DEFAULT 0,
   `name` varchar(191) NOT NULL,
   `ignored_files` text DEFAULT NULL,
@@ -342,13 +463,15 @@ CREATE TABLE `coupon_usage` (
   `coupon_id` bigint(20) unsigned NOT NULL,
   `user_id` int(10) unsigned NOT NULL,
   `order_id` bigint(20) unsigned NOT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'consumed',
   `used_at` datetime NOT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `coupon_usage_order_unique` (`order_id`),
   KEY `coupon_usage_coupon_id_foreign` (`coupon_id`),
   KEY `coupon_usage_user_id_foreign` (`user_id`),
-  KEY `coupon_usage_order_id_foreign` (`order_id`),
   CONSTRAINT `coupon_usage_coupon_id_foreign` FOREIGN KEY (`coupon_id`) REFERENCES `coupons` (`id`) ON DELETE CASCADE,
   CONSTRAINT `coupon_usage_order_id_foreign` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
   CONSTRAINT `coupon_usage_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
@@ -495,13 +618,17 @@ CREATE TABLE `deferred_emails` (
   `scheduled_at` timestamp NOT NULL,
   `sent_at` timestamp NULL DEFAULT NULL,
   `attempts` int(11) NOT NULL DEFAULT 0,
+  `claim_token` char(36) DEFAULT NULL,
+  `claimed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `deferred_emails_user_id_scheduled_at_index` (`user_id`,`scheduled_at`),
   KEY `deferred_emails_user_id_index` (`user_id`),
   KEY `deferred_emails_scheduled_at_index` (`scheduled_at`),
-  KEY `deferred_emails_sent_at_index` (`sent_at`)
+  KEY `deferred_emails_sent_at_index` (`sent_at`),
+  KEY `deferred_emails_claim_index` (`sent_at`,`scheduled_at`,`claimed_at`),
+  KEY `deferred_emails_claim_token_index` (`claim_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `download_queue`;
@@ -717,8 +844,8 @@ CREATE TABLE `email_quotas` (
   `month_sent_count` int(11) NOT NULL DEFAULT 0,
   `monthly_overage` int(11) NOT NULL DEFAULT 0,
   `overage_count` int(11) NOT NULL DEFAULT 0,
-  `month_reset_at` date NOT NULL DEFAULT '2026-07-23',
-  `day_reset_at` date NOT NULL DEFAULT '2026-07-23',
+  `month_reset_at` date NOT NULL DEFAULT '2026-08-22',
+  `day_reset_at` date NOT NULL DEFAULT '2026-08-22',
   `period_month` varchar(7) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -851,6 +978,30 @@ CREATE TABLE `failed_jobs` (
   UNIQUE KEY `failed_jobs_uuid_unique` (`uuid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `free_product_entitlements`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `free_product_entitlements` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) unsigned NOT NULL,
+  `product_id` bigint(20) unsigned NOT NULL,
+  `order_id` bigint(20) unsigned DEFAULT NULL,
+  `server_id` int(10) unsigned DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'reserved',
+  `expires_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `free_entitlement_user_product_unique` (`user_id`,`product_id`),
+  UNIQUE KEY `free_product_entitlements_order_id_unique` (`order_id`),
+  UNIQUE KEY `free_product_entitlements_server_id_unique` (`server_id`),
+  KEY `free_product_entitlements_product_id_foreign` (`product_id`),
+  CONSTRAINT `free_product_entitlements_order_id_foreign` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `free_product_entitlements_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `free_product_entitlements_server_id_foreign` FOREIGN KEY (`server_id`) REFERENCES `servers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `free_product_entitlements_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `invoice_settings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
@@ -976,7 +1127,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=26 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `mount_node`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1106,6 +1257,8 @@ CREATE TABLE `orders` (
   `discount` decimal(10,2) DEFAULT NULL,
   `status` varchar(191) NOT NULL,
   `product_id` int(10) unsigned NOT NULL,
+  `source_product_id` bigint(20) unsigned DEFAULT NULL,
+  `requires_free_product_entitlement` tinyint(1) NOT NULL DEFAULT 0,
   `product_name` varchar(191) DEFAULT NULL,
   `billing_days` int(11) DEFAULT NULL,
   `final_price` decimal(10,2) DEFAULT NULL,
@@ -1116,11 +1269,14 @@ CREATE TABLE `orders` (
   `server_id` int(11) DEFAULT NULL,
   `variables` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`variables`)),
   `domain_payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`domain_payload`)),
+  `plan_change_snapshot` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`plan_change_snapshot`)),
   `coupon_id` bigint(20) unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `payment_intent_id` varchar(191) DEFAULT NULL,
   `payment_processor` varchar(191) NOT NULL DEFAULT 'stripe',
+  `checkout_nonce` char(36) DEFAULT NULL,
+  `checkout_request_fingerprint` char(64) DEFAULT NULL,
   `paypal_order_id` varchar(191) DEFAULT NULL,
   `paypal_capture_id` varchar(191) DEFAULT NULL,
   `paypal_payer_id` varchar(191) DEFAULT NULL,
@@ -1130,16 +1286,26 @@ CREATE TABLE `orders` (
   `paypal_currency` varchar(3) DEFAULT NULL,
   `paypal_captured_at` timestamp NULL DEFAULT NULL,
   `payment_token` varchar(191) DEFAULT NULL,
+  `checkout_fingerprint` char(64) DEFAULT NULL,
+  `checkout_locked_at` timestamp NULL DEFAULT NULL,
+  `fulfillment_started_at` timestamp NULL DEFAULT NULL,
+  `fulfillment_claim` char(36) DEFAULT NULL,
+  `checkout_currency` char(3) DEFAULT NULL,
+  `checkout_amount_minor` bigint(20) unsigned DEFAULT NULL,
   `threat_index` int(11) NOT NULL DEFAULT -1,
   `type` varchar(191) DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `orders_checkout_nonce_unique` (`user_id`,`checkout_nonce`),
   KEY `orders_egg_id_foreign` (`egg_id`),
   KEY `orders_coupon_id_foreign` (`coupon_id`),
   KEY `orders_user_id_index` (`user_id`),
   KEY `orders_paypal_order_id_index` (`paypal_order_id`),
   KEY `orders_payment_token_index` (`payment_token`),
+  KEY `orders_source_product_foreign` (`source_product_id`),
+  KEY `orders_plan_change_conflict_index` (`server_id`,`type`,`status`),
   CONSTRAINT `orders_coupon_id_foreign` FOREIGN KEY (`coupon_id`) REFERENCES `coupons` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `orders_egg_id_foreign` FOREIGN KEY (`egg_id`) REFERENCES `eggs` (`id`) ON DELETE SET NULL
+  CONSTRAINT `orders_egg_id_foreign` FOREIGN KEY (`egg_id`) REFERENCES `eggs` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `orders_source_product_foreign` FOREIGN KEY (`source_product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `password_reset_tokens`;
@@ -1171,8 +1337,12 @@ CREATE TABLE `payment_transactions` (
   `order_id` bigint(20) unsigned NOT NULL,
   `processor` varchar(191) NOT NULL,
   `external_id` varchar(191) DEFAULT NULL,
+  `provider_customer_id` varchar(191) DEFAULT NULL,
   `capture_id` varchar(191) DEFAULT NULL,
   `status` varchar(191) DEFAULT NULL,
+  `provider_negative_status` varchar(50) DEFAULT NULL,
+  `provider_negative_at` timestamp NULL DEFAULT NULL,
+  `provider_negative_events` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`provider_negative_events`)),
   `amount` decimal(10,2) DEFAULT NULL,
   `currency` varchar(10) DEFAULT NULL,
   `payer_id` varchar(191) DEFAULT NULL,
@@ -1183,10 +1353,32 @@ CREATE TABLE `payment_transactions` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `payment_transactions_order_unique` (`order_id`),
+  UNIQUE KEY `payment_transactions_provider_order_unique` (`processor`,`external_id`),
+  UNIQUE KEY `payment_transactions_provider_capture_unique` (`processor`,`capture_id`),
   KEY `payment_transactions_processor_external_id_index` (`processor`,`external_id`),
   KEY `payment_transactions_order_id_index` (`order_id`),
   KEY `payment_transactions_payment_token_index` (`payment_token`),
   CONSTRAINT `payment_transactions_order_id_foreign` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `paypal_webhook_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `paypal_webhook_events` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `transmission_id` varchar(191) NOT NULL,
+  `payload_hash` char(64) NOT NULL,
+  `event_type` varchar(191) DEFAULT NULL,
+  `paypal_order_id` varchar(191) DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'processing',
+  `attempts` int(10) unsigned NOT NULL DEFAULT 1,
+  `last_error` text DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `paypal_webhook_events_transmission_id_unique` (`transmission_id`),
+  KEY `paypal_webhook_events_order_idx` (`paypal_order_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `plugin_provider_rules`;
@@ -1444,6 +1636,13 @@ CREATE TABLE `servers` (
   `deletion_canceled_at` timestamp NULL DEFAULT NULL,
   `last_plan_change_at` timestamp NULL DEFAULT NULL,
   `billing_product_id` int(10) unsigned DEFAULT NULL,
+  `scheduled_billing_product_id` bigint(20) unsigned DEFAULT NULL,
+  `scheduled_plan_change_at` timestamp NULL DEFAULT NULL,
+  `scheduled_plan_change_snapshot` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`scheduled_plan_change_snapshot`)),
+  `scheduled_plan_change_retry_at` timestamp NULL DEFAULT NULL,
+  `scheduled_plan_change_last_error` text DEFAULT NULL,
+  `billing_order_id` bigint(20) unsigned DEFAULT NULL,
+  `pending_plan_change_order_id` bigint(20) unsigned DEFAULT NULL,
   `billing_days` int(11) DEFAULT NULL,
   `billing_amount` decimal(10,2) DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -1451,17 +1650,25 @@ CREATE TABLE `servers` (
   UNIQUE KEY `servers_uuidshort_unique` (`uuidShort`),
   UNIQUE KEY `servers_allocation_id_unique` (`allocation_id`),
   UNIQUE KEY `servers_external_id_unique` (`external_id`),
+  UNIQUE KEY `servers_billing_order_unique` (`billing_order_id`),
+  UNIQUE KEY `servers_pending_plan_change_order_unique` (`pending_plan_change_order_id`),
   KEY `servers_node_id_index` (`node_id`),
   KEY `servers_status_index` (`status`),
   KEY `servers_owner_id_index` (`owner_id`),
   KEY `servers_nest_id_index` (`nest_id`),
   KEY `servers_egg_id_index` (`egg_id`),
   KEY `servers_renewal_date_index` (`renewal_date`),
+  KEY `servers_scheduled_plan_change_at_index` (`scheduled_plan_change_at`),
+  KEY `servers_scheduled_plan_change_retry_at_index` (`scheduled_plan_change_retry_at`),
+  KEY `servers_scheduled_billing_product_foreign` (`scheduled_billing_product_id`),
   CONSTRAINT `servers_allocation_id_foreign` FOREIGN KEY (`allocation_id`) REFERENCES `allocations` (`id`),
+  CONSTRAINT `servers_billing_order_foreign` FOREIGN KEY (`billing_order_id`) REFERENCES `orders` (`id`) ON DELETE SET NULL,
   CONSTRAINT `servers_egg_id_foreign` FOREIGN KEY (`egg_id`) REFERENCES `eggs` (`id`),
   CONSTRAINT `servers_nest_id_foreign` FOREIGN KEY (`nest_id`) REFERENCES `nests` (`id`),
   CONSTRAINT `servers_node_id_foreign` FOREIGN KEY (`node_id`) REFERENCES `nodes` (`id`),
-  CONSTRAINT `servers_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`)
+  CONSTRAINT `servers_owner_id_foreign` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `servers_pending_plan_change_order_foreign` FOREIGN KEY (`pending_plan_change_order_id`) REFERENCES `orders` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `servers_scheduled_billing_product_foreign` FOREIGN KEY (`scheduled_billing_product_id`) REFERENCES `products` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `sessions`;
@@ -1588,6 +1795,7 @@ CREATE TABLE `tickets` (
   `priority` enum('low','medium','high','critical') NOT NULL DEFAULT 'medium',
   `last_reply_at` timestamp NULL DEFAULT NULL,
   `user_id` int(10) unsigned NOT NULL,
+  `server_id` int(10) unsigned DEFAULT NULL,
   `assigned_to` int(10) unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1598,7 +1806,9 @@ CREATE TABLE `tickets` (
   KEY `tickets_last_reply_at_index` (`last_reply_at`),
   KEY `tickets_user_id_index` (`user_id`),
   KEY `tickets_assigned_to_index` (`assigned_to`),
+  KEY `tickets_server_id_foreign` (`server_id`),
   CONSTRAINT `tickets_assigned_to_foreign` FOREIGN KEY (`assigned_to`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `tickets_server_id_foreign` FOREIGN KEY (`server_id`) REFERENCES `servers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `tickets_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import type { MonthPoint, RenewalWindow } from '@/api/billing';
 import { formatCurrency } from '@/lib/format';
 

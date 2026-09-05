@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Route;
 use Everest\Http\Middleware\TrimStrings;
 use Illuminate\Cache\RateLimiting\Limit;
 use Everest\Http\Middleware\ApiDocsAccess;
+use Everest\Services\AI\Tools\ToolExecutor;
 use Illuminate\Support\Facades\RateLimiter;
 use Everest\Http\Middleware\AdminAuthenticate;
 use Everest\Http\Middleware\RequireTwoFactorAuthentication;
@@ -120,6 +121,16 @@ class RouteServiceProvider extends ServiceProvider
         RateLimiter::for('api.client', function (Request $request) {
             $key = optional($request->user())->uuid ?: $request->ip();
 
+            // A single agent turn fans out into many sub-requests. Charging
+            // them to the human's budget would let one AI question exhaust the
+            // allowance their browser session is also spending. Agent traffic
+            // gets its own bounded budget instead — bounded, not unlimited, so
+            // internal amplification stays capped.
+            if (ToolExecutor::isInternal($request)) {
+                return Limit::perMinute(config('modules.ai.agent.tool_rate_limit', 240))
+                    ->by('ai-tools:' . $key);
+            }
+
             return Limit::perMinutes(
                 config('http.rate_limit.client_period'),
                 config('http.rate_limit.client')
@@ -128,6 +139,11 @@ class RouteServiceProvider extends ServiceProvider
 
         RateLimiter::for('api.application', function (Request $request) {
             $key = optional($request->user())->uuid ?: $request->ip();
+
+            if (ToolExecutor::isInternal($request)) {
+                return Limit::perMinute(config('modules.ai.agent.tool_rate_limit', 240))
+                    ->by('ai-tools:' . $key);
+            }
 
             return Limit::perMinutes(
                 config('http.rate_limit.application_period'),
@@ -165,6 +181,31 @@ class RouteServiceProvider extends ServiceProvider
                             'code' => 'ThrottleRequestsException',
                             'status' => '429',
                             'detail' => 'Too many file diff requests. Please wait before saving again.',
+                        ],
+                    ],
+                ], 429);
+            });
+        });
+
+        RateLimiter::for('ai.agent', function (Request $request) {
+            $key = optional($request->user())->uuid ?: $request->ip();
+            $retrying = is_string($request->input('ticket')) && trim($request->input('ticket')) !== '';
+
+            return Limit::perMinutes(
+                max(1, (int) config('http.rate_limit.ai_agent_period', 1)),
+                max(1, (int) config(
+                    $retrying ? 'http.rate_limit.ai_agent_retry' : 'http.rate_limit.ai_agent',
+                    $retrying ? 120 : 10,
+                ))
+            )->by(($retrying ? 'ai-agent-retry:' : 'ai-agent:') . $key)->response(function () use ($retrying) {
+                return response()->json([
+                    'errors' => [
+                        [
+                            'code' => 'ThrottleRequestsException',
+                            'status' => '429',
+                            'detail' => $retrying
+                                ? 'Too many AI queue checks. Please wait before checking again.'
+                                : 'Too many AI agent requests. Please wait before starting another turn.',
                         ],
                     ],
                 ], 429);

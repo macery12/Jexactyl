@@ -22,5 +22,12 @@ return [
         'create_per_minute' => (int) env('CUSTOM_DOMAINS_RATE_LIMIT_CREATE_PER_MINUTE', 10),
         'sync_per_minute' => (int) env('CUSTOM_DOMAINS_RATE_LIMIT_SYNC_PER_MINUTE', 5),
         'billing_options_per_minute' => (int) env('CUSTOM_DOMAINS_RATE_LIMIT_BILLING_OPTIONS_PER_MINUTE', 20),
+
+        // Ceiling on outbound Cloudflare API calls from queued provisioning
+        // work, applied through the `cloudflare` job rate limiter. Cloudflare
+        // allows 1200 calls per five minutes per account and a single
+        // ProvisionServerCustomDomainsJob can issue several per mapping, so
+        // this keeps a bulk re-provision from spending the whole budget.
+        'cloudflare_jobs_per_minute' => (int) env('CUSTOM_DOMAINS_CLOUDFLARE_JOBS_PER_MINUTE', 60),
     ],
 ];

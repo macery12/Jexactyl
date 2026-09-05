@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import type { LandingFaqItem, LandingSectionData } from '@/lib/globals';
 import Band, { type BandTone } from './Band';
 

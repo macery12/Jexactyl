@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Info, Tag, X, type LucideIcon } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';

@@ -6,14 +6,26 @@ use Everest\Jobs\Job;
 use Everest\Models\Billing\Order;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Queue\Attributes\Timeout;
 use Illuminate\Queue\InteractsWithQueue;
 use Everest\Events\Email\PaymentReceived;
+use Illuminate\Queue\Attributes\UniqueFor;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Everest\Services\Billing\InvoicePdfService;
 use Everest\Services\Billing\InvoiceGenerationService;
 
-class GenerateInvoiceJob extends Job implements ShouldQueue
+/**
+ * Runs on the `critical` lane: this is the customer's receipt, and it must not
+ * sit behind an hour-long modpack install.
+ *
+ * Unique per order so a duplicated dispatch — a webhook replay, a retried
+ * fulfillment — cannot mint two invoices for the same payment.
+ */
+#[Timeout(120)]
+#[UniqueFor(3600)]
+class GenerateInvoiceJob extends Job implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -21,6 +33,11 @@ class GenerateInvoiceJob extends Job implements ShouldQueue
 
     public $tries = 3;
     public $backoff = [30, 120, 300];
+
+    public function uniqueId(): string
+    {
+        return (string) $this->orderId;
+    }
 
     public function __construct(
         public readonly int $orderId,
@@ -71,8 +88,17 @@ class GenerateInvoiceJob extends Job implements ShouldQueue
         } catch (\Throwable $e) {
             Log::error("GenerateInvoiceJob: Invoice generation failed for order {$this->orderId}: " . $e->getMessage(), [
                 'exception' => $e,
+                'attempt' => $this->attempts(),
             ]);
-            // Continue — still dispatch the payment email without attachment
+
+            // Snapshot/PDF failures are usually a transient object-store or
+            // renderer problem, so retry while attempts remain rather than
+            // silently shipping a receipt with no invoice attached. On the last
+            // attempt fall through: the customer still gets their payment
+            // confirmation, just without the PDF.
+            if ($this->attempts() < $this->tries) {
+                throw $e;
+            }
         }
 
         // Step 3: Dispatch PaymentReceived email event

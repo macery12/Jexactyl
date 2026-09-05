@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Cog, CalendarClock, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 

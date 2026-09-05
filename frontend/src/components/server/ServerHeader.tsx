@@ -6,7 +6,7 @@ import { useServerSocket } from '@/state/serverSocket';
 import { SocketRequest } from '@/lib/Websocket';
 import { can } from '@/lib/can';
 import { cn } from '@/lib/cn';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useAdminHeld } from '@/layouts/heldPermissions';
 
 const stateMeta: Record<string, { label: string; dot: string }> = {
@@ -93,7 +93,7 @@ export function ServerHeader() {
                 </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">
                 {/* Admin escape hatch back to this server's admin page. The admin area
                     routes by numeric primary key, not the client identifier. */}
                 {canViewAsAdmin && (

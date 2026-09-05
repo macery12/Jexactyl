@@ -29,6 +29,14 @@ class TicketTransformer extends Transformer
             'title' => $model->title,
             'status' => $model->status,
             'priority' => $model->priority,
+            // Null on older tickets and account/billing requests that are not
+            // associated with one server.
+            'server_id' => $model->server_id,
+            'server' => $model->server === null ? null : [
+                'id' => $model->server->id,
+                'identifier' => $model->server->uuidShort,
+                'name' => $model->server->name,
+            ],
             'last_reply_at' => $model->last_reply_at?->toIso8601String(),
             'user' => $model->user,
             'assigned_to' => $model->assignedTo,

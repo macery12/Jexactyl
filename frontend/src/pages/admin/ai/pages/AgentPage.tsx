@@ -1,0 +1,225 @@
+import { Bot, Layers, Timer } from 'lucide-react';
+import { m, td } from '@/i18n/messages';
+import { Input } from '@/components/ui/Input';
+import { Switch } from '@/components/ui/Switch';
+import { Spinner } from '@/components/ui/Spinner';
+import { FieldGrid, FieldRow, SaveBar, SectionCard, ToggleGroup, ToggleRow } from '@/components/ui/editorChrome';
+import { IgnoredSettings, type IgnoredSetting } from '../IgnoredSettings';
+import { useAiCapabilities, useAiSettingsForm } from '../useAiSettingsForm';
+import { AiLoadError } from '../LoadError';
+
+// The agent: which assistants exist, and how far a single turn may run.
+export default function AgentPage() {
+    const form = useAiSettingsForm(
+        settings => ({
+            enabled: settings.agent?.enabled ?? false,
+            admin_enabled: settings.agent?.admin_enabled ?? false,
+            reasoning: settings.agent?.reasoning ?? true,
+            max_steps: settings.agent?.max_steps ?? 12,
+            max_wall_seconds: settings.agent?.max_wall_seconds ?? 180,
+            max_tool_seconds: settings.agent?.max_tool_seconds ?? 90,
+            tool_result_bytes: settings.agent?.tool_result_bytes ?? 12288,
+            max_repairs: settings.agent?.max_repairs ?? 2,
+            // Null is meaningful here — it is "auto" — so it must not be
+            // coalesced to a number the operator never chose.
+            max_tools: settings.agent?.max_tools ?? null,
+            max_batch_calls: settings.agent?.max_batch_calls ?? 25,
+            allow_destructive_batches: settings.agent?.allow_destructive_batches ?? false,
+        }),
+        value => ({ agent: value }),
+    );
+
+    const { value, patch } = form;
+    const capabilities = useAiCapabilities();
+    const budget = form.settings?.agent?.tool_budget;
+
+    if (form.isError) {
+        return <AiLoadError onRetry={form.retry} />;
+    }
+
+    if (form.isLoading || !value) {
+        return (
+            <div className="flex justify-center py-16">
+                <Spinner className="h-6 w-6" />
+            </div>
+        );
+    }
+
+    const ignored: IgnoredSetting[] = [];
+
+    if (!capabilities.reasoning) {
+        ignored.push({
+            label: m['admin.ai.settings.agentReasoning'](),
+            reason: m['admin.ai.settings.reasoningInert'](),
+        });
+    }
+
+    return (
+        <form
+            className="flex flex-col gap-4"
+            onSubmit={event => {
+                event.preventDefault();
+                form.submit();
+            }}
+        >
+            <SectionCard icon={Bot} title={m['admin.ai.settings.agent']()} desc={m['admin.ai.pages.agentDesc']()}>
+                <ToggleGroup>
+                    <ToggleRow
+                        label={m['admin.ai.settings.agentEnabled']()}
+                        desc={m['admin.ai.settings.agentEnabledHint']()}
+                        checked={value.enabled}
+                        onChange={next => patch({ enabled: next })}
+                    />
+                    <ToggleRow
+                        label={m['admin.ai.settings.adminAgentEnabled']()}
+                        desc={m['admin.ai.settings.adminAgentEnabledHint']()}
+                        checked={value.admin_enabled}
+                        onChange={next => patch({ admin_enabled: next })}
+                        disabled={!value.enabled}
+                    />
+                    <ToggleRow
+                        label={m['admin.ai.settings.agentReasoning']()}
+                        desc={m['admin.ai.settings.agentReasoningHint']()}
+                        checked={value.reasoning}
+                        onChange={next => patch({ reasoning: next })}
+                        disabled={!value.enabled || !capabilities.reasoning}
+                    />
+                </ToggleGroup>
+
+                <IgnoredSettings items={ignored} />
+            </SectionCard>
+
+            <SectionCard icon={Timer} title={m['admin.ai.settings.turnLimits']()} desc={m['admin.ai.pages.turnLimitsDesc']()}>
+                <FieldGrid>
+                    <FieldRow label={m['admin.ai.settings.maxSteps']()} desc={m['admin.ai.settings.maxStepsHint']()}>
+                        <Input
+                            type="number"
+                            min={1}
+                            max={50}
+                            value={value.max_steps}
+                            onChange={event => patch({ max_steps: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                    {/* 30 and 900 are AgentRunner::MIN_WALL_SECONDS / MAX_WALL_SECONDS; the
+                        request validates the same pair. A lower bound here than the runtime
+                        clamps to is a value the operator can save and never get. */}
+                    <FieldRow label={m['admin.ai.settings.maxWall']()} desc={m['admin.ai.settings.maxWallHint']()}>
+                        <Input
+                            type="number"
+                            min={30}
+                            max={900}
+                            value={value.max_wall_seconds}
+                            onChange={event => patch({ max_wall_seconds: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                    <FieldRow
+                        label={m['admin.ai.settings.maxToolSeconds']()}
+                        desc={m['admin.ai.settings.maxToolSecondsHint']()}
+                    >
+                        <Input
+                            type="number"
+                            min={5}
+                            max={900}
+                            value={value.max_tool_seconds}
+                            onChange={event => patch({ max_tool_seconds: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                    <FieldRow
+                        label={m['admin.ai.settings.maxTools']()}
+                        desc={
+                            value.max_tools === null && budget
+                                ? m['admin.ai.settings.maxToolsAutoHint']({
+                                      profile: td(`admin.ai.settings.profile.${budget.profile}`, budget.profile),
+                                      schemas: String(budget.schemas),
+                                      total: String(budget.total_schemas),
+                                      confidence: td(
+                                          `admin.ai.settings.confidence.${budget.confidence}`,
+                                          budget.confidence,
+                                      ),
+                                      reason: budget.reason,
+                                  })
+                                : m['admin.ai.settings.maxToolsHint']()
+                        }
+                    >
+                        <div className="flex items-center gap-3">
+                            <Switch
+                                label={m['admin.ai.settings.maxToolsAuto']()}
+                                checked={value.max_tools === null}
+                                // Switching back to manual seeds the field with
+                                // whatever auto had settled on, so the operator
+                                // adjusts from the working value rather than from
+                                // a number nothing chose.
+                                onChange={auto => patch({ max_tools: auto ? null : (budget?.schemas ?? 12) })}
+                            />
+                            {value.max_tools !== null && (
+                                <Input
+                                    type="number"
+                                    min={4}
+                                    max={64}
+                                    className="w-24"
+                                    value={value.max_tools}
+                                    onChange={event => patch({ max_tools: Number(event.target.value) })}
+                                />
+                            )}
+                        </div>
+                    </FieldRow>
+                    <FieldRow
+                        label={m['admin.ai.settings.toolResultBytes']()}
+                        desc={m['admin.ai.settings.toolResultBytesHint']()}
+                    >
+                        <Input
+                            type="number"
+                            min={1024}
+                            max={131072}
+                            step={1024}
+                            value={value.tool_result_bytes}
+                            onChange={event => patch({ tool_result_bytes: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                    <FieldRow label={m['admin.ai.settings.maxRepairs']()} desc={m['admin.ai.settings.maxRepairsHint']()}>
+                        <Input
+                            type="number"
+                            min={0}
+                            max={5}
+                            value={value.max_repairs}
+                            onChange={event => patch({ max_repairs: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                </FieldGrid>
+            </SectionCard>
+
+            <SectionCard
+                icon={Layers}
+                title={m['admin.ai.settings.batching']()}
+                desc={m['admin.ai.settings.batchingDesc']()}
+            >
+                <FieldGrid>
+                    <FieldRow
+                        label={m['admin.ai.settings.maxBatchCalls']()}
+                        desc={m['admin.ai.settings.maxBatchCallsHint']()}
+                    >
+                        <Input
+                            type="number"
+                            min={2}
+                            max={100}
+                            value={value.max_batch_calls}
+                            onChange={event => patch({ max_batch_calls: Number(event.target.value) })}
+                        />
+                    </FieldRow>
+                </FieldGrid>
+
+                <ToggleGroup>
+                    <ToggleRow
+                        label={m['admin.ai.settings.allowDestructiveBatches']()}
+                        desc={m['admin.ai.settings.allowDestructiveBatchesHint']()}
+                        checked={value.allow_destructive_batches}
+                        onChange={next => patch({ allow_destructive_batches: next })}
+                        disabled={!value.enabled}
+                    />
+                </ToggleGroup>
+            </SectionCard>
+
+            <SaveBar dirty={form.dirty} saving={form.saving} onDiscard={form.discard} />
+        </form>
+    );
+}

@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState, type ReactNode } from 'react';
 import { Check, Cpu, HardDrive, MemoryStick, Database, Network, Archive, Globe, Tag, X } from 'lucide-react';
 import { cn } from '@/lib/cn';

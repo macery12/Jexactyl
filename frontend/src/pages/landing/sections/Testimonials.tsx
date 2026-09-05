@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import type { LandingTestimonialItem, LandingSectionData } from '@/lib/globals';
 import Band, { type BandTone } from './Band';
 

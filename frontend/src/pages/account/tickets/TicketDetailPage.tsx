@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -130,6 +130,7 @@ export default function TicketDetailPage() {
                         <Row label={m['tickets.field.priority']()}>
                             <PriorityBadge priority={ticket.priority} />
                         </Row>
+                        <Meta label={m['tickets.field.server']()} value={ticket.server?.name ?? '—'} />
                         <Meta label={m['tickets.field.opened']()} value={timeAgo(ticket.createdAt)} />
                         <Meta
                             label={m['tickets.field.lastReply']()}

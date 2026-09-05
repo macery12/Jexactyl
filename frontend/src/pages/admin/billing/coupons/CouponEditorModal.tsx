@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useFlashes } from '@/state/flashes';
 import { firstError } from '@/lib/apiError';
 import { Modal } from '@/components/ui/Modal';

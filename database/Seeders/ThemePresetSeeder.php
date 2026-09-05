@@ -2,20 +2,28 @@
 
 namespace Database\Seeders;
 
+use Illuminate\Support\Str;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Built-in theme presets — the semantic 10-color V2 palette, extracted from the
  * legacy refresh_theme_presets_expanded_palette migration (database-rebuild
- * D4). Idempotent upsert keyed on (name, is_builtin): re-seeding refreshes
- * built-in palettes to current values while user-created presets
- * (is_builtin = false) are never touched.
+ * D4). Missing presets are always inserted. Existing built-ins are preserved
+ * unless the operator explicitly chooses to replace them when re-seeding;
+ * user-created presets (is_builtin = false) are never touched.
  */
 class ThemePresetSeeder extends Seeder
 {
-    public function run(): void
+    /**
+     * @var list<array{string, array<string, string>}>
+     */
+    private array $existing = [];
+
+    public function run(bool $deferOverwrite = false): void
     {
+        $this->existing = [];
+
         // Standard status colors, shared across the built-ins.
         $status = [
             'accent'  => '#18d39a',
@@ -63,27 +71,99 @@ class ThemePresetSeeder extends Seeder
         ];
 
         $now = now();
+        $created = 0;
+        $createdNames = [];
 
         foreach ($builtin as [$name, $colors]) {
-            $existing = DB::table('theme_presets')
+            $presetExists = DB::table('theme_presets')
                 ->where('name', $name)
                 ->where('is_builtin', true)
                 ->exists();
 
-            if ($existing) {
-                DB::table('theme_presets')
-                    ->where('name', $name)
-                    ->where('is_builtin', true)
-                    ->update(['colors' => json_encode($colors), 'updated_at' => $now]);
-            } else {
-                DB::table('theme_presets')->insert([
-                    'name' => $name,
-                    'colors' => json_encode($colors),
-                    'is_builtin' => true,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
+            if ($presetExists) {
+                $this->existing[] = [$name, $colors];
+
+                continue;
+            }
+
+            DB::table('theme_presets')->insert([
+                'name' => $name,
+                'colors' => json_encode($colors),
+                'is_builtin' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            ++$created;
+            $createdNames[] = $name;
+        }
+
+        $duplicateCount = count($this->existing);
+
+        $this->command->info(sprintf(
+            'Added %d missing %s; found %d existing built-in %s.',
+            $created,
+            Str::plural('theme preset', $created),
+            $duplicateCount,
+            Str::plural('theme preset', $duplicateCount),
+        ));
+
+        if ($createdNames !== []) {
+            $this->command->comment('Missing theme presets added:');
+            foreach ($createdNames as $name) {
+                $this->command->line('  + ' . $name);
             }
         }
+
+        if ($deferOverwrite || $duplicateCount === 0) {
+            return;
+        }
+
+        $this->applyOverwrite($this->confirmOverwrite());
+    }
+
+    public function hasExistingRecords(): bool
+    {
+        return $this->existing !== [];
+    }
+
+    public function confirmOverwrite(): bool
+    {
+        $duplicateCount = count($this->existing);
+
+        if ($duplicateCount === 0) {
+            return false;
+        }
+
+        return $this->command->confirm(
+            sprintf(
+                'Would you like to overwrite the %d existing built-in theme presets with the shipped palettes? This will replace any custom changes.',
+                $duplicateCount,
+            ),
+            false,
+        );
+    }
+
+    public function applyOverwrite(bool $overwrite): void
+    {
+        $duplicateCount = count($this->existing);
+
+        if ($duplicateCount === 0) {
+            return;
+        }
+
+        if (!$overwrite) {
+            $this->command->comment(sprintf('Preserved %d existing built-in theme presets.', $duplicateCount));
+
+            return;
+        }
+
+        foreach ($this->existing as [$name, $colors]) {
+            DB::table('theme_presets')
+                ->where('name', $name)
+                ->where('is_builtin', true)
+                ->update(['colors' => json_encode($colors), 'updated_at' => now()]);
+        }
+
+        $this->command->info(sprintf('Overwrote %d existing built-in theme presets.', $duplicateCount));
     }
 }

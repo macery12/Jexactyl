@@ -1,4 +1,5 @@
-import { m, formatTags } from '@/i18n';
+import { m } from '@/i18n/messages';
+import { formatTags } from '@/i18n';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { UploadCloud, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useFlashes } from '@/state/flashes';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { formatBytes } from '@/lib/format';
 import { getFileUploadUrl } from '@/api/files';

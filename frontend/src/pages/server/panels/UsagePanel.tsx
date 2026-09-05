@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useEffect, useRef, useState } from 'react';
 import { Activity as ActivityIcon } from 'lucide-react';
 import { Panel } from './Panel';

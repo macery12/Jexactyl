@@ -8,6 +8,14 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::get('/permissions', Application\PermissionsController::class);
 
     Route::get('/overview', [Application\OverviewController::class, 'index']);
+    Route::get('/queues', [Application\QueueHealthController::class, 'index']);
+    Route::get('/queues/failed', [Application\QueueHealthController::class, 'failed']);
+    Route::get('/queues/failed/{uuid}', [Application\QueueHealthController::class, 'show'])->whereUuid('uuid');
+    Route::post('/queues/failed/{uuid}/retry', [Application\QueueHealthController::class, 'retry'])->whereUuid('uuid');
+    Route::post('/queues/failed/retry', [Application\QueueHealthController::class, 'retryMany']);
+    Route::post('/queues/failed/sweep-preview', [Application\QueueHealthController::class, 'sweepPreview']);
+    Route::delete('/queues/failed/{uuid}', [Application\QueueHealthController::class, 'destroy'])->whereUuid('uuid');
+    Route::delete('/queues/failed', [Application\QueueHealthController::class, 'destroyMany']);
 
     Route::get('/activity', Application\ActivityLogController::class);
     Route::get('/activity/users', [Application\ActivityLogController::class, 'users']);
@@ -215,11 +223,36 @@ Route::middleware([AdminSubject::class])->group(function () {
     Route::group(['prefix' => '/ai'], function () {
         Route::get('/settings', [Application\IntelligenceController::class, 'index']);
         Route::put('/settings', [Application\IntelligenceController::class, 'update']);
-        Route::post('/query', [Application\IntelligenceController::class, 'query']);
         Route::get('/test', [Application\IntelligenceController::class, 'testConnection']);
+        Route::post('/test-tools', [Application\IntelligenceController::class, 'probeToolCalling']);
         Route::get('/models', [Application\IntelligenceController::class, 'models']);
         Route::get('/stats', [Application\IntelligenceController::class, 'stats']);
         Route::get('/logs', [Application\IntelligenceController::class, 'recentLogs']);
+
+        // The agent's tool policy and the live state of the inference backend.
+        Route::get('/tools', [Application\AiAgentController::class, 'tools']);
+        Route::put('/tools', [Application\AiAgentController::class, 'updateTools']);
+        Route::get('/inference', [Application\AiAgentController::class, 'inference']);
+
+        // The admin assistant. `decide` resolves an approval or a question the
+        // turn suspended on — both arrive on a fresh request, because the stream
+        // that asked closes when the turn suspends.
+        Route::post('/agent', [Application\AiAgentController::class, 'start'])
+            ->middleware('throttle:ai.agent');
+        Route::post('/agent/decide', [Application\AiAgentController::class, 'decide']);
+        Route::get('/agent/turns/{turnId}', [Application\AiAgentController::class, 'turnStatus']);
+        // Stopping a turn and giving up a queue place are separate because the
+        // two states are: a queued turn has a ticket and no turn id, and
+        // nothing of it has run.
+        Route::post('/agent/turns/{turnId}/cancel', [Application\AiAgentController::class, 'cancelTurn']);
+        Route::delete('/agent/queue/{ticket}', [Application\AiAgentController::class, 'releaseQueue']);
+
+        Route::prefix('/agent/conversations')->group(function () {
+            Route::get('/', [Application\AiAgentController::class, 'conversations']);
+            Route::get('/{conversationId}', [Application\AiAgentController::class, 'conversation']);
+            Route::delete('/{conversationId}/assist', [Application\AiAgentController::class, 'endAssist']);
+            Route::delete('/{conversationId}', [Application\AiAgentController::class, 'deleteConversation']);
+        });
     });
 
     /*

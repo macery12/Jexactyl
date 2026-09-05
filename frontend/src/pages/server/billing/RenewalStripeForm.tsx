@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { abs } from '@/lib/base';
 import { PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useServer } from '@/components/server/ServerContext';

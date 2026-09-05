@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { Power, Play, RotateCcw, Square, Zap } from 'lucide-react';
 import { Panel } from './Panel';

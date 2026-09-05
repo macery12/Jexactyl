@@ -256,6 +256,7 @@ return [
         Everest\Providers\BladeServiceProvider::class,
         Everest\Providers\EventServiceProvider::class,
         Everest\Providers\HashidsServiceProvider::class,
+        Everest\Providers\QueueServiceProvider::class,
         Everest\Providers\RouteServiceProvider::class,
         Everest\Providers\RepositoryServiceProvider::class,
         Everest\Providers\ViewComposerServiceProvider::class,

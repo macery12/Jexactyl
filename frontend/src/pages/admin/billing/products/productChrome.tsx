@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Infinity as InfinityIcon, Cpu, MemoryStick, HardDrive, type LucideIcon } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { useBilling } from '@/state/billing';

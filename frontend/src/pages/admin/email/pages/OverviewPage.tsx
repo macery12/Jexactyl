@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useEffect, useMemo, useState } from 'react';
 import { Server, Plug } from 'lucide-react';
 import { Input } from '@/components/ui/Input';

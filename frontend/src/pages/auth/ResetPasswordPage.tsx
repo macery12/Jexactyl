@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { abs } from '@/lib/base';
 import { useCallback, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';

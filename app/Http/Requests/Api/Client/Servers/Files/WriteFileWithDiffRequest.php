@@ -49,7 +49,7 @@ class WriteFileWithDiffRequest extends OverwriteCapableFileRequest
         return [
             'file' => ['bail', 'required', 'string', 'max:' . self::MAX_FILE_PATH_LENGTH],
             'content' => ['bail', 'present', 'string'],
-            'original_content' => ['nullable', 'string'],
+            'original_content' => ['present', 'string'],
         ];
     }
 

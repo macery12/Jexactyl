@@ -2,8 +2,9 @@
 // Enable/disable which languages get compiled into the bundle.
 //
 // The set of locales Paraglide compiles is driven by the `locales` array in
-// project.inlang/settings.json. Trimming it means fewer per-message branches
-// get generated into src/paraglide, which shrinks the build. This is a
+// project.inlang/settings.json. Each enabled locale becomes its own lazy
+// browser chunk. Trimming the list reduces generated output and package size,
+// while the browser still fetches only the active locale. This is a
 // BUILD-TIME switch: run it, then rebuild (`pnpm build`) for the change to take
 // effect. A runtime/panel toggle can only hide languages from the picker; it
 // cannot shrink an already-built bundle.

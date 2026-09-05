@@ -83,6 +83,19 @@ return [
     'guzzle' => [
         'timeout' => env('GUZZLE_TIMEOUT', 15),
         'connect_timeout' => env('GUZZLE_CONNECT_TIMEOUT', 5),
+
+        /*
+         * Archive operations block until the node finishes, which for a large
+         * directory is genuinely minutes, so they opt out of the timeout above
+         * and use this instead.
+         *
+         * Configurable rather than a literal so a caller that cannot afford to
+         * wait a quarter of an hour can lower it for the duration of its own
+         * request — which is what ToolExecutor does, because an AI turn that
+         * blocks fifteen minutes on one tool call is indistinguishable from one
+         * that has hung.
+         */
+        'archive_timeout' => env('GUZZLE_ARCHIVE_TIMEOUT', 60 * 15),
     ],
 
     /*

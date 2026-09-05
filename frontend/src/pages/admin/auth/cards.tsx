@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { abs } from '@/lib/base';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserPlus, Lock, ShieldCheck, DoorOpen, ShieldHalf, MessageCircle, Globe, Info } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import type { EverestConfiguration } from '@/lib/globals';
 import { Input, Field } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';

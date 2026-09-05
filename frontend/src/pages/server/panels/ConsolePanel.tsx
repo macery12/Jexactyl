@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal as TerminalIcon, ChevronRight } from 'lucide-react';
 import { Terminal, type ITheme } from '@xterm/xterm';

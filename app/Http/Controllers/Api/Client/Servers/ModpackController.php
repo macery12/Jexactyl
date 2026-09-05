@@ -9,11 +9,11 @@ use Illuminate\Http\JsonResponse;
 use Everest\Jobs\InstallModpackJob;
 use Everest\Services\Mods\CurseForgeService;
 use Everest\Services\Mods\ModpackPreviewService;
+use Everest\Services\Mods\MinecraftLoaderDetector;
 use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetModpackRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\InstallModpackRequest;
-use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
 
 /**
  * Modpack browsing + install. Modpacks are served exclusively by CurseForge and
@@ -29,6 +29,7 @@ class ModpackController extends ClientApiController
         private CurseForgeService $curseForge,
         private ModpackPreviewService $previewService,
         private DaemonFileRepository $fileRepository,
+        private MinecraftLoaderDetector $loaderDetector,
     ) {
         parent::__construct();
     }
@@ -265,7 +266,7 @@ class ModpackController extends ClientApiController
     private function resolveLoader(Server $server): ?string
     {
         $eggName  = $server->egg->name ?? '';
-        $detected = MinecraftStartupOptions::detectLoader($eggName);
+        $detected = $this->loaderDetector->detect($eggName);
 
         if (!$detected || !in_array($detected, self::MODPACK_LOADERS, true)) {
             return null;

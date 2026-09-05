@@ -9,7 +9,9 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Everest\Services\Plugins\PluginInstallService;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 
+#[DeleteWhenMissingModels]
 class DownloadModJob extends Job implements ShouldQueue
 {
     use InteractsWithQueue;
@@ -27,7 +29,8 @@ class DownloadModJob extends Job implements ShouldQueue
 
     public function __construct(public DownloadQueue $queueItem)
     {
-        $this->queue = 'standard';
+        // No queue is set here on purpose — routing lives in config/queue.php,
+        // and assigning $this->queue would silently override it.
     }
 
     public function handle(PluginInstallService $pluginInstallService): void

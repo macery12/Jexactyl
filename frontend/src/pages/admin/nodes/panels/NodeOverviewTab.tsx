@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useQuery } from '@tanstack/react-query';
 import { Cpu, MemoryStick, HardDrive, Server, Info, Activity, AlertTriangle, Zap } from 'lucide-react';
 import { Panel } from '@/components/ui/Panel';

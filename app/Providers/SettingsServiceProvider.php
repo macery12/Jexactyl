@@ -86,14 +86,40 @@ class SettingsServiceProvider extends ServiceProvider
         'modules:ai:key',
         'modules:ai:endpoint',
         'modules:ai:model',
+        'modules:ai:provider',
+        // Deprecated in favour of `provider`; still hydrated so installs that
+        // predate the multi-provider rework keep resolving a driver.
         'modules:ai:mode',
         'modules:ai:max_tokens',
         'modules:ai:temperature',
+        'modules:ai:context_tokens',
         'modules:ai:system_prompt',
-        'modules:ai:feature_server_assistant',
-        'modules:ai:feature_crash_analysis',
         'modules:ai:keep_alive',
         'modules:ai:warm',
+        'modules:ai:agent:enabled',
+        'modules:ai:agent:admin_enabled',
+        'modules:ai:agent:reasoning',
+        'modules:ai:agent:max_steps',
+        'modules:ai:agent:max_wall_seconds',
+        'modules:ai:agent:durable',
+        'modules:ai:agent:max_tool_seconds',
+        'modules:ai:agent:tool_result_bytes',
+        'modules:ai:agent:max_repairs',
+        'modules:ai:agent:max_tools',
+        'modules:ai:agent:max_batch_calls',
+        'modules:ai:agent:allow_destructive_batches',
+        'modules:ai:concurrency:slots',
+        'modules:ai:concurrency:queue_depth',
+        'modules:ai:concurrency:max_wait_seconds',
+        'modules:ai:concurrency:per_user',
+        'modules:ai:budget:enforce',
+        'modules:ai:budget:monthly_tokens',
+        'modules:ai:privacy:enabled',
+        // NB: the tool policy is stored as JSON blobs under
+        // `modules:ai:risk_overrides`, `modules:ai:disabled_tools` and
+        // `modules:ai:console:safe_commands`, and read directly via
+        // Setting::get rather than being hydrated into config.
+        // `modules:ai:privacy:categories` is a JSON list read the same way.
 
         // Webhook module settings
         'modules:webhooks:enabled',

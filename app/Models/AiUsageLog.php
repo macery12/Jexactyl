@@ -24,6 +24,9 @@ class AiUsageLog extends Model
         'user_id',
         'server_uuid',
         'conversation_id',
+        'turn_id',
+        'step',
+        'tool_calls_count',
         'model',
         'source',
         'prompt_tokens',
@@ -33,6 +36,9 @@ class AiUsageLog extends Model
         'status',
         'cached',
         'error_message',
+        'heartbeat_at',
+        'deadline_at',
+        'cancel_requested_at',
     ];
 
     protected $casts = [
@@ -42,6 +48,9 @@ class AiUsageLog extends Model
         'completion_tokens' => 'integer',
         'total_tokens' => 'integer',
         'latency_ms' => 'integer',
+        'heartbeat_at' => 'datetime',
+        'deadline_at' => 'datetime',
+        'cancel_requested_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

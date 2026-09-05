@@ -305,10 +305,9 @@ class ImportPanelCommand extends Command
     }
 
     /**
-     * Seed the tables this panel has and the source panel does not. A full seed
-     * run must NOT happen after an import — whether as db:seed or migrate
-     * --seed. Its egg seeder updates eggs by UUID and would overwrite imported
-     * egg definitions with the shipped ones.
+     * Seed the tables this panel has and the source panel does not. A later full
+     * seed is safe: missing definitions are added and imported eggs are
+     * preserved unless the operator explicitly confirms an overwrite.
      */
     private function seedPanelDefaults(): void
     {
@@ -337,8 +336,8 @@ class ImportPanelCommand extends Command
         $this->info('Import complete.');
         $this->line('');
         $this->line('Next steps:');
-        $this->line('  1. Do NOT seed — neither `php artisan db:seed` nor `migrate --seed`.');
-        $this->line('     Either would overwrite the imported eggs.');
+        $this->line('  1. Seeding is optional. It adds missing shipped definitions and preserves');
+        $this->line('     imported eggs unless you explicitly confirm an overwrite.');
         $this->line('  2. Configure this panel\'s settings (mail, billing, branding) — they are not imported.');
         $this->line('  3. Point each node\'s Wings at this panel and restart it. Node tokens were');
         $this->line('     re-encrypted for this panel, so regenerate each node\'s configuration:');

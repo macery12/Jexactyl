@@ -20,10 +20,6 @@ parameters:
         # including on generic Builder<Model> receivers.
         - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder(\<[^>]+\>)?::allowed(\w+)\(\)#'
 
-        # Optional extension package (minecraft_startup_editor) — the class is only
-        # present when that extension is installed; core code references it lazily.
-        - '#unknown class Everest\\Extensions\\Packages\\minecraft_startup_editor\\MinecraftStartupOptions#'
-
         # scopedMigrator() returns an anonymous Migrator subclass that defines
         # rollbackOnly(); PHPStan only sees the parent Migrator type.
         - '#Call to an undefined method Illuminate\\Database\\Migrations\\Migrator::rollbackOnly\(\)#'

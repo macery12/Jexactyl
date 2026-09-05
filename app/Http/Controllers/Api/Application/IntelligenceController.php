@@ -9,10 +9,17 @@ use Everest\Models\AiUsageLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
-use Everest\Services\AI\OpenAIService;
+use Everest\Services\AI\ProviderFactory;
+use Everest\Services\AI\Agent\ToolBudget;
 use Everest\Services\Email\EmailRedactor;
-use Illuminate\Support\Facades\RateLimiter;
+use Everest\Services\AI\Data\ProviderConfig;
+use Everest\Services\AI\Privacy\PiiRedactor;
+use Everest\Services\AI\Providers\AbstractProvider;
+use Everest\Services\Authorization\AdminAuthorizer;
+use Everest\Services\AI\Inference\ProviderReadiness;
+use Everest\Exceptions\Service\AI\AIServiceException;
 use Everest\Http\Requests\Api\Application\Intelligence;
+use Everest\Services\AI\Providers\OpenAiCompatibleProvider;
 use Everest\Http\Requests\Api\Application\Intelligence\GetIntelligenceRequest;
 
 class IntelligenceController extends ApplicationApiController
@@ -20,8 +27,12 @@ class IntelligenceController extends ApplicationApiController
     /**
      * IntelligenceController constructor.
      */
-    public function __construct(private OpenAIService $aiService)
-    {
+    public function __construct(
+        private ProviderFactory $factory,
+        private PiiRedactor $redactor,
+        private ToolBudget $budget,
+        private AdminAuthorizer $adminAuthorizer,
+    ) {
         parent::__construct();
     }
 
@@ -30,19 +41,84 @@ class IntelligenceController extends ApplicationApiController
      */
     public function index(GetIntelligenceRequest $request): JsonResponse
     {
+        $config = $this->factory->config();
+
         return response()->json([
             'enabled' => boolval(config('modules.ai.enabled', false)),
-            'key' => !empty(config('modules.ai.key')),
-            'endpoint' => config('modules.ai.endpoint', 'https://api.openai.com/v1'),
-            'model' => config('modules.ai.model', 'gpt-4.1-mini'),
-            'mode' => config('modules.ai.mode', 'openai'),
-            'max_tokens' => (int) config('modules.ai.max_tokens', 200),
+            'key' => $config->apiKey !== '',
+            'endpoint' => $config->endpoint,
+            'model' => $config->model,
+
+            // `mode` predates multi-provider support and is still what old
+            // installs are configured with, so the resolved provider is
+            // returned alongside it rather than in place of it.
+            'mode' => config('modules.ai.mode', 'ollama'),
+            'provider' => $this->factory->provider(),
+
+            'max_tokens' => (int) config('modules.ai.max_tokens', 1024),
             'temperature' => (float) config('modules.ai.temperature', 0.3),
+            'context_tokens' => config('modules.ai.context_tokens') ? (int) config('modules.ai.context_tokens') : null,
             'keep_alive' => (string) config('modules.ai.keep_alive', '10m'),
             'warm' => boolval(config('modules.ai.warm', false)),
-            'system_prompt' => config('modules.ai.system_prompt', 'You are a helpful assistant for a game server hosting panel. Provide clear, concise, and technical responses.'),
-            'feature_server_assistant' => boolval(config('modules.ai.feature_server_assistant', true)),
-            'feature_crash_analysis' => boolval(config('modules.ai.feature_crash_analysis', true)),
+            // Return the effective value, including the packaged fallback when
+            // an older save left an empty setting row behind.
+            'system_prompt' => $this->factory->systemPrompt(),
+
+            'agent' => [
+                'enabled' => boolval(config('modules.ai.agent.enabled', false)),
+                'admin_enabled' => boolval(config('modules.ai.agent.admin_enabled', false)),
+                'reasoning' => boolval(config('modules.ai.agent.reasoning', true)),
+                'max_steps' => (int) config('modules.ai.agent.max_steps', 12),
+                'max_wall_seconds' => (int) config('modules.ai.agent.max_wall_seconds', 180),
+                'max_tool_seconds' => (int) config('modules.ai.agent.max_tool_seconds', 90),
+                'tool_result_bytes' => (int) config('modules.ai.agent.tool_result_bytes', 12288),
+                'max_repairs' => (int) config('modules.ai.agent.max_repairs', 2),
+                // Null means auto. Kept null rather than resolved, so the form
+                // can tell "the operator chose 12" from "the panel worked out 12"
+                // — the second has to keep tracking the model when it changes.
+                // Read the normalized value from ToolBudget. The settings table
+                // stores null as an empty string, and casting that string here
+                // previously returned 0 and made Auto switch off after refresh.
+                'max_tools' => $this->budget->manualSchemas(),
+                'max_batch_calls' => (int) config('modules.ai.agent.max_batch_calls', 25),
+                'allow_destructive_batches' => boolval(config('modules.ai.agent.allow_destructive_batches', false)),
+
+                // What the budget actually resolved to, so an operator can see
+                // the consequence of leaving it on auto without having to guess.
+                'tool_budget' => [
+                    'profile' => $this->budget->profile(),
+                    'schemas' => $this->budget->schemas(),
+                    'total_schemas' => $this->budget->totalSchemas(),
+                    'results' => $this->budget->results(),
+                    'source' => $this->budget->source(),
+                    'confidence' => $this->budget->confidence(),
+                    'reason' => $this->budget->reason(),
+                    'parameter_count' => $this->budget->parameterCount(),
+                ],
+            ],
+
+            'concurrency' => [
+                'slots' => config('modules.ai.concurrency.slots') ? (int) config('modules.ai.concurrency.slots') : null,
+                'queue_depth' => (int) config('modules.ai.concurrency.queue_depth', 20),
+                'max_wait_seconds' => (int) config('modules.ai.concurrency.max_wait_seconds', 120),
+                'per_user' => (int) config('modules.ai.concurrency.per_user', 1),
+            ],
+
+            'budget' => [
+                'enforce' => boolval(config('modules.ai.budget.enforce', false)),
+                'monthly_tokens' => (int) config('modules.ai.budget.monthly_tokens', 2000000),
+            ],
+
+            // Read through the redactor rather than off config: the category
+            // list is a JSON blob that is never hydrated into config, and it is
+            // the redactor that knows an unset value means "the defaults" rather
+            // than "none selected".
+            'privacy' => [
+                'enabled' => $this->redactor->enabled(),
+                'categories' => $this->redactor->activeKinds(),
+                'available' => PiiRedactor::KINDS,
+                'forced' => $this->redactor->forced(),
+            ],
         ]);
     }
 
@@ -53,6 +129,19 @@ class IntelligenceController extends ApplicationApiController
      */
     public function update(Intelligence\UpdateIntelligenceSettingsRequest $request): Response
     {
+        // Endpoint and credential changes can turn the panel into a network
+        // client for an attacker-controlled host. Keep ordinary AI tuning
+        // delegable, but reserve this trust-boundary change for a live Owner
+        // session (never an Application API key owned by that account).
+        if (
+            $request->changesProviderConnection()
+            && !$this->adminAuthorizer->isInteractiveOwner($request->user())
+        ) {
+            throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('Only an interactive Owner can change the AI provider connection.');
+        }
+
+        // `normalize()` also blanks the endpoint and key when the provider is
+        // changing, since both are a single slot shared across providers.
         foreach ($request->normalize() as $key => $value) {
             if ($key == 'key' && is_bool($value)) {
                 continue;
@@ -83,7 +172,7 @@ class IntelligenceController extends ApplicationApiController
      */
     public function testConnection(GetIntelligenceRequest $request): JsonResponse
     {
-        $cacheKey = 'ai:health:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
+        $cacheKey = 'ai:health:' . $this->connectionFingerprint();
 
         if (!$request->boolean('fresh')) {
             $cached = Cache::get($cacheKey);
@@ -93,20 +182,57 @@ class IntelligenceController extends ApplicationApiController
         }
 
         $start = microtime(true);
+        $readiness = app(ProviderReadiness::class);
+        $config = $this->factory->config();
+        $failureMessage = null;
 
         try {
-            $ok = $this->aiService->testConnection();
+            $provider = $this->factory->make();
+            $ok = $provider->health();
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
 
-            $result = $ok
-                ? ['status' => 'ok', 'latency_ms' => $latencyMs]
-                : ['status' => 'error', 'message' => 'AI service returned an unexpected response.', 'latency_ms' => $latencyMs];
-        } catch (\Exception $e) {
+            if ($ok) {
+                $result = ['status' => 'ok', 'latency_ms' => $latencyMs];
+            } else {
+                $failureMessage = $provider instanceof AbstractProvider
+                    ? $provider->lastFailure()
+                    : null;
+                if ($failureMessage === null) {
+                    $state = $readiness->state();
+                    $failureMessage = !$state['ready'] && is_string($state['reason'])
+                        ? $state['reason']
+                        : AbstractProvider::INVALID_RESPONSE_MESSAGE;
+                }
+                $result = [
+                    'status' => 'error',
+                    'message' => $this->adminAiDiagnostic($failureMessage, 'connection_test'),
+                    'latency_ms' => $latencyMs,
+                ];
+            }
+        } catch (\Throwable $e) {
             $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            $result = ['status' => 'error', 'message' => $e->getMessage(), 'latency_ms' => $latencyMs];
+            $failureMessage = $e instanceof AIServiceException
+                ? $e->getMessage()
+                : 'The panel could not initialize the configured AI provider. Verify the provider, endpoint, API key, and model.';
+            $result = [
+                'status' => 'error',
+                'message' => $this->adminAiDiagnostic($failureMessage, 'connection_test', $e),
+                'latency_ms' => $latencyMs,
+            ];
         }
 
         Cache::put($cacheKey, $result, 300);
+
+        // The assistant's send-path gate reads the same reachability from its
+        // own short-lived cache. An operator who has just fixed an endpoint and
+        // pressed Test is entitled to have that answer count immediately, rather
+        // than being told the assistant is offline for another fifteen seconds
+        // by a verdict they have visibly superseded.
+        if ($result['status'] === 'ok') {
+            $readiness->markReachable($config);
+        } else {
+            $readiness->markUnreachable($config, $failureMessage ?? ProviderReadiness::UNREACHABLE_MESSAGE);
+        }
 
         return response()->json($result, $result['status'] === 'ok' ? 200 : 502);
     }
@@ -118,7 +244,7 @@ class IntelligenceController extends ApplicationApiController
      */
     public function models(GetIntelligenceRequest $request): JsonResponse
     {
-        $cacheKey = 'ai:models:' . sha1(config('modules.ai.mode', 'openai') . '|' . config('modules.ai.endpoint', ''));
+        $cacheKey = 'ai:models:' . $this->connectionFingerprint();
 
         if (!$request->boolean('fresh')) {
             $cached = Cache::get($cacheKey);
@@ -128,9 +254,19 @@ class IntelligenceController extends ApplicationApiController
         }
 
         try {
-            $models = $this->aiService->listModels();
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 502);
+            $models = $this->factory->make()->listModels();
+        } catch (AIServiceException $e) {
+            return response()->json([
+                'message' => $this->adminAiDiagnostic($e->getMessage(), 'list_models', $e),
+            ], 502);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => $this->adminAiDiagnostic(
+                    'The panel could not list models from the configured AI service. Verify the provider endpoint and API compatibility.',
+                    'list_models',
+                    $e,
+                ),
+            ], 502);
         }
 
         Cache::put($cacheKey, $models, 300);
@@ -139,122 +275,73 @@ class IntelligenceController extends ApplicationApiController
     }
 
     /**
-     * Send a query to the AI service using OpenAI-compatible API.
-     *
-     * @throws \Throwable
+     * Explicitly verify that a generic OpenAI-compatible model can emit the
+     * same tool-call shape the agent consumes. Unlike the inference status
+     * endpoint, this performs a real generation and must never be polled.
      */
-    public function query(Intelligence\QueryRequest $request): JsonResponse|\Symfony\Component\HttpFoundation\StreamedResponse
+    public function probeToolCalling(Intelligence\ProbeToolCallingRequest $request): JsonResponse
     {
-        $enabled = filter_var(
-            Setting::get('settings::modules:ai:enabled', config('modules.ai.enabled', false)),
-            FILTER_VALIDATE_BOOLEAN
-        );
+        $config = $this->factory->config();
 
-        if (!$enabled) {
-            return response()->json(['error' => 'The M12Labs-AI module is not enabled.'], 403);
-        }
-
-        // Rate-limit admin queries (60 per 10 minutes).
-        $rateLimitKey = 'ai:admin:' . ($request->user()?->id ?? 'anon');
-        if (RateLimiter::tooManyAttempts($rateLimitKey, 60)) {
-            $retryAfter = RateLimiter::availableIn($rateLimitKey);
-
+        if ($config->provider !== ProviderConfig::PROVIDER_OPENAI_COMPATIBLE) {
             return response()->json([
-                'error' => 'Too many AI requests. Please try again in ' . $retryAfter . ' seconds.',
-                'retry_after' => $retryAfter,
-            ], 429);
+                'status' => 'error',
+                'message' => 'The live tool-calling test is only available for generic OpenAI-compatible providers.',
+            ], 422);
         }
-        RateLimiter::hit($rateLimitKey, 600);
-
-        // Check if streaming is requested
-        if ($request->input('stream', false)) {
-            $userId = $request->user()?->id;
-            $model = Setting::get('settings::modules:ai:model', config('modules.ai.model', 'unknown'));
-
-            return response()->stream(function () use ($request, $userId, $model) {
-                $start = microtime(true);
-                $status = 'success';
-                $errorMsg = null;
-
-                try {
-                    foreach ($this->aiService->queryStream($request->input('query')) as $chunk) {
-                        echo 'data: ' . json_encode(['content' => $chunk]) . "\n\n";
-                        ob_flush();
-                        flush();
-                    }
-                    echo "data: [DONE]\n\n";
-                    ob_flush();
-                    flush();
-                } catch (\Exception $e) {
-                    $status = 'error';
-                    $errorMsg = $e->getMessage();
-                    echo 'data: ' . json_encode(['error' => $e->getMessage()]) . "\n\n";
-                    ob_flush();
-                    flush();
-                }
-
-                $latencyMs = (int) round((microtime(true) - $start) * 1000);
-                try {
-                    AiUsageLog::create([
-                        'user_id' => $userId,
-                        'model' => $model,
-                        'source' => 'admin',
-                        'latency_ms' => $latencyMs,
-                        'status' => $status,
-                        'cached' => $this->aiService->wasCached(),
-                        'error_message' => $errorMsg,
-                    ]);
-                } catch (\Exception $logEx) {
-                    Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
-                }
-            }, 200, [
-                'Content-Type' => 'text/event-stream',
-                'Cache-Control' => 'no-cache',
-                'X-Accel-Buffering' => 'no',
-            ]);
-        }
-
-        $model = Setting::get('settings::modules:ai:model', config('modules.ai.model', 'unknown'));
-        $start = microtime(true);
 
         try {
-            $result = $this->aiService->query($request->input('query'));
-            $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            $usage = $this->aiService->getLastUsage();
-
-            try {
-                AiUsageLog::create([
-                    'user_id' => $request->user()?->id,
-                    'model' => $usage['model'] ?? $model,
-                    'source' => 'admin',
-                    'prompt_tokens' => $usage['prompt_tokens'] ?? null,
-                    'completion_tokens' => $usage['completion_tokens'] ?? null,
-                    'total_tokens' => $usage['total_tokens'] ?? null,
-                    'latency_ms' => $latencyMs,
-                    'status' => 'success',
-                    'cached' => $this->aiService->wasCached(),
-                ]);
-            } catch (\Exception $logEx) {
-                Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
+            // Bound a button click independently of the normal five-minute
+            // inference timeout. Two minutes still leaves room for a cold local
+            // model load without tying up a web worker indefinitely.
+            $provider = $this->factory->make(120);
+            if (!$provider instanceof OpenAiCompatibleProvider) {
+                throw new \LogicException('The configured provider does not support a live tool-calling test.');
             }
 
-            return response()->json($result);
-        } catch (\Exception $e) {
-            $latencyMs = (int) round((microtime(true) - $start) * 1000);
-            try {
-                AiUsageLog::create([
-                    'user_id' => $request->user()?->id,
-                    'model' => $model,
-                    'source' => 'admin',
-                    'latency_ms' => $latencyMs,
-                    'status' => 'error',
-                    'error_message' => $e->getMessage(),
-                ]);
-            } catch (\Exception $logEx) {
-                Log::warning('Failed to write AI usage log: ' . $logEx->getMessage());
-            }
-            throw $e;
+            return response()->json($provider->probeToolCalling($config->model));
+        } catch (AIServiceException $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $this->adminAiDiagnostic($e->getMessage(), 'tool_calling_test', $e),
+            ], 502);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $this->adminAiDiagnostic(
+                    'The live tool-calling test encountered an internal panel error. Verify the selected model and inspect the panel logs.',
+                    'tool_calling_test',
+                    $e,
+                ),
+            ], 502);
         }
+    }
+
+    /** Log safe context for an admin-facing failure without decorating the UI message. */
+    private function adminAiDiagnostic(string $message, string $operation, ?\Throwable $exception = null): string
+    {
+        $config = $this->factory->config();
+
+        Log::warning('AI administration operation failed.', array_filter([
+            'operation' => $operation,
+            'provider' => $config->provider,
+            'model' => $config->model ?: 'unknown',
+            'exception' => $exception !== null ? $exception::class : null,
+        ]));
+
+        return rtrim($message);
+    }
+
+    /**
+     * Cache discriminator for anything probed from the live endpoint.
+     *
+     * Keyed on the resolved provider rather than the deprecated `mode`, which
+     * no longer changes when the provider does — a switch would otherwise keep
+     * serving the previous provider's health and model listing.
+     */
+    private function connectionFingerprint(): string
+    {
+        return $this->factory->config()->fingerprint();
     }
 
     /**
@@ -281,7 +368,40 @@ class IntelligenceController extends ApplicationApiController
 
         // Last 7 days
         $last7d = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
-            ->selectRaw('COUNT(*) as requests, SUM(COALESCE(total_tokens, 0)) as tokens, SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END) as cache_hits')
+            ->selectRaw('
+                COUNT(*) as requests,
+                SUM(COALESCE(total_tokens, 0)) as tokens,
+                SUM(COALESCE(prompt_tokens, 0)) as prompt_tokens,
+                SUM(COALESCE(completion_tokens, 0)) as completion_tokens,
+                SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END) as cache_hits,
+                SUM(CASE WHEN status = "error" THEN 1 ELSE 0 END) as errors
+            ')
+            ->first();
+
+        // Month to date, which is the window a monthly token budget is measured
+        // against. Panel-wide rather than per-user: the budget the operator set
+        // is the panel's, and a per-user figure cannot be summed back into it
+        // from here without loading every user.
+        $monthTokens = (int) AiUsageLog::where('created_at', '>=', $now->copy()->startOfMonth())
+            ->sum('total_tokens');
+
+        // Latency spread, bucketed rather than averaged.
+        //
+        // An agent turn is many model calls and a chat is one, so the two live
+        // in the same column with wildly different shapes — a mean over them
+        // describes neither. Buckets show the bimodality directly, and are
+        // portable SQL where a percentile function is not.
+        $latency = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
+            ->whereNotNull('latency_ms')
+            ->selectRaw('
+                SUM(CASE WHEN latency_ms < 1000 THEN 1 ELSE 0 END) as under_1s,
+                SUM(CASE WHEN latency_ms >= 1000 AND latency_ms < 5000 THEN 1 ELSE 0 END) as to_5s,
+                SUM(CASE WHEN latency_ms >= 5000 AND latency_ms < 15000 THEN 1 ELSE 0 END) as to_15s,
+                SUM(CASE WHEN latency_ms >= 15000 AND latency_ms < 60000 THEN 1 ELSE 0 END) as to_60s,
+                SUM(CASE WHEN latency_ms >= 60000 THEN 1 ELSE 0 END) as over_60s,
+                MAX(latency_ms) as slowest_ms,
+                ROUND(AVG(latency_ms)) as avg_ms
+            ')
             ->first();
 
         // Requests per day for the last 7 days (for sparkline)
@@ -317,7 +437,10 @@ class IntelligenceController extends ApplicationApiController
                 'requests' => $row->requests,
             ]);
 
-        // Source breakdown (client vs admin, last 7 days)
+        // Every source that produced traffic in the window, not a fixed pair.
+        // There are five in the codebase — client, agent, admin, admin-agent
+        // and modpack — and a UI that reads two of them by name reports a panel
+        // running nothing but agent turns as almost entirely idle.
         $sourceBreakdown = AiUsageLog::where('created_at', '>=', $now->copy()->subDays(7))
             ->selectRaw('source, COUNT(*) as requests')
             ->groupBy('source')
@@ -328,6 +451,8 @@ class IntelligenceController extends ApplicationApiController
             'all_time' => $allTime,
             'last_24h' => $last24h,
             'last_7d' => $last7d,
+            'month_to_date_tokens' => $monthTokens,
+            'latency' => $latency,
             'daily_series' => $series,
             'top_users' => $topUsers,
             'source_breakdown' => $sourceBreakdown,
@@ -350,10 +475,13 @@ class IntelligenceController extends ApplicationApiController
         $query = AiUsageLog::with('user:id,username,email', 'server:uuid,name')
             ->orderByDesc('created_at');
 
-        if (in_array($source, ['client', 'admin'], true)) {
+        // All five producers, not the two the filter used to know: narrowing to
+        // "client" excluded every agent turn, which on a panel using the agent
+        // is most of the log.
+        if (in_array($source, ['client', 'agent', 'admin', 'admin-agent', 'modpack'], true)) {
             $query->where('source', $source);
         }
-        if (in_array($status, ['success', 'error'], true)) {
+        if (in_array($status, ['success', 'error', 'running', 'suspended', 'cancelled'], true)) {
             $query->where('status', $status);
         }
         if ($search) {

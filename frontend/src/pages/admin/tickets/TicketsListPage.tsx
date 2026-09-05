@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -170,7 +170,10 @@ export default function TicketsListPage() {
                                 >
                                     <td className="px-4 py-3">
                                         <span className="block truncate font-medium text-[var(--color-ink)]">{t.title}</span>
-                                        <span className="text-xs text-[var(--color-ink-faint)]">{m['tickets.ref']({ id: t.id })}</span>
+                                        <span className="text-xs text-[var(--color-ink-faint)]">
+                                            {m['tickets.ref']({ id: t.id })}
+                                            {t.server ? ` · ${t.server.name}` : ''}
+                                        </span>
                                     </td>
                                     <td className="hidden px-4 py-3 text-[var(--color-ink-muted)] md:table-cell">
                                         {t.user?.username ?? '—'}

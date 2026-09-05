@@ -1,39 +1,27 @@
 // Translation entrypoint for the V2 UI (Paraglide JS).
 //
 // Strings live in ../../messages/<locale>.json and are compiled to typed message
-// functions under src/paraglide (see vite.config.ts / `pnpm build`). Components
-// import { m } and call m['some.key']({ vars }); the key is the namespace-prefixed
-// id (e.g. m['nav.topnav.admin']()). A typo is a compile error because each id is
-// a real export — no module augmentation needed.
+// locale modules under src/paraglide (see vite.config.ts / `pnpm build`). The
+// browser loads exactly one locale before React renders; components call the
+// typed facade in ./messages. The JSON catalogs remain the only editing surface.
 //
 // Importing this module also installs the panel's locale resolution (below), so
 // main.tsx imports it for its side effects before first render.
 
 import { cloneElement, type ReactElement, type ReactNode } from 'react';
-import * as messages from '@/paraglide/messages';
 import {
     overwriteGetLocale,
     overwriteSetLocale,
+    setLocale as setParaglideLocale,
     locales,
     baseLocale,
     type Locale,
 } from '@/paraglide/runtime';
+import { initializeMessages } from './messages';
 
-/** Compiled Paraglide message functions, keyed by namespace-prefixed id. */
-export const m = messages;
-
-type MessageFn = (inputs?: Record<string, unknown>) => string;
-
-/**
- * Dynamic message lookup for ids built at runtime (server/power states, nav
- * labels, theme tokens, …) that can't be referenced statically as m['x']. Falls
- * back to `fallback`, then the id itself — mirroring the old i18next
- * t(key, { defaultValue }) behaviour.
- */
-export function td(id: string, fallback?: string): string {
-    const fn = (messages as unknown as Record<string, MessageFn | undefined>)[id];
-    return fn ? fn() : fallback ?? id;
-}
+// Extension UI packages use this stable entrypoint because their message ids do
+// not exist in the core typed catalog until the package is installed.
+export { td } from './messages';
 
 /**
  * Render a message that embeds simple paired tags — e.g.
@@ -126,4 +114,7 @@ document.documentElement.lang = currentLocale;
 // notifies subscribers so the UI re-renders live). Changing the language is a
 // global, admin-driven action today; this is also the seam a future per-user
 // picker would use.
-export { setLocale } from '@/paraglide/runtime';
+export async function setLocale(locale: Locale): Promise<void> {
+    await initializeMessages(locale);
+    setParaglideLocale(locale);
+}

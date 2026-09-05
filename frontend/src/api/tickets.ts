@@ -20,11 +20,19 @@ export interface TicketMessage {
     createdAt: string;
 }
 
+export interface TicketServer {
+    id: number;
+    identifier: string;
+    name: string;
+}
+
 export interface Ticket {
     id: number;
     title: string;
     status: TicketStatus;
     priority: TicketPriority;
+    serverId: number | null;
+    server: TicketServer | null;
     lastReplyAt: string | null;
     createdAt: string;
     updatedAt: string | null;
@@ -79,6 +87,8 @@ interface RawTicket {
         title: string;
         status: TicketStatus;
         priority: TicketPriority;
+        server_id?: number | null;
+        server?: TicketServer | null;
         last_reply_at: string | null;
         created_at: string;
         updated_at: string | null;
@@ -96,6 +106,8 @@ function mapTicket(row: RawTicket): Ticket {
         title: a.title,
         status: a.status,
         priority: a.priority,
+        serverId: a.server_id ?? null,
+        server: a.server ?? null,
         lastReplyAt: a.last_reply_at,
         createdAt: a.created_at,
         updatedAt: a.updated_at,
@@ -118,8 +130,12 @@ export async function getTicket(id: number): Promise<Ticket> {
 }
 
 // POST /api/client/account/tickets — open a new ticket with its first message.
-export async function createTicket(input: { title: string; message: string }): Promise<Ticket> {
-    const { data } = await http.post('/api/client/account/tickets', input);
+export async function createTicket(input: { title: string; message: string; serverId: number | null }): Promise<Ticket> {
+    const { data } = await http.post('/api/client/account/tickets', {
+        title: input.title,
+        message: input.message,
+        server_id: input.serverId,
+    });
     return mapTicket(data);
 }
 

@@ -1,0 +1,8 @@
+packages:
+  - frontend
+
+enablePrePostScripts: true
+
+onlyBuiltDependencies:
+  - '@swc/core'
+  - esbuild

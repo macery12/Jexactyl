@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Routes, Route } from 'react-router-dom';
 import { WebhooksNav } from './WebhooksNav';
 import EnableWebhooks from './EnableWebhooks';

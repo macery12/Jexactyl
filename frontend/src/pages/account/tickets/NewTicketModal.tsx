@@ -1,8 +1,9 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { createTicket } from '@/api/tickets';
+import { getServers } from '@/api/servers';
 import { firstError } from '@/lib/apiError';
 import { useFlashes } from '@/state/flashes';
 import { Modal } from '@/components/ui/Modal';
@@ -10,6 +11,9 @@ import { Field, Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { Select } from '@/components/ui/Select';
+
+const NO_SERVER = 'none';
 
 export function NewTicketModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     const qc = useQueryClient();
@@ -17,14 +21,34 @@ export function NewTicketModal({ open, onClose }: { open: boolean; onClose: () =
     const { push } = useFlashes();
     const [title, setTitle] = useState('');
     const [message, setMessage] = useState('');
+    const [serverId, setServerId] = useState(NO_SERVER);
+
+    const { data: servers = [], isLoading: serversLoading } = useQuery({
+        queryKey: ['account', 'servers'],
+        queryFn: () => getServers(),
+        enabled: open,
+    });
+
+    const serverOptions = [
+        { value: NO_SERVER, label: m['tickets.new.serverNone']() },
+        ...servers
+            .filter(server => server.isOwner)
+            .map(server => ({ value: String(server.internalId), label: server.name })),
+    ];
 
     const reset = () => {
         setTitle('');
         setMessage('');
+        setServerId(NO_SERVER);
     };
 
     const mutation = useMutation({
-        mutationFn: () => createTicket({ title: title.trim(), message: message.trim() }),
+        mutationFn: () =>
+            createTicket({
+                title: title.trim(),
+                message: message.trim(),
+                serverId: serverId === NO_SERVER ? null : Number(serverId),
+            }),
         onSuccess: ticket => {
             qc.invalidateQueries({ queryKey: ['account', 'tickets'] });
             push({ type: 'success', message: m['tickets.new.created']() });
@@ -69,6 +93,19 @@ export function NewTicketModal({ open, onClose }: { open: boolean; onClose: () =
                         maxLength={191}
                         placeholder={m['tickets.new.subjectPlaceholder']()}
                         onChange={e => setTitle(e.target.value)}
+                    />
+                </Field>
+                <Field
+                    label={m['tickets.new.serverLabel']()}
+                    hint={m['tickets.new.serverHint']()}
+                    htmlFor="ticket-server"
+                >
+                    <Select
+                        id="ticket-server"
+                        value={serverId}
+                        onChange={setServerId}
+                        options={serverOptions}
+                        disabled={serversLoading}
                     />
                 </Field>
                 <Field label={m['tickets.new.messageLabel']()} htmlFor="ticket-message">

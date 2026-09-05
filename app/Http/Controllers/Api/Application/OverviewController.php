@@ -6,10 +6,12 @@ use Everest\Models\Node;
 use Everest\Models\User;
 use Everest\Models\Server;
 use Everest\Models\Ticket;
+use Illuminate\Support\Arr;
 use Everest\Models\ActivityLog;
 use Everest\Models\DeferredEmail;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\Billing\BillingException;
+use Everest\Services\Queue\QueueHealthService;
 use Everest\Services\Helpers\SoftwareVersionService;
 use Everest\Http\Requests\Api\Application\OverviewRequest;
 
@@ -20,6 +22,7 @@ class OverviewController extends ApplicationApiController
      */
     public function __construct(
         private SoftwareVersionService $softwareVersionService,
+        private QueueHealthService $queueHealth,
     ) {
         parent::__construct();
     }
@@ -37,6 +40,7 @@ class OverviewController extends ApplicationApiController
             'health' => $this->health(),
             'fleet' => $this->fleet(),
             'queues' => $this->queues(),
+            'workers' => $this->workers(),
             'kpis' => $this->kpis(),
             'activity' => $this->activity(),
         ]);
@@ -168,6 +172,32 @@ class OverviewController extends ApplicationApiController
                 ->where('created_at', '>=', now()->subDays(7))
                 ->count(),
             'deferredEmails' => DeferredEmail::query()->whereNull('sent_at')->count(),
+        ];
+    }
+
+    /**
+     * A one-line verdict on background processing, so a stalled queue is
+     * visible from the dashboard instead of only from /admin/queues.
+     *
+     * Reads the queue-health snapshot, which is cached for a few seconds and
+     * shared between callers -- so in the common case this costs one cache read
+     * rather than a round of driver queries, and the overview stays cheap
+     * enough to poll.
+     */
+    private function workers(): array
+    {
+        $snapshot = $this->queueHealth->snapshot();
+
+        $critical = array_filter($snapshot['warnings'], fn (array $w) => $w['severity'] === 'critical');
+
+        return [
+            'running' => $snapshot['horizon']['running'],
+            'depth' => $snapshot['totalDepth'],
+            'warnings' => count($snapshot['warnings']),
+            'criticalWarnings' => count($critical),
+            // The worst message verbatim, so the dashboard does not have to
+            // reimplement the wording or the ranking.
+            'summary' => Arr::first($critical)['message'] ?? Arr::first($snapshot['warnings'])['message'] ?? null,
         ];
     }
 

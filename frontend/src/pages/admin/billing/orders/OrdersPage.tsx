@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ListFilter, Search, X } from 'lucide-react';
-import { m } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { timeAgo } from '@/lib/format';
 import { useBilling } from '@/state/billing';
@@ -245,7 +245,7 @@ export default function OrdersPage() {
                             onClick={() => setSearchInput(h.prefix)}
                             className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)]/50 px-2 py-0.5 font-mono text-[11px] text-[var(--color-ink-muted)] transition-colors hover:border-[var(--color-border-strong)] hover:text-[var(--color-ink)]"
                         >
-                            {m[h.key]()}
+                            {td(h.key)}
                         </button>
                     ))}
                 </div>

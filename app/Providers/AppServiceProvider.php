@@ -100,6 +100,26 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // The window in which an administrator's audited assist session on a
+        // customer's server is in force. A singleton because the two things that
+        // consult it — AuthenticateServerAccess and ServerPolicy — are a
+        // middleware and a policy, neither constructed anywhere the agent runner
+        // could reach to pass it along.
+        $this->app->singleton(\Everest\Services\AI\Agent\AssistSession::class);
+
+        // The tool catalogue and its search index are per-deployment facts, and
+        // both are now read several times per inference step rather than once
+        // per turn. Autowired they were rebuilt on every container resolution:
+        // fifty-odd definitions with closures, plus a `Setting::get` for the
+        // disable list from each of four call sites. Singletons so the memo on
+        // each of them is worth having.
+        $this->app->singleton(\Everest\Services\AI\Tools\ToolRegistry::class);
+        $this->app->singleton(\Everest\Services\AI\Tools\ToolCatalogue::class);
+
+        // Resolved once per request so a turn does not re-probe the provider for
+        // its model size on every step.
+        $this->app->singleton(\Everest\Services\AI\Agent\ToolBudget::class);
+
         // If no APP_KEY is defined, provide a null encrypter so console commands
         // like key:generate can still execute without crashing during boot.
         if (blank(config('app.key')) && $this->app->runningInConsole()) {

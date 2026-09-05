@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Cpu, MemoryStick, HardDrive, Play, Square, RotateCcw, Clock, AlertTriangle } from 'lucide-react';

@@ -9,15 +9,25 @@ use Everest\Models\DeferredEmail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\SerializesModels;
 use Everest\Services\Email\EmailManager;
+use Illuminate\Queue\Attributes\Timeout;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Everest\Models\EmailNotificationSetting;
 use Everest\Services\Email\EmailPolicyService;
 use Everest\Services\Email\ResendQuotaService;
+use Illuminate\Queue\Attributes\MaxExceptions;
 use Everest\Services\Email\EmailDeliveryTracker;
 use Everest\Services\Email\EmailSubjectResolver;
+use Illuminate\Queue\Middleware\ThrottlesExceptions;
 
+/**
+ * Runs on the `mail` lane. Password resets and payment receipts are the most
+ * latency-sensitive work the panel queues, so they get their own worker rather
+ * than sharing one with hour-long installs.
+ */
+#[Timeout(120)]
+#[MaxExceptions(2)]
 class SendEmailJob extends Job implements ShouldQueue
 {
     use Dispatchable;
@@ -34,6 +44,17 @@ class SendEmailJob extends Job implements ShouldQueue
      * The number of seconds to wait before retrying.
      */
     public $backoff = [60, 300, 900]; // 1min, 5min, 15min
+
+    /**
+     * When the mail provider is down, every queued email fails in turn and each
+     * one pays the full backoff. Circuit-breaking after a handful of failures
+     * parks the rest cheaply instead of grinding the worker through the backlog,
+     * and they resume on their own once the provider recovers.
+     */
+    public function middleware(): array
+    {
+        return [(new ThrottlesExceptions(5, 300))->by('email-provider')];
+    }
 
     /**
      * Create a new job instance.

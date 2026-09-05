@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Percent } from 'lucide-react';
 
 // Slim "save up to X%" banner. `percent` is the best cycle discount available

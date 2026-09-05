@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -109,6 +109,7 @@ export default function TicketsPage() {
                                         <p className="mt-0.5 text-xs text-[var(--color-ink-faint)]">
                                             {m['tickets.ref']({ id: t.id })} ·{' '}
                                             {m['tickets.updatedAgo']({ ago: timeAgo(t.lastReplyAt ?? t.createdAt) })}
+                                            {t.server ? ` · ${t.server.name}` : ''}
                                         </p>
                                     </div>
                                     <PriorityBadge priority={t.priority} className="hidden sm:inline-flex" />

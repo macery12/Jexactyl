@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Cache;
 use Everest\Services\Mods\SpigetService;
 use Everest\Services\Mods\ModrinthService;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Everest\Services\Mods\MinecraftLoaderDetector;
 use Everest\Services\Plugins\ProviderAccessService;
 use Everest\Repositories\Wings\DaemonFileRepository;
 use Everest\Exceptions\Service\Mods\ModsServiceException;
@@ -26,7 +27,6 @@ use Everest\Http\Requests\Api\Client\Servers\Mods\GetModFilesRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetInstalledAddonsRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\GetMinecraftVersionsRequest;
 use Everest\Http\Requests\Api\Client\Servers\Mods\ToggleInstalledAddonRequest;
-use Everest\Extensions\Packages\minecraft_startup_editor\MinecraftStartupOptions;
 
 class ModsController extends ClientApiController
 {
@@ -43,6 +43,7 @@ class ModsController extends ClientApiController
         private SpigetService $spigetService,
         private DaemonFileRepository $fileRepository,
         private ProviderAccessService $providerAccessService,
+        private MinecraftLoaderDetector $loaderDetector,
     ) {
         parent::__construct();
     }
@@ -131,7 +132,7 @@ class ModsController extends ClientApiController
                 }
             }
 
-            $loaderName = MinecraftStartupOptions::detectLoader($server->egg->name ?? '');
+            $loaderName = $this->loaderDetector->detect($server->egg->name ?? '');
 
             $pluginPlatforms = ['paper', 'spigot', 'bukkit', 'folia', 'purpur', 'velocity', 'waterfall', 'bungeecord', 'sponge'];
 

@@ -4,9 +4,9 @@ namespace Everest\Http\Controllers\Api\Client\Servers;
 
 use Everest\Models\Server;
 use Illuminate\Http\Request;
-use Everest\Models\AiMessage;
 use Illuminate\Http\JsonResponse;
 use Everest\Models\AiConversation;
+use Everest\Services\AI\Privacy\RedactionMap;
 use Everest\Http\Controllers\Api\Client\ClientApiController;
 
 class AIConversationController extends ClientApiController
@@ -27,52 +27,28 @@ class AIConversationController extends ClientApiController
     }
 
     /**
-     * Create a new conversation.
-     * Sets a 7-day expiry and enforces the per-user unsaved cap.
-     */
-    public function store(Request $request, Server $server): JsonResponse
-    {
-        $request->validate([
-            'title' => 'nullable|string|max:255',
-        ]);
-
-        // Enforce cap: delete oldest unsaved conversations beyond the limit
-        $unsavedCount = AiConversation::where('user_id', $request->user()->id)
-            ->where('is_saved', false)
-            ->count();
-
-        if ($unsavedCount >= AiConversation::MAX_UNSAVED_PER_USER) {
-            AiConversation::where('user_id', $request->user()->id)
-                ->where('is_saved', false)
-                ->orderBy('updated_at')
-                ->limit($unsavedCount - AiConversation::MAX_UNSAVED_PER_USER + 1)
-                ->get()
-                ->each->delete();
-        }
-
-        $conversation = AiConversation::create([
-            'user_id' => $request->user()->id,
-            'server_uuid' => $server->uuid,
-            'title' => $request->input('title', 'New conversation'),
-            'is_saved' => false,
-            'expires_at' => now()->addDays(AiConversation::EXPIRY_DAYS),
-        ]);
-
-        return response()->json(['data' => $conversation], 201);
-    }
-
-    /**
      * Load messages for a specific conversation.
      */
     public function show(Request $request, Server $server, int $conversationId): JsonResponse
     {
         $conversation = $this->resolveConversation($request, $server, $conversationId);
 
-        $messages = $conversation->messages()->get(['role', 'content', 'created_at']);
+        // Agent turns store their tool steps alongside the prose. Returning
+        // them is what lets a reloaded transcript read the same as the live
+        // turn did, instead of implying the assistant answered out of thin air.
+        $messages = $conversation->messages()
+            ->get(['role', 'content', 'tool_calls', 'tool_call_id', 'tool_name', 'step', 'created_at']);
 
         return response()->json([
             'data' => [
                 'conversation' => $conversation->only(['id', 'title', 'is_saved', 'expires_at', 'created_at', 'updated_at']),
+                // What the tokens in this transcript stand for. The values never
+                // reached the model; they belong to the person reading, who owns
+                // this server and everything on it.
+                // `all()` rather than the raw column, which also carries the
+                // map's salt — the thing that keeps the provider's tokens from
+                // being a stable pseudonym across conversations.
+                'redactions' => RedactionMap::fromArray($conversation->redactions)->all(),
                 'messages' => $messages,
             ],
         ]);
@@ -106,49 +82,6 @@ class AIConversationController extends ClientApiController
         ]);
 
         return response()->json(['data' => $conversation->only(['id', 'is_saved', 'expires_at'])]);
-    }
-
-    /**
-     * Append messages to an existing conversation.
-     * Rolls the 7-day expiry forward on each activity (unless saved).
-     */
-    public function appendMessages(Request $request, Server $server, int $conversationId): JsonResponse
-    {
-        $conversation = $this->resolveConversation($request, $server, $conversationId);
-
-        $request->validate([
-            'messages' => 'required|array|min:1|max:20',
-            'messages.*.role' => 'required|in:user,assistant',
-            'messages.*.content' => 'required|string|max:8000',
-        ]);
-
-        $now = now();
-        $rows = array_map(fn ($m) => [
-            'conversation_id' => $conversation->id,
-            'role' => $m['role'],
-            'content' => $m['content'],
-            'created_at' => $now,
-        ], $request->input('messages'));
-
-        AiMessage::insert($rows);
-
-        // Auto-title from first user message if still default
-        if ($conversation->title === 'New conversation') {
-            $firstUserContent = collect($request->input('messages'))
-                ->firstWhere('role', 'user')['content'] ?? null;
-            if ($firstUserContent) {
-                $conversation->title = mb_substr($firstUserContent, 0, 80);
-            }
-        }
-
-        // Rolling expiry: extend 7 days from now on every activity, unless saved
-        if (!$conversation->is_saved) {
-            $conversation->expires_at = now()->addDays(AiConversation::EXPIRY_DAYS);
-        }
-
-        $conversation->save();
-
-        return response()->json(null, 204);
     }
 
     /**

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { UploadCloud, ClipboardPaste } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { firstError } from '@/lib/apiError';
 import { useFlashes } from '@/state/flashes';

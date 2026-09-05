@@ -11,7 +11,7 @@ import {
     Archive,
     Clock,
 } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { can } from '@/lib/can';
 import { useServer } from '@/components/server/ServerContext';
 import { useFlashes } from '@/state/flashes';

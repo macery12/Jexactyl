@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/cn';
 import { BrandMark } from '@/components/ui/BrandMark';

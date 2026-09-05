@@ -212,8 +212,8 @@ class AdoptSchemaCommand extends Command
         $this->line('');
         $this->line('Next steps:');
         $this->line('  1. `php artisan migrate` should now report nothing pending.');
-        $this->line('  2. Do NOT seed — neither `php artisan db:seed` nor `migrate --seed`.');
-        $this->line('     The egg seeder would overwrite any egg definitions you have customised.');
+        $this->line('  2. Seeding is optional. It adds missing shipped definitions and preserves');
+        $this->line('     existing eggs and built-in theme presets unless you confirm an overwrite.');
         $this->line('  3. Check the panel loads and a few servers look right.');
         $this->line('');
         $this->line('  This was a one-time step. Upgrade this install with `php artisan migrate`');

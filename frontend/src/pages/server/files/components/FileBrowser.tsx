@@ -31,7 +31,7 @@ import {
     ArrowUp,
     ArrowDown,
 } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
 import { can } from '@/lib/can';
 import { formatBytes, timeAgo } from '@/lib/format';

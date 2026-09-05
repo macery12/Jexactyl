@@ -1,0 +1,262 @@
+<?php
+
+namespace Everest\Tests\Unit\Http\Requests\Api\Application\Intelligence;
+
+use Everest\Tests\TestCase;
+use Everest\Services\AI\ProviderFactory;
+use Illuminate\Support\Facades\Validator;
+use Everest\Services\AI\Data\ProviderConfig;
+use Everest\Services\AI\Providers\OpenRouterProvider;
+use Everest\Http\Requests\Api\Application\Intelligence\UpdateIntelligenceSettingsRequest;
+
+/**
+ * The endpoint and API key are a single slot shared by every provider rather
+ * than one slot each, so both the validation tier and the carry-over rules
+ * depend on which provider is in play. These cover the seams where the two
+ * disagree.
+ */
+class UpdateIntelligenceSettingsRequestTest extends TestCase
+{
+    /**
+     * Stand in for the settings-backed factory so these stay unit tests.
+     */
+    private function storedProvider(string $provider): void
+    {
+        $factory = \Mockery::mock(ProviderFactory::class);
+        $factory->shouldReceive('provider')->andReturn($provider);
+
+        $this->app->instance(ProviderFactory::class, $factory);
+    }
+
+    private function storedConnection(string $provider, string $endpoint, string $key = 'stored-secret'): void
+    {
+        $config = new ProviderConfig(
+            provider: $provider,
+            endpoint: $endpoint,
+            apiKey: $key,
+            model: 'test-model',
+            maxTokens: 512,
+            temperature: 0.3,
+            systemPrompt: 'You are a test.',
+        );
+        $factory = \Mockery::mock(ProviderFactory::class);
+        $factory->shouldReceive('provider')->andReturn($provider);
+        $factory->shouldReceive('config')->andReturn($config);
+
+        $this->app->instance(ProviderFactory::class, $factory);
+    }
+
+    private function request(array $payload): UpdateIntelligenceSettingsRequest
+    {
+        $request = UpdateIntelligenceSettingsRequest::create('/', 'PUT', $payload);
+        $request->setContainer($this->app);
+
+        return $request;
+    }
+
+    private function errors(UpdateIntelligenceSettingsRequest $request): array
+    {
+        return Validator::make($request->all(), $request->rules())->errors()->keys();
+    }
+
+    public function testPlainHttpIsRejectedForAHostedProvider(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_ANTHROPIC,
+            'endpoint' => 'http://192.168.1.154:11434',
+        ]));
+
+        $this->assertContains('endpoint', $errors);
+    }
+
+    public function testPlainHttpIsAcceptedForASelfHostedProvider(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_ANTHROPIC);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OLLAMA,
+            'endpoint' => 'http://192.168.1.154:11434',
+        ]));
+
+        $this->assertNotContains('endpoint', $errors);
+    }
+
+    /**
+     * A save that touches the endpoint but not the provider must be judged
+     * against the stored provider. Falling back to an empty string would read
+     * as "hosted" and demand HTTPS of a perfectly valid local address.
+     */
+    public function testEndpointWithoutAProviderIsJudgedAgainstTheStoredProvider(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $errors = $this->errors($this->request(['endpoint' => 'http://192.168.1.154:11434']));
+
+        $this->assertNotContains('endpoint', $errors);
+    }
+
+    public function testCredentialsInTheAuthorityAreRejected(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_ANTHROPIC);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_ANTHROPIC,
+            'endpoint' => 'https://user:pass@api.anthropic.com/v1',
+        ]));
+
+        $this->assertContains('endpoint', $errors);
+    }
+
+    public function testOfficialProviderRejectsAnAlternateHost(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OPENAI);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OPENAI,
+            'endpoint' => 'https://attacker.example/v1',
+        ]));
+
+        $this->assertContains('endpoint', $errors);
+    }
+
+    public function testOfficialProviderAcceptsItsOwnHost(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_ANTHROPIC);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_ANTHROPIC,
+            'endpoint' => 'https://api.anthropic.com/v1',
+        ]));
+
+        $this->assertNotContains('endpoint', $errors);
+    }
+
+    public function testOpenRouterRejectsEveryEndpointAndModelOverride(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $errors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OPENROUTER,
+            'endpoint' => 'https://openrouter.ai/api/v1/alternate',
+            'model' => 'vendor/model:free',
+        ]));
+
+        $this->assertContains('endpoint', $errors);
+        $this->assertContains('model', $errors);
+
+        $blankErrors = $this->errors($this->request([
+            'provider' => ProviderConfig::PROVIDER_OPENROUTER,
+            'endpoint' => '',
+            'model' => '',
+        ]));
+        $this->assertContains('endpoint', $blankErrors);
+        $this->assertContains('model', $blankErrors);
+    }
+
+    public function testSelectingOpenRouterActivatesCanonicalConnectionAndClearsCredential(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $normalized = $this->request(['provider' => ProviderConfig::PROVIDER_OPENROUTER])->normalize();
+
+        $this->assertSame(OpenRouterProvider::ENDPOINT, $normalized['endpoint']);
+        $this->assertSame(OpenRouterProvider::MODEL, $normalized['model']);
+        $this->assertSame('', $normalized['key']);
+    }
+
+    public function testChangingProviderBlanksAnUnsuppliedEndpointAndKey(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $normalized = $this->request(['provider' => ProviderConfig::PROVIDER_ANTHROPIC])->normalize();
+
+        $this->assertSame('', $normalized['endpoint'], 'A stale Ollama address must not survive a switch to Anthropic.');
+        $this->assertSame('', $normalized['key'], 'A key belongs to the provider it was issued by.');
+    }
+
+    public function testChangingProviderKeepsValuesSuppliedInTheSameRequest(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $normalized = $this->request([
+            'provider' => ProviderConfig::PROVIDER_ANTHROPIC,
+            'endpoint' => 'https://api.anthropic.com/v1',
+            'key' => 'sk-ant-example',
+        ])->normalize();
+
+        $this->assertSame('https://api.anthropic.com/v1', $normalized['endpoint']);
+        $this->assertSame('sk-ant-example', $normalized['key']);
+    }
+
+    /**
+     * Re-saving the same provider is the common case — it must not wipe the
+     * key the admin is not retyping.
+     */
+    public function testKeepingTheProviderLeavesTheEndpointAndKeyUntouched(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $normalized = $this->request([
+            'provider' => ProviderConfig::PROVIDER_OLLAMA,
+            'model' => 'qwen3:8b',
+        ])->normalize();
+
+        $this->assertArrayNotHasKey('endpoint', $normalized);
+        $this->assertArrayNotHasKey('key', $normalized);
+        $this->assertSame('qwen3:8b', $normalized['model']);
+    }
+
+    public function testChangingEndpointHostClearsAnUnsuppliedCredential(): void
+    {
+        $this->storedConnection(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, 'https://first.example/v1');
+
+        $normalized = $this->request([
+            'endpoint' => 'https://second.example/v1',
+        ])->normalize();
+
+        $this->assertSame('', $normalized['key']);
+    }
+
+    public function testChangingEndpointPathOnTheSameHostKeepsTheCredential(): void
+    {
+        $this->storedConnection(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, 'https://provider.example/v1');
+
+        $normalized = $this->request([
+            'endpoint' => 'https://provider.example/openai/v1',
+        ])->normalize();
+
+        $this->assertArrayNotHasKey('key', $normalized);
+    }
+
+    public function testChangingEndpointSchemeClearsAnUnsuppliedCredential(): void
+    {
+        $this->storedConnection(ProviderConfig::PROVIDER_OPENAI_COMPATIBLE, 'https://provider.example/v1');
+
+        $normalized = $this->request([
+            'endpoint' => 'http://provider.example/v1',
+        ])->normalize();
+
+        $this->assertSame('', $normalized['key']);
+    }
+
+    /**
+     * Absent means untouched — a partial save must not blank every field the
+     * form did not send.
+     */
+    public function testNormalizeOnlyEmitsSuppliedKeysAndFlattensNesting(): void
+    {
+        $this->storedProvider(ProviderConfig::PROVIDER_OLLAMA);
+
+        $normalized = $this->request([
+            'agent' => ['max_steps' => 8],
+            'privacy' => ['enabled' => true],
+        ])->normalize();
+
+        $this->assertSame([
+            'agent:max_steps' => 8,
+            'privacy:enabled' => true,
+        ], $normalized);
+    }
+}

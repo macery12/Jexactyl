@@ -96,7 +96,7 @@ class SchemaBaseline
      * can be compared against information_schema without either side having to
      * reproduce mysqldump's exact formatting.
      *
-     * @return array<string, array{type: string, nullable: bool, default: ?string, extra: string, collation: ?string, comment: string}>
+     * @return array<string, array{type: string, nullable: bool, default: ?string, extra: string, collation: ?string, comment: string, check: string}>
      */
     public function columns(string $table): array
     {
@@ -196,7 +196,7 @@ class SchemaBaseline
     }
 
     /**
-     * @return array{type: string, nullable: bool, default: ?string, extra: string, collation: ?string, comment: string}
+     * @return array{type: string, nullable: bool, default: ?string, extra: string, collation: ?string, comment: string, check: string}
      */
     private function parseColumn(string $table, string $definition): array
     {
@@ -210,8 +210,15 @@ class SchemaBaseline
 
         // JSON columns are longtext plus a json_valid CHECK on MariaDB. The
         // check is implied by the utf8mb4_bin collation, so it needs no
-        // comparison of its own.
-        $definition = (string) preg_replace('/ CHECK \(.*\)$/', '', $definition);
+        // comparison of its own — but it is kept rather than discarded, because
+        // a table the upgrade has to create is built from these facts alone,
+        // and a JSON column rebuilt without its check would silently accept
+        // what the same column rejects on a fresh install.
+        $check = '';
+        if (preg_match('/ CHECK \((.*)\)$/', $definition, $m)) {
+            $check = $m[1];
+            $definition = str_replace($m[0], '', $definition);
+        }
 
         $collation = null;
         if (preg_match('/ COLLATE (\S+)/', $definition, $m)) {
@@ -242,6 +249,7 @@ class SchemaBaseline
             'extra' => $extra,
             'collation' => $collation ?? ($this->isStringType($type) ? $this->tables[$table]['collation'] : null),
             'comment' => $comment,
+            'check' => $check,
         ];
     }
 

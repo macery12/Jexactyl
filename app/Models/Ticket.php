@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property User $user
  * @property User|null $assigned
  * @property int $user_id
+ * @property int|null $server_id
+ * @property Server|null $server
  * @property int|null $assigned_to
  * @property string $title
  * @property string $status
@@ -67,6 +69,10 @@ class Ticket extends Model
      */
     protected $fillable = [
         'user_id',
+        // Which server the ticket is about, selected by the customer when they
+        // open it. Optional for billing or account questions; support and the AI
+        // assistant can use it directly instead of inferring from message text.
+        'server_id',
         'title',
         'assigned_to',
         'status',
@@ -83,6 +89,7 @@ class Ticket extends Model
      */
     public static array $validationRules = [
         'user_id' => 'required|int|exists:users,id',
+        'server_id' => 'nullable|int|exists:servers,id',
         'title' => 'required|string|min:3|max:191',
         'assigned_to' => 'nullable|int|exists:users,id',
         'status' => 'required|string|in:pending,resolved,unresolved,in-progress',
@@ -95,6 +102,14 @@ class Ticket extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * The server this ticket is about, when the customer named one.
+     */
+    public function server(): BelongsTo
+    {
+        return $this->belongsTo(Server::class, 'server_id');
     }
 
     /**

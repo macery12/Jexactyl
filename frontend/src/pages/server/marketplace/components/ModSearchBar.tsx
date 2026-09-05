@@ -4,7 +4,7 @@ import { Search, X, SlidersHorizontal } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { getMinecraftVersions, type ModFilterOptions, type ServerModsConfig, type Source } from '@/api/mods';
 import { MOD_LOADERS, PLATFORMS } from '../modMeta';
 

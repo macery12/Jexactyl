@@ -15,6 +15,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Session\TokenMismatchException;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
+use Everest\Services\AI\Tools\InternalToolCall;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -208,7 +209,7 @@ final class Handler extends ExceptionHandler
             $error['detail'] = 'The requested resource could not be found on the server.';
         }
 
-        if (config('app.debug')) {
+        if (config('app.debug') && $this->debugDetailPermitted()) {
             $error = array_merge($error, [
                 'detail' => $e->getMessage(),
                 'source' => [
@@ -228,6 +229,28 @@ final class Handler extends ExceptionHandler
         }
 
         return ['errors' => [array_merge($error, $override)]];
+    }
+
+    /**
+     * Whether this response may carry APP_DEBUG's exception detail. Not for an
+     * agent tool call: that response goes to an inference provider and is echoed
+     * over SSE, so the message, source path and trace would leave the machine.
+     *
+     * The rest of the envelope is unchanged — status, stable code and generic
+     * detail are everything the tool layer can act on, and the exception is
+     * logged either way.
+     */
+    private function debugDetailPermitted(): bool
+    {
+        $container = Container::getInstance();
+
+        if (!$container->bound('request')) {
+            return true;
+        }
+
+        $request = $container->make('request');
+
+        return !InternalToolCall::matches($request->attributes->get(InternalToolCall::ATTRIBUTE));
     }
 
     /**

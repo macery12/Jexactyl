@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { AlertTriangle, ArrowUpCircle, BadgeCheck, Check, ChevronDown, ChevronUp, ChevronsUpDown, Download, Settings2 } from 'lucide-react';
 import type { Extension } from '@/api/extensions';
 import { Switch } from '@/components/ui/Switch';

@@ -1,5 +1,5 @@
 import { CheckCircle2, Info, AlertTriangle, XCircle, X, ExternalLink } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import type { AlertType, AlertPosition } from '@/api/adminAlerts';
 
 // Maps an alert type to a themed status token + icon. Uses status CSS vars only

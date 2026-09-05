@@ -1,4 +1,5 @@
-import { m, panelDefaultLocale } from '@/i18n';
+import { m } from '@/i18n/messages';
+import { panelDefaultLocale } from '@/i18n';
 import { locales, type Locale } from '@/paraglide/runtime';
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';

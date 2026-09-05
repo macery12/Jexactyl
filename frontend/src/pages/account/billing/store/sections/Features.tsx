@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { ShieldCheck, Zap, HardDrive, LifeBuoy } from 'lucide-react';
 import type { StoreFeatureItem, StoreSectionData } from '@/lib/globals';
 import { resolveIcon } from '@/pages/landing/sections/icons';

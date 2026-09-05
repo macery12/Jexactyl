@@ -43,11 +43,11 @@ class ApiKeyTransformer extends Transformer
                 'api_eligible' => (bool) $profile->api_eligible,
                 'permissions' => $profile->permissions ?? [],
             ] : null,
-            'creator' => $creator ? [
+            'creator' => [
                 'id' => $creator->id,
                 'username' => $creator->username,
                 'email' => $creator->email,
-            ] : null,
+            ],
             'legacy' => $model->admin_role_id === null,
             // Retained for rolling API clients only. Bound keys authorize solely
             // through access_profile and do not evaluate these dormant masks.

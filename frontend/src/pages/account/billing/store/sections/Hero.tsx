@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Sparkles, ArrowRight, Megaphone } from 'lucide-react';
 import type { StoreSectionData } from '@/lib/globals';
 

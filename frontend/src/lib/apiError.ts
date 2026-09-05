@@ -1,5 +1,5 @@
 import { isAxiosError } from 'axios';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 /**
  * Machine-readable codes the panel carries its own translation for. The backend

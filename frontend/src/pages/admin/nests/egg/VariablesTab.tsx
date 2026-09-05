@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { GripVertical, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import { firstError } from '@/lib/apiError';
 import { useFlashes } from '@/state/flashes';

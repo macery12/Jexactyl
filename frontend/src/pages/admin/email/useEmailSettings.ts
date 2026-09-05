@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getEmailSettings, updateEmailSettings, type EmailSettingsUpdate } from '@/api/email';
 import { useFlashes } from '@/state/flashes';

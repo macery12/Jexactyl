@@ -2,7 +2,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Spinner } from './Spinner';
 
 export interface ComboboxOption {

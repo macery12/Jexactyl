@@ -1,6 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { Coins, CreditCard, SlidersHorizontal, Wrench, type LucideIcon } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
 import GeneralTab from './GeneralTab';
 import PricingTab from './PricingTab';

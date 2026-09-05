@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Copy, Check, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // Read-only labelled value that copies to the clipboard on click — the V2 stand-in
 // for V1's CopyOnClick-wrapped Input. `secret` masks the value behind a reveal

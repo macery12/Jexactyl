@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Spinner } from '@/components/ui/Spinner';
 import { useFlashes } from '@/state/flashes';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { chmodFiles } from '@/api/files';
 

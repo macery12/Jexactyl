@@ -25,7 +25,7 @@ class TicketController extends ClientApiController
      */
     public function index(ClientApiRequest $request): array
     {
-        return $this->fractal->collection($request->user()->tickets)
+        return $this->fractal->collection($request->user()->tickets()->with('server')->get())
             ->transformWith(TicketTransformer::class)
             ->toArray();
     }
@@ -49,6 +49,7 @@ class TicketController extends ClientApiController
 
         $ticket = $request->user()->tickets()->create([
             'title' => $data['title'],
+            'server_id' => $data['server_id'] ?? null,
         ]);
 
         TicketMessage::create([
@@ -61,7 +62,7 @@ class TicketController extends ClientApiController
             ->subject($ticket)
             ->log();
 
-        return $this->fractal->item($ticket)
+        return $this->fractal->item($ticket->load('server'))
             ->transformWith(TicketTransformer::class)
             ->toArray();
     }
@@ -75,7 +76,7 @@ class TicketController extends ClientApiController
             throw new DisplayException('You do not own this ticket.');
         }
 
-        return $this->fractal->item($ticket)
+        return $this->fractal->item($ticket->loadMissing('server'))
             ->transformWith(TicketTransformer::class)
             ->toArray();
     }
@@ -98,7 +99,7 @@ class TicketController extends ClientApiController
 
         $ticket->update(['last_reply_at' => now()]);
 
-        return $this->fractal->item($ticket->fresh())
+        return $this->fractal->item($ticket->fresh()->load('server'))
             ->transformWith(TicketTransformer::class)
             ->toArray();
     }

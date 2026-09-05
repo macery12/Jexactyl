@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fingerprint, Plus, Trash2 } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { getSshKeys, deleteSshKey, type AccountSshKey } from '@/api/credentials';
 import { timeAgo } from '@/lib/format';
 import { useFlashes } from '@/state/flashes';

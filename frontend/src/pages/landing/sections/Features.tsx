@@ -1,4 +1,4 @@
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 import { Gauge, ShieldCheck, Boxes } from 'lucide-react';
 import type { LandingFeatureItem, LandingSectionData } from '@/lib/globals';
 import { resolveIcon } from './icons';

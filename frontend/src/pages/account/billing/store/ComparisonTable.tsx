@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { useBilling } from '@/state/billing';

@@ -29,6 +29,12 @@ return [
         'file_diff_period' => 1,
         'file_diff' => env('APP_API_FILE_DIFF_RATELIMIT', 10),
 
+        // Starting a turn performs admission and persistence before inference
+        // begins, so cap starts separately from transcript/status polling.
+        'ai_agent_period' => 1,
+        'ai_agent' => env('APP_API_AI_AGENT_RATELIMIT', 10),
+        'ai_agent_retry' => env('APP_API_AI_AGENT_RETRY_RATELIMIT', 120),
+
         // Daemons batch activity events. Keep a per-node budget so one
         // compromised or malfunctioning node cannot exhaust Panel workers.
         'daemon_activity_period' => 1,

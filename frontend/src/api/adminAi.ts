@@ -1,9 +1,78 @@
 import http from '@/lib/http';
-import { streamAiRequest, type AiStreamCallbacks } from '@/lib/aiStream';
+import { streamAgentRequest, type AgentStreamCallbacks } from '@/lib/aiStream';
+import type { AgentTurnStatus, ChatRole, StoredMessage } from '@/api/ai';
 
 // Admin AI (M12Labs-AI) module — settings, health, model discovery, usage
-// analytics and the admin chat playground. Mirrors V1's
-// `api/routes/admin/ai/*` against /api/application/ai/*.
+// analytics and the admin assistant. Mirrors V1's `api/routes/admin/ai/*`
+// against /api/application/ai/*.
+
+export type AiProvider = 'anthropic' | 'openai' | 'openrouter' | 'openai_compatible' | 'ollama';
+
+/** Providers the panel talks to over the network rather than paying per token. */
+export const SELF_HOSTED_PROVIDERS: AiProvider[] = ['ollama', 'openai_compatible'];
+
+export interface AiAgentSettings {
+    enabled: boolean;
+    /** The admin assistant, gated separately from the customer-facing agent. */
+    admin_enabled: boolean;
+    /** Ask the model to think before acting, where it can. */
+    reasoning: boolean;
+    max_steps: number;
+    max_wall_seconds: number;
+    /** Ceiling on one tool call — the bound the wall clock above cannot enforce. */
+    max_tool_seconds: number;
+    tool_result_bytes: number;
+    max_repairs: number;
+    /**
+     * Complete tool schemas offered per step, or null for "work it out from the
+     * model". Null is the default: the agent reaches the rest of the catalogue
+     * through search_tools either way, so this only trades a step spent searching
+     * against how well the model chooses between options.
+     */
+    max_tools: number | null;
+    /** How many calls one approval may cover. */
+    max_batch_calls: number;
+    allow_destructive_batches: boolean;
+    /** What the budget resolved to. Read-only — derived from max_tools and the model. */
+    tool_budget?: AiToolBudget;
+}
+
+export interface AiToolBudget {
+    profile: 'tiny' | 'small' | 'medium' | 'large' | 'frontier' | 'manual' | 'calibrated';
+    /** Capability schemas; discovery and safety controls are excluded. */
+    schemas: number;
+    /** Everything sent to the model, including the profile's core controls. */
+    total_schemas: number;
+    results: number;
+    source: 'metadata' | 'model_name' | 'provider_family' | 'model_bytes' | 'fallback' | 'manual' | 'calibrated';
+    confidence: 'high' | 'medium' | 'low';
+    reason: string;
+    parameter_count: number | null;
+}
+
+export interface AiConcurrencySettings {
+    slots: number | null;
+    queue_depth: number;
+    max_wait_seconds: number;
+    per_user: number;
+}
+
+export interface AiBudgetSettings {
+    enforce: boolean;
+    monthly_tokens: number;
+}
+
+export type AiPiiCategory = 'email' | 'ip' | 'name' | 'phone' | 'address' | 'payment' | 'secret';
+
+/** What is stripped out of tool results and attached context before a request leaves the panel. */
+export interface AiPrivacySettings {
+    enabled: boolean;
+    categories: AiPiiCategory[];
+    /** True when the active provider requires every redaction category. */
+    forced: boolean;
+    /** Every category the redactor knows, so the UI never hardcodes the list. */
+    available: AiPiiCategory[];
+}
 
 export interface AiAdminSettings {
     enabled: boolean;
@@ -11,14 +80,19 @@ export interface AiAdminSettings {
     key: boolean;
     endpoint: string;
     model: string;
+    /** Legacy setting, still writable; `provider` is what actually resolves. */
     mode: 'openai' | 'ollama';
+    provider: AiProvider;
     max_tokens: number;
     temperature: number;
+    context_tokens: number | null;
     keep_alive: string;
     warm: boolean;
     system_prompt: string;
-    feature_server_assistant: boolean;
-    feature_crash_analysis: boolean;
+    agent: AiAgentSettings;
+    concurrency: AiConcurrencySettings;
+    budget: AiBudgetSettings;
+    privacy: AiPrivacySettings;
 }
 
 export interface AiSettingsPayload {
@@ -27,13 +101,89 @@ export interface AiSettingsPayload {
     endpoint?: string;
     model?: string;
     mode?: 'openai' | 'ollama';
+    provider?: AiProvider;
     max_tokens?: number;
     temperature?: number;
+    context_tokens?: number | null;
     keep_alive?: string;
     warm?: boolean;
     system_prompt?: string;
-    feature_server_assistant?: boolean;
-    feature_crash_analysis?: boolean;
+    agent?: Partial<AiAgentSettings>;
+    concurrency?: Partial<AiConcurrencySettings>;
+    budget?: Partial<AiBudgetSettings>;
+    privacy?: { enabled?: boolean; categories?: AiPiiCategory[] };
+}
+
+export type AiRiskTier = 'safe' | 'write' | 'destructive';
+
+export interface AiToolDefinition {
+    name: string;
+    description: string;
+    scope: 'server' | 'admin' | 'shared';
+    /** The area of the panel this tool belongs to. Organises this page; gates nothing. */
+    category: string;
+    method: string;
+    default_risk: AiRiskTier;
+    risk: AiRiskTier;
+    overridden: boolean;
+    enabled: boolean;
+    permissions: string[];
+}
+
+export interface AiToolCatalogue {
+    data: AiToolDefinition[];
+    categories: Record<string, string>;
+    risks: AiRiskTier[];
+    console: { defaults: string[]; extra: string[] };
+}
+
+export interface AiToolPolicyPayload {
+    risk_overrides: Record<string, AiRiskTier>;
+    disabled_tools: string[];
+    console_safe_commands: string[];
+}
+
+export interface AiInferenceState {
+    queue: {
+        applies: boolean;
+        slots: number;
+        slots_in_use: number;
+        queue_depth: number;
+        [k: string]: unknown;
+    };
+    average_turn_ms: number;
+    resident_models: { name?: string; model?: string; size_vram?: number; [k: string]: unknown }[];
+    capabilities: {
+        model: string;
+        supports_tools: boolean;
+        /**
+         * False on models that reject `temperature` outright, where the driver
+         * drops the parameter. Comes from the probe rather than a prefix list
+         * duplicated here, which would drift from the driver's own.
+         */
+        supports_sampling: boolean;
+        /**
+         * Whether the configured driver/model accepts an explicit reasoning
+         * request. Anthropic and Ollama have native controls; compatible servers
+         * may instead control reasoning in their launch configuration.
+         */
+        supports_reasoning: boolean;
+        self_hosted: boolean;
+        max_context_tokens: number | null;
+        /** Whole-response streaming. Every current driver does it. */
+        supports_streaming: boolean;
+        /** A JSON-schema-constrained response, used by the tool-call repair. */
+        supports_structured_output: boolean;
+        supports_parallel_tool_calls: boolean;
+        /** On-disk size of a local model, where the endpoint reports one. */
+        model_size_bytes: number | null;
+        /** Unquantized model parameter count, where the endpoint reports one. */
+        model_parameter_count: number | null;
+        /** Whether tool support was checked at model level rather than assumed from the protocol. */
+        tool_support_verified: boolean;
+        warnings: string[];
+    } | null;
+    error?: string;
 }
 
 export interface AiConnectionTest {
@@ -41,6 +191,14 @@ export interface AiConnectionTest {
     latency_ms?: number;
     message?: string;
     from_cache?: boolean;
+}
+
+export interface AiToolCallingTest {
+    status: 'supported' | 'unsupported' | 'error';
+    supports_tools?: boolean;
+    model?: string;
+    checked_at?: string;
+    message?: string;
 }
 
 export interface AiModel {
@@ -59,9 +217,32 @@ export interface AiStats {
         avg_latency_ms: number | null;
     };
     last_24h: { requests: number; tokens: number };
-    last_7d: { requests: number; tokens: number; cache_hits: number };
+    last_7d: {
+        requests: number;
+        tokens: number;
+        prompt_tokens: number;
+        completion_tokens: number;
+        cache_hits: number;
+        errors: number;
+    };
+    /** Panel-wide, since the start of the month — the window a budget is measured in. */
+    month_to_date_tokens: number;
+    /**
+     * Latency bucketed rather than averaged: an agent turn is many model calls
+     * and a chat is one, so a mean over the two describes neither.
+     */
+    latency: {
+        under_1s: number;
+        to_5s: number;
+        to_15s: number;
+        to_60s: number;
+        over_60s: number;
+        slowest_ms: number | null;
+        avg_ms: number | null;
+    } | null;
     daily_series: { date: string; requests: number }[];
     top_users: { username: string; email: string | null; requests: number }[];
+    /** Keyed by every source present in the window — client, agent, admin, admin-agent, modpack. */
     source_breakdown: Record<string, number>;
 }
 
@@ -71,8 +252,8 @@ export interface AiLogEntry {
     username: string;
     server_name: string | null;
     model: string;
-    source: 'client' | 'admin';
-    status: 'success' | 'error';
+    source: 'client' | 'agent' | 'admin' | 'admin-agent' | 'modpack';
+    status: 'success' | 'error' | 'running' | 'suspended' | 'cancelled';
     cached: boolean;
     total_tokens: number | null;
     latency_ms: number | null;
@@ -81,8 +262,8 @@ export interface AiLogEntry {
 
 export interface AiLogsParams {
     limit?: number;
-    source?: 'client' | 'admin' | '';
-    status?: 'success' | 'error' | '';
+    source?: 'client' | 'agent' | 'admin' | 'admin-agent' | 'modpack' | '';
+    status?: AiLogEntry['status'] | '';
     search?: string;
 }
 
@@ -103,6 +284,22 @@ export async function testAiConnection(fresh = false): Promise<AiConnectionTest>
         // A failing endpoint answers 502 with the same shape — surface it
         // instead of throwing so the status card can render the message.
         const resp = (err as { response?: { data?: AiConnectionTest } }).response;
+        if (resp?.data?.status) return resp.data;
+        throw err;
+    }
+}
+
+/**
+ * Run one real inference call. This is POST and user-triggered by design: a
+ * generic compatible endpoint has no metadata API, and probing from status
+ * polling could repeatedly load a local model or consume paid tokens.
+ */
+export async function testAiToolCalling(): Promise<AiToolCallingTest> {
+    try {
+        const { data } = await http.post('/api/application/ai/test-tools');
+        return data as AiToolCallingTest;
+    } catch (err: unknown) {
+        const resp = (err as { response?: { data?: AiToolCallingTest } }).response;
         if (resp?.data?.status) return resp.data;
         throw err;
     }
@@ -130,6 +327,160 @@ export async function getAiLogs(params: AiLogsParams = {}): Promise<AiLogEntry[]
     return data as AiLogEntry[];
 }
 
-export function streamAdminAiQuery(query: string, callbacks: AiStreamCallbacks, signal?: AbortSignal): void {
-    streamAiRequest('/api/application/ai/query', { query }, callbacks, signal);
+export async function getAiTools(): Promise<AiToolCatalogue> {
+    const { data } = await http.get('/api/application/ai/tools');
+    return data as AiToolCatalogue;
+}
+
+export async function updateAiTools(payload: AiToolPolicyPayload): Promise<void> {
+    await http.put('/api/application/ai/tools', payload);
+}
+
+export async function getAiInference(): Promise<AiInferenceState> {
+    const { data } = await http.get('/api/application/ai/inference');
+    return data as AiInferenceState;
+}
+
+/*
+|--------------------------------------------------------------------------
+| The admin assistant
+|--------------------------------------------------------------------------
+|
+| Same event stream as the server assistant — `streamAgentRequest` takes a URL
+| rather than an identifier, so nothing in the reader needed changing. What
+| differs is only the endpoint and the absence of a server.
+*/
+
+export interface AdminAgentConversation {
+    id: number;
+    title: string;
+    is_saved: boolean;
+    expires_at: string | null;
+    updated_at: string | null;
+}
+
+/**
+ * A stored admin-transcript message.
+ *
+ * Deliberately the server transcript's own shape: the two endpoints read the
+ * same table and feed the same reconstruction, and the moment this one carried
+ * fewer fields a reopened admin transcript lost every tool argument and call id
+ * it had shown live. `role` is widened only because the column can hold
+ * `system`, which a turn never writes and the page filters out.
+ */
+export interface AdminAgentMessage extends Omit<StoredMessage, 'role'> {
+    role: ChatRole | 'system';
+}
+
+/** An audited session this conversation has open on a customer's server. */
+export interface AdminAssistSession {
+    server_uuid: string;
+    server_name: string;
+    reason: string;
+    abilities: string[];
+    ticket_id: number | null;
+    writable: boolean;
+}
+
+export interface AdminAgentTranscript {
+    id: number;
+    title: string;
+    is_saved: boolean;
+    /**
+     * token => the value it stands for. The transcript holds tokens because the
+     * model did; the map is what turns them back into something readable for the
+     * administrator, who was never the one being kept from seeing them.
+     */
+    redactions: Record<string, string>;
+    assist: AdminAssistSession | null;
+    messages: AdminAgentMessage[];
+}
+
+export function streamAdminAgentTurn(
+    opts: { query: string; conversationId?: number | null; ticket?: string },
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        '/api/application/ai/agent',
+        {
+            query: opts.query,
+            conversation_id: opts.conversationId ?? undefined,
+            // The queue place this attempt already holds, if the last one was
+            // turned away. Without it the turn rejoins at the back.
+            ticket: opts.ticket ?? undefined,
+        },
+        callbacks,
+        signal,
+    );
+}
+
+export function streamAdminAgentDecision(
+    opts: {
+        turnId: string;
+        decision: 'approve' | 'reject' | 'answer';
+        confirmation?: string;
+        answer?: string;
+        ticket?: string;
+    },
+    callbacks: AgentStreamCallbacks,
+    signal?: AbortSignal,
+): void {
+    streamAgentRequest(
+        '/api/application/ai/agent/decide',
+        {
+            turn_id: opts.turnId,
+            decision: opts.decision,
+            confirmation: opts.confirmation ?? undefined,
+            answer: opts.answer ?? undefined,
+            ticket: opts.ticket ?? undefined,
+        },
+        callbacks,
+        signal,
+    );
+}
+
+/** Ask a running admin turn to stop. See `cancelAgentTurn` for the semantics. */
+export async function cancelAdminAgentTurn(turnId: string): Promise<void> {
+    await http.post(`/api/application/ai/agent/turns/${turnId}/cancel`);
+}
+
+/** Give up a queue place, rather than letting it lapse on its own. */
+export async function releaseAdminAgentQueue(ticket: string): Promise<void> {
+    await http.delete(`/api/application/ai/agent/queue/${encodeURIComponent(ticket)}`);
+}
+
+export async function getAdminAgentTurnStatus(turnId: string): Promise<AgentTurnStatus> {
+    const { data } = await http.get(`/api/application/ai/agent/turns/${turnId}`);
+    const result = data.data as AgentTurnStatus;
+
+    return {
+        ...result,
+        messages: result.messages?.map(message => message as StoredMessage),
+    };
+}
+
+export async function listAdminAgentConversations(): Promise<AdminAgentConversation[]> {
+    const { data } = await http.get('/api/application/ai/agent/conversations');
+    return data.data as AdminAgentConversation[];
+}
+
+export async function getAdminAgentConversation(id: number): Promise<AdminAgentTranscript> {
+    const { data } = await http.get(`/api/application/ai/agent/conversations/${id}`);
+    return data.data as AdminAgentTranscript;
+}
+
+/**
+ * End the assist session a conversation has open on a customer's server.
+ *
+ * The capability behind it is re-checked on every turn regardless, so this is
+ * not what makes the access stop — it is what lets an administrator who has
+ * finished say so, and see it stop.
+ */
+export async function endAdminAssist(conversationId: number): Promise<void> {
+    await http.delete(`/api/application/ai/agent/conversations/${conversationId}/assist`);
+}
+
+export async function deleteAdminAgentConversation(id: number): Promise<void> {
+    await http.delete(`/api/application/ai/agent/conversations/${id}`);
 }

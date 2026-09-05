@@ -1,4 +1,4 @@
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useState } from 'react';
 import { Monitor, Smartphone, Pencil, Check, X, LogOut } from 'lucide-react';
 import { timeAgo } from '@/lib/format';

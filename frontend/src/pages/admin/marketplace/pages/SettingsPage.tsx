@@ -7,7 +7,7 @@ import { Input, Field } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Switch } from '@/components/ui/Switch';
 import { Spinner } from '@/components/ui/Spinner';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { mibToBytes } from '@/lib/format';
 import { useFlashes } from '@/state/flashes';

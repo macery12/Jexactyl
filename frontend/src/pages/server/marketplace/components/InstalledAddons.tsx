@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { firstError } from '@/lib/apiError';
 import { formatBytes, timeAgo } from '@/lib/format';
 import { useFlashes } from '@/state/flashes';

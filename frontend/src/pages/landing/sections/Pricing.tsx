@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Cpu, MemoryStick, HardDrive } from 'lucide-react';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 import { useFlags } from '@/state/flags';
 import { getCatalog, type StorefrontCategory } from '@/api/storefront';
 import type { LandingSectionData } from '@/lib/globals';

@@ -4,8 +4,10 @@ import http from '@/lib/http';
 // transformer (api/definitions/server/transformers.ts) — only what we render.
 export interface ServerListItem {
     id: string; // identifier — used in the /server/:id route
+    internalId: number;
     uuid: string;
     name: string;
+    isOwner: boolean;
     description: string | null;
     node: string;
     status: string | null;
@@ -16,8 +18,10 @@ export interface ServerListItem {
 interface FractalServer {
     attributes: {
         identifier: string;
+        internal_id: number;
         uuid: string;
         name: string;
+        server_owner?: boolean;
         description?: string | null;
         node: string;
         status: string | null;
@@ -29,8 +33,10 @@ interface FractalServer {
 function toServer({ attributes: a }: FractalServer): ServerListItem {
     return {
         id: a.identifier,
+        internalId: a.internal_id,
         uuid: a.uuid,
         name: a.name,
+        isOwner: a.server_owner ?? false,
         description: a.description && a.description.length > 0 ? a.description : null,
         node: a.node,
         status: a.status,
@@ -67,13 +73,10 @@ export interface ServerDetail extends ServerListItem {
     isSuspended: boolean;
     isNodeSupercharged: boolean;
     isDeletionScheduled: boolean;
-    isOwner: boolean;
     permissions: string[];
     sftp: { ip: string; port: number };
     featureLimits: { databases: number; allocations: number; backups: number; subusers: number };
     allocations: ServerAllocation[];
-    /** Numeric primary key. The billing endpoints key off this, not the identifier. */
-    internalId: number;
     eggId: number | null;
     // Billing linkage — null on servers created outside the storefront.
     billingProductId: number | null;

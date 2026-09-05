@@ -1,4 +1,4 @@
-import { m, td } from '@/i18n';
+import { m, td } from '@/i18n/messages';
 import { Check, Loader2 } from 'lucide-react';
 import type { OperationProgress as Progress } from '@/api/extensions';
 

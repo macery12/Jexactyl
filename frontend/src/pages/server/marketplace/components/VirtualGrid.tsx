@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Spinner } from '@/components/ui/Spinner';
-import { m } from '@/i18n';
+import { m } from '@/i18n/messages';
 
 // Responsive, row-virtualized grid for the marketplace browsers. Only the rows
 // intersecting the viewport are mounted, so a result set of thousands of cards

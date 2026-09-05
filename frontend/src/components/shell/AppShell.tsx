@@ -6,7 +6,7 @@ import { TopNav } from './TopNav';
 import { Sidebar } from './Sidebar';
 import { FullPageSpinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/cn';
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 import { ShellLayoutContext, type ContentWidth } from './shellLayout';
 import type { NavGroup } from '@/routes/nav';
 

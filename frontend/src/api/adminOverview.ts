@@ -88,12 +88,24 @@ export interface OverviewActivityEntry {
     timestamp: string;
 }
 
+/** One-line verdict on background processing; detail lives on /admin/queues. */
+export interface OverviewWorkers {
+    running: boolean;
+    /** Jobs waiting across every queue. */
+    depth: number;
+    warnings: number;
+    criticalWarnings: number;
+    /** The worst warning verbatim, or null when nothing is wrong. */
+    summary: string | null;
+}
+
 export interface AdminOverview {
     health: {
         version: OverviewVersion;
     };
     fleet: OverviewFleet;
     queues: OverviewQueues;
+    workers: OverviewWorkers;
     kpis: OverviewKpis;
     activity: OverviewActivityEntry[];
 }

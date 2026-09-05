@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { HelpCircle } from 'lucide-react';
 import { Modal } from './Modal';
 import { Button } from './Button';
-import { td } from '@/i18n';
+import { td } from '@/i18n/messages';
 
 // A small "?" help affordance for a page header. Opens a themed modal with a
 // free-form guide (passed as children). Kept generic so any page can drop in a

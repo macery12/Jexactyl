@@ -8,7 +8,8 @@ import '@fontsource/ibm-plex-sans/latin-700.css';
 import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-600.css';
 import './styles/tailwind.css';
-import '@/i18n'; // install locale resolution (Paraglide) before first render
+import { getCurrentLocale } from '@/i18n'; // install locale resolution before first render
+import { initializeMessages } from '@/i18n/messages';
 import { installDomGuard } from '@/lib/domGuard';
 import { installStaleChunkGuard } from '@/lib/staleChunk';
 import { clearLegacySensitiveClientStorage } from '@/lib/sensitiveClientState';
@@ -28,16 +29,23 @@ installStaleChunkGuard();
 // Purge checkout secrets and console commands left by earlier frontend builds.
 clearLegacySensitiveClientStorage();
 
-// Read window.* globals into the stores before first render.
-bootstrap();
+async function start() {
+    // Fetch only the resolved locale before any component evaluates a message.
+    await initializeMessages(getCurrentLocale());
 
-const container = document.getElementById('app');
-if (!container) throw new Error('#app mount point not found');
+    // Read window.* globals into the stores before first render.
+    bootstrap();
 
-createRoot(container).render(
-    <StrictMode>
-        <Providers>
-            <App />
-        </Providers>
-    </StrictMode>,
-);
+    const container = document.getElementById('app');
+    if (!container) throw new Error('#app mount point not found');
+
+    createRoot(container).render(
+        <StrictMode>
+            <Providers>
+                <App />
+            </Providers>
+        </StrictMode>,
+    );
+}
+
+void start();

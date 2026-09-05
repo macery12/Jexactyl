@@ -1,0 +1,631 @@
+<?php
+
+namespace Everest\Services\AI\Providers;
+
+use Everest\Services\AI\Data\AiTool;
+use Illuminate\Support\Facades\Cache;
+use Everest\Services\AI\Data\AiMessage;
+use Everest\Services\AI\Data\AiRequest;
+use Everest\Services\AI\Data\AiResponse;
+use Everest\Services\AI\Data\AiToolCall;
+use Everest\Services\AI\Data\AiStreamEvent;
+use Everest\Services\AI\Data\ProviderConfig;
+use Everest\Services\AI\Data\ProviderCapabilities;
+use Everest\Exceptions\Service\AI\AIServiceException;
+
+/**
+ * Driver for self-hosted endpoints speaking the OpenAI `chat/completions`
+ * contract — vLLM, LM Studio, llama.cpp's server, and Ollama (which subclasses
+ * this to add its native probe and runtime options).
+ */
+class OpenAiCompatibleProvider extends AbstractProvider
+{
+    protected const CHAT_PATH = 'chat/completions';
+    private const TOOL_PROBE_CACHE_PREFIX = 'ai:tool-call-probe:';
+
+    public function chat(AiRequest $request): AiResponse
+    {
+        $this->beginToolCallResponse();
+        $this->assertConfigured();
+
+        if (($cached = $this->cachedText($request)) !== null) {
+            return new AiResponse($cached, model: $this->resolveModel($request), cached: true);
+        }
+
+        $data = $this->postJson(static::CHAT_PATH, $this->buildPayload($request, false));
+        $choice = is_array($data['choices'][0] ?? null) ? $data['choices'][0] : [];
+        $message = is_array($choice['message'] ?? null) ? $choice['message'] : [];
+
+        if ($this->strictResponseValidation()) {
+            if (!is_array($data['choices'][0] ?? null) || !is_array($choice['message'] ?? null)) {
+                throw $this->invalidResponseException();
+            }
+            if (array_key_exists('error', $choice)) {
+                throw $this->providerErrorException($choice['error']);
+            }
+            if (array_key_exists('error', $message)) {
+                throw $this->providerErrorException($message['error']);
+            }
+            if (($choice['finish_reason'] ?? null) === 'error') {
+                throw $this->providerErrorException($choice['error'] ?? null);
+            }
+            if (in_array($choice['finish_reason'] ?? null, ['content_filter', 'refusal'], true)) {
+                throw $this->providerErrorException(['metadata' => ['error_type' => 'content_policy_violation']]);
+            }
+        }
+
+        $content = isset($message['content']) ? trim((string) $message['content']) : null;
+        $toolCalls = $this->parseToolCalls($message['tool_calls'] ?? []);
+
+        if ($this->strictResponseValidation() && ($content === null || $content === '') && $toolCalls === []) {
+            throw $this->emptyResponseException();
+        }
+
+        if ($content !== null && $toolCalls === []) {
+            $this->storeText($request, $content);
+        }
+
+        return new AiResponse(
+            $content,
+            $toolCalls,
+            $this->mapFinishReason($choice['finish_reason'] ?? null, $toolCalls),
+            $this->parseUsage(
+                is_array($data['usage'] ?? null) ? $data['usage'] : [],
+                is_array($data['timings'] ?? null) ? $data['timings'] : [],
+            ),
+            $data['model'] ?? $this->resolveModel($request),
+        );
+    }
+
+    public function stream(AiRequest $request): \Generator
+    {
+        $this->beginToolCallResponse();
+        $this->assertConfigured();
+
+        if (($cached = $this->cachedText($request)) !== null) {
+            yield from $this->replayCached($cached);
+
+            return;
+        }
+
+        $body = $this->postStream(static::CHAT_PATH, $this->buildPayload($request, true));
+
+        // Tool-call arguments arrive fragmented across chunks and are keyed by
+        // an `index`, not by id — the id itself may only appear in the first
+        // fragment. Accumulate per index and emit complete calls at the end.
+        $pending = [];
+        $started = [];
+        $text = '';
+        $finish = null;
+        $usage = [];
+        $reasoningDetails = [];
+        $completionMarker = false;
+
+        foreach ($this->readSse($body) as $frame) {
+            if (trim($frame['data']) === '[DONE]') {
+                $completionMarker = true;
+
+                continue;
+            }
+
+            $data = $this->decodeSseData($frame['data']);
+            if ($data === null) {
+                if ($this->strictResponseValidation() && trim($frame['data']) !== '') {
+                    throw $this->invalidResponseException();
+                }
+
+                continue;
+            }
+
+            if (array_key_exists('error', $data)) {
+                throw $this->providerErrorException($data['error']);
+            }
+
+            if (isset($data['usage']) && is_array($data['usage'])) {
+                $usage = $this->parseUsage(
+                    $data['usage'],
+                    is_array($data['timings'] ?? null) ? $data['timings'] : [],
+                );
+            }
+
+            $choice = $data['choices'][0] ?? null;
+            if (!is_array($choice)) {
+                continue;
+            }
+
+            if (array_key_exists('error', $choice)) {
+                throw $this->providerErrorException($choice['error']);
+            }
+
+            if (!empty($choice['finish_reason'])) {
+                $finish = (string) $choice['finish_reason'];
+
+                if ($finish === 'error') {
+                    throw $this->providerErrorException($choice['error'] ?? null);
+                }
+                if ($this->strictResponseValidation() && in_array($finish, ['content_filter', 'refusal'], true)) {
+                    throw $this->providerErrorException(['metadata' => ['error_type' => 'content_policy_violation']]);
+                }
+            }
+
+            $delta = $choice['delta'] ?? [];
+            if (!is_array($delta)) {
+                if ($this->strictResponseValidation()) {
+                    throw $this->invalidResponseException();
+                }
+
+                continue;
+            }
+
+            foreach ($this->reasoningDetailsFromDelta($delta) as $detail) {
+                // OpenRouter documents these as an ordered sequence of chunks
+                // which must be replayed without modification. Do not merge,
+                // sort or normalize them even when adjacent entries share an id.
+                $reasoningDetails[] = $detail;
+            }
+
+            // Reasoning models on this wire format put their thinking on a
+            // sibling key rather than in `content`. There is no agreed name for
+            // it — DeepSeek and vLLM use `reasoning_content`, OpenRouter and
+            // Groq use `reasoning` — and nothing has to be echoed back, so both
+            // are read and neither is required.
+            foreach (['reasoning_content', 'reasoning'] as $key) {
+                if (isset($delta[$key]) && is_string($delta[$key]) && $delta[$key] !== '') {
+                    yield AiStreamEvent::reasoning($delta[$key]);
+
+                    break;
+                }
+            }
+
+            if (isset($delta['content']) && is_string($delta['content']) && $delta['content'] !== '') {
+                $text .= $delta['content'];
+
+                yield AiStreamEvent::text($delta['content']);
+            }
+
+            foreach ($this->normaliseToolCallDeltas($delta['tool_calls'] ?? []) as $index => $fragment) {
+                $pending[$index] ??= ['id' => '', 'name' => '', 'arguments' => ''];
+
+                if ($fragment['id'] !== '') {
+                    $pending[$index]['id'] = $fragment['id'];
+                }
+                if ($fragment['name'] !== '') {
+                    $pending[$index]['name'] = $fragment['name'];
+                }
+                $pending[$index]['arguments'] .= $fragment['arguments'];
+
+                // Announce as soon as the name is known so the UI can show
+                // "reading server.properties…" while arguments still stream.
+                if (!isset($started[$index]) && $pending[$index]['name'] !== '') {
+                    $started[$index] = true;
+
+                    yield AiStreamEvent::toolCallStart(
+                        $this->ensureCallId($pending[$index]['id'], $index),
+                        $pending[$index]['name'],
+                    );
+                }
+            }
+        }
+
+        if ($this->requiresStreamCompletionMarker() && !$completionMarker) {
+            throw $this->interruptedStreamException();
+        }
+
+        ksort($pending);
+        $emitted = [];
+
+        foreach ($pending as $index => $call) {
+            if ($call['name'] === '') {
+                continue;
+            }
+
+            $toolCall = AiToolCall::fromJsonArguments(
+                $this->ensureCallId($call['id'], $index),
+                $call['name'],
+                $call['arguments'],
+            );
+            $emitted[] = $toolCall;
+
+            yield AiStreamEvent::toolCall($toolCall);
+        }
+
+        foreach ($reasoningDetails as $detail) {
+            yield AiStreamEvent::reasoningBlock($detail);
+        }
+
+        if ($usage !== []) {
+            yield AiStreamEvent::usage($usage);
+        }
+
+        if ($emitted === [] && $text !== '') {
+            $this->storeText($request, $text);
+        }
+
+        if ($this->strictResponseValidation() && $emitted === [] && $text === '') {
+            throw $this->emptyResponseException();
+        }
+
+        yield AiStreamEvent::done($this->mapFinishReason($finish, $emitted));
+    }
+
+    /** Hosted drivers can opt into rejecting malformed or ambiguous replies. */
+    protected function strictResponseValidation(): bool
+    {
+        return false;
+    }
+
+    /** Most compatible servers do not reliably send the terminal SSE sentinel. */
+    protected function requiresStreamCompletionMarker(): bool
+    {
+        return false;
+    }
+
+    /** @return array<int, array> */
+    protected function reasoningDetailsFromDelta(array $delta): array
+    {
+        return [];
+    }
+
+    protected function emptyResponseException(): AIServiceException
+    {
+        $this->rememberFailure(self::INVALID_RESPONSE_MESSAGE, true);
+
+        return new AIServiceException(self::INVALID_RESPONSE_MESSAGE);
+    }
+
+    protected function interruptedStreamException(): AIServiceException
+    {
+        $this->rememberFailure(self::INVALID_RESPONSE_MESSAGE, true);
+
+        return new AIServiceException(self::INVALID_RESPONSE_MESSAGE);
+    }
+
+    public function capabilities(?string $model = null): ProviderCapabilities
+    {
+        $generic = $this->providerConfig->provider === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE;
+        $probe = $generic ? $this->cachedToolCallingProbe($model) : null;
+        $supportsTools = $probe === null || $probe['supports_tools'];
+
+        $warnings = [];
+        if ($generic && $probe === null) {
+            $warnings[] = 'Tool calling is supported by the server protocol but has not been tested for this model. Run the tool-calling test before enabling the agent for users.';
+        } elseif ($generic && !$supportsTools) {
+            $warnings[] = sprintf(
+                'The live tool-calling test did not return the required probe call for "%s". The agent cannot safely run on this model.',
+                $this->resolveProbeModel($model),
+            );
+        }
+
+        return new ProviderCapabilities(
+            supportsTools: $supportsTools,
+            supportsStructuredOutput: true,
+            selfHosted: $this->providerConfig->isSelfHosted(),
+            maxContextTokens: $this->providerConfig->contextTokens,
+            warnings: $warnings,
+            toolSupportVerified: !$generic || $probe !== null,
+        );
+    }
+
+    /**
+     * Make one small, non-streamed request that asks the configured model to
+     * emit a harmless no-argument tool call. This is deliberately explicit:
+     * generic OpenAI-compatible servers have no model metadata endpoint, and
+     * running this from the admin UI's polling loop could load a local model or
+     * spend remote tokens every time the page is opened.
+     *
+     * The result is retained for this exact connection and model until an
+     * operator tests it again. ProviderConfig's fingerprint includes a digest
+     * of the credential, so changing any connection input starts unverified.
+     *
+     * @return array{status: 'supported'|'unsupported', supports_tools: bool, model: string, checked_at: string}
+     */
+    public function probeToolCalling(?string $model = null): array
+    {
+        if ($this->providerConfig->provider !== ProviderConfig::PROVIDER_OPENAI_COMPATIBLE) {
+            throw new AIServiceException('The live tool-calling test is only available for generic OpenAI-compatible providers.');
+        }
+
+        $model = $this->resolveProbeModel($model);
+        if ($model === '') {
+            throw new AIServiceException('An AI model must be selected before testing tool calling.');
+        }
+
+        $probeName = 'capability_probe';
+        $response = $this->chat(new AiRequest(
+            messages: [AiMessage::user('Call the capability_probe tool now. Do not answer with text.')],
+            systemPrompt: 'You are testing tool-call support. Follow the user instruction exactly.',
+            tools: [new AiTool(
+                $probeName,
+                'Confirm that this model can emit an OpenAI-compatible tool call.',
+                AiTool::emptySchema(),
+            )],
+            // `auto` is what real agent turns use. A model that cannot select
+            // one explicitly requested tool under the production setting is
+            // not reliable enough to operate the panel agent.
+            toolChoice: AiRequest::TOOL_CHOICE_AUTO,
+            model: $model,
+            // Thinking models may spend the first 100+ tokens deciding to
+            // make even this trivial call. Give the probe enough room to
+            // finish the structured call instead of falsely treating a
+            // reasoning-only, length-truncated response as no tool support.
+            maxTokens: 256,
+            temperature: 0,
+            noCache: true,
+        ));
+
+        $supported = count(array_filter(
+            $response->toolCalls,
+            static fn (AiToolCall $call): bool => $call->name === $probeName,
+        )) > 0;
+
+        $result = [
+            'status' => $supported ? 'supported' : 'unsupported',
+            'supports_tools' => $supported,
+            'model' => $model,
+            'checked_at' => now()->toIso8601String(),
+        ];
+
+        Cache::forever($this->toolCallingProbeCacheKey($model), $result);
+
+        return $result;
+    }
+
+    public function listModels(): array
+    {
+        $data = $this->getJson('models');
+
+        return array_values(array_map(
+            fn ($m) => ['id' => (string) ($m['id'] ?? 'unknown'), 'size' => null],
+            $data['data'] ?? []
+        ));
+    }
+
+    public function health(): bool
+    {
+        try {
+            $data = $this->getJson('models', $this->providerConfig->connectTimeout);
+
+            return isset($data['data']) || isset($data['models']);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('AI health check failed.', [
+                'exception' => $e::class,
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array{status: 'supported'|'unsupported', supports_tools: bool, model: string, checked_at: string}|null
+     */
+    private function cachedToolCallingProbe(?string $model = null): ?array
+    {
+        $model = $this->resolveProbeModel($model);
+        if ($model === '') {
+            return null;
+        }
+
+        $cached = Cache::get($this->toolCallingProbeCacheKey($model));
+
+        if (!is_array($cached)
+            || !is_bool($cached['supports_tools'] ?? null)
+            || !is_string($cached['checked_at'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'status' => $cached['supports_tools'] ? 'supported' : 'unsupported',
+            'supports_tools' => $cached['supports_tools'],
+            'model' => $model,
+            'checked_at' => $cached['checked_at'],
+        ];
+    }
+
+    private function toolCallingProbeCacheKey(string $model): string
+    {
+        return self::TOOL_PROBE_CACHE_PREFIX . $this->providerConfig->withModel($model)->fingerprint();
+    }
+
+    private function resolveProbeModel(?string $model): string
+    {
+        return trim($model ?? $this->providerConfig->model);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Payload construction
+    |--------------------------------------------------------------------------
+    */
+
+    protected function buildPayload(AiRequest $request, bool $stream): array
+    {
+        $payload = [
+            'model' => $this->resolveModel($request),
+            'messages' => $this->buildMessages($request),
+            'max_tokens' => $this->resolveMaxTokens($request),
+            'temperature' => $this->resolveTemperature($request),
+            'stream' => $stream,
+        ];
+
+        if ($request->hasTools()) {
+            $payload['tools'] = array_map(fn (AiTool $t) => $t->toOpenAiFormat(), $request->tools);
+            $payload['tool_choice'] = $request->toolChoice;
+        }
+
+        if ($request->responseSchema !== null) {
+            $payload['response_format'] = [
+                'type' => 'json_schema',
+                'json_schema' => [
+                    'name' => 'tool_call_repair',
+                    'schema' => $request->responseSchema,
+                    'strict' => true,
+                ],
+            ];
+        }
+
+        // A recovery request must override both common control paths. Current
+        // llama.cpp accepts `reasoning_effort` but its Qwen templates keep
+        // thinking unless `enable_thinking` is also disabled; other compatible
+        // servers may honour the standardized effort field instead. Do not send
+        // either extension on ordinary requests: generic servers remain free to
+        // use their launch/template configuration, as they did before recovery
+        // was added. Hosted OpenAI requests keep provider-specific behaviour.
+        if (
+            $this->providerConfig->provider === ProviderConfig::PROVIDER_OPENAI_COMPATIBLE
+            && !$request->reasoning
+        ) {
+            $payload['reasoning_effort'] = 'none';
+            $payload['chat_template_kwargs'] = ['enable_thinking' => false];
+        }
+
+        if ($stream && $this->supportsStreamOptions()) {
+            $payload['stream_options'] = ['include_usage' => true];
+        }
+
+        return $payload;
+    }
+
+    /**
+     * Whether the endpoint understands `stream_options.include_usage`. Without
+     * it a streamed call reports no token usage at all, which breaks budgeting.
+     */
+    protected function supportsStreamOptions(): bool
+    {
+        return true;
+    }
+
+    protected function buildMessages(AiRequest $request): array
+    {
+        $messages = [];
+
+        $system = $this->resolveSystemPrompt($request);
+        if ($system !== '') {
+            $messages[] = ['role' => AiMessage::ROLE_SYSTEM, 'content' => $system];
+        }
+
+        foreach ($request->messages as $message) {
+            $messages[] = $this->serialiseMessage($message);
+        }
+
+        return $messages;
+    }
+
+    protected function serialiseMessage(AiMessage $message): array
+    {
+        if ($message->role === AiMessage::ROLE_TOOL) {
+            return [
+                'role' => 'tool',
+                'tool_call_id' => $message->toolCallId,
+                'content' => (string) $message->content,
+            ];
+        }
+
+        if ($message->role === AiMessage::ROLE_ASSISTANT && $message->hasToolCalls()) {
+            return [
+                'role' => 'assistant',
+                // The spec allows null content alongside tool_calls, but several
+                // OpenAI-compatible servers reject null outright — send "".
+                'content' => $message->content ?? '',
+                'tool_calls' => array_map(fn (AiToolCall $c) => [
+                    'id' => $c->id,
+                    'type' => 'function',
+                    'function' => [
+                        'name' => $c->name,
+                        'arguments' => json_encode($c->arguments ?: new \stdClass()),
+                    ],
+                ], $message->toolCalls),
+            ];
+        }
+
+        return [
+            'role' => $message->role,
+            'content' => (string) $message->content,
+        ];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Response parsing
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * @return AiToolCall[]
+     */
+    protected function parseToolCalls(mixed $raw): array
+    {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $calls = [];
+        foreach (array_values($raw) as $index => $call) {
+            $name = $call['function']['name'] ?? null;
+            if (!is_string($name) || $name === '') {
+                continue;
+            }
+
+            $arguments = $call['function']['arguments'] ?? '';
+
+            // Ollama returns arguments as an already-decoded object; OpenAI
+            // returns a JSON string. Handle both without guessing.
+            $calls[] = is_array($arguments)
+                ? new AiToolCall($this->ensureCallId((string) ($call['id'] ?? ''), $index), $name, $arguments)
+                : AiToolCall::fromJsonArguments(
+                    $this->ensureCallId((string) ($call['id'] ?? ''), $index),
+                    $name,
+                    (string) $arguments,
+                );
+        }
+
+        return $calls;
+    }
+
+    /**
+     * Flatten a streamed `tool_calls` delta into `index => {id, name, arguments}`.
+     *
+     * @return array<int, array{id: string, name: string, arguments: string}>
+     */
+    protected function normaliseToolCallDeltas(mixed $raw): array
+    {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach (array_values($raw) as $position => $fragment) {
+            if (!is_array($fragment)) {
+                continue;
+            }
+
+            // `index` is authoritative when present. Some servers omit it on
+            // single-call responses, in which case array position is correct.
+            $index = isset($fragment['index']) ? (int) $fragment['index'] : $position;
+            $arguments = $fragment['function']['arguments'] ?? '';
+
+            $out[$index] = [
+                'id' => (string) ($fragment['id'] ?? ''),
+                'name' => (string) ($fragment['function']['name'] ?? ''),
+                'arguments' => is_string($arguments) ? $arguments : (string) json_encode($arguments),
+            ];
+        }
+
+        return $out;
+    }
+
+    protected function parseUsage(array $usage, array $timings = []): array
+    {
+        $normalised = $this->normaliseUsage(
+            isset($usage['prompt_tokens']) ? (int) $usage['prompt_tokens'] : null,
+            isset($usage['completion_tokens']) ? (int) $usage['completion_tokens'] : null,
+            isset($usage['total_tokens']) ? (int) $usage['total_tokens'] : null,
+        );
+
+        if (isset($timings['predicted_ms']) && is_numeric($timings['predicted_ms'])) {
+            $normalised['generation_duration_ms'] = (float) $timings['predicted_ms'];
+            $normalised['generation_timing_source'] = 'llama_cpp_timings';
+        }
+
+        return $normalised;
+    }
+}
