@@ -13,7 +13,6 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "composer/semver": "^3.0",
         "dedoc/scramble": "^0.13",
-        "doctrine/dbal": "^4.4",
         "guzzlehttp/guzzle": "^7.10",
         "hashids/hashids": "~5.0.0",
         "laravel/framework": "^13.0",
