@@ -23,7 +23,7 @@
         "lcobucci/jwt": "^5.3",
         "league/flysystem-aws-s3-v3": "^3.34",
         "league/flysystem-memory": "^3.31",
-        "phpseclib/phpseclib": "^3.0.52",
+        "phpseclib/phpseclib": "^4.0.1",
         "pragmarx/google2fa": "^9.0",
         "predis/predis": "^3.4",
         "s1lentium/iptools": "~1.2.0",

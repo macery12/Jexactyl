@@ -2,13 +2,13 @@
 
 namespace Everest\Http\Requests\Api\Client\Account;
 
-use phpseclib3\Crypt\DSA;
-use phpseclib3\Crypt\RSA;
+use phpseclib4\Crypt\DSA;
+use phpseclib4\Crypt\RSA;
 use Everest\Models\UserSSHKey;
 use Illuminate\Validation\Validator;
-use phpseclib3\Crypt\PublicKeyLoader;
-use phpseclib3\Crypt\Common\PublicKey;
-use phpseclib3\Exception\NoKeyLoadedException;
+use phpseclib4\Crypt\PublicKeyLoader;
+use phpseclib4\Crypt\Common\PublicKey;
+use phpseclib4\Exception\BaseException;
 use Everest\Http\Requests\Api\Client\ClientApiRequest;
 
 class StoreSSHKeyRequest extends ClientApiRequest
@@ -35,7 +35,7 @@ class StoreSSHKeyRequest extends ClientApiRequest
         $validator->after(function () {
             try {
                 $this->key = PublicKeyLoader::loadPublicKey($this->input('public_key'));
-            } catch (NoKeyLoadedException $exception) {
+            } catch (BaseException) {
                 $this->validator->errors()->add('public_key', 'The public key provided is not valid.');
 
                 return;
@@ -46,7 +46,7 @@ class StoreSSHKeyRequest extends ClientApiRequest
             }
 
             if ($this->key instanceof RSA && $this->key->getLength() < 2048) {
-                $this->validator->errors()->add('public_key', 'RSA keys must be at least 2048 bytes in length.');
+                $this->validator->errors()->add('public_key', 'RSA keys must be at least 2048 bits in length.');
             }
 
             $fingerprint = $this->key->getFingerprint('sha256');
