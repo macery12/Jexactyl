@@ -9,7 +9,7 @@ export default function AuthLayout() {
     const site = useFlags(s => s.site);
 
     return (
-        <div className="bg-aurora flex min-h-screen items-center justify-center px-4 py-12">
+        <main className="bg-aurora flex min-h-screen items-center justify-center px-4 py-12">
             <div className="w-full max-w-md">
                 <div className="mb-8 flex justify-center">
                     <BrandMark name={site?.name ?? 'M12Labs'} size="lg" />
@@ -20,6 +20,6 @@ export default function AuthLayout() {
                     </Suspense>
                 </div>
             </div>
-        </div>
+        </main>
     );
 }

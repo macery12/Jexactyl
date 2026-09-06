@@ -132,7 +132,7 @@ export default function RegisterPage() {
                 )}
                 <a
                     href={abs('/auth/login')}
-                    className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+                    className="text-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
                 >
                     {m['auth.backToLogin']()}
                 </a>
@@ -171,7 +171,10 @@ export default function RegisterPage() {
             </div>
 
             {submitError && (
-                <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
+                <div
+                    role="alert"
+                    className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]"
+                >
                     {submitError}
                 </div>
             )}
@@ -241,7 +244,7 @@ export default function RegisterPage() {
 
             <SsoButtons captchaToken={token} onError={setSubmitError} />
 
-            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
                 {m['auth.register.haveAccount']()}
             </a>
         </form>

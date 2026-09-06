@@ -1,3 +1,3 @@
 const { createLighthouseConfig } = require('./lighthouse.config.cjs');
 
-module.exports = createLighthouseConfig('desktop');
+module.exports = createLighthouseConfig('mobile');

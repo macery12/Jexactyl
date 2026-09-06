@@ -88,9 +88,15 @@ jobs:
           retention-days: 3
 
   lighthouse:
-    name: Lighthouse desktop
+    name: Lighthouse ${{ matrix.profile }}
     runs-on: ubuntu-24.04
     needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - mobile
+          - desktop
     steps:
       - name: Code checkout
         uses: actions/checkout@v4
@@ -112,12 +118,12 @@ jobs:
         run: pnpm build:frontend
 
       - name: Public Lighthouse runs
-        run: pnpm --dir frontend test:lighthouse
+        run: pnpm --dir frontend run test:lighthouse:${{ matrix.profile }}
 
       - name: Upload Lighthouse reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lighthouse-reports
-          path: storage/app/lighthouse/
+          name: lighthouse-${{ matrix.profile }}-reports
+          path: storage/app/lighthouse/${{ matrix.profile }}/
           retention-days: 3

@@ -71,12 +71,18 @@ export default function ResetPasswordPage() {
             </div>
 
             {missingLink && (
-                <div className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]">
+                <div
+                    role="alert"
+                    className="rounded-lg border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]"
+                >
                     {m['auth.reset.invalidLink']()}
                 </div>
             )}
             {error && (
-                <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
+                <div
+                    role="alert"
+                    className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]"
+                >
                     {error}
                 </div>
             )}
@@ -106,7 +112,7 @@ export default function ResetPasswordPage() {
                 {submitting ? m['common.states.saving']() : m['auth.reset.submit']()}
             </Button>
 
-            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/login')} className="text-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
                 {m['auth.backToLogin']()}
             </a>
         </form>

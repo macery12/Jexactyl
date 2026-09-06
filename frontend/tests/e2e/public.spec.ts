@@ -1,13 +1,5 @@
-import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
-
-async function expectNoHighImpactAxeViolations(page: Page) {
-    const results = await new AxeBuilder({ page }).analyze();
-    const highImpact = results.violations.filter(violation =>
-        violation.impact === 'serious' || violation.impact === 'critical',
-    );
-    expect(highImpact, highImpact.map(violation => `${violation.id}: ${violation.help}`).join('\n')).toEqual([]);
-}
+import { expect, test } from '@playwright/test';
+import { expectNoHighImpactAxeViolations } from './accessibility';
 
 test.describe('public landing', () => {
     test('shows a server-rendered shell before JavaScript starts', async ({ page }) => {
@@ -48,6 +40,17 @@ test.describe('public landing', () => {
         expect(scriptHeaders['cache-control']).toContain('immutable');
         expect(scriptHeaders['content-encoding']).toBe('gzip');
         expect(scriptHeaders.vary).toContain('Accept-Encoding');
+    });
+
+    test('mirrors Laravel production module preloads', async ({ page }) => {
+        await page.goto('/');
+
+        const preloadUrls = await page.locator('link[rel="modulepreload"][as="script"]').evaluateAll(links =>
+            links.map(link => (link as HTMLLinkElement).href),
+        );
+        expect(preloadUrls.length).toBeGreaterThan(1);
+        expect(new Set(preloadUrls).size).toBe(preloadUrls.length);
+        expect(preloadUrls.every(url => new URL(url).pathname.startsWith('/build/assets/'))).toBe(true);
     });
 
     test('has no serious or critical automated accessibility findings', async ({ page }) => {

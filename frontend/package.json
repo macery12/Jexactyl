@@ -14,14 +14,16 @@
         "build:fast": "vite build",
         "budget": "node scripts/bundle-report.mjs --check",
         "budget:report": "node scripts/bundle-report.mjs",
-        "lint": "eslint src",
+        "lint": "eslint src tests playwright.config.ts vite.config.ts vitest.config.ts lighthouse.config.cjs lighthouserc.cjs lighthouserc.mobile.cjs",
         "locales:set": "node scripts/locales.mjs",
         "preview": "vite preview",
         "test": "vitest run",
         "playwright:install": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright install chromium",
         "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test",
         "test:e2e:ui": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test --ui",
-        "test:lighthouse": "lhci autorun --config=./lighthouserc.cjs"
+        "test:lighthouse": "pnpm run test:lighthouse:desktop && pnpm run test:lighthouse:mobile",
+        "test:lighthouse:desktop": "lhci autorun --config=./lighthouserc.cjs",
+        "test:lighthouse:mobile": "lhci autorun --config=./lighthouserc.mobile.cjs"
     },
     "dependencies": {
         "@codemirror/lang-css": "^6.3.1",

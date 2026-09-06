@@ -9,7 +9,8 @@ const publicDirectory = resolve(frontendDirectory, '../public');
 const buildDirectory = resolve(publicDirectory, 'build');
 const manifestPath = join(buildDirectory, 'manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-const entry = manifest['src/main.tsx'];
+const entryKey = 'src/main.tsx';
+const entry = manifest[entryKey];
 const bootSkeleton = readFileSync(
     resolve(frontendDirectory, '../resources/views/templates/v2/skeleton.blade.php'),
     'utf8',
@@ -18,6 +19,19 @@ const bootSkeleton = readFileSync(
 if (!entry?.file) {
     throw new Error(`Missing src/main.tsx entry in ${manifestPath}; run pnpm build:frontend first.`);
 }
+
+function resolveImports(key, seen = new Set()) {
+    for (const importedKey of manifest[key]?.imports ?? []) {
+        if (seen.has(importedKey)) continue;
+        seen.add(importedKey);
+        resolveImports(importedKey, seen);
+    }
+    return seen;
+}
+
+const modulePreloadFiles = [entryKey, ...resolveImports(entryKey)]
+    .map(key => manifest[key]?.file)
+    .filter(Boolean);
 
 const portArgument = process.argv.find(argument => argument.startsWith('--port='));
 const port = Number(portArgument?.slice('--port='.length) ?? process.env.PORT ?? 4173);
@@ -72,6 +86,11 @@ function escapeScriptJson(value) {
 }
 
 function documentHtml() {
+    // Match Illuminate\Foundation\Vite's production output so Lighthouse does
+    // not measure an artificial main-entry-to-static-import waterfall.
+    const modulePreloads = modulePreloadFiles
+        .map(file => `<link rel="modulepreload" as="script" href="/build/${file}">`)
+        .join('');
     const styles = (entry.css ?? [])
         .map(file => `<link rel="stylesheet" href="/build/${file}">`)
         .join('');
@@ -84,7 +103,8 @@ function documentHtml() {
   <meta name="csrf-token" content="playwright-csrf-token">
   <meta name="robots" content="noindex">
   <title>M12Labs Test Panel</title>
-  <script>window.SiteConfiguration=${escapeScriptJson(siteConfiguration)};window.EverestConfiguration=${escapeScriptJson(everestConfiguration)};<\/script>
+  <script>window.SiteConfiguration=${escapeScriptJson(siteConfiguration)};window.EverestConfiguration=${escapeScriptJson(everestConfiguration)};</script>
+  ${modulePreloads}
   ${styles}
   <script type="module" src="/build/${entry.file}"></script>
 </head>

@@ -9,6 +9,15 @@ export default tseslint.config(
     ...tseslint.configs.recommended,
     reactHooks.configs.flat.recommended,
     {
+        files: ['**/*.{cjs,mjs,js}'],
+        languageOptions: {
+            globals: globals.node,
+        },
+        rules: {
+            '@typescript-eslint/no-require-imports': 'off',
+        },
+    },
+    {
         files: ['**/*.{ts,tsx}'],
         languageOptions: {
             globals: globals.browser,
