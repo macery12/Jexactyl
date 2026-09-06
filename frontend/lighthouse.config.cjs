@@ -1,5 +1,6 @@
 const { existsSync, readdirSync } = require('node:fs');
 const { join, resolve } = require('node:path');
+const { routes: baselineRoutes } = require('./lighthouse.routes.cjs');
 
 const browserDirectory = resolve(__dirname, '../.playwright-browsers');
 
@@ -43,12 +44,46 @@ const profiles = {
     mobile: {},
 };
 
+const blockedUrlPatterns = [
+    '*://*.google-analytics.com/*',
+    '*://*.googletagmanager.com/*',
+    '*://*.sentry.io/*',
+];
+
 function numberOfRuns() {
     const value = Number(process.env.LIGHTHOUSE_RUNS ?? 3);
     if (!Number.isInteger(value) || value < 1) {
         throw new Error('LIGHTHOUSE_RUNS must be a positive integer.');
     }
     return value;
+}
+
+function baselineNumberOfRuns() {
+    const value = Number(process.env.LIGHTHOUSE_RUNS ?? 1);
+    if (!Number.isInteger(value) || value < 1) {
+        throw new Error('LIGHTHOUSE_RUNS must be a positive integer.');
+    }
+    return value;
+}
+
+function selectedBaselineRoutes() {
+    const area = process.env.LIGHTHOUSE_AREA;
+    const matchingRoutes = area ? baselineRoutes.filter(route => route.area === area) : baselineRoutes;
+
+    if (area && matchingRoutes.length === 0) {
+        const areas = [...new Set(baselineRoutes.map(route => route.area))].join(', ');
+        throw new Error(`Unknown LIGHTHOUSE_AREA: ${area}. Expected one of: ${areas}`);
+    }
+
+    const rawLimit = process.env.LIGHTHOUSE_LIMIT;
+    if (rawLimit === undefined) return matchingRoutes;
+
+    const limit = Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1) {
+        throw new Error('LIGHTHOUSE_LIMIT must be a positive integer when provided.');
+    }
+
+    return matchingRoutes.slice(0, limit);
 }
 
 function createLighthouseConfig(profile) {
@@ -90,4 +125,30 @@ function createLighthouseConfig(profile) {
     };
 }
 
-module.exports = { createLighthouseConfig };
+function createBaselineConfig(profile) {
+    const settings = profiles[profile];
+    if (!settings) throw new Error(`Unknown Lighthouse profile: ${profile}`);
+
+    return {
+        ci: {
+            collect: {
+                chromePath: chromePath(),
+                startServerCommand: 'node tests/e2e/production-server.mjs --port=4173',
+                startServerReadyPattern: 'Production browser fixture listening',
+                url: selectedBaselineRoutes().map(route => `http://127.0.0.1:4173${route.url}`),
+                numberOfRuns: baselineNumberOfRuns(),
+                settings: {
+                    chromeFlags: '--headless --no-sandbox --disable-dev-shm-usage',
+                    blockedUrlPatterns,
+                    ...settings,
+                },
+            },
+            upload: {
+                target: 'filesystem',
+                outputDir: `../storage/app/lighthouse/baseline/${profile}`,
+            },
+        },
+    };
+}
+
+module.exports = { createBaselineConfig, createLighthouseConfig };

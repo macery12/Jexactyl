@@ -9,10 +9,14 @@ const publicDirectory = resolve(frontendDirectory, '../public');
 const buildDirectory = resolve(publicDirectory, 'build');
 const manifestPath = join(buildDirectory, 'manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-const entryKey = 'src/public.tsx';
-const entry = manifest[entryKey];
-const localeKey = 'virtual:m12-i18n-catalog/public/en';
-const localeEntry = manifest[localeKey];
+const entryKeys = {
+    public: 'src/public.tsx',
+    authenticated: 'src/main.tsx',
+};
+const localeKeys = {
+    public: 'virtual:m12-i18n-catalog/public/en',
+    authenticated: 'virtual:m12-i18n-catalog/full/en',
+};
 const authRouteEntries = [
     [/^\/auth\/login$/, 'src/pages/auth/LoginPage.tsx'],
     [/^\/auth\/login\/checkpoint$/, 'src/pages/auth/CheckpointPage.tsx'],
@@ -23,16 +27,18 @@ const authRouteEntries = [
     [/^\/auth\/sso\/register$/, 'src/pages/auth/SsoRegisterPage.tsx'],
 ];
 const authLayoutKey = 'src/layouts/AuthLayout.tsx';
+const dashboardLayoutKey = 'src/layouts/DashboardLayout.tsx';
+const serverLayoutKey = 'src/layouts/ServerLayout.tsx';
+const adminLayoutKey = 'src/layouts/AdminLayout.tsx';
 const bootSkeleton = readFileSync(
     resolve(frontendDirectory, '../resources/views/templates/v2/skeleton.blade.php'),
     'utf8',
 );
 
-if (!entry?.file) {
-    throw new Error(`Missing ${entryKey} entry in ${manifestPath}; run pnpm build:frontend first.`);
-}
-if (!localeEntry?.file) {
-    throw new Error(`Missing ${localeKey} entry in ${manifestPath}; run pnpm build:frontend first.`);
+for (const key of [...Object.values(entryKeys), ...Object.values(localeKeys)]) {
+    if (!manifest[key]?.file) {
+        throw new Error(`Missing ${key} entry in ${manifestPath}; run pnpm build:frontend first.`);
+    }
 }
 
 function resolveImports(key, seen = new Set()) {
@@ -44,11 +50,19 @@ function resolveImports(key, seen = new Set()) {
     return seen;
 }
 
-const entryClosureKeys = [entryKey, ...resolveImports(entryKey)];
-const modulePreloadFiles = entryClosureKeys
-    .map(key => manifest[key]?.file)
-    .filter(Boolean);
-const entryCssFiles = [...new Set(entryClosureKeys.flatMap(key => manifest[key]?.css ?? []))];
+function frontendAssets(authenticated) {
+    const scope = authenticated ? 'authenticated' : 'public';
+    const entryKey = entryKeys[scope];
+    const localeKey = localeKeys[scope];
+    const entryClosureKeys = [entryKey, ...resolveImports(entryKey)];
+
+    return {
+        entry: manifest[entryKey],
+        localeEntry: manifest[localeKey],
+        modulePreloadFiles: entryClosureKeys.map(key => manifest[key]?.file).filter(Boolean),
+        entryCssFiles: [...new Set(entryClosureKeys.flatMap(key => manifest[key]?.css ?? []))],
+    };
+}
 
 const portArgument = process.argv.find(argument => argument.startsWith('--port='));
 const port = Number(portArgument?.slice('--port='.length) ?? process.env.PORT ?? 4173);
@@ -67,30 +81,92 @@ const siteConfiguration = {
     activity: { enabled: { account: true, server: true, admin: true } },
 };
 
+const authenticatedUser = {
+    uuid: '00000000-0000-4000-8000-000000000001',
+    username: 'lighthouse-admin',
+    email: 'lighthouse@example.test',
+    root_admin: true,
+    use_totp: true,
+    language: 'en',
+    avatar_url: '',
+    admin_role_name: 'Owner',
+    admin_role_id: 1,
+    access_profile: { id: 1, name: 'Owner', color: '#0047fc', is_owner: true },
+    state: 'active',
+    email_verified: true,
+    email_verified_at: '2026-09-06T00:00:00.000Z',
+    updated_at: '2026-09-06T00:00:00.000Z',
+    created_at: '2026-09-06T00:00:00.000Z',
+    discord_linked: true,
+};
+
 const everestConfiguration = {
     auth: {
         registration: { enabled: true },
         security: { force2fa: false },
         captcha: { provider: 'turnstile', site_key: '' },
         modules: {
-            discord: { enabled: false },
-            google: { enabled: false },
-            onboarding: { enabled: false },
-            jguard: { enabled: false },
+            discord: { enabled: true },
+            google: { enabled: true },
+            onboarding: { enabled: true, content: '' },
+            jguard: { enabled: true, approval_mode: 'manual', delay: 0 },
         },
     },
     tickets: { enabled: true, maxCount: 5 },
     billing: {
-        enabled: false,
+        enabled: true,
+        processors: {
+            stripe: { available: false, enabled: false },
+            paypal: { available: false, enabled: false },
+        },
         currency: { symbol: '$', code: 'USD' },
         links: { terms: '', privacy: '' },
+        store: { enabled: true, sections: [] },
     },
-    ai: { enabled: false, feature_agent: false, feature_admin_agent: false },
-    mods: { enabled: false },
-    webhooks: { enabled: false },
-    email: { enabled: false, module_enabled: false },
-    extensions: { enabled: false, active: [] },
-    custom_domains: { enabled: false },
+    ai: { enabled: true, feature_agent: true, feature_admin_agent: true },
+    mods: { enabled: true },
+    webhooks: { enabled: true },
+    email: { enabled: true, module_enabled: true },
+    extensions: { enabled: true, active: ['node_health_history'] },
+    custom_domains: { enabled: true },
+};
+
+const fixtureServer = {
+    object: 'server',
+    attributes: {
+        identifier: 'fixture',
+        internal_id: 1,
+        uuid: '',
+        name: 'Lighthouse Fixture Server',
+        server_owner: true,
+        description: 'Deterministic server used by the all-page Lighthouse baseline.',
+        node: 'Fixture Node',
+        status: 'running',
+        is_node_under_maintenance: false,
+        is_transferring: false,
+        is_node_supercharged: false,
+        is_deletion_scheduled: false,
+        docker_image: 'ghcr.io/example/fixture:latest',
+        limits: { memory: 4096, disk: 20480, cpu: 200 },
+        feature_limits: { databases: 4, allocations: 4, backups: 4, subusers: 4 },
+        sftp_details: { ip: '127.0.0.1', port: 2022 },
+        egg_id: 1,
+        billing_product_id: null,
+        billing_days: null,
+        renewal_date: null,
+        relationships: {
+            allocations: {
+                object: 'list',
+                data: [
+                    {
+                        object: 'allocation',
+                        attributes: { id: 1, ip: '127.0.0.1', ip_alias: null, port: 25565, is_default: true },
+                    },
+                ],
+            },
+        },
+    },
+    meta: { is_server_owner: true, user_permissions: ['*'] },
 };
 
 function escapeScriptJson(value) {
@@ -102,7 +178,8 @@ function escapeScriptJson(value) {
         .replaceAll('\u2029', '\\u2029');
 }
 
-function documentHtml(pathname) {
+function documentHtml(pathname, authenticated) {
+    const { entry, localeEntry, modulePreloadFiles, entryCssFiles } = frontendAssets(authenticated);
     // Match Illuminate\Foundation\Vite's production output so Lighthouse does
     // not measure an artificial main-entry-to-static-import waterfall.
     const modulePreloads = modulePreloadFiles
@@ -117,7 +194,16 @@ function documentHtml(pathname) {
     const routePreload = routeFile
         ? `<link rel="modulepreload" as="script" data-route-preload href="/build/${routeFile}">`
         : '';
-    const layoutFile = pathname.startsWith('/auth/') ? manifest[authLayoutKey]?.file : null;
+    const layoutKey = pathname.startsWith('/auth/')
+        ? authLayoutKey
+        : pathname.startsWith('/server/')
+          ? serverLayoutKey
+          : pathname === '/admin' || pathname.startsWith('/admin/')
+            ? adminLayoutKey
+            : authenticated
+              ? dashboardLayoutKey
+              : null;
+    const layoutFile = layoutKey ? manifest[layoutKey]?.file : null;
     const layoutPreload = layoutFile
         ? `<link rel="modulepreload" as="script" data-layout-preload href="/build/${layoutFile}">`
         : '';
@@ -130,7 +216,7 @@ function documentHtml(pathname) {
   <meta name="csrf-token" content="playwright-csrf-token">
   <meta name="robots" content="noindex">
   <title>M12Labs Test Panel</title>
-  <script>window.SiteConfiguration=${escapeScriptJson(siteConfiguration)};window.EverestConfiguration=${escapeScriptJson(everestConfiguration)};</script>
+  <script>window.SiteConfiguration=${escapeScriptJson(siteConfiguration)};window.EverestConfiguration=${escapeScriptJson(everestConfiguration)};${authenticated ? `window.PterodactylUser=${escapeScriptJson(authenticatedUser)};` : ''}</script>
   ${modulePreloads}
   ${styles}
   <script type="module" src="/build/${entry.file}"></script>
@@ -182,6 +268,54 @@ function serveAsset(request, requestPath, response) {
     }
 }
 
+function sendJson(response, body, status = 200) {
+    const json = JSON.stringify(body);
+    response.writeHead(status, {
+        'Cache-Control': 'no-store',
+        'Content-Length': Buffer.byteLength(json),
+        'Content-Type': 'application/json; charset=utf-8',
+    });
+    response.end(json);
+}
+
+function serveFixtureApi(url, response) {
+    if (url.pathname === '/api/application/permissions') {
+        sendJson(response, { attributes: { permissions: [['*']] } });
+        return true;
+    }
+
+    if (url.pathname === '/api/client') {
+        sendJson(response, { object: 'list', data: [fixtureServer], meta: { pagination: { total: 1, count: 1 } } });
+        return true;
+    }
+
+    if (/^\/api\/client\/servers\/fixture$/.test(url.pathname)) {
+        sendJson(response, fixtureServer);
+        return true;
+    }
+
+    if (/^\/api\/client\/servers\/fixture\/resources$/.test(url.pathname)) {
+        sendJson(response, {
+            object: 'stats',
+            attributes: {
+                current_state: 'running',
+                is_suspended: false,
+                resources: {
+                    memory_bytes: 536_870_912,
+                    cpu_absolute: 12.5,
+                    disk_bytes: 2_147_483_648,
+                    network_rx_bytes: 1_048_576,
+                    network_tx_bytes: 524_288,
+                    uptime: 3_600_000,
+                },
+            },
+        });
+        return true;
+    }
+
+    return false;
+}
+
 const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
 
@@ -200,13 +334,16 @@ const server = createServer((request, response) => {
         return;
     }
 
+    if (request.method === 'GET' && serveFixtureApi(url, response)) return;
+
     if (url.pathname.startsWith('/api/') || (request.method !== 'GET' && request.method !== 'HEAD')) {
         response.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
         response.end(JSON.stringify({ errors: [{ detail: 'Not available in the public browser fixture.' }] }));
         return;
     }
 
-    const html = documentHtml(url.pathname);
+    const authenticated = url.searchParams.get('__lighthouse_auth') === '1';
+    const html = documentHtml(url.pathname, authenticated);
     response.writeHead(200, {
         'Cache-Control': 'private, no-cache, no-store, must-revalidate',
         'Content-Length': Buffer.byteLength(html),

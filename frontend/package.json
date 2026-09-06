@@ -14,7 +14,7 @@
         "build:fast": "vite build",
         "budget": "node scripts/bundle-report.mjs --check",
         "budget:report": "node scripts/bundle-report.mjs",
-        "lint": "eslint src tests playwright.config.ts vite.config.ts vitest.config.ts lighthouse.config.cjs lighthouserc.cjs lighthouserc.mobile.cjs",
+        "lint": "eslint src tests scripts/lighthouse-baseline-report.mjs playwright.config.ts vite.config.ts vitest.config.ts lighthouse.config.cjs lighthouse.routes.cjs lighthouserc.cjs lighthouserc.mobile.cjs lighthouserc.baseline.cjs",
         "locales:set": "node scripts/locales.mjs",
         "preview": "vite preview",
         "test": "vitest run",
@@ -23,7 +23,11 @@
         "test:e2e:ui": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test --ui",
         "test:lighthouse": "pnpm run test:lighthouse:desktop && pnpm run test:lighthouse:mobile",
         "test:lighthouse:desktop": "lhci autorun --config=./lighthouserc.cjs",
-        "test:lighthouse:mobile": "lhci autorun --config=./lighthouserc.mobile.cjs"
+        "test:lighthouse:mobile": "lhci autorun --config=./lighthouserc.mobile.cjs",
+        "test:lighthouse:baseline": "pnpm run test:lighthouse:baseline:desktop && pnpm run test:lighthouse:baseline:mobile && pnpm run test:lighthouse:baseline:report",
+        "test:lighthouse:baseline:desktop": "LIGHTHOUSE_PROFILE=desktop lhci autorun --config=./lighthouserc.baseline.cjs",
+        "test:lighthouse:baseline:mobile": "LIGHTHOUSE_PROFILE=mobile lhci autorun --config=./lighthouserc.baseline.cjs",
+        "test:lighthouse:baseline:report": "node scripts/lighthouse-baseline-report.mjs"
     },
     "dependencies": {
         "@codemirror/lang-css": "^6.3.1",

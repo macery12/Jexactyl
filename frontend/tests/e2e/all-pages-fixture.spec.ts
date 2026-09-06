@@ -1,0 +1,16 @@
+import { expect, test } from '@playwright/test';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { routes } = require('../../lighthouse.routes.cjs') as {
+    routes: Array<{ area: string; name: string; url: string }>;
+};
+
+for (const route of routes) {
+    test(`${route.area}: ${route.name} boots from the production fixture`, async ({ page }) => {
+        await page.goto(route.url);
+        await expect(page.locator('main')).toBeVisible();
+        await expect(page.locator('[data-boot-skeleton]')).toHaveCount(0);
+        await expect(page.getByText('Access Denied', { exact: true })).toHaveCount(0);
+    });
+}
