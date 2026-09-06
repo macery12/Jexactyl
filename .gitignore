@@ -14,6 +14,11 @@ package-lock.json
 /public/build
 /public/hot
 /frontend/dist
+/frontend/playwright-report
+/frontend/.playwright-browsers
+/frontend/.lighthouseci
+/frontend/test-results
+/.playwright-browsers
 public/assets/manifest.json
 *.tsbuildinfo
 result
@@ -33,6 +38,7 @@ resources/views/emails/**/*.blade.php.bak.*
 
 # Extension system runtime state and installed/uninstalled package output
 storage/app/extensions/
+storage/app/lighthouse/
 storage/app/extension-scans/
 storage/app/runtime-home/
 storage/app/tmp/

@@ -131,7 +131,7 @@ export default function Cockpit() {
     }
 
     return (
-        <div aria-hidden className="flex min-w-0 select-none flex-col gap-2.5">
+        <div aria-hidden data-landing-cockpit className="flex min-w-0 select-none flex-col gap-2.5">
             <Panel title={m['landing.cockpit.title']()} icon={Terminal} flush right={<StateBadge />}>
                 <div className="flex h-44 flex-col justify-end overflow-hidden px-3 py-2 font-mono text-[11.5px] leading-[1.8]">
                     {lines.map(line => (

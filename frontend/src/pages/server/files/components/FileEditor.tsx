@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
-import { LanguageDescription, type LanguageSupport } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import type { Extension } from '@codemirror/state';
 import { ArrowLeft, Save } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { useServer } from '@/components/server/ServerContext';
@@ -18,6 +17,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Spinner } from '@/components/ui/Spinner';
 import { getFileContents, saveFileContents } from '@/api/files';
 import { dirname, encodePathSegments } from '../paths';
+import { EDITOR_LANGUAGES, loadEditorLanguage, matchEditorLanguage } from '@/lib/editorLanguages';
 
 // Editor chrome themed against the V2 tokens so CodeMirror follows light/dark.
 const themeExtension = EditorView.theme({
@@ -76,7 +76,7 @@ export default function FileEditor({ action }: { action: 'edit' | 'new' }) {
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [langName, setLangName] = useState('');
-    const [langExt, setLangExt] = useState<LanguageSupport | null>(null);
+    const [langExt, setLangExt] = useState<Extension | null>(null);
     const [showNameModal, setShowNameModal] = useState(false);
     const [newName, setNewName] = useState('');
 
@@ -103,25 +103,29 @@ export default function FileEditor({ action }: { action: 'edit' | 'new' }) {
     // Auto-detect language from the filename.
     useEffect(() => {
         if (!filename) return;
-        const match = LanguageDescription.matchFilename(languages, filename);
+        const match = matchEditorLanguage(filename);
+        let active = true;
         if (match) {
             // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
             setLangName(match.name);
-            match.load().then(setLangExt);
+            match.load().then(extension => {
+                if (active) setLangExt(extension);
+            });
         }
+        return () => {
+            active = false;
+        };
     }, [filename]);
 
     const loadLanguage = (name: string) => {
         setLangName(name);
-        const desc = languages.find(l => l.name === name);
-        if (desc) desc.load().then(setLangExt);
-        else setLangExt(null);
+        void loadEditorLanguage(name).then(setLangExt);
     };
 
     const langOptions = useMemo(
         () => [
             { value: '', label: m['server.files.editor.plainText']() },
-            ...languages.map(l => ({ value: l.name, label: l.name })),
+            ...EDITOR_LANGUAGES.map(language => ({ value: language.name, label: language.name })),
         ],
         [],
     );

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorView } from '@codemirror/view';
 import { type Extension } from '@codemirror/state';
-import { languages } from '@codemirror/language-data';
+import { loadRequiredEditorLanguage } from '@/lib/editorLanguages';
 
 // Themed CodeMirror wrapper — the config JSON and shell install-script editors
 // in the egg editor share it. Follows the V2 tokens so it tracks light/dark,
@@ -46,8 +46,7 @@ export function CodeEditor({
 
     useEffect(() => {
         let active = true;
-        const desc = languages.find(l => l.name === language);
-        desc?.load().then(support => {
+        void loadRequiredEditorLanguage(language).then(support => {
             if (active) setLangExt(support);
         });
         return () => {

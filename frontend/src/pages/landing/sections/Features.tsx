@@ -50,7 +50,7 @@ function FeatureCard({ Icon, title, body }: { Icon: ReturnType<typeof resolveIco
         <div className="rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-6">
             <div className="flex items-center gap-2.5">
                 <Icon className="h-4.5 w-4.5 shrink-0 text-[var(--brand-bright)]" />
-                <h3 className="text-base font-semibold">{title}</h3>
+                <h2 className="text-base font-semibold">{title}</h2>
             </div>
             <p className="mt-2.5 text-sm text-[var(--color-ink-muted)]">{body}</p>
         </div>

@@ -32,6 +32,7 @@ function PowerButton({
     return (
         <button
             title={title}
+            aria-label={title}
             disabled={disabled}
             onClick={onClick}
             className={cn(
@@ -66,11 +67,7 @@ export function LiveServerCard({
         },
     });
 
-    const act = (signal: PowerSignal) => (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        power.mutate(signal);
-    };
+    const act = (signal: PowerSignal) => () => power.mutate(signal);
 
     const memTotal = server.limits.memory > 0 ? mibToBytes(server.limits.memory) : 0;
     const diskTotal = server.limits.disk > 0 ? mibToBytes(server.limits.disk) : 0;
@@ -80,10 +77,11 @@ export function LiveServerCard({
     const isOffline = state === 'offline';
 
     return (
-        <Link
-            to={`/server/${server.id}`}
-            className="group flex flex-col gap-4 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] p-5 transition-colors hover:border-[var(--brand)]/50"
-        >
+        <article className="group flex flex-col rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface)] transition-colors hover:border-[var(--brand)]/50">
+            <Link
+                to={`/server/${server.id}`}
+                className="flex flex-col gap-4 rounded-t-lg p-5 pb-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--color-focus-ring)]"
+            >
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <h3 className="truncate font-semibold text-[var(--color-ink)]">{server.name}</h3>
@@ -123,8 +121,9 @@ export function LiveServerCard({
                     <AlertTriangle className="h-3.5 w-3.5" /> {m['dashboard.serverSuspended']()}
                 </div>
             )}
+            </Link>
 
-            <div className="mt-auto flex items-center justify-between border-t border-[var(--color-border)] pt-3">
+            <div className="mt-auto flex items-center justify-between border-t border-[var(--color-border)] px-5 pb-5 pt-3">
                 <span className="flex items-center gap-1.5 text-xs text-[var(--color-ink-muted)]">
                     <Clock className="h-3.5 w-3.5" />
                     {resources && isRunning ? formatUptime(resources.uptimeMs) : pending ? '…' : m['dashboard.offlineShort']()}
@@ -153,6 +152,6 @@ export function LiveServerCard({
                     />
                 </div>
             </div>
-        </Link>
+        </article>
     );
 }

@@ -71,6 +71,7 @@ export default function LoginPage() {
     const {
         register,
         handleSubmit,
+        setError,
         formState: { errors, isSubmitting },
     } = useForm<FormValues>({ defaultValues: { remember: false } });
 
@@ -82,6 +83,12 @@ export default function LoginPage() {
         clearSsoError();
         const parsed = schema.safeParse(values);
         if (!parsed.success) {
+            for (const issue of parsed.error.issues) {
+                const field = issue.path[0];
+                if (field === 'user' || field === 'password') {
+                    setError(field, { type: 'validation', message: issue.message });
+                }
+            }
             setSubmitError(parsed.error.issues[0]?.message ?? m['auth.login.invalidInput']());
             return;
         }
@@ -130,7 +137,7 @@ export default function LoginPage() {
             </div>
 
             {(submitError ?? ssoError) && (
-                <div className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
+                <div role="alert" className="rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-4 py-3 text-sm text-[var(--color-danger)]">
                     {submitError ?? ssoError}
                 </div>
             )}
@@ -179,7 +186,7 @@ export default function LoginPage() {
                 }}
             />
 
-            <a href={abs('/auth/password')} className="text-center text-sm text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]">
+            <a href={abs('/auth/password')} className="text-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
                 {m['auth.login.forgot']()}
             </a>
 

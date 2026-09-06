@@ -88,6 +88,117 @@ body {
     text-rendering: optimizeLegibility;
 }
 
+/* Server-rendered first-paint placeholder. React replaces it at mount, but it
+   prevents a blank canvas while the entry and initial locale catalog load. */
+.boot-skeleton {
+    box-sizing: border-box;
+    min-height: 100%;
+    padding: 1.5rem;
+    background:
+        radial-gradient(45rem 35rem at 15% -10%, color-mix(in oklab, var(--brand) 16%, transparent), transparent 60%),
+        var(--canvas);
+}
+
+.boot-skeleton__topbar,
+.boot-skeleton__body {
+    width: min(72rem, 100%);
+    margin-inline: auto;
+}
+
+.boot-skeleton__topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.boot-skeleton__brand,
+.boot-skeleton__pill,
+.boot-skeleton__line,
+.boot-skeleton__button,
+.boot-skeleton__panel {
+    display: block;
+    background: var(--color-surface-2);
+    animation: boot-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.boot-skeleton__brand {
+    width: 8rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+}
+
+.boot-skeleton__pill {
+    width: 5rem;
+    height: 2.5rem;
+    border-radius: 0.6rem;
+}
+
+.boot-skeleton__body {
+    display: grid;
+    align-items: center;
+    gap: 3rem;
+    padding-block: 5rem;
+}
+
+.boot-skeleton__copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.boot-skeleton__line {
+    width: 100%;
+    max-width: 33rem;
+    height: 1rem;
+    border-radius: 999px;
+}
+
+.boot-skeleton__line--short {
+    width: 8rem;
+    height: 0.7rem;
+}
+
+.boot-skeleton__line--title {
+    width: 90%;
+    height: 3.2rem;
+    border-radius: 0.75rem;
+}
+
+.boot-skeleton__line--medium {
+    width: 70%;
+}
+
+.boot-skeleton__button {
+    width: 8rem;
+    height: 2.75rem;
+    margin-top: 0.75rem;
+    border-radius: 0.65rem;
+}
+
+.boot-skeleton__panel {
+    min-height: 18rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-card);
+}
+
+@media (min-width: 64rem) {
+    .boot-skeleton__body {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@keyframes boot-skeleton-pulse {
+    50% {
+        opacity: 0.55;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .boot-skeleton * {
+        animation: none;
+    }
+}
+
 /* Subtle ambient gradient used by the shell + landing backdrop. Intensity is
    theme-driven; [data-aurora="off"] removes it entirely. */
 .bg-aurora {

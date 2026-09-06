@@ -37,6 +37,12 @@ export function AppShell({
     return (
         <ShellLayoutContext.Provider value={layout}>
         <div className="flex min-h-screen flex-col">
+            <a
+                href="#main-content"
+                className="fixed left-4 top-4 z-[100] -translate-y-20 rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-[var(--color-brand-ink)] transition-transform focus:translate-y-0"
+            >
+                {td('common.accessibility.skipToContent', 'Skip to content')}
+            </a>
             <TopNav onToggleSidebar={() => setDrawerOpen(true)} />
 
             <div className="flex flex-1">
@@ -65,7 +71,7 @@ export function AppShell({
                     </Dialog.Portal>
                 </Dialog.Root>
 
-                <main className="min-w-0 flex-1">
+                <main id="main-content" tabIndex={-1} className="min-w-0 flex-1">
                     {header && (
                         <div className="sticky top-16 z-20 border-b border-[var(--color-border)] bg-[var(--canvas)]/85 px-5 py-4 backdrop-blur sm:px-8">
                             <div className="mx-auto w-full max-w-6xl">{header}</div>

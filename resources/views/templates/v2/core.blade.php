@@ -12,19 +12,19 @@
         {{-- Blade -> JS bootstrap handoff. Identical contract to the V1 wrapper;
              the *-bound view composers populate these variables on every view. --}}
         @if(!is_null(Auth::user()))
-            <script>window.PterodactylUser = {!! json_encode(Auth::user()->toReactObject()) !!};</script>
+            <script>window.PterodactylUser = {{ Illuminate\Support\Js::from(Auth::user()->toReactObject()) }};</script>
         @endif
         @if(!empty($siteConfiguration))
-            <script>window.SiteConfiguration = {!! json_encode($siteConfiguration) !!};</script>
+            <script>window.SiteConfiguration = {{ Illuminate\Support\Js::from($siteConfiguration) }};</script>
         @endif
         @if(!empty($everestConfiguration))
-            <script>window.EverestConfiguration = {!! json_encode($everestConfiguration) !!};</script>
+            <script>window.EverestConfiguration = {{ Illuminate\Support\Js::from($everestConfiguration) }};</script>
         @endif
         @if(!empty($landingConfiguration))
-            <script>window.LandingConfiguration = {!! json_encode($landingConfiguration) !!};</script>
+            <script>window.LandingConfiguration = {{ Illuminate\Support\Js::from($landingConfiguration) }};</script>
         @endif
         @if(!empty($themeConfiguration))
-            <script>window.ThemeConfiguration = {!! json_encode($themeConfiguration) !!};</script>
+            <script>window.ThemeConfiguration = {{ Illuminate\Support\Js::from($themeConfiguration) }};</script>
         @endif
         @php
             $flashMessages = [];
@@ -35,7 +35,7 @@
             }
         @endphp
         @if(!empty($flashMessages))
-            <script>window.FlashMessages = {!! json_encode($flashMessages) !!};</script>
+            <script>window.FlashMessages = {{ Illuminate\Support\Js::from($flashMessages) }};</script>
         @endif
 
         @if(!empty($siteConfiguration['captcha']['enabled']) && !empty($siteConfiguration['captcha']['siteKey']))
@@ -49,6 +49,6 @@
         {!! $v2(['src/main.tsx']) !!}
     </head>
     <body>
-        <div id="app"></div>
+        <div id="app">@include('templates.v2.skeleton')</div>
     </body>
 </html>
