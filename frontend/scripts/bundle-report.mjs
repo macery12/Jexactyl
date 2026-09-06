@@ -10,15 +10,12 @@ const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const shouldCheck = process.argv.includes('--check');
 
 const routes = [
-    { name: 'Guest landing', source: null, cap: 345_000 },
-    { name: 'Login', source: 'src/pages/auth/LoginPage.tsx', cap: 385_000 },
-    { name: 'Dashboard', source: 'src/pages/dashboard/DashboardPage.tsx', cap: 360_000 },
-    { name: 'Server overview', source: 'src/pages/server/ServerOverviewPage.tsx', cap: 440_000 },
-    { name: 'File manager', source: 'src/pages/server/files/FilesSection.tsx', cap: 520_000 },
+    { name: 'Guest landing', entry: 'src/public.tsx', catalog: 'virtual:m12-i18n-catalog/public/en', layout: null, source: null, cap: 345_000 },
+    { name: 'Login', entry: 'src/public.tsx', catalog: 'virtual:m12-i18n-catalog/public/en', layout: 'src/layouts/AuthLayout.tsx', source: 'src/pages/auth/LoginPage.tsx', cap: 385_000 },
+    { name: 'Dashboard', entry: 'src/main.tsx', catalog: 'virtual:m12-i18n-catalog/full/en', layout: 'src/layouts/DashboardLayout.tsx', source: 'src/pages/dashboard/DashboardPage.tsx', cap: 360_000 },
+    { name: 'Server overview', entry: 'src/main.tsx', catalog: 'virtual:m12-i18n-catalog/full/en', layout: 'src/layouts/ServerLayout.tsx', source: 'src/pages/server/ServerOverviewPage.tsx', cap: 440_000 },
+    { name: 'File manager', entry: 'src/main.tsx', catalog: 'virtual:m12-i18n-catalog/full/en', layout: 'src/layouts/ServerLayout.tsx', source: 'src/pages/server/files/FilesSection.tsx', cap: 520_000 },
 ];
-
-const entryKey = 'src/main.tsx';
-const localeKey = 'virtual:m12-i18n-catalog/en';
 
 function closure(...roots) {
     const seen = new Set();
@@ -52,14 +49,17 @@ function filesBelow(directory) {
 }
 
 const routeRows = routes.map(route => {
-    const keys = closure(entryKey, localeKey, route.source);
+    const keys = closure(route.entry, route.catalog, route.layout, route.source);
     return { ...route, ...summarize(keys) };
 });
 
 const buildFiles = filesBelow(buildDirectory);
 const totalBytes = buildFiles.reduce((sum, file) => sum + statSync(file).size, 0);
 const manifestBytes = statSync(manifestPath).size;
-const mainCss = (manifest[entryKey].css ?? []).reduce((sum, file) => {
+const mainCssFiles = new Set(
+    [...closure(routes[0].entry)].flatMap(key => manifest[key].css ?? []),
+);
+const mainCss = [...mainCssFiles].reduce((sum, file) => {
     const contents = readFileSync(join(buildDirectory, file));
     return sum + gzipSync(contents, { level: 9 }).byteLength;
 }, 0);

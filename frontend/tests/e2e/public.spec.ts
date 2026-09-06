@@ -3,7 +3,7 @@ import { expectNoHighImpactAxeViolations } from './accessibility';
 
 test.describe('public landing', () => {
     test('shows a server-rendered shell before JavaScript starts', async ({ page }) => {
-        await page.route(/\/build\/assets\/main-[^/]+\.js$/, route => route.abort());
+        await page.route(/\/build\/assets\/public-[^/]+\.js$/, route => route.abort());
         await page.goto('/');
 
         await expect(page.locator('#app > [data-boot-skeleton]')).toBeVisible();
@@ -30,7 +30,7 @@ test.describe('public landing', () => {
     test('serves private HTML and compressed immutable build assets', async ({ page }) => {
         const documentResponsePromise = page.waitForResponse(response => response.request().resourceType() === 'document');
         const scriptResponsePromise = page.waitForResponse(response =>
-            /\/build\/assets\/main-[^/]+\.js$/.test(response.url()),
+            /\/build\/assets\/public-[^/]+\.js$/.test(response.url()),
         );
         await page.goto('/');
 
@@ -51,6 +51,9 @@ test.describe('public landing', () => {
         expect(preloadUrls.length).toBeGreaterThan(1);
         expect(new Set(preloadUrls).size).toBe(preloadUrls.length);
         expect(preloadUrls.every(url => new URL(url).pathname.startsWith('/build/assets/'))).toBe(true);
+        await expect(page.locator('link[data-locale-preload]')).toHaveCount(1);
+        await expect(page.locator('link[data-layout-preload]')).toHaveCount(0);
+        await expect(page.locator('link[data-route-preload]')).toHaveCount(0);
     });
 
     test('has no serious or critical automated accessibility findings', async ({ page }) => {
@@ -101,5 +104,14 @@ test.describe('login', () => {
 
     test('has no serious or critical automated accessibility findings', async ({ page }) => {
         await expectNoHighImpactAxeViolations(page);
+    });
+
+    test('preloads the matched route module', async ({ page }) => {
+        const layoutPreload = page.locator('link[data-layout-preload]');
+        const preload = page.locator('link[data-route-preload]');
+        await expect(layoutPreload).toHaveCount(1);
+        await expect(layoutPreload).toHaveAttribute('href', /\/build\/assets\/AuthLayout-[^/]+\.js$/);
+        await expect(preload).toHaveCount(1);
+        await expect(preload).toHaveAttribute('href', /\/build\/assets\/LoginPage-[^/]+\.js$/);
     });
 });

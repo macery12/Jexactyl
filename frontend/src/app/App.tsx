@@ -1,7 +1,6 @@
-import { createElement, useSyncExternalStore, type ReactElement } from 'react';
-import { createBrowserRouter, Navigate, RouterProvider, useLocation, type RouteObject } from 'react-router-dom';
+import { createElement, lazy, Suspense, useSyncExternalStore, type ReactElement } from 'react';
+import { createBrowserRouter, RouterProvider, type RouteObject } from 'react-router-dom';
 import { subscribeLocale, getCurrentLocale } from '@/i18n';
-import { useSession } from '@/state/session';
 import { useFlags } from '@/state/flags';
 import type { RouteDef } from '@/routes/registry';
 import { authRoutes } from '@/routes/auth.routes';
@@ -9,19 +8,24 @@ import { accountRoutes } from '@/routes/account.routes';
 import { serverRoutes } from '@/routes/server.routes';
 import { adminRoutes } from '@/routes/admin.routes';
 
-import AuthLayout from '@/layouts/AuthLayout';
-import DashboardLayout from '@/layouts/DashboardLayout';
-import ServerLayout from '@/layouts/ServerLayout';
-import AdminLayout from '@/layouts/AdminLayout';
-import LandingPage from '@/pages/landing/LandingPage';
 import FeatureDisabled from '@/pages/_shared/FeatureDisabled';
 import AccessDenied from '@/pages/_shared/AccessDenied';
 import RouteError from '@/pages/_shared/RouteError';
-import NotFound from '@/pages/NotFound';
 import { can } from '@/lib/can';
 import { BASE } from '@/lib/base';
 import { RequireAdminPermission } from '@/components/permissions/RequireAdminPermission';
 import { useServer } from '@/components/server/ServerContext';
+import { FullPageSpinner } from '@/components/ui/Spinner';
+
+const AuthLayout = lazy(() => import('@/layouts/AuthLayout'));
+const DashboardLayout = lazy(() => import('@/layouts/DashboardLayout'));
+const ServerLayout = lazy(() => import('@/layouts/ServerLayout'));
+const AdminLayout = lazy(() => import('@/layouts/AdminLayout'));
+const NotFound = lazy(() => import('@/pages/NotFound'));
+
+function deferred(element: ReactElement): ReactElement {
+    return <Suspense fallback={<FullPageSpinner />}>{element}</Suspense>;
+}
 
 // Enforce a route's feature-flag `condition` on direct access. The sidebar
 // already hides gated-off tabs (buildNav), but the router still maps every
@@ -79,32 +83,16 @@ function childRoutes(defs: RouteDef[], area: Area): RouteObject[] {
     );
 }
 
-// The account area mounts at the site root and the dashboard is its index.
-// The root URL is shared with the guest-facing landing page, so the element
-// is picked per location: a guest on exactly '/' gets the landing page (or
-// sign-in when the operator has disabled it); every other case renders the
-// dashboard shell, whose RequireAuth bounces guests to login.
-function RootArea() {
-    const authenticated = useSession(s => s.isAuthenticated);
-    const landing = useFlags(s => s.landing);
-    const location = useLocation();
-    if (!authenticated && location.pathname === '/') {
-        if (landing && !landing.enabled) return <Navigate to="/auth/login" replace />;
-        return <LandingPage />;
-    }
-    return <DashboardLayout />;
-}
-
 // Every top-level route carries `errorElement` so an uncaught render error in
 // any child subtree surfaces the panel-styled RouteError fallback (with a reload
 // / back-home escape) instead of react-router's bare default error screen.
 const router = createBrowserRouter(
     [
-        { path: '/auth', element: <AuthLayout />, errorElement: <RouteError />, children: childRoutes(authRoutes, 'open') },
-        { path: '/server/:id', element: <ServerLayout />, errorElement: <RouteError />, children: childRoutes(serverRoutes, 'server') },
-        { path: '/admin', element: <AdminLayout />, errorElement: <RouteError />, children: childRoutes(adminRoutes, 'admin') },
-        { path: '/', element: <RootArea />, errorElement: <RouteError />, children: childRoutes(accountRoutes, 'open') },
-        { path: '*', element: <NotFound />, errorElement: <RouteError /> },
+        { path: '/auth', element: deferred(<AuthLayout />), errorElement: <RouteError />, children: childRoutes(authRoutes, 'open') },
+        { path: '/server/:id', element: deferred(<ServerLayout />), errorElement: <RouteError />, children: childRoutes(serverRoutes, 'server') },
+        { path: '/admin', element: deferred(<AdminLayout />), errorElement: <RouteError />, children: childRoutes(adminRoutes, 'admin') },
+        { path: '/', element: deferred(<DashboardLayout />), errorElement: <RouteError />, children: childRoutes(accountRoutes, 'open') },
+        { path: '*', element: deferred(<NotFound />), errorElement: <RouteError /> },
     ],
     { basename: BASE },
 );

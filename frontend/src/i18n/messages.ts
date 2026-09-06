@@ -1,29 +1,59 @@
 import { baseLocale, type Locale } from '@/paraglide/runtime';
-import { catalogLoaders, type RuntimeCatalog } from './generated/catalogLoaders';
+import { catalogLoaders, publicCatalogLoaders, type RuntimeCatalog } from './generated/catalogLoaders';
 import type { MessageFunctions } from './generated/messageTypes';
 
-/** Stable, typed message object populated before React renders. */
-export const m = {} as MessageFunctions;
+type MessageFunction = (inputs?: Record<string, unknown>) => string;
+
+let activeCatalog: RuntimeCatalog | null = null;
+const resolvedFunctions = new Map<string, MessageFunction>();
+
+/** Convert a dotted message id to Paraglide's generated locale export name. */
+export function compiledMessageName(id: string): string {
+    const uppercaseCount = id.match(/[A-Z]/g)?.length ?? 0;
+    const normalized = id.replace(/[^A-Za-z0-9_$]/g, '_').toLowerCase();
+    return uppercaseCount === 0 ? normalized : `${normalized}${uppercaseCount}`;
+}
+
+/**
+ * Stable, typed message facade backed directly by the active Paraglide module.
+ * Resolving properties on demand removes the generated id-map wrapper and the
+ * startup copy of every catalog function while preserving synchronous m.foo().
+ */
+export const m = new Proxy(Object.create(null) as MessageFunctions, {
+    get(_target, property) {
+        if (typeof property !== 'string') return undefined;
+
+        const cached = resolvedFunctions.get(property);
+        if (cached) return cached;
+
+        const message = activeCatalog?.[compiledMessageName(property)];
+        if (message) resolvedFunctions.set(property, message);
+        return message;
+    },
+});
 
 let loadedLocale: Locale | null = null;
+let loadedScope: CatalogScope | null = null;
 let loadSequence = 0;
 
+export type CatalogScope = 'full' | 'public';
+
 /** Load exactly one compiled locale and atomically replace the active catalog. */
-export async function initializeMessages(locale: Locale): Promise<void> {
-    if (loadedLocale === locale) return;
+export async function initializeMessages(locale: Locale, scope: CatalogScope = 'full'): Promise<void> {
+    if (loadedLocale === locale && (loadedScope === 'full' || loadedScope === scope)) return;
 
     const sequence = loadSequence++;
     const startMark = `m12:i18n:${locale}:${sequence}:start`;
     const endMark = `m12:i18n:${locale}:${sequence}:end`;
     performance.mark(startMark, { detail: { locale } });
-    const loader = catalogLoaders[locale] ?? catalogLoaders[baseLocale];
-    const { default: catalog } = await loader();
-    const target = m as unknown as RuntimeCatalog;
-
-    for (const id of Object.keys(target)) delete target[id];
-    Object.assign(target, catalog);
+    const loaders = scope === 'public' ? publicCatalogLoaders : catalogLoaders;
+    const loader = loaders[locale] ?? loaders[baseLocale];
+    const catalog = await loader();
+    activeCatalog = catalog;
+    resolvedFunctions.clear();
     loadedLocale = locale;
-    performance.mark(endMark, { detail: { locale, messages: Object.keys(catalog).length } });
+    loadedScope = scope;
+    performance.mark(endMark, { detail: { locale, scope, messages: Object.keys(catalog).length } });
     performance.measure(`m12:i18n:${locale}`, startMark, endMark);
 }
 

@@ -34,5 +34,5 @@
         }
     },
     "include": ["src", "vite.config.ts"],
-    "exclude": ["src/paraglide"]
+    "exclude": ["src/paraglide", "src/i18n/generated/full", "src/i18n/generated/public"]
 }

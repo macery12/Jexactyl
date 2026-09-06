@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { defineConfig, normalizePath, type Plugin } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import laravel from 'laravel-vite-plugin';
@@ -8,44 +8,23 @@ import { fileURLToPath, URL } from 'node:url';
 
 const catalogPrefix = 'virtual:m12-i18n-catalog/';
 const resolvedCatalogPrefix = `\0${catalogPrefix}`;
-const messageIndex = fileURLToPath(new URL('./src/paraglide/messages/_index.js', import.meta.url));
-const messageDirectory = fileURLToPath(new URL('./src/paraglide/messages/', import.meta.url));
+const generatedCatalogDirectory = fileURLToPath(new URL('./src/i18n/generated/', import.meta.url));
 
-/**
- * Turn Paraglide's generated locale modules into one browser chunk per locale.
- * `_index.js` is used only as a build-time name map; importing it directly would
- * pull every locale back into the browser graph.
- */
-function localeCatalogPlugin(): Plugin {
+/** Keep generated catalog implementations out of TypeScript's source graph. */
+function generatedCatalogPlugin(): Plugin {
     return {
-        name: 'm12labs-locale-catalogs',
+        name: 'm12labs-generated-i18n-catalogs',
         resolveId(id) {
             return id.startsWith(catalogPrefix) ? `\0${id}` : null;
         },
         load(id) {
             if (!id.startsWith(resolvedCatalogPrefix)) return null;
 
-            const locale = id.slice(resolvedCatalogPrefix.length);
-            if (!/^[A-Za-z0-9_-]+$/.test(locale)) {
-                throw new Error(`Invalid generated locale ${JSON.stringify(locale)}`);
+            const [scope, locale, ...extra] = id.slice(resolvedCatalogPrefix.length).split('/');
+            if (extra.length || !['full', 'public'].includes(scope ?? '') || !/^[A-Za-z0-9_-]+$/.test(locale ?? '')) {
+                throw new Error(`Invalid generated locale catalog ${JSON.stringify(id)}`);
             }
-
-            const indexSource = readFileSync(messageIndex, 'utf8');
-            const mappings = [...indexSource.matchAll(/^export \{ ([A-Za-z_$][\w$]*) as ("(?:\\.|[^"])*") \}$/gm)].map(
-                match => ({ exportName: match[1]!, messageId: JSON.parse(match[2]!) as string }),
-            );
-            if (mappings.length === 0) {
-                throw new Error(`No generated messages found in ${messageIndex}`);
-            }
-
-            const localeModule = normalizePath(`${messageDirectory}${locale}.js`);
-            return [
-                `import * as compiled from ${JSON.stringify(localeModule)};`,
-                'const catalog = {',
-                ...mappings.map(({ exportName, messageId }) => `    ${JSON.stringify(messageId)}: compiled.${exportName},`),
-                '};',
-                'export default catalog;',
-            ].join('\n');
+            return readFileSync(`${generatedCatalogDirectory}${scope}/${locale}.js`, 'utf8');
         },
     };
 }
@@ -74,11 +53,11 @@ export default defineConfig(({ command }) => ({
                   }),
               ]
             : []),
-        localeCatalogPlugin(),
+        generatedCatalogPlugin(),
         react(),
         tailwindcss(),
         laravel({
-            input: ['src/main.tsx'],
+            input: ['src/main.tsx', 'src/public.tsx'],
             publicDirectory: '../public',
             buildDirectory: 'build',
             hotFile: '../public/hot',

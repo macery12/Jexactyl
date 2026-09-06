@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
-    { ignores: ['dist/', 'src/paraglide/', 'src/extensions/packages/'] },
+    { ignores: ['dist/', 'src/paraglide/', 'src/i18n/generated/', 'src/extensions/packages/'] },
     js.configs.recommended,
     ...tseslint.configs.recommended,
     reactHooks.configs.flat.recommended,

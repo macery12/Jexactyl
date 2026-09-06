@@ -9,15 +9,30 @@ const publicDirectory = resolve(frontendDirectory, '../public');
 const buildDirectory = resolve(publicDirectory, 'build');
 const manifestPath = join(buildDirectory, 'manifest.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-const entryKey = 'src/main.tsx';
+const entryKey = 'src/public.tsx';
 const entry = manifest[entryKey];
+const localeKey = 'virtual:m12-i18n-catalog/public/en';
+const localeEntry = manifest[localeKey];
+const authRouteEntries = [
+    [/^\/auth\/login$/, 'src/pages/auth/LoginPage.tsx'],
+    [/^\/auth\/login\/checkpoint$/, 'src/pages/auth/CheckpointPage.tsx'],
+    [/^\/auth\/register$/, 'src/pages/auth/RegisterPage.tsx'],
+    [/^\/auth\/password$/, 'src/pages/auth/ForgotPasswordPage.tsx'],
+    [/^\/auth\/password\/reset\/[^/]+$/, 'src/pages/auth/ResetPasswordPage.tsx'],
+    [/^\/auth\/sso\/link-choice$/, 'src/pages/auth/SsoLinkChoicePage.tsx'],
+    [/^\/auth\/sso\/register$/, 'src/pages/auth/SsoRegisterPage.tsx'],
+];
+const authLayoutKey = 'src/layouts/AuthLayout.tsx';
 const bootSkeleton = readFileSync(
     resolve(frontendDirectory, '../resources/views/templates/v2/skeleton.blade.php'),
     'utf8',
 );
 
 if (!entry?.file) {
-    throw new Error(`Missing src/main.tsx entry in ${manifestPath}; run pnpm build:frontend first.`);
+    throw new Error(`Missing ${entryKey} entry in ${manifestPath}; run pnpm build:frontend first.`);
+}
+if (!localeEntry?.file) {
+    throw new Error(`Missing ${localeKey} entry in ${manifestPath}; run pnpm build:frontend first.`);
 }
 
 function resolveImports(key, seen = new Set()) {
@@ -29,9 +44,11 @@ function resolveImports(key, seen = new Set()) {
     return seen;
 }
 
-const modulePreloadFiles = [entryKey, ...resolveImports(entryKey)]
+const entryClosureKeys = [entryKey, ...resolveImports(entryKey)];
+const modulePreloadFiles = entryClosureKeys
     .map(key => manifest[key]?.file)
     .filter(Boolean);
+const entryCssFiles = [...new Set(entryClosureKeys.flatMap(key => manifest[key]?.css ?? []))];
 
 const portArgument = process.argv.find(argument => argument.startsWith('--port='));
 const port = Number(portArgument?.slice('--port='.length) ?? process.env.PORT ?? 4173);
@@ -85,15 +102,25 @@ function escapeScriptJson(value) {
         .replaceAll('\u2029', '\\u2029');
 }
 
-function documentHtml() {
+function documentHtml(pathname) {
     // Match Illuminate\Foundation\Vite's production output so Lighthouse does
     // not measure an artificial main-entry-to-static-import waterfall.
     const modulePreloads = modulePreloadFiles
         .map(file => `<link rel="modulepreload" as="script" href="/build/${file}">`)
         .join('');
-    const styles = (entry.css ?? [])
+    const styles = entryCssFiles
         .map(file => `<link rel="stylesheet" href="/build/${file}">`)
         .join('');
+    const localePreload = `<link rel="modulepreload" as="script" data-locale-preload href="/build/${localeEntry.file}">`;
+    const routeKey = authRouteEntries.find(([pattern]) => pattern.test(pathname))?.[1];
+    const routeFile = routeKey ? manifest[routeKey]?.file : null;
+    const routePreload = routeFile
+        ? `<link rel="modulepreload" as="script" data-route-preload href="/build/${routeFile}">`
+        : '';
+    const layoutFile = pathname.startsWith('/auth/') ? manifest[authLayoutKey]?.file : null;
+    const layoutPreload = layoutFile
+        ? `<link rel="modulepreload" as="script" data-layout-preload href="/build/${layoutFile}">`
+        : '';
 
     return `<!doctype html>
 <html lang="en">
@@ -107,6 +134,9 @@ function documentHtml() {
   ${modulePreloads}
   ${styles}
   <script type="module" src="/build/${entry.file}"></script>
+  ${localePreload}
+  ${layoutPreload}
+  ${routePreload}
 </head>
 <body><div id="app">${bootSkeleton}</div></body>
 </html>`;
@@ -176,7 +206,7 @@ const server = createServer((request, response) => {
         return;
     }
 
-    const html = documentHtml();
+    const html = documentHtml(url.pathname);
     response.writeHead(200, {
         'Cache-Control': 'private, no-cache, no-store, must-revalidate',
         'Content-Length': Buffer.byteLength(html),

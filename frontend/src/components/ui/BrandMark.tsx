@@ -18,6 +18,8 @@ export function BrandMark({
             <img
                 src={logoIcon}
                 alt=""
+                width={32}
+                height={32}
                 className={cn('object-contain', size === 'lg' ? 'h-8 w-8' : 'h-7 w-7')}
             />
             <span
