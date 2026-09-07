@@ -1,6 +1,62 @@
 @import 'tailwindcss';
 
 /*
+ * Self-hosted IBM Plex latin subsets. Keep the declarations here instead of
+ * importing Fontsource's generated CSS so production emits only WOFF2 and so
+ * slow connections retain the metric-stable system fallback rather than
+ * swapping fonts after first paint. The latter removes font-driven CLS while
+ * preserving IBM Plex whenever it is available during the short optional
+ * loading window.
+ */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-display: optional;
+    font-weight: 400;
+    src: url('../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-display: optional;
+    font-weight: 500;
+    src: url('../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-display: optional;
+    font-weight: 600;
+    src: url('../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-display: optional;
+    font-weight: 700;
+    src: url('../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-display: optional;
+    font-weight: 400;
+    src: url('../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-display: optional;
+    font-weight: 600;
+    src: url('../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2') format('woff2');
+}
+
+/*
  * Installed extension frontends live in a gitignored directory (they are runtime
  * artifacts written by the extension installer, not tracked source). Tailwind v4's
  * automatic content detection skips .gitignore'd paths, so any utility class used

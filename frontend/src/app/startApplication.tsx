@@ -1,12 +1,5 @@
 import { StrictMode, type ComponentType } from 'react';
 import { createRoot } from 'react-dom/client';
-// Self-hosted IBM Plex (latin subset) — Sans carries the UI, Mono carries data.
-import '@fontsource/ibm-plex-sans/latin-400.css';
-import '@fontsource/ibm-plex-sans/latin-500.css';
-import '@fontsource/ibm-plex-sans/latin-600.css';
-import '@fontsource/ibm-plex-sans/latin-700.css';
-import '@fontsource/ibm-plex-mono/latin-400.css';
-import '@fontsource/ibm-plex-mono/latin-600.css';
 import '@/styles/tailwind.css';
 import { getCurrentLocale } from '@/i18n';
 import { initializeMessages, type CatalogScope } from '@/i18n/messages';
