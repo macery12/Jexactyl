@@ -12,5 +12,8 @@ for (const route of routes) {
         await expect(page.locator('main')).toBeVisible();
         await expect(page.locator('[data-boot-skeleton]')).toHaveCount(0);
         await expect(page.getByText('Access Denied', { exact: true })).toHaveCount(0);
+        if (route.area === 'auth' || route.area === 'account') {
+            await expect(page.locator('link[data-route-preload]')).toHaveCount(1);
+        }
     });
 }

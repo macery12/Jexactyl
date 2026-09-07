@@ -1,11 +1,16 @@
 import { m } from '@/i18n/messages';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Smartphone, Check } from 'lucide-react';
 import { useSession } from '@/state/session';
 import { Button } from '@/components/ui/Button';
 import { SettingsRow } from './SettingsRow';
-import { TwoFactorSetupModal } from './TwoFactorSetupModal';
-import { DisableTwoFactorModal } from './DisableTwoFactorModal';
+
+const TwoFactorSetupModal = lazy(() =>
+    import('./TwoFactorSetupModal').then(module => ({ default: module.TwoFactorSetupModal })),
+);
+const DisableTwoFactorModal = lazy(() =>
+    import('./DisableTwoFactorModal').then(module => ({ default: module.DisableTwoFactorModal })),
+);
 
 export function TwoFactorRow() {
     const user = useSession(s => s.user);
@@ -47,18 +52,22 @@ export function TwoFactorRow() {
             }
         >
             {setup && (
-                <TwoFactorSetupModal
-                    open
-                    onClose={() => setSetup(false)}
-                    onEnabled={() => setUseTotp(true)}
-                />
+                <Suspense fallback={null}>
+                    <TwoFactorSetupModal
+                        open
+                        onClose={() => setSetup(false)}
+                        onEnabled={() => setUseTotp(true)}
+                    />
+                </Suspense>
             )}
             {disable && (
-                <DisableTwoFactorModal
-                    open
-                    onClose={() => setDisable(false)}
-                    onDisabled={() => setUseTotp(false)}
-                />
+                <Suspense fallback={null}>
+                    <DisableTwoFactorModal
+                        open
+                        onClose={() => setDisable(false)}
+                        onDisabled={() => setUseTotp(false)}
+                    />
+                </Suspense>
             )}
         </SettingsRow>
     );

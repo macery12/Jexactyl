@@ -1,12 +1,15 @@
 import { m } from '@/i18n/messages';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MapPin } from 'lucide-react';
 import { getBillingProfile, hasCompleteBillingProfile } from '@/api/accountBilling';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { SettingsRow } from './SettingsRow';
-import { BillingAddressModal } from './BillingAddressModal';
+
+const BillingAddressModal = lazy(() =>
+    import('./BillingAddressModal').then(module => ({ default: module.BillingAddressModal })),
+);
 
 // Billing address as a slim row: the description line doubles as a one-line
 // address summary once one is on file; the full address lives in the modal.
@@ -43,12 +46,14 @@ export function BillingAddressRow() {
             }
         >
             {editing && (
-                <BillingAddressModal
-                    open
-                    onClose={() => setEditing(false)}
-                    profile={profile ?? null}
-                    exists={exists}
-                />
+                <Suspense fallback={null}>
+                    <BillingAddressModal
+                        open
+                        onClose={() => setEditing(false)}
+                        profile={profile ?? null}
+                        exists={exists}
+                    />
+                </Suspense>
             )}
         </SettingsRow>
     );

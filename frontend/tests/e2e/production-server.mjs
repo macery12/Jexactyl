@@ -26,6 +26,21 @@ const authRouteEntries = [
     [/^\/auth\/sso\/link-choice$/, 'src/pages/auth/SsoLinkChoicePage.tsx'],
     [/^\/auth\/sso\/register$/, 'src/pages/auth/SsoRegisterPage.tsx'],
 ];
+const accountRouteEntries = [
+    [/^\/$/, 'src/pages/dashboard/DashboardPage.tsx'],
+    [/^\/tickets$/, 'src/pages/account/tickets/TicketsPage.tsx'],
+    [/^\/tickets\/[^/]+$/, 'src/pages/account/tickets/TicketDetailPage.tsx'],
+    [/^\/billing\/order$/, 'src/pages/account/billing/store/StorePage.tsx'],
+    [/^\/billing\/orders$/, 'src/pages/account/billing/orders/OrdersPage.tsx'],
+    [/^\/activity$/, 'src/pages/account/activity/ActivityPage.tsx'],
+    [/^\/credentials$/, 'src/pages/account/credentials/CredentialsPage.tsx'],
+    [/^\/settings$/, 'src/pages/account/settings/AccountPage.tsx'],
+    [/^\/checkout\/configure\/[^/]+$/, 'src/pages/account/billing/order/ConfigureCheckout.tsx'],
+    [/^\/checkout\/payment$/, 'src/pages/account/billing/payment/PaymentPage.tsx'],
+    [/^\/billing\/processing$/, 'src/pages/account/billing/payment/ProcessingPage.tsx'],
+    [/^\/billing\/success$/, 'src/pages/account/billing/payment/SuccessPage.tsx'],
+    [/^\/billing\/cancel$/, 'src/pages/account/billing/payment/CancelPage.tsx'],
+];
 const authLayoutKey = 'src/layouts/AuthLayout.tsx';
 const dashboardLayoutKey = 'src/layouts/DashboardLayout.tsx';
 const serverLayoutKey = 'src/layouts/ServerLayout.tsx';
@@ -189,7 +204,8 @@ function documentHtml(pathname, authenticated) {
         .map(file => `<link rel="stylesheet" href="/build/${file}">`)
         .join('');
     const localePreload = `<link rel="modulepreload" as="script" data-locale-preload href="/build/${localeEntry.file}">`;
-    const routeKey = authRouteEntries.find(([pattern]) => pattern.test(pathname))?.[1];
+    const routeEntries = authenticated ? accountRouteEntries : authRouteEntries;
+    const routeKey = routeEntries.find(([pattern]) => pattern.test(pathname))?.[1];
     const routeFile = routeKey ? manifest[routeKey]?.file : null;
     const routePreload = routeFile
         ? `<link rel="modulepreload" as="script" data-route-preload href="/build/${routeFile}">`

@@ -1,8 +1,10 @@
 import { m } from '@/i18n/messages';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { AccountTab } from './AccountTab';
-import { DevicesTab } from './DevicesTab';
+import { Spinner } from '@/components/ui/Spinner';
+
+const DevicesTab = lazy(() => import('./DevicesTab').then(module => ({ default: module.DevicesTab })));
 
 type TabId = 'account' | 'devices';
 
@@ -42,7 +44,13 @@ export default function AccountPage() {
                 ))}
             </div>
 
-            {tab === 'account' ? <AccountTab /> : <DevicesTab />}
+            {tab === 'account' ? (
+                <AccountTab />
+            ) : (
+                <Suspense fallback={<div className="flex justify-center py-16"><Spinner className="h-6 w-6" /></div>}>
+                    <DevicesTab />
+                </Suspense>
+            )}
         </div>
     );
 }
