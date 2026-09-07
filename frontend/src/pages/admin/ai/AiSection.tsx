@@ -1,4 +1,5 @@
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { Spinner } from '@/components/ui/Spinner';
@@ -6,15 +7,16 @@ import { SELF_HOSTED_PROVIDERS } from '@/api/adminAi';
 import { AiNav } from './AiNav';
 import { AiLoadError } from './LoadError';
 import { useAiSettings } from './useAiSettingsForm';
-import OverviewPage from './pages/OverviewPage';
-import ProviderPage from './pages/ProviderPage';
-import GenerationPage from './pages/GenerationPage';
-import AgentPage from './pages/AgentPage';
-import ToolsPage from './pages/ToolsPage';
-import PrivacyPage from './pages/PrivacyPage';
-import PerformancePage from './pages/PerformancePage';
-import LimitsPage from './pages/LimitsPage';
-import LogsPage from './pages/LogsPage';
+
+const OverviewPage = lazy(() => import('./pages/OverviewPage'));
+const ProviderPage = lazy(() => import('./pages/ProviderPage'));
+const GenerationPage = lazy(() => import('./pages/GenerationPage'));
+const AgentPage = lazy(() => import('./pages/AgentPage'));
+const ToolsPage = lazy(() => import('./pages/ToolsPage'));
+const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
+const PerformancePage = lazy(() => import('./pages/PerformancePage'));
+const LimitsPage = lazy(() => import('./pages/LimitsPage'));
+const LogsPage = lazy(() => import('./pages/LogsPage'));
 
 // Admin AI (M12Labs-AI) — mounted at the admin `ai/*` splat.
 //
@@ -88,19 +90,21 @@ export default function AiSection() {
             <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
                 <AiNav />
                 <div className="min-w-0 flex-1">
-                    <Routes>
-                        <Route index element={<OverviewPage />} />
-                        <Route path="provider" element={<ProviderPage />} />
-                        <Route path="generation" element={<GenerationPage />} />
-                        <Route path="agent" element={<AgentPage />} />
-                        <Route path="tools" element={<ToolsPage />} />
-                        <Route path="privacy" element={<PrivacyPage />} />
-                        <Route path="performance" element={<PerformancePage />} />
-                        <Route path="limits" element={<LimitsPage />} />
-                        <Route path="logs" element={<LogsPage />} />
-                        {/* Catches the retired tab links and anything mistyped. */}
-                        <Route path="*" element={<Navigate to="/admin/ai" replace />} />
-                    </Routes>
+                    <Suspense fallback={<div className="flex justify-center py-16"><Spinner className="h-6 w-6" /></div>}>
+                        <Routes>
+                            <Route index element={<OverviewPage />} />
+                            <Route path="provider" element={<ProviderPage />} />
+                            <Route path="generation" element={<GenerationPage />} />
+                            <Route path="agent" element={<AgentPage />} />
+                            <Route path="tools" element={<ToolsPage />} />
+                            <Route path="privacy" element={<PrivacyPage />} />
+                            <Route path="performance" element={<PerformancePage />} />
+                            <Route path="limits" element={<LimitsPage />} />
+                            <Route path="logs" element={<LogsPage />} />
+                            {/* Catches the retired tab links and anything mistyped. */}
+                            <Route path="*" element={<Navigate to="/admin/ai" replace />} />
+                        </Routes>
+                    </Suspense>
                 </div>
             </div>
         </div>

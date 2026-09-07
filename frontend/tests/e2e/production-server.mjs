@@ -41,6 +41,55 @@ const accountRouteEntries = [
     [/^\/billing\/success$/, 'src/pages/account/billing/payment/SuccessPage.tsx'],
     [/^\/billing\/cancel$/, 'src/pages/account/billing/payment/CancelPage.tsx'],
 ];
+const adminBillingSection = 'src/pages/admin/billing/BillingSection.tsx';
+const adminInfrastructureSection = 'src/pages/admin/infrastructure/InfrastructureSection.tsx';
+const adminNestsSection = 'src/pages/admin/nests/NestsSection.tsx';
+const adminAiSection = 'src/pages/admin/ai/AiSection.tsx';
+const adminEmailSection = 'src/pages/admin/email/EmailSection.tsx';
+const adminMarketplaceSection = 'src/pages/admin/marketplace/MarketplaceSection.tsx';
+const adminRouteEntries = [
+    [/^\/admin\/billing$/, [adminBillingSection, 'src/pages/admin/billing/BillingOverviewPage.tsx']],
+    [/^\/admin\/billing\/products$/, [adminBillingSection, 'src/pages/admin/billing/products/ProductsPage.tsx']],
+    [/^\/admin\/billing\/products\/categories\/(?:new|[^/]+)$/, [adminBillingSection, 'src/pages/admin/billing/products/CategoryDetailPage.tsx']],
+    [/^\/admin\/billing\/products\/(?:new|[^/]+)$/, [adminBillingSection, 'src/pages/admin/billing/products/ProductEditorPage.tsx']],
+    [/^\/admin\/billing\/store$/, [adminBillingSection, 'src/pages/admin/billing/store/StoreEditor.tsx']],
+    [/^\/admin\/billing\/orders$/, [adminBillingSection, 'src/pages/admin/billing/orders/OrdersPage.tsx']],
+    [/^\/admin\/billing\/invoices$/, [adminBillingSection, 'src/pages/admin/billing/invoices/InvoicesPage.tsx']],
+    [/^\/admin\/billing\/coupons$/, [adminBillingSection, 'src/pages/admin/billing/coupons/CouponsPage.tsx']],
+    [/^\/admin\/billing\/exceptions$/, [adminBillingSection, 'src/pages/admin/billing/exceptions/ExceptionsPage.tsx']],
+    [/^\/admin\/billing\/settings$/, [adminBillingSection, 'src/pages/admin/billing/settings/SettingsPage.tsx', 'src/pages/admin/billing/settings/GeneralTab.tsx']],
+    [/^\/admin\/billing\/settings\/pricing$/, [adminBillingSection, 'src/pages/admin/billing/settings/SettingsPage.tsx', 'src/pages/admin/billing/settings/PricingTab.tsx']],
+    [/^\/admin\/billing\/settings\/payments$/, [adminBillingSection, 'src/pages/admin/billing/settings/SettingsPage.tsx', 'src/pages/admin/billing/settings/PaymentsTab.tsx']],
+    [/^\/admin\/billing\/settings\/advanced$/, [adminBillingSection, 'src/pages/admin/billing/settings/SettingsPage.tsx', 'src/pages/admin/billing/settings/AdvancedTab.tsx']],
+    [/^\/admin\/billing\/invoice-settings$/, [adminBillingSection, 'src/pages/admin/billing/invoicesettings/InvoiceSettingsPage.tsx']],
+    [/^\/admin\/infrastructure$/, [adminInfrastructureSection, 'src/pages/admin/infrastructure/InfrastructureOverviewPage.tsx']],
+    [/^\/admin\/infrastructure\/nodes\/new$/, [adminInfrastructureSection, 'src/pages/admin/infrastructure/NodeEditorPage.tsx']],
+    [/^\/admin\/infrastructure\/nodes\/[^/]+\/edit$/, [adminInfrastructureSection, 'src/pages/admin/infrastructure/NodeEditorPage.tsx']],
+    [/^\/admin\/infrastructure\/nodes\/[^/]+$/, [adminInfrastructureSection, 'src/pages/admin/nodes/NodeDetailPage.tsx']],
+    [/^\/admin\/infrastructure\/servers\/new$/, [adminInfrastructureSection, 'src/pages/admin/infrastructure/ServerEditorPage.tsx']],
+    [/^\/admin\/infrastructure\/servers\/[^/]+$/, [adminInfrastructureSection, 'src/pages/admin/infrastructure/server/ServerDetailPage.tsx']],
+    [/^\/admin\/nests\/(?:[^/]+\/eggs\/(?:new|[^/]+))$/, [adminNestsSection, 'src/pages/admin/nests/egg/EggEditorPage.tsx']],
+    [/^\/admin\/nests(?:\/[^/]+)?$/, [adminNestsSection, 'src/pages/admin/nests/NestsWorkspace.tsx']],
+    [/^\/admin\/ai$/, [adminAiSection, 'src/pages/admin/ai/pages/OverviewPage.tsx']],
+    [/^\/admin\/ai\/provider$/, [adminAiSection, 'src/pages/admin/ai/pages/ProviderPage.tsx']],
+    [/^\/admin\/ai\/generation$/, [adminAiSection, 'src/pages/admin/ai/pages/GenerationPage.tsx']],
+    [/^\/admin\/ai\/agent$/, [adminAiSection, 'src/pages/admin/ai/pages/AgentPage.tsx']],
+    [/^\/admin\/ai\/tools$/, [adminAiSection, 'src/pages/admin/ai/pages/ToolsPage.tsx']],
+    [/^\/admin\/ai\/privacy$/, [adminAiSection, 'src/pages/admin/ai/pages/PrivacyPage.tsx']],
+    [/^\/admin\/ai\/performance$/, [adminAiSection, 'src/pages/admin/ai/pages/PerformancePage.tsx']],
+    [/^\/admin\/ai\/limits$/, [adminAiSection, 'src/pages/admin/ai/pages/LimitsPage.tsx']],
+    [/^\/admin\/ai\/logs$/, [adminAiSection, 'src/pages/admin/ai/pages/LogsPage.tsx']],
+    [/^\/admin\/email$/, [adminEmailSection, 'src/pages/admin/email/pages/OverviewPage.tsx']],
+    [/^\/admin\/email\/smtp$/, [adminEmailSection, 'src/pages/admin/email/pages/SmtpPage.tsx']],
+    [/^\/admin\/email\/resend$/, [adminEmailSection, 'src/pages/admin/email/pages/ResendPage.tsx']],
+    [/^\/admin\/email\/testing$/, [adminEmailSection, 'src/pages/admin/email/pages/TestingPage.tsx']],
+    [/^\/admin\/email\/notifications$/, [adminEmailSection, 'src/pages/admin/email/pages/NotificationsPage.tsx']],
+    [/^\/admin\/email\/activity$/, [adminEmailSection, 'src/pages/admin/email/pages/ActivityPage.tsx']],
+    [/^\/admin\/email\/templates$/, [adminEmailSection, 'src/pages/admin/email/pages/TemplatesPage.tsx']],
+    [/^\/admin\/marketplace$/, [adminMarketplaceSection, 'src/pages/admin/marketplace/pages/OverviewPage.tsx']],
+    [/^\/admin\/marketplace\/settings$/, [adminMarketplaceSection, 'src/pages/admin/marketplace/pages/SettingsPage.tsx']],
+    [/^\/admin\/marketplace\/providers$/, [adminMarketplaceSection, 'src/pages/admin/marketplace/pages/ProvidersPage.tsx']],
+];
 const authLayoutKey = 'src/layouts/AuthLayout.tsx';
 const dashboardLayoutKey = 'src/layouts/DashboardLayout.tsx';
 const serverLayoutKey = 'src/layouts/ServerLayout.tsx';
@@ -204,12 +253,18 @@ function documentHtml(pathname, authenticated) {
         .map(file => `<link rel="stylesheet" href="/build/${file}">`)
         .join('');
     const localePreload = `<link rel="modulepreload" as="script" data-locale-preload href="/build/${localeEntry.file}">`;
-    const routeEntries = authenticated ? accountRouteEntries : authRouteEntries;
-    const routeKey = routeEntries.find(([pattern]) => pattern.test(pathname))?.[1];
-    const routeFile = routeKey ? manifest[routeKey]?.file : null;
-    const routePreload = routeFile
-        ? `<link rel="modulepreload" as="script" data-route-preload href="/build/${routeFile}">`
-        : '';
+    const routeEntries = authenticated
+        ? pathname.startsWith('/admin/')
+            ? adminRouteEntries
+            : accountRouteEntries
+        : authRouteEntries;
+    const matchedRouteKeys = routeEntries.find(([pattern]) => pattern.test(pathname))?.[1];
+    const routeKeys = matchedRouteKeys ? (Array.isArray(matchedRouteKeys) ? matchedRouteKeys : [matchedRouteKeys]) : [];
+    const routePreloads = routeKeys
+        .map(key => manifest[key]?.file)
+        .filter(Boolean)
+        .map(file => `<link rel="modulepreload" as="script" data-route-preload href="/build/${file}">`)
+        .join('');
     const layoutKey = pathname.startsWith('/auth/')
         ? authLayoutKey
         : pathname.startsWith('/server/')
@@ -238,7 +293,7 @@ function documentHtml(pathname, authenticated) {
   <script type="module" src="/build/${entry.file}"></script>
   ${localePreload}
   ${layoutPreload}
-  ${routePreload}
+  ${routePreloads}
 </head>
 <body><div id="app">${bootSkeleton}</div></body>
 </html>`;

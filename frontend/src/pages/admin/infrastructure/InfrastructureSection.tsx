@@ -1,10 +1,13 @@
 import { Routes, Route } from 'react-router-dom';
-import NodeDetailPage from '@/pages/admin/nodes/NodeDetailPage';
-import InfrastructureOverviewPage from './InfrastructureOverviewPage';
-import ServerDetailPage from './server/ServerDetailPage';
-import ServerEditorPage from './ServerEditorPage';
-import NodeEditorPage from './NodeEditorPage';
+import { lazy, Suspense } from 'react';
 import { RequireAdminPermission } from '@/components/permissions/RequireAdminPermission';
+import { Spinner } from '@/components/ui/Spinner';
+
+const NodeDetailPage = lazy(() => import('@/pages/admin/nodes/NodeDetailPage'));
+const InfrastructureOverviewPage = lazy(() => import('./InfrastructureOverviewPage'));
+const ServerDetailPage = lazy(() => import('./server/ServerDetailPage'));
+const ServerEditorPage = lazy(() => import('./ServerEditorPage'));
+const NodeEditorPage = lazy(() => import('./NodeEditorPage'));
 
 function guarded(permission: string, element: React.ReactElement) {
     return <RequireAdminPermission permission={permission}>{element}</RequireAdminPermission>;
@@ -15,14 +18,16 @@ function guarded(permission: string, element: React.ReactElement) {
 // single flat entry and the sidebar highlights "Infrastructure" throughout.
 export default function InfrastructureSection() {
     return (
-        <Routes>
-            <Route index element={<InfrastructureOverviewPage />} />
-            {/* Literal `new` must precede the `:id` params or it gets swallowed. */}
-            <Route path="nodes/new" element={guarded('nodes.create', <NodeEditorPage />)} />
-            <Route path="nodes/:id/edit" element={guarded('nodes.update', <NodeEditorPage />)} />
-            <Route path="nodes/:id" element={guarded('nodes.read', <NodeDetailPage />)} />
-            <Route path="servers/new" element={guarded('servers.create', <ServerEditorPage />)} />
-            <Route path="servers/:id" element={guarded('servers.read', <ServerDetailPage />)} />
-        </Routes>
+        <Suspense fallback={<div className="flex justify-center py-24"><Spinner className="h-7 w-7" /></div>}>
+            <Routes>
+                <Route index element={<InfrastructureOverviewPage />} />
+                {/* Literal `new` must precede the `:id` params or it gets swallowed. */}
+                <Route path="nodes/new" element={guarded('nodes.create', <NodeEditorPage />)} />
+                <Route path="nodes/:id/edit" element={guarded('nodes.update', <NodeEditorPage />)} />
+                <Route path="nodes/:id" element={guarded('nodes.read', <NodeDetailPage />)} />
+                <Route path="servers/new" element={guarded('servers.create', <ServerEditorPage />)} />
+                <Route path="servers/:id" element={guarded('servers.read', <ServerDetailPage />)} />
+            </Routes>
+        </Suspense>
     );
 }

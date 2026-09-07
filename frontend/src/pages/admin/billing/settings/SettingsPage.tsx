@@ -1,11 +1,14 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { Coins, CreditCard, SlidersHorizontal, Wrench, type LucideIcon } from 'lucide-react';
 import { m } from '@/i18n/messages';
 import { cn } from '@/lib/cn';
-import GeneralTab from './GeneralTab';
-import PricingTab from './PricingTab';
-import PaymentsTab from './PaymentsTab';
-import AdvancedTab from './AdvancedTab';
+import { Spinner } from '@/components/ui/Spinner';
+
+const GeneralTab = lazy(() => import('./GeneralTab'));
+const PricingTab = lazy(() => import('./PricingTab'));
+const PaymentsTab = lazy(() => import('./PaymentsTab'));
+const AdvancedTab = lazy(() => import('./AdvancedTab'));
 
 const BASE = '/admin/billing/settings';
 
@@ -64,15 +67,17 @@ export default function SettingsPage() {
                 ))}
             </nav>
 
-            <Routes>
-                <Route index element={<GeneralTab />} />
-                <Route path="pricing" element={<PricingTab />} />
-                <Route path="payments" element={<PaymentsTab />} />
-                <Route path="advanced" element={<AdvancedTab />} />
-                {/* Old deep links (and anything typed by hand) land on General
-                    rather than an empty page under a highlighted tab strip. */}
-                <Route path="*" element={<Navigate to={BASE} replace />} />
-            </Routes>
+            <Suspense fallback={<div className="flex justify-center py-16"><Spinner className="h-6 w-6" /></div>}>
+                <Routes>
+                    <Route index element={<GeneralTab />} />
+                    <Route path="pricing" element={<PricingTab />} />
+                    <Route path="payments" element={<PaymentsTab />} />
+                    <Route path="advanced" element={<AdvancedTab />} />
+                    {/* Old deep links (and anything typed by hand) land on General
+                        rather than an empty page under a highlighted tab strip. */}
+                    <Route path="*" element={<Navigate to={BASE} replace />} />
+                </Routes>
+            </Suspense>
         </div>
     );
 }

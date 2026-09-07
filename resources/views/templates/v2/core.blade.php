@@ -80,6 +80,69 @@
                 default => null,
             };
 
+            $initialAdminSectionEntry = match (true) {
+                request()->is('admin/billing', 'admin/billing/*') => 'src/pages/admin/billing/BillingSection.tsx',
+                request()->is('admin/infrastructure', 'admin/infrastructure/*') => 'src/pages/admin/infrastructure/InfrastructureSection.tsx',
+                request()->is('admin/nests', 'admin/nests/*') => 'src/pages/admin/nests/NestsSection.tsx',
+                request()->is('admin/ai', 'admin/ai/*') => 'src/pages/admin/ai/AiSection.tsx',
+                request()->is('admin/email', 'admin/email/*') => 'src/pages/admin/email/EmailSection.tsx',
+                request()->is('admin/marketplace', 'admin/marketplace/*') => 'src/pages/admin/marketplace/MarketplaceSection.tsx',
+                default => null,
+            };
+            $initialAdminPageEntry = match (true) {
+                request()->is('admin/billing') => 'src/pages/admin/billing/BillingOverviewPage.tsx',
+                request()->is('admin/billing/products/categories/*') => 'src/pages/admin/billing/products/CategoryDetailPage.tsx',
+                request()->is('admin/billing/products/new', 'admin/billing/products/*') => 'src/pages/admin/billing/products/ProductEditorPage.tsx',
+                request()->is('admin/billing/products') => 'src/pages/admin/billing/products/ProductsPage.tsx',
+                request()->is('admin/billing/store') => 'src/pages/admin/billing/store/StoreEditor.tsx',
+                request()->is('admin/billing/orders') => 'src/pages/admin/billing/orders/OrdersPage.tsx',
+                request()->is('admin/billing/invoices') => 'src/pages/admin/billing/invoices/InvoicesPage.tsx',
+                request()->is('admin/billing/coupons') => 'src/pages/admin/billing/coupons/CouponsPage.tsx',
+                request()->is('admin/billing/exceptions') => 'src/pages/admin/billing/exceptions/ExceptionsPage.tsx',
+                request()->is('admin/billing/settings', 'admin/billing/settings/*') => 'src/pages/admin/billing/settings/SettingsPage.tsx',
+                request()->is('admin/billing/invoice-settings') => 'src/pages/admin/billing/invoicesettings/InvoiceSettingsPage.tsx',
+                request()->is('admin/infrastructure') => 'src/pages/admin/infrastructure/InfrastructureOverviewPage.tsx',
+                request()->is('admin/infrastructure/nodes/new', 'admin/infrastructure/nodes/*/edit') => 'src/pages/admin/infrastructure/NodeEditorPage.tsx',
+                request()->is('admin/infrastructure/nodes/*') => 'src/pages/admin/nodes/NodeDetailPage.tsx',
+                request()->is('admin/infrastructure/servers/new') => 'src/pages/admin/infrastructure/ServerEditorPage.tsx',
+                request()->is('admin/infrastructure/servers/*') => 'src/pages/admin/infrastructure/server/ServerDetailPage.tsx',
+                request()->is('admin/nests/*/eggs/new', 'admin/nests/*/eggs/*') => 'src/pages/admin/nests/egg/EggEditorPage.tsx',
+                request()->is('admin/nests', 'admin/nests/*') => 'src/pages/admin/nests/NestsWorkspace.tsx',
+                request()->is('admin/ai') => 'src/pages/admin/ai/pages/OverviewPage.tsx',
+                request()->is('admin/ai/provider') => 'src/pages/admin/ai/pages/ProviderPage.tsx',
+                request()->is('admin/ai/generation') => 'src/pages/admin/ai/pages/GenerationPage.tsx',
+                request()->is('admin/ai/agent') => 'src/pages/admin/ai/pages/AgentPage.tsx',
+                request()->is('admin/ai/tools') => 'src/pages/admin/ai/pages/ToolsPage.tsx',
+                request()->is('admin/ai/privacy') => 'src/pages/admin/ai/pages/PrivacyPage.tsx',
+                request()->is('admin/ai/performance') => 'src/pages/admin/ai/pages/PerformancePage.tsx',
+                request()->is('admin/ai/limits') => 'src/pages/admin/ai/pages/LimitsPage.tsx',
+                request()->is('admin/ai/logs') => 'src/pages/admin/ai/pages/LogsPage.tsx',
+                request()->is('admin/email') => 'src/pages/admin/email/pages/OverviewPage.tsx',
+                request()->is('admin/email/smtp') => 'src/pages/admin/email/pages/SmtpPage.tsx',
+                request()->is('admin/email/resend') => 'src/pages/admin/email/pages/ResendPage.tsx',
+                request()->is('admin/email/testing') => 'src/pages/admin/email/pages/TestingPage.tsx',
+                request()->is('admin/email/notifications') => 'src/pages/admin/email/pages/NotificationsPage.tsx',
+                request()->is('admin/email/activity') => 'src/pages/admin/email/pages/ActivityPage.tsx',
+                request()->is('admin/email/templates') => 'src/pages/admin/email/pages/TemplatesPage.tsx',
+                request()->is('admin/marketplace') => 'src/pages/admin/marketplace/pages/OverviewPage.tsx',
+                request()->is('admin/marketplace/settings') => 'src/pages/admin/marketplace/pages/SettingsPage.tsx',
+                request()->is('admin/marketplace/providers') => 'src/pages/admin/marketplace/pages/ProvidersPage.tsx',
+                default => null,
+            };
+            $initialAdminTabEntry = match (true) {
+                request()->is('admin/billing/settings') => 'src/pages/admin/billing/settings/GeneralTab.tsx',
+                request()->is('admin/billing/settings/pricing') => 'src/pages/admin/billing/settings/PricingTab.tsx',
+                request()->is('admin/billing/settings/payments') => 'src/pages/admin/billing/settings/PaymentsTab.tsx',
+                request()->is('admin/billing/settings/advanced') => 'src/pages/admin/billing/settings/AdvancedTab.tsx',
+                default => null,
+            };
+            $initialRouteEntries = array_values(array_unique(array_filter([
+                $initialRouteEntry,
+                $initialAdminSectionEntry,
+                $initialAdminPageEntry,
+                $initialAdminTabEntry,
+            ])));
+
             $initialLayoutEntry = match (true) {
                 request()->is('auth/*') => 'src/layouts/AuthLayout.tsx',
                 request()->is('server/*') => 'src/layouts/ServerLayout.tsx',
@@ -92,9 +155,9 @@
         @if($initialLayoutEntry)
             <link rel="modulepreload" as="script" data-layout-preload href="{{ $v2->asset($initialLayoutEntry) }}">
         @endif
-        @if($initialRouteEntry)
+        @foreach($initialRouteEntries as $initialRouteEntry)
             <link rel="modulepreload" as="script" data-route-preload href="{{ $v2->asset($initialRouteEntry) }}">
-        @endif
+        @endforeach
     </head>
     <body>
         <div id="app">@include('templates.v2.skeleton')</div>

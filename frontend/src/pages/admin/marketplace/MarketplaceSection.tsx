@@ -1,9 +1,12 @@
 import { Routes, Route } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { m } from '@/i18n/messages';
 import { MarketplaceNav } from './MarketplaceNav';
-import OverviewPage from './pages/OverviewPage';
-import SettingsPage from './pages/SettingsPage';
-import ProvidersPage from './pages/ProvidersPage';
+import { Spinner } from '@/components/ui/Spinner';
+
+const OverviewPage = lazy(() => import('./pages/OverviewPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const ProvidersPage = lazy(() => import('./pages/ProvidersPage'));
 
 // Mounted at the admin `marketplace/*` splat. Owns the three marketplace admin
 // surfaces: analytics Overview, global Settings, and per-egg Provider access.
@@ -20,11 +23,13 @@ export default function MarketplaceSection() {
             <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
                 <MarketplaceNav />
                 <div className="min-w-0 flex-1">
-                    <Routes>
-                        <Route index element={<OverviewPage />} />
-                        <Route path="settings" element={<SettingsPage />} />
-                        <Route path="providers" element={<ProvidersPage />} />
-                    </Routes>
+                    <Suspense fallback={<div className="flex justify-center py-16"><Spinner className="h-6 w-6" /></div>}>
+                        <Routes>
+                            <Route index element={<OverviewPage />} />
+                            <Route path="settings" element={<SettingsPage />} />
+                            <Route path="providers" element={<ProvidersPage />} />
+                        </Routes>
+                    </Suspense>
                 </div>
             </div>
         </div>

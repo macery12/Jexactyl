@@ -1,7 +1,10 @@
 import { Routes, Route } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { RequireAdminPermission } from '@/components/permissions/RequireAdminPermission';
-import NestsWorkspace from './NestsWorkspace';
-import EggEditorPage from './egg/EggEditorPage';
+import { Spinner } from '@/components/ui/Spinner';
+
+const NestsWorkspace = lazy(() => import('./NestsWorkspace'));
+const EggEditorPage = lazy(() => import('./egg/EggEditorPage'));
 
 // Mounted at the admin `nests/*` splat route. The workspace is a master–detail
 // view (nest rail + selected nest's detail and eggs). The egg editor is a
@@ -26,11 +29,13 @@ const existingEggEditor = (
 
 export default function NestsSection() {
     return (
-        <Routes>
-            <Route path=":nestId/eggs/new" element={newEggEditor} />
-            <Route path=":nestId/eggs/:eggId" element={existingEggEditor} />
-            <Route index element={<NestsWorkspace />} />
-            <Route path=":nestId" element={<NestsWorkspace />} />
-        </Routes>
+        <Suspense fallback={<div className="flex justify-center py-24"><Spinner className="h-7 w-7" /></div>}>
+            <Routes>
+                <Route path=":nestId/eggs/new" element={newEggEditor} />
+                <Route path=":nestId/eggs/:eggId" element={existingEggEditor} />
+                <Route index element={<NestsWorkspace />} />
+                <Route path=":nestId" element={<NestsWorkspace />} />
+            </Routes>
+        </Suspense>
     );
 }

@@ -1,19 +1,21 @@
 import { m } from '@/i18n/messages';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Clock } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { Spinner } from '@/components/ui/Spinner';
 import { getDeferredQueue } from '@/api/email';
 import { EmailNav } from './EmailNav';
 import { DeferredQueueModal } from './DeferredQueueModal';
-import OverviewPage from './pages/OverviewPage';
-import SmtpPage from './pages/SmtpPage';
-import ResendPage from './pages/ResendPage';
-import TestingPage from './pages/TestingPage';
-import NotificationsPage from './pages/NotificationsPage';
-import ActivityPage from './pages/ActivityPage';
-import TemplatesPage from './pages/TemplatesPage';
+
+const OverviewPage = lazy(() => import('./pages/OverviewPage'));
+const SmtpPage = lazy(() => import('./pages/SmtpPage'));
+const ResendPage = lazy(() => import('./pages/ResendPage'));
+const TestingPage = lazy(() => import('./pages/TestingPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const ActivityPage = lazy(() => import('./pages/ActivityPage'));
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage'));
 
 export const DEFERRED_QUEUE_KEY = ['admin', 'email', 'deferred'] as const;
 
@@ -55,15 +57,17 @@ export default function EmailSection() {
             <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
                 <EmailNav />
                 <div className="min-w-0 flex-1">
-                    <Routes>
-                        <Route index element={<OverviewPage />} />
-                        <Route path="smtp" element={<SmtpPage />} />
-                        <Route path="resend" element={<ResendPage />} />
-                        <Route path="testing" element={<TestingPage />} />
-                        <Route path="notifications" element={<NotificationsPage />} />
-                        <Route path="activity" element={<ActivityPage />} />
-                        <Route path="templates" element={<TemplatesPage />} />
-                    </Routes>
+                    <Suspense fallback={<div className="flex justify-center py-16"><Spinner className="h-6 w-6" /></div>}>
+                        <Routes>
+                            <Route index element={<OverviewPage />} />
+                            <Route path="smtp" element={<SmtpPage />} />
+                            <Route path="resend" element={<ResendPage />} />
+                            <Route path="testing" element={<TestingPage />} />
+                            <Route path="notifications" element={<NotificationsPage />} />
+                            <Route path="activity" element={<ActivityPage />} />
+                            <Route path="templates" element={<TemplatesPage />} />
+                        </Routes>
+                    </Suspense>
                 </div>
             </div>
 

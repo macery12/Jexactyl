@@ -15,5 +15,8 @@ for (const route of routes) {
         if (route.area === 'auth' || route.area === 'account') {
             await expect(page.locator('link[data-route-preload]')).toHaveCount(1);
         }
+        if (route.area === 'admin' && /\/(?:billing|infrastructure|nests|ai|email|marketplace)(?:\/|$)/.test(new URL(route.url, 'http://fixture.test').pathname)) {
+            expect(await page.locator('link[data-route-preload]').count()).toBeGreaterThanOrEqual(2);
+        }
     });
 }
