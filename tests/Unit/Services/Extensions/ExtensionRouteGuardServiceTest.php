@@ -111,6 +111,17 @@ class ExtensionRouteGuardServiceTest extends TestCase
         $this->assertNotSame([], $untouched->excludedMiddleware());
     }
 
+    public function testSubstitutedMiddlewareAliasIsRestoredAndRouteBlocked(): void
+    {
+        $original = Route::getMiddleware()['extensions.access'];
+        $this->service->registerAndAudit('demo', ['extensions.access:demo'], function () {
+            Route::aliasMiddleware('extensions.access', \stdClass::class);
+            Route::get('/ext/demo/substituted-alias', fn () => 'oops')->middleware('extensions.access:demo');
+        });
+        $this->assertSame($original, Route::getMiddleware()['extensions.access']);
+        $this->assertSame(BlockedExtensionRouteController::class . '@__invoke', $this->findRoute('ext/demo/substituted-alias')->getAction('uses'));
+    }
+
     private function findRoute(string $uri): ?RoutingRoute
     {
         foreach (Route::getRoutes()->getRoutes() as $route) {

@@ -148,7 +148,6 @@ class SettingsServiceProvider extends ServiceProvider
 
         // Custom domains module settings
         'modules:custom_domains:enabled',
-        'modules:custom_domains:cloudflare:token',
         'modules:custom_domains:security:allow_wildcard',
         'modules:custom_domains:security:max_wildcards_per_user',
         'modules:custom_domains:rate_limits:create_per_minute',

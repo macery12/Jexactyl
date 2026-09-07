@@ -61,6 +61,7 @@ final class Handler extends ExceptionHandler
      */
     protected $dontFlash = [
         'token',
+        'cloudflare_token',
         'secret',
         'password',
         'password_confirmation',

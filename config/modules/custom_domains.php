@@ -4,7 +4,6 @@ return [
     'enabled' => env('CUSTOM_DOMAINS_ENABLED', false),
 
     'cloudflare' => [
-        'token' => env('CUSTOM_DOMAINS_CLOUDFLARE_TOKEN', ''),
         'base_url' => env('CUSTOM_DOMAINS_CLOUDFLARE_BASE_URL', 'https://api.cloudflare.com/client/v4'),
         'retries' => (int) env('CUSTOM_DOMAINS_CLOUDFLARE_RETRIES', 3),
         'retry_sleep_ms' => (int) env('CUSTOM_DOMAINS_CLOUDFLARE_RETRY_SLEEP_MS', 250),

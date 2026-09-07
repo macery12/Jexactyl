@@ -426,9 +426,11 @@ Route::prefix('/')->middleware([SuspendedAccount::class, JGuardPendingAccount::c
 
                 $extensionRouteGuard->registerAndAudit(
                     $extensionRouteId,
-                    [],
-                    function () use ($extensionRoutes) {
-                        require $extensionRoutes;
+                    ['extensions.access:' . $extensionRouteId],
+                    function () use ($extensionRoutes, $extensionRouteId) {
+                        Route::middleware('extensions.access:' . $extensionRouteId)->group(function () use ($extensionRoutes) {
+                            require $extensionRoutes;
+                        });
                     }
                 );
             }

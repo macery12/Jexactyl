@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { m } from '@/i18n/messages';
@@ -7,6 +7,7 @@ import { firstError } from '@/lib/apiError';
 import {
     getCustomDomainSettings,
     updateCustomDomainSettings,
+    clearCustomDomainToken,
     type CustomDomainSettings,
 } from '@/api/adminCustomDomains';
 import { Button } from '@/components/ui/Button';
@@ -37,6 +38,8 @@ export default function SettingsPage() {
     const { data, isLoading, isError } = useQuery({ queryKey: key, queryFn: getCustomDomainSettings });
 
     const [form, setForm] = useState<CustomDomainSettings | null>(null);
+    const tokenInput = useRef<HTMLInputElement>(null);
+    const [tokenPending, setTokenPending] = useState(false);
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional effect: syncs state to prop/query/filter changes
         if (data) setForm(data);
@@ -46,7 +49,6 @@ export default function SettingsPage() {
         mutationFn: (payload: CustomDomainSettings) =>
             updateCustomDomainSettings({
                 enabled: payload.enabled,
-                cloudflare_token: payload.cloudflareToken,
                 allow_wildcard: payload.allowWildcard,
                 max_wildcards_per_user: payload.maxWildcardsPerUser,
                 rate_limit_create_per_minute: payload.rateLimitCreatePerMinute,
@@ -59,6 +61,23 @@ export default function SettingsPage() {
         },
         onError: err => push({ type: 'error', message: firstError(err) ?? m['common.states.genericError']() }),
     });
+
+    // Keep credentials out of React state and the React Query mutation cache.
+    const changeToken = async (clear: boolean) => {
+        setTokenPending(true);
+        try {
+            if (clear) await clearCustomDomainToken();
+            else await updateCustomDomainSettings({ cloudflare_token: tokenInput.current?.value ?? '' });
+            push({ type: 'success', message: m['admin.customDomains.settings.saved']() });
+            await qc.invalidateQueries({ queryKey: key });
+        } catch {
+            // HTTP errors may retain the request body; do not store them in UI state.
+            push({ type: 'error', message: m['common.states.genericError']() });
+        } finally {
+            if (tokenInput.current) tokenInput.current.value = '';
+            setTokenPending(false);
+        }
+    };
 
     if (isLoading || !form) {
         return isError ? (
@@ -105,13 +124,26 @@ export default function SettingsPage() {
                 >
                     <Input
                         id="cd-token"
+                        ref={tokenInput}
                         type="password"
-                        value={form.cloudflareToken}
-                        onChange={e => patch({ cloudflareToken: e.target.value })}
+                        defaultValue=""
                         autoComplete="off"
                         spellCheck={false}
                     />
                 </Field>
+                <p className="text-xs text-[var(--color-ink-muted)]">
+                    {form.cloudflareTokenConfigured
+                        ? m['admin.customDomains.settings.tokenConfigured']()
+                        : m['admin.customDomains.settings.tokenMissing']()}
+                </p>
+                <div className="flex gap-3">
+                    <Button onClick={() => void changeToken(false)} disabled={tokenPending}>
+                        {m['admin.customDomains.settings.replaceToken']()}
+                    </Button>
+                    <Button onClick={() => void changeToken(true)} disabled={tokenPending || !form.cloudflareTokenConfigured}>
+                        {m['admin.customDomains.settings.clearToken']()}
+                    </Button>
+                </div>
             </SectionCard>
 
             <SectionCard title={m['admin.customDomains.settings.wildcardTitle']()}>

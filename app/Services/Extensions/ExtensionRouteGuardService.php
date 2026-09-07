@@ -34,6 +34,11 @@ class ExtensionRouteGuardService
     public function registerAndAudit(string $extensionId, array $requiredMiddleware, callable $register): void
     {
         $collection = RouteFacade::getRoutes();
+        $groups = RouteFacade::getGroupStack();
+        $inherited = $groups === [] ? [] : (end($groups)['middleware'] ?? []);
+        $requiredMiddleware = array_values(array_unique([...$inherited, ...$requiredMiddleware]));
+        $aliases = RouteFacade::getMiddleware();
+        $middlewareGroups = RouteFacade::getMiddlewareGroups();
 
         $known = [];
         foreach ($collection->getRoutes() as $route) {
@@ -42,9 +47,22 @@ class ExtensionRouteGuardService
 
         $register();
 
+        $registrationViolations = [];
+        if ($aliases !== RouteFacade::getMiddleware() || $middlewareGroups !== RouteFacade::getMiddlewareGroups()) {
+            $registrationViolations[] = 'substitutes router middleware definitions';
+            // Restore existing definitions before any core route can dispatch.
+            foreach ($aliases as $alias => $class) {
+                RouteFacade::aliasMiddleware($alias, $class);
+            }
+            RouteFacade::flushMiddlewareGroups();
+            foreach ($middlewareGroups as $name => $middleware) {
+                RouteFacade::middlewareGroup($name, $middleware);
+            }
+        }
+
         foreach ($collection->getRoutes() as $route) {
             if (!isset($known[spl_object_id($route)])) {
-                $this->audit($route, $extensionId, $requiredMiddleware);
+                $this->audit($route, $extensionId, $requiredMiddleware, $registrationViolations);
             }
         }
     }
@@ -52,10 +70,8 @@ class ExtensionRouteGuardService
     /**
      * @param string[] $requiredMiddleware
      */
-    private function audit(Route $route, string $extensionId, array $requiredMiddleware): void
+    private function audit(Route $route, string $extensionId, array $requiredMiddleware, array $violations): void
     {
-        $violations = [];
-
         // withoutMiddleware() is the boot-time escape hatch: exclusions are
         // applied when the middleware stack is resolved for dispatch, so a
         // route can shed the admin auth it appears to inherit. Extensions have
@@ -73,11 +89,28 @@ class ExtensionRouteGuardService
             }
         }
 
+        // A second gate for another package is an identity violation even if
+        // the route still carries the loader's correct gate. Cover class names
+        // and aliases, since Laravel accepts both forms.
+        $aliases = RouteFacade::getMiddleware();
+        foreach ($route->middleware() as $middleware) {
+            if (!is_string($middleware)) {
+                continue;
+            }
+            [$name, $id] = array_pad(explode(':', $middleware, 2), 2, null);
+            $class = $aliases[$name] ?? $name;
+            foreach (['extensions.access', 'extensions.admin'] as $gate) {
+                if (($name === $gate || $class === ($aliases[$gate] ?? $gate)) && $id !== $extensionId) {
+                    $violations[] = 'carries an extension gate with a mismatched identity';
+                }
+            }
+        }
+
         if ($violations === []) {
             return;
         }
 
-        $this->drop($route);
+        $this->drop($route, $requiredMiddleware);
 
         report(new \RuntimeException(sprintf(
             'Extension route audit: dropped [%s] /%s from extension "%s" because the route %s. It now returns 404.',
@@ -92,14 +125,16 @@ class ExtensionRouteGuardService
      * Neutralizes a route in place: original handler unreachable, middleware
      * exclusions discarded, guards left intact.
      */
-    private function drop(Route $route): void
+    private function drop(Route $route, array $requiredMiddleware): void
     {
         $action = $route->getAction();
         unset($action['controller'], $action['excluded_middleware']);
         $action['uses'] = BlockedExtensionRouteController::class . '@__invoke';
         $action['controller'] = BlockedExtensionRouteController::class . '@__invoke';
+        $action['middleware'] = array_values(array_unique([...($action['middleware'] ?? []), ...$requiredMiddleware]));
 
         $route->setAction($action);
+        $route->flushController();
     }
 
     private function middlewareName(mixed $middleware): string

@@ -54,7 +54,7 @@ export interface CustomDomainOptions {
 
 export interface CustomDomainSettings {
     enabled: boolean;
-    cloudflareToken: string;
+    cloudflareTokenConfigured: boolean;
     allowWildcard: boolean;
     maxWildcardsPerUser: number;
     rateLimitCreatePerMinute: number;
@@ -160,7 +160,7 @@ export async function getCustomDomainSettings(): Promise<CustomDomainSettings> {
     const d = data.data ?? {};
     return {
         enabled: Boolean(d.enabled),
-        cloudflareToken: String(d.cloudflare_token ?? ''),
+        cloudflareTokenConfigured: Boolean(d.cloudflare_token_configured),
         allowWildcard: Boolean(d.allow_wildcard),
         maxWildcardsPerUser: Number(d.max_wildcards_per_user ?? 1),
         rateLimitCreatePerMinute: Number(d.rate_limit_create_per_minute ?? 10),
@@ -179,4 +179,8 @@ export async function updateCustomDomainSettings(payload: Partial<{
     rate_limit_billing_options_per_minute: number;
 }>): Promise<void> {
     await http.put(`${BASE}/settings`, payload);
+}
+
+export async function clearCustomDomainToken(): Promise<void> {
+    await http.delete(`${BASE}/settings/cloudflare-token`);
 }

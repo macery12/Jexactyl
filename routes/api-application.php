@@ -210,6 +210,7 @@ Route::middleware([AdminSubject::class])->group(function () {
 
         Route::get('/settings', [Application\CustomDomains\SettingsController::class, 'index']);
         Route::put('/settings', [Application\CustomDomains\SettingsController::class, 'update']);
+        Route::delete('/settings/cloudflare-token', [Application\CustomDomains\SettingsController::class, 'clearToken']);
     });
 
     /*

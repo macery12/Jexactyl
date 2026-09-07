@@ -6,18 +6,19 @@ use Everest\Models\Setting;
 use Everest\Facades\Activity;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
+use Everest\Services\CustomDomains\CloudflareCredentialService;
 use Everest\Http\Controllers\Api\Application\ApplicationApiController;
 use Everest\Http\Requests\Api\Application\CustomDomains\GetCustomDomainSettingsRequest;
 use Everest\Http\Requests\Api\Application\CustomDomains\UpdateCustomDomainSettingsRequest;
 
 class SettingsController extends ApplicationApiController
 {
-    public function index(GetCustomDomainSettingsRequest $request): JsonResponse
+    public function index(GetCustomDomainSettingsRequest $request, CloudflareCredentialService $credential): JsonResponse
     {
         return response()->json([
             'data' => [
                 'enabled' => (bool) config('modules.custom_domains.enabled', false),
-                'cloudflare_token' => (string) config('modules.custom_domains.cloudflare.token', ''),
+                'cloudflare_token_configured' => $credential->configured(),
                 'allow_wildcard' => (bool) config('modules.custom_domains.security.allow_wildcard', false),
                 'max_wildcards_per_user' => (int) config('modules.custom_domains.security.max_wildcards_per_user', 1),
                 'rate_limit_create_per_minute' => (int) config('modules.custom_domains.rate_limits.create_per_minute', 10),
@@ -27,14 +28,14 @@ class SettingsController extends ApplicationApiController
         ]);
     }
 
-    public function update(UpdateCustomDomainSettingsRequest $request): Response
+    public function update(UpdateCustomDomainSettingsRequest $request, CloudflareCredentialService $credential): Response
     {
         if ($request->has('enabled')) {
             Setting::set('settings::modules:custom_domains:enabled', $request->boolean('enabled', false));
         }
 
-        if ($request->has('cloudflare_token')) {
-            Setting::set('settings::modules:custom_domains:cloudflare:token', (string) $request->input('cloudflare_token', ''));
+        if ($request->filled('cloudflare_token')) {
+            $credential->replace((string) $request->input('cloudflare_token'));
         }
 
         if ($request->has('allow_wildcard')) {
@@ -55,6 +56,17 @@ class SettingsController extends ApplicationApiController
 
         Activity::event('admin:custom-domains:update-settings')
             ->description('Custom domain settings were updated')
+            ->log();
+
+        return $this->returnNoContent();
+    }
+
+    public function clearToken(UpdateCustomDomainSettingsRequest $request, CloudflareCredentialService $credential): Response
+    {
+        $credential->clear();
+
+        Activity::event('admin:custom-domains:clear-token')
+            ->description('Custom domain Cloudflare credential was cleared')
             ->log();
 
         return $this->returnNoContent();

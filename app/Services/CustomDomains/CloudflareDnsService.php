@@ -2,23 +2,17 @@
 
 namespace Everest\Services\CustomDomains;
 
-use Everest\Models\Setting;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\ConnectionException;
 
 class CloudflareDnsService
 {
-    private function client(?string $tokenOverride = null): PendingRequest
+    private function client(#[\SensitiveParameter] ?string $tokenOverride = null): PendingRequest
     {
-        $token = $tokenOverride !== null
-            ? trim($tokenOverride)
-            : trim((string) config('modules.custom_domains.cloudflare.token', ''));
-
-        if ($tokenOverride === null && $token === '') {
-            $token = trim((string) Setting::get('settings::modules:custom_domains:cloudflare:token', ''));
-        }
+        $token = $tokenOverride ?? app(CloudflareCredentialService::class)->token();
 
         $token = $this->normalizeToken($token);
 
@@ -37,7 +31,7 @@ class CloudflareDnsService
             ]);
     }
 
-    private function normalizeToken(string $token): string
+    private function normalizeToken(#[\SensitiveParameter] string $token): string
     {
         $normalized = trim($token);
 
@@ -61,7 +55,7 @@ class CloudflareDnsService
         return rtrim((string) config('modules.custom_domains.cloudflare.base_url', 'https://api.cloudflare.com/client/v4'), '/');
     }
 
-    public function getZoneByName(string $domain, ?string $tokenOverride = null): ?array
+    public function getZoneByName(string $domain, #[\SensitiveParameter] ?string $tokenOverride = null): ?array
     {
         try {
             $response = $this->client($tokenOverride)->get($this->baseUrl() . '/zones', [
@@ -69,7 +63,7 @@ class CloudflareDnsService
                 'status' => 'active',
                 'match' => 'all',
             ])->throw();
-        } catch (RequestException $exception) {
+        } catch (RequestException|ConnectionException $exception) {
             throw new \Exception($this->formatCloudflareError('Cloudflare zone lookup failed.', $exception));
         }
 
@@ -86,7 +80,7 @@ class CloudflareDnsService
         string $zoneId,
         string $name,
         string $target,
-        ?string $tokenOverride = null,
+        #[\SensitiveParameter] ?string $tokenOverride = null,
         ?string $forcedType = null,
     ): array {
         $type = $forcedType !== null
@@ -142,7 +136,7 @@ class CloudflareDnsService
     /**
      * @return array<int, array<string, mixed>>
      */
-    public function getRecordsByName(string $zoneId, string $name, ?string $tokenOverride = null): array
+    public function getRecordsByName(string $zoneId, string $name, #[\SensitiveParameter] ?string $tokenOverride = null): array
     {
         return $this->findRecordsByName($zoneId, $name, $tokenOverride);
     }
@@ -150,7 +144,7 @@ class CloudflareDnsService
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function findRecordsByName(string $zoneId, string $name, ?string $tokenOverride = null): array
+    private function findRecordsByName(string $zoneId, string $name, #[\SensitiveParameter] ?string $tokenOverride = null): array
     {
         try {
             $response = $this->client($tokenOverride)->get($this->baseUrl() . '/zones/' . $zoneId . '/dns_records', [
@@ -159,7 +153,7 @@ class CloudflareDnsService
                 'page' => 1,
                 'match' => 'all',
             ])->throw();
-        } catch (RequestException $exception) {
+        } catch (RequestException|ConnectionException $exception) {
             throw new \Exception($this->formatCloudflareError('Cloudflare DNS lookup request failed.', $exception));
         }
 
@@ -179,7 +173,7 @@ class CloudflareDnsService
         string $proto,
         int $port,
         string $target,
-        ?string $tokenOverride = null,
+        #[\SensitiveParameter] ?string $tokenOverride = null,
     ): array {
         $normalizedPrefix = $this->normalizeServicePrefix($servicePrefix);
         $recordName = $normalizedPrefix . $proto . '.' . $fqdn;
@@ -220,16 +214,16 @@ class CloudflareDnsService
         throw new \Exception('Invalid SRV service prefix. Use format like _minecraft._');
     }
 
-    public function deleteRecord(string $zoneId, string $recordId, ?string $tokenOverride = null): void
+    public function deleteRecord(string $zoneId, string $recordId, #[\SensitiveParameter] ?string $tokenOverride = null): void
     {
         try {
             $this->client($tokenOverride)->delete($this->baseUrl() . '/zones/' . $zoneId . '/dns_records/' . $recordId)->throw();
-        } catch (RequestException $exception) {
+        } catch (RequestException|ConnectionException $exception) {
             throw new \Exception($this->formatCloudflareError('Cloudflare DNS delete request failed.', $exception));
         }
     }
 
-    private function findRecord(string $zoneId, string $type, string $name, ?string $tokenOverride = null): ?array
+    private function findRecord(string $zoneId, string $type, string $name, #[\SensitiveParameter] ?string $tokenOverride = null): ?array
     {
         try {
             $response = $this->client($tokenOverride)->get($this->baseUrl() . '/zones/' . $zoneId . '/dns_records', [
@@ -239,7 +233,7 @@ class CloudflareDnsService
                 'page' => 1,
                 'match' => 'all',
             ])->throw();
-        } catch (RequestException $exception) {
+        } catch (RequestException|ConnectionException $exception) {
             throw new \Exception($this->formatCloudflareError('Cloudflare DNS lookup request failed.', $exception));
         }
 
@@ -252,13 +246,13 @@ class CloudflareDnsService
         return Arr::first($json['result'] ?? []);
     }
 
-    private function createRecord(string $zoneId, array $payload, ?string $tokenOverride = null): array
+    private function createRecord(string $zoneId, array $payload, #[\SensitiveParameter] ?string $tokenOverride = null): array
     {
         try {
             $response = $this->client($tokenOverride)
                 ->post($this->baseUrl() . '/zones/' . $zoneId . '/dns_records', $payload)
                 ->throw();
-        } catch (RequestException $exception) {
+        } catch (RequestException|ConnectionException $exception) {
             throw new \Exception($this->formatCloudflareError('Cloudflare DNS create request failed.', $exception));
         }
 
@@ -271,13 +265,13 @@ class CloudflareDnsService
         return $json['result'];
     }
 
-    private function updateRecord(string $zoneId, string $recordId, array $payload, ?string $tokenOverride = null): array
+    private function updateRecord(string $zoneId, string $recordId, array $payload, #[\SensitiveParameter] ?string $tokenOverride = null): array
     {
         try {
             $response = $this->client($tokenOverride)
                 ->put($this->baseUrl() . '/zones/' . $zoneId . '/dns_records/' . $recordId, $payload)
                 ->throw();
-        } catch (RequestException $exception) {
+        } catch (RequestException|ConnectionException $exception) {
             throw new \Exception($this->formatCloudflareError('Cloudflare DNS update request failed.', $exception));
         }
 
@@ -290,10 +284,11 @@ class CloudflareDnsService
         return $json['result'];
     }
 
-    private function formatCloudflareError(string $prefix, RequestException $exception): string
+    private function formatCloudflareError(string $prefix, RequestException|ConnectionException $exception): string
     {
-        $body = trim((string) optional($exception->response)->body());
-
-        return $body !== '' ? $prefix . ' Response: ' . $body : $prefix;
+        // Provider bodies can echo credentials and reach persistent DNS logs.
+        return $exception instanceof RequestException
+            ? $prefix . ' HTTP ' . $exception->response->status() . '.'
+            : $prefix . ' Connection failed.';
     }
 }
