@@ -74,16 +74,51 @@ function lighthouseResultSet() {
     return value;
 }
 
-function selectedBaselineRoutes() {
-    const area = process.env.LIGHTHOUSE_AREA;
-    const matchingRoutes = area ? baselineRoutes.filter(route => route.area === area) : baselineRoutes;
+function selectedBaselineRoutes(environment = process.env) {
+    const area = environment.LIGHTHOUSE_AREA;
+    const rawRouteSelectors = environment.LIGHTHOUSE_ROUTES;
+
+    if (area && rawRouteSelectors) {
+        throw new Error('Use either LIGHTHOUSE_AREA or LIGHTHOUSE_ROUTES, not both.');
+    }
+
+    let matchingRoutes = area ? baselineRoutes.filter(route => route.area === area) : baselineRoutes;
 
     if (area && matchingRoutes.length === 0) {
         const areas = [...new Set(baselineRoutes.map(route => route.area))].join(', ');
         throw new Error(`Unknown LIGHTHOUSE_AREA: ${area}. Expected one of: ${areas}`);
     }
 
-    const rawLimit = process.env.LIGHTHOUSE_LIMIT;
+    if (rawRouteSelectors) {
+        const selectors = rawRouteSelectors.split(',').map(selector => selector.trim()).filter(Boolean);
+        if (selectors.length === 0) {
+            throw new Error('LIGHTHOUSE_ROUTES must contain at least one exact route selector.');
+        }
+
+        matchingRoutes = selectors.map(selector => {
+            const scopedMatches = baselineRoutes.filter(route => `${route.area}:${route.path}` === selector);
+            const matches = scopedMatches.length > 0
+                ? scopedMatches
+                : baselineRoutes.filter(route => route.path === selector || route.url === selector);
+
+            if (matches.length === 0) {
+                throw new Error(
+                    `Unknown LIGHTHOUSE_ROUTES selector: ${selector}. Use an exact path or area:path selector.`,
+                );
+            }
+            if (matches.length > 1) {
+                const alternatives = matches.map(route => `${route.area}:${route.path}`).join(', ');
+                throw new Error(`Ambiguous LIGHTHOUSE_ROUTES selector: ${selector}. Use one of: ${alternatives}`);
+            }
+
+            return matches[0];
+        });
+        matchingRoutes = matchingRoutes.filter(
+            (route, index) => matchingRoutes.findIndex(candidate => candidate.url === route.url) === index,
+        );
+    }
+
+    const rawLimit = environment.LIGHTHOUSE_LIMIT;
     if (rawLimit === undefined) return matchingRoutes;
 
     const limit = Number(rawLimit);
@@ -159,4 +194,4 @@ function createBaselineConfig(profile) {
     };
 }
 
-module.exports = { createBaselineConfig, createLighthouseConfig };
+module.exports = { createBaselineConfig, createLighthouseConfig, selectedBaselineRoutes };
