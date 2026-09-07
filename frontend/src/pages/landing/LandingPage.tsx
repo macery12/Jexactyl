@@ -16,5 +16,5 @@ export default function LandingPage() {
 
     const sections = landing && landing.enabled ? landing.sections : DEFAULT_SECTIONS;
 
-    return <LandingCanvas sections={sections} name={name} />;
+    return <LandingCanvas sections={sections} name={name} logo={site?.logo} />;
 }

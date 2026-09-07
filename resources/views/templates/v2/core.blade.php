@@ -9,6 +9,22 @@
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="robots" content="noindex">
 
+        @php
+            $configuredLogo = $siteConfiguration['logo'] ?? null;
+        @endphp
+        <link
+            rel="icon"
+            data-site-logo
+            data-default-href="{{ asset('favicons/favicon.ico') }}"
+            href="{{ $configuredLogo ?: asset('favicons/favicon.ico') }}"
+        >
+        <link
+            rel="apple-touch-icon"
+            data-site-logo
+            data-default-href="{{ asset('favicons/apple-touch-icon.png') }}"
+            href="{{ $configuredLogo ?: asset('favicons/apple-touch-icon.png') }}"
+        >
+
         {{-- Blade -> JS bootstrap handoff. Identical contract to the V1 wrapper;
              the *-bound view composers populate these variables on every view. --}}
         @if(!is_null(Auth::user()))

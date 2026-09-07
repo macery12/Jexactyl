@@ -14,6 +14,7 @@ import Custom from './sections/Custom';
 interface Props {
     sections: LandingSection[];
     name: string;
+    logo?: string | null;
     // When set, the matching section is outlined — used by the admin editor's
     // live preview to highlight the section currently being edited.
     highlightId?: LandingSectionId | null;
@@ -22,7 +23,7 @@ interface Props {
 // Shared renderer for the public landing chrome + sections. Used by both the live
 // public page (LandingPage) and the admin editor's live preview, so the two can
 // never visually drift apart.
-export default function LandingCanvas({ sections, name, highlightId }: Props) {
+export default function LandingCanvas({ sections, name, logo, highlightId }: Props) {
     const visible = sections
         .filter(s => s.enabled)
         .slice()
@@ -39,7 +40,7 @@ export default function LandingCanvas({ sections, name, highlightId }: Props) {
     return (
         <div className="bg-aurora min-h-screen">
             <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
-                <BrandMark name={name} size="lg" />
+                <BrandMark name={name} logo={logo} size="lg" />
                 <Link
                     to="/auth/login"
                     className="inline-flex h-10 items-center rounded-lg border border-[var(--color-border-strong)] px-4 text-sm font-medium hover:bg-[var(--color-surface-2)]"

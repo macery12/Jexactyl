@@ -217,7 +217,7 @@ export default function LandingSection() {
                     <p className="mb-2 px-1 text-xs text-[var(--color-ink-faint)]">{m['landingAdmin.previewHint']()}</p>
                     <div className="max-h-[80vh] overflow-y-auto rounded-lg border border-[var(--color-border-strong)]">
                         <PreviewFrame>
-                            <LandingCanvas sections={config.sections} name={name} highlightId={selectedId} />
+                            <LandingCanvas sections={config.sections} name={name} logo={site?.logo} highlightId={selectedId} />
                         </PreviewFrame>
                     </div>
                 </div>

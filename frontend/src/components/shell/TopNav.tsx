@@ -47,7 +47,7 @@ export function TopNav({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
                     </button>
                 )}
                 <Link to="/">
-                    <BrandMark name={site?.name ?? 'M12Labs'} />
+                    <BrandMark name={site?.name ?? 'M12Labs'} logo={site?.logo} />
                 </Link>
             </div>
 

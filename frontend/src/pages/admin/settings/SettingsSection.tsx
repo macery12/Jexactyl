@@ -20,6 +20,7 @@ import { firstError } from '@/lib/apiError';
 import { stashFlash } from '@/lib/pendingFlash';
 import { cn } from '@/lib/cn';
 import { updateGeneralSettings } from '@/api/adminSettings';
+import { useFlags } from '@/state/flags';
 
 // Render a locale code as its own autonym (e.g. "de" -> "Deutsch"), with the
 // English name as a secondary label for admins who don't read the script.
@@ -95,23 +96,45 @@ export default function SettingsSection() {
         if (nameInvalid || saving) return;
         setSaving(true);
         const localeChanged = form.locale !== saved.locale;
+        const normalizedForm: GeneralForm = {
+            ...form,
+            name: form.name.trim(),
+            logo: form.logo.trim(),
+        };
         try {
             await updateGeneralSettings({
-                name: form.name.trim(),
-                logo: form.logo.trim() || null,
-                locale: form.locale,
-                user_locale: form.userLocale,
-                quick_tabs: form.quickTabs,
-                command_palette: form.commandPalette,
+                name: normalizedForm.name,
+                logo: normalizedForm.logo || null,
+                locale: normalizedForm.locale,
+                user_locale: normalizedForm.userLocale,
+                quick_tabs: normalizedForm.quickTabs,
+                command_palette: normalizedForm.commandPalette,
             });
-            // The default language is a GLOBAL setting (app:locale) — now saved
-            // for every user's next load. Mirror it onto the in-memory
-            // SiteConfiguration so a re-render reads the new default.
-            if (window.SiteConfiguration) {
-                window.SiteConfiguration.locale = form.locale;
-                window.SiteConfiguration.user_locale = form.userLocale;
+            // Keep the Blade bootstrap global and the reactive site store in
+            // sync so branding and feature toggles update without a reload.
+            const flags = useFlags.getState();
+            const currentSite = flags.site ?? window.SiteConfiguration;
+            if (currentSite) {
+                const nextSite = {
+                    ...currentSite,
+                    name: normalizedForm.name,
+                    logo: normalizedForm.logo || null,
+                    locale: normalizedForm.locale,
+                    user_locale: normalizedForm.userLocale,
+                    quick_tabs: normalizedForm.quickTabs,
+                    command_palette: normalizedForm.commandPalette,
+                };
+                window.SiteConfiguration = nextSite;
+                flags.set(flags.everest, nextSite);
             }
-            setSaved(form);
+
+            document.title = normalizedForm.name;
+            document.querySelectorAll<HTMLLinkElement>('link[data-site-logo]').forEach(link => {
+                link.href = normalizedForm.logo || link.dataset.defaultHref || link.href;
+            });
+
+            setForm(normalizedForm);
+            setSaved(normalizedForm);
             if (localeChanged) {
                 // Reboot Paraglide in the new default via a reload rather than a
                 // live router remount, which races Radix portal teardown
@@ -160,7 +183,13 @@ export default function SettingsSection() {
                         <div className="flex items-center gap-3">
                             <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)]">
                                 {form.logo.trim() ? (
-                                    <img src={form.logo} alt="" className="h-full w-full object-contain" onError={e => (e.currentTarget.style.visibility = 'hidden')} />
+                                    <img
+                                        src={form.logo}
+                                        alt=""
+                                        className="h-full w-full object-contain"
+                                        onLoad={e => (e.currentTarget.style.visibility = 'visible')}
+                                        onError={e => (e.currentTarget.style.visibility = 'hidden')}
+                                    />
                                 ) : (
                                     <ImageIcon className="h-4 w-4 text-[var(--color-ink-faint)]" />
                                 )}
