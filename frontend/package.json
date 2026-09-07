@@ -27,7 +27,11 @@
         "test:lighthouse:baseline": "pnpm run test:lighthouse:baseline:desktop && pnpm run test:lighthouse:baseline:mobile && pnpm run test:lighthouse:baseline:report",
         "test:lighthouse:baseline:desktop": "LIGHTHOUSE_PROFILE=desktop lhci autorun --config=./lighthouserc.baseline.cjs",
         "test:lighthouse:baseline:mobile": "LIGHTHOUSE_PROFILE=mobile lhci autorun --config=./lighthouserc.baseline.cjs",
-        "test:lighthouse:baseline:report": "node scripts/lighthouse-baseline-report.mjs"
+        "test:lighthouse:baseline:report": "node scripts/lighthouse-baseline-report.mjs",
+        "test:lighthouse:optimized": "pnpm run test:lighthouse:optimized:desktop && pnpm run test:lighthouse:optimized:mobile && pnpm run test:lighthouse:optimized:report",
+        "test:lighthouse:optimized:desktop": "LIGHTHOUSE_RESULT_SET=optimized LIGHTHOUSE_PROFILE=desktop lhci autorun --config=./lighthouserc.baseline.cjs",
+        "test:lighthouse:optimized:mobile": "LIGHTHOUSE_RESULT_SET=optimized LIGHTHOUSE_PROFILE=mobile lhci autorun --config=./lighthouserc.baseline.cjs",
+        "test:lighthouse:optimized:report": "LIGHTHOUSE_RESULT_SET=optimized node scripts/lighthouse-baseline-report.mjs"
     },
     "dependencies": {
         "@codemirror/lang-css": "^6.3.1",

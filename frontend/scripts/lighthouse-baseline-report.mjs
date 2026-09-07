@@ -8,8 +8,12 @@ const require = createRequire(import.meta.url);
 const { routes } = require('../lighthouse.routes.cjs');
 const frontendDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryDirectory = resolve(frontendDirectory, '..');
-const resultsDirectory = resolve(repositoryDirectory, 'storage/app/lighthouse/baseline');
-const reportPath = resolve(repositoryDirectory, 'docs/baseline.md');
+const resultSet = process.env.LIGHTHOUSE_RESULT_SET ?? 'baseline';
+if (!['baseline', 'optimized'].includes(resultSet)) {
+    throw new Error('LIGHTHOUSE_RESULT_SET must be either baseline or optimized.');
+}
+const resultsDirectory = resolve(repositoryDirectory, `storage/app/lighthouse/${resultSet}`);
+const reportPath = resolve(repositoryDirectory, `docs/baseline${resultSet === 'optimized' ? '_optimized' : ''}.md`);
 const profiles = ['desktop', 'mobile'];
 const areas = ['public', 'auth', 'account', 'server', 'admin'];
 
@@ -170,13 +174,17 @@ const covered = profiles.reduce(
     0,
 );
 const expected = routes.length * profiles.length;
-const markdown = `# Lighthouse all-page baseline
+const title = resultSet === 'optimized' ? 'Lighthouse all-page optimized baseline' : 'Lighthouse all-page baseline';
+const summary = resultSet === 'optimized'
+    ? 'This is the completed post-optimization inventory. It uses the same production fixture and route catalog as `docs/baseline.md` so the two tables remain directly comparable.'
+    : 'This is a one-run performance inventory of every rendered route in the frontend. It uses the production bundle and deterministic authenticated fixture data. Pages whose secondary API calls are not mocked intentionally measure their loading or error-empty state; use the same fixture when comparing future commits.';
+const markdown = `# ${title}
 
 Generated: ${generatedAt}  
 Commit: \`${commit}\`  
 Coverage: ${covered}/${expected} audits (${routes.length} pages across desktop and mobile)
 
-This is a one-run performance inventory of every rendered route in the frontend. It uses the production bundle and deterministic authenticated fixture data. Pages whose secondary API calls are not mocked intentionally measure their loading or error-empty state; use the same fixture when comparing future commits.
+${summary}
 
 ## Area medians
 

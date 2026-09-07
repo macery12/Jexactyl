@@ -66,6 +66,14 @@ function baselineNumberOfRuns() {
     return value;
 }
 
+function lighthouseResultSet() {
+    const value = process.env.LIGHTHOUSE_RESULT_SET ?? 'baseline';
+    if (!['baseline', 'optimized'].includes(value)) {
+        throw new Error('LIGHTHOUSE_RESULT_SET must be either baseline or optimized.');
+    }
+    return value;
+}
+
 function selectedBaselineRoutes() {
     const area = process.env.LIGHTHOUSE_AREA;
     const matchingRoutes = area ? baselineRoutes.filter(route => route.area === area) : baselineRoutes;
@@ -145,7 +153,7 @@ function createBaselineConfig(profile) {
             },
             upload: {
                 target: 'filesystem',
-                outputDir: `../storage/app/lighthouse/baseline/${profile}`,
+                outputDir: `../storage/app/lighthouse/${lighthouseResultSet()}/${profile}`,
             },
         },
     };
