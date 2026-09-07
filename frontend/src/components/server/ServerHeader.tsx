@@ -58,7 +58,7 @@ export function ServerHeader() {
     }
 
     return (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-h-[6.6875rem] flex-col gap-3 sm:min-h-9 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
                 <Link
                     to="/"

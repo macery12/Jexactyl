@@ -25,10 +25,12 @@ export function AppShell({
     groups,
     header,
     sidebarFooter,
+    loading = false,
 }: {
     groups: NavGroup[];
     header?: ReactNode;
     sidebarFooter?: ReactNode;
+    loading?: boolean;
 }) {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [width, setWidth] = useState<ContentWidth>('default');
@@ -79,9 +81,13 @@ export function AppShell({
                     )}
                     <div className="px-5 py-6 sm:px-8">
                         <div className={cn('mx-auto w-full', WIDTH_CLASS[width])}>
-                            <Suspense fallback={<FullPageSpinner />}>
-                                <Outlet />
-                            </Suspense>
+                            {loading ? (
+                                <FullPageSpinner />
+                            ) : (
+                                <Suspense fallback={<FullPageSpinner />}>
+                                    <Outlet />
+                                </Suspense>
+                            )}
                         </div>
                     </div>
                 </main>

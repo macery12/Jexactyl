@@ -46,3 +46,45 @@ test.describe('public route request budgets', () => {
         });
     }
 });
+
+test.describe('authenticated loading stability', () => {
+    test('server shell remains stable while server data loads', async ({ page }) => {
+        test.setTimeout(20_000);
+        const client = await page.context().newCDPSession(page);
+        await client.send('Network.enable');
+        await client.send('Network.emulateNetworkConditions', {
+            offline: false,
+            latency: 150,
+            downloadThroughput: 200_000,
+            uploadThroughput: 100_000,
+        });
+        await client.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+
+        await page.addInitScript(() => {
+            const metrics = window as typeof window & { __cumulativeLayoutShift?: number };
+            metrics.__cumulativeLayoutShift = 0;
+
+            new PerformanceObserver(list => {
+                for (const entry of list.getEntries()) {
+                    const shift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number };
+                    if (!shift.hadRecentInput) metrics.__cumulativeLayoutShift! += shift.value;
+                }
+            }).observe({ type: 'layout-shift', buffered: true });
+        });
+
+        await page.route('**/api/client/servers/fixture', async route => {
+            await new Promise(resolve => setTimeout(resolve, 750));
+            await route.continue();
+        });
+
+        await page.goto('/server/fixture/activity?__lighthouse_auth=1');
+        await expect(page.getByRole('heading', { level: 1, name: 'Lighthouse Fixture Server' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible();
+        await page.waitForTimeout(100);
+
+        const cumulativeLayoutShift = await page.evaluate(
+            () => (window as typeof window & { __cumulativeLayoutShift?: number }).__cumulativeLayoutShift ?? 0,
+        );
+        expect(cumulativeLayoutShift).toBeLessThan(0.02);
+    });
+});

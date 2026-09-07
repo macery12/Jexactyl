@@ -10,11 +10,31 @@ import { getServer } from '@/api/servers';
 import { ServerContext } from '@/components/server/ServerContext';
 import { ServerHeader } from '@/components/server/ServerHeader';
 import { useServerSocketConnection } from '@/hooks/useServerSocket';
-import { FullPageSpinner } from '@/components/ui/Spinner';
 
 const AgentDrawer = lazy(() =>
     import('@/components/ai/AgentDrawer').then(module => ({ default: module.AgentDrawer })),
 );
+
+function ServerLoadingHeader() {
+    return (
+        <div
+            aria-hidden="true"
+            className="flex min-h-[6.6875rem] animate-pulse flex-col justify-between gap-3 sm:min-h-9 sm:flex-row sm:items-center"
+        >
+            <div className="flex items-center gap-3">
+                <div className="h-9 w-9 shrink-0 rounded-lg bg-[var(--color-surface-2)]" />
+                <div className="space-y-2">
+                    <div className="h-5 w-48 rounded bg-[var(--color-surface-2)]" />
+                    <div className="h-3 w-32 rounded bg-[var(--color-surface-2)]" />
+                </div>
+            </div>
+            <div className="flex gap-2">
+                <div className="h-8 w-28 rounded-sm bg-[var(--color-surface-2)]" />
+                <div className="h-8 w-20 rounded-sm bg-[var(--color-surface-2)]" />
+            </div>
+        </div>
+    );
+}
 
 export default function ServerLayout() {
     const { id } = useParams();
@@ -40,7 +60,7 @@ export default function ServerLayout() {
     return (
         <RequireAuth>
             {isLoading ? (
-                <FullPageSpinner />
+                <AppShell groups={[]} header={<ServerLoadingHeader />} loading />
             ) : isError || !server ? (
                 <div className="flex min-h-screen items-center justify-center px-6 text-center text-sm text-[var(--color-danger)]">
                     Couldn’t load this server. You may not have access, or it no longer exists.

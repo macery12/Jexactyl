@@ -20,6 +20,37 @@ for (const route of routes) {
         }
         if (route.area === 'server') {
             const pathname = new URL(route.url, 'http://fixture.test').pathname;
+            const fontPreloads = page.locator('link[data-server-font-preload]');
+            await expect(fontPreloads).toHaveCount(2);
+            expect(
+                await fontPreloads.evaluateAll(links =>
+                    links.map(link => {
+                        const preload = link as HTMLLinkElement;
+                        return {
+                            as: preload.as,
+                            crossOrigin: preload.crossOrigin,
+                            href: new URL(preload.href).pathname,
+                            rel: preload.rel,
+                            type: preload.type,
+                        };
+                    }),
+                ),
+            ).toEqual([
+                expect.objectContaining({
+                    as: 'font',
+                    crossOrigin: 'anonymous',
+                    href: expect.stringMatching(/\/build\/assets\/ibm-plex-sans-latin-600-normal-[^/]+\.woff2$/),
+                    rel: 'preload',
+                    type: 'font/woff2',
+                }),
+                expect.objectContaining({
+                    as: 'font',
+                    crossOrigin: 'anonymous',
+                    href: expect.stringMatching(/\/build\/assets\/ibm-plex-mono-latin-400-normal-[^/]+\.woff2$/),
+                    rel: 'preload',
+                    type: 'font/woff2',
+                }),
+            ]);
             if (/\/marketplace(?:\/|$)/.test(pathname)) {
                 await expect(page.locator('link[data-route-preload]')).toHaveCount(1);
             }

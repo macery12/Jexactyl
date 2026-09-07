@@ -17,6 +17,10 @@ const localeKeys = {
     public: 'virtual:m12-i18n-catalog/public/en',
     authenticated: 'virtual:m12-i18n-catalog/full/en',
 };
+const serverFontKeys = [
+    '../node_modules/.pnpm/@fontsource+ibm-plex-sans@5.3.0/node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2',
+    '../node_modules/.pnpm/@fontsource+ibm-plex-mono@5.3.0/node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2',
+];
 const authRouteEntries = [
     [/^\/auth\/login$/, 'src/pages/auth/LoginPage.tsx'],
     [/^\/auth\/login\/checkpoint$/, 'src/pages/auth/CheckpointPage.tsx'],
@@ -109,7 +113,7 @@ const bootSkeleton = readFileSync(
     'utf8',
 );
 
-for (const key of [...Object.values(entryKeys), ...Object.values(localeKeys)]) {
+for (const key of [...Object.values(entryKeys), ...Object.values(localeKeys), ...serverFontKeys]) {
     if (!manifest[key]?.file) {
         throw new Error(`Missing ${key} entry in ${manifestPath}; run pnpm build:frontend first.`);
     }
@@ -290,6 +294,12 @@ function documentHtml(pathname, authenticated) {
     const layoutPreload = layoutFile
         ? `<link rel="modulepreload" as="script" data-layout-preload href="/build/${layoutFile}">`
         : '';
+    const serverFontPreloads = pathname.startsWith('/server/')
+        ? serverFontKeys
+              .map(key => manifest[key].file)
+              .map(file => `<link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" data-server-font-preload href="/build/${file}">`)
+              .join('')
+        : '';
 
     return `<!doctype html>
 <html lang="en">
@@ -300,6 +310,7 @@ function documentHtml(pathname, authenticated) {
   <meta name="robots" content="noindex">
   <title>M12Labs Test Panel</title>
   <script>window.SiteConfiguration=${escapeScriptJson(siteConfiguration)};window.EverestConfiguration=${escapeScriptJson(everestConfiguration)};${authenticated ? `window.PterodactylUser=${escapeScriptJson(authenticatedUser)};` : ''}</script>
+  ${serverFontPreloads}
   ${modulePreloads}
   ${styles}
   <script type="module" src="/build/${entry.file}"></script>

@@ -45,7 +45,14 @@
         @php
             $v2 = \Illuminate\Support\Facades\Vite::useHotFile(public_path('hot'))->useBuildDirectory('build');
             $entryPoint = Auth::check() ? 'src/main.tsx' : 'src/public.tsx';
+            $serverFontEntries = request()->is('server/*') ? [
+                '../node_modules/.pnpm/@fontsource+ibm-plex-sans@5.3.0/node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2',
+                '../node_modules/.pnpm/@fontsource+ibm-plex-mono@5.3.0/node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2',
+            ] : [];
         @endphp
+        @foreach($serverFontEntries as $serverFontEntry)
+            <link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" data-server-font-preload href="{{ $v2->asset($serverFontEntry) }}">
+        @endforeach
         {!! $v2->reactRefresh() !!}
         {!! $v2([$entryPoint]) !!}
         @php
