@@ -78,3 +78,6 @@ misc
 
 # Local documentation
 /docs/
+
+# Local archive reference
+/archive/
