@@ -146,7 +146,7 @@ export default function SsoRegisterPage() {
 
     if (loadError) {
         return (
-            <div className="flex w-full flex-col gap-3 text-center">
+            <div className="flex min-h-[40rem] w-full flex-col justify-center gap-3 text-center">
                 <h1 className="text-2xl font-semibold tracking-tight">{m['auth.sso.errorTitle']()}</h1>
                 <p className="text-sm text-[var(--color-danger)]">{m['auth.sso.sessionNotFound']()}</p>
             </div>
@@ -155,7 +155,7 @@ export default function SsoRegisterPage() {
 
     if (!data) {
         return (
-            <div className="flex w-full items-center justify-center py-8">
+            <div className="flex min-h-[40rem] w-full items-center justify-center">
                 <Spinner className="h-6 w-6" />
             </div>
         );
@@ -165,7 +165,7 @@ export default function SsoRegisterPage() {
     // never reaches the post-login reveal and cannot be given it later.
     if (pendingMessage) {
         return (
-            <div className="flex w-full flex-col gap-5">
+            <div className="flex min-h-[40rem] w-full flex-col gap-5">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight">{m['auth.pending.title']()}</h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{pendingMessage}</p>
@@ -188,7 +188,7 @@ export default function SsoRegisterPage() {
 
     if (recoveryCode) {
         return (
-            <div className="flex w-full flex-col gap-5">
+            <div className="flex min-h-[40rem] w-full flex-col gap-5">
                 <div>
                     <h1 className="text-2xl font-semibold tracking-tight">{m['auth.register.recoveryTitle']()}</h1>
                     <p className="mt-1 text-sm text-[var(--color-ink-muted)]">{m['auth.register.recoveryBody']()}</p>
@@ -210,7 +210,7 @@ export default function SsoRegisterPage() {
     const Icon = data.provider === 'discord' ? DiscordIcon : GoogleIcon;
 
     return (
-        <form onSubmit={onSubmit} className="flex w-full flex-col gap-5">
+        <form onSubmit={onSubmit} className="flex min-h-[40rem] w-full flex-col gap-5">
             <div>
                 <h1 className="text-2xl font-semibold tracking-tight">
                     {m['auth.sso.registerTitle']({ provider: data.provider_label })}

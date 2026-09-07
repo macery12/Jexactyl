@@ -362,6 +362,19 @@ function sendJson(response, body, status = 200) {
 }
 
 function serveFixtureApi(url, response) {
+    if (url.pathname === '/auth/sso/registration-data') {
+        sendJson(response, {
+            provider: 'discord',
+            provider_label: 'Discord',
+            username: 'lighthouse-user',
+            email: 'lighthouse@example.test',
+            provider_user_id: '123456789',
+            email_taken: false,
+            registration_enabled: true,
+        });
+        return true;
+    }
+
     if (url.pathname === '/api/application/permissions') {
         sendJson(response, { attributes: { permissions: [['*']] } });
         return true;
