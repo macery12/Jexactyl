@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Boxes, Download } from 'lucide-react';
@@ -8,12 +8,15 @@ import { useFlags } from '@/state/flags';
 import { Spinner } from '@/components/ui/Spinner';
 import { getPluginCapabilities, getServerModsConfig, type ProviderKey, type Source } from '@/api/mods';
 import { getQueue } from '@/api/modQueue';
-import { ModBrowser } from './components/ModBrowser';
 import { InstalledAddons } from './components/InstalledAddons';
-import { QueueTab } from './components/QueueTab';
-import { ModpackBrowser } from './components/modpacks/ModpackBrowser';
 import { queueKey } from './components/queueKey';
 import { providerLabel } from './modMeta';
+
+const ModBrowser = lazy(() => import('./components/ModBrowser').then(module => ({ default: module.ModBrowser })));
+const QueueTab = lazy(() => import('./components/QueueTab').then(module => ({ default: module.QueueTab })));
+const ModpackBrowser = lazy(() =>
+    import('./components/modpacks/ModpackBrowser').then(module => ({ default: module.ModpackBrowser })),
+);
 
 type Tab = 'installed' | 'mods' | 'plugins' | 'modpacks' | 'queue';
 
@@ -183,29 +186,31 @@ export default function MarketplaceSection() {
                 </div>
             )}
 
-            <div className="flex min-h-0 flex-1 flex-col">
-                {tab === 'installed' && <InstalledAddons serverId={serverId} />}
-                {tab === 'mods' && (
-                    <ModBrowser
-                        key={`mods-${source}`}
-                        serverId={serverId}
-                        source={source}
-                        resource="mods"
-                        detected={configQ.data ?? null}
-                    />
-                )}
-                {tab === 'plugins' && (
-                    <ModBrowser
-                        key={`plugins-${source}`}
-                        serverId={serverId}
-                        source={source}
-                        resource="plugins"
-                        detected={configQ.data ?? null}
-                    />
-                )}
-                {tab === 'modpacks' && <ModpackBrowser serverId={serverId} />}
-                {tab === 'queue' && <QueueTab serverId={serverId} />}
-            </div>
+            <Suspense fallback={<div className="flex flex-1 items-center justify-center py-24"><Spinner className="h-6 w-6" /></div>}>
+                <div className="flex min-h-0 flex-1 flex-col">
+                    {tab === 'installed' && <InstalledAddons serverId={serverId} />}
+                    {tab === 'mods' && (
+                        <ModBrowser
+                            key={`mods-${source}`}
+                            serverId={serverId}
+                            source={source}
+                            resource="mods"
+                            detected={configQ.data ?? null}
+                        />
+                    )}
+                    {tab === 'plugins' && (
+                        <ModBrowser
+                            key={`plugins-${source}`}
+                            serverId={serverId}
+                            source={source}
+                            resource="plugins"
+                            detected={configQ.data ?? null}
+                        />
+                    )}
+                    {tab === 'modpacks' && <ModpackBrowser serverId={serverId} />}
+                    {tab === 'queue' && <QueueTab serverId={serverId} />}
+                </div>
+            </Suspense>
         </div>
     );
 }

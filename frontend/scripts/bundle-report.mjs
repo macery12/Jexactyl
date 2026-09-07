@@ -14,7 +14,17 @@ const routes = [
     { name: 'Login', entry: 'src/public.tsx', catalog: 'virtual:m12-i18n-catalog/public/en', layout: 'src/layouts/AuthLayout.tsx', source: 'src/pages/auth/LoginPage.tsx', cap: 385_000 },
     { name: 'Dashboard', entry: 'src/main.tsx', catalog: 'virtual:m12-i18n-catalog/full/en', layout: 'src/layouts/DashboardLayout.tsx', source: 'src/pages/dashboard/DashboardPage.tsx', cap: 360_000 },
     { name: 'Server overview', entry: 'src/main.tsx', catalog: 'virtual:m12-i18n-catalog/full/en', layout: 'src/layouts/ServerLayout.tsx', source: 'src/pages/server/ServerOverviewPage.tsx', cap: 440_000 },
-    { name: 'File manager', entry: 'src/main.tsx', catalog: 'virtual:m12-i18n-catalog/full/en', layout: 'src/layouts/ServerLayout.tsx', source: 'src/pages/server/files/FilesSection.tsx', cap: 520_000 },
+    {
+        name: 'File manager',
+        entry: 'src/main.tsx',
+        catalog: 'virtual:m12-i18n-catalog/full/en',
+        layout: 'src/layouts/ServerLayout.tsx',
+        source: [
+            'src/pages/server/files/FilesSection.tsx',
+            'src/pages/server/files/components/FileBrowser.tsx',
+        ],
+        cap: 520_000,
+    },
 ];
 
 function closure(...roots) {
@@ -49,7 +59,8 @@ function filesBelow(directory) {
 }
 
 const routeRows = routes.map(route => {
-    const keys = closure(route.entry, route.catalog, route.layout, route.source);
+    const sources = Array.isArray(route.source) ? route.source : [route.source];
+    const keys = closure(route.entry, route.catalog, route.layout, ...sources);
     return { ...route, ...summarize(keys) };
 });
 

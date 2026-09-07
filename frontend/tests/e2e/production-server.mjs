@@ -47,6 +47,16 @@ const adminNestsSection = 'src/pages/admin/nests/NestsSection.tsx';
 const adminAiSection = 'src/pages/admin/ai/AiSection.tsx';
 const adminEmailSection = 'src/pages/admin/email/EmailSection.tsx';
 const adminMarketplaceSection = 'src/pages/admin/marketplace/MarketplaceSection.tsx';
+const serverFilesSection = 'src/pages/server/files/FilesSection.tsx';
+const serverMarketplaceSection = 'src/pages/server/marketplace/MarketplaceSection.tsx';
+const serverSchedulesSection = 'src/pages/server/schedules/SchedulesSection.tsx';
+const serverRouteEntries = [
+    [/^\/server\/[^/]+\/files$/, [serverFilesSection, 'src/pages/server/files/components/FileBrowser.tsx']],
+    [/^\/server\/[^/]+\/files\/(?:new|edit\/.+)$/, [serverFilesSection, 'src/pages/server/files/components/FileEditor.tsx']],
+    [/^\/server\/[^/]+\/marketplace(?:\/.*)?$/, serverMarketplaceSection],
+    [/^\/server\/[^/]+\/schedules$/, [serverSchedulesSection, 'src/pages/server/schedules/SchedulesListPage.tsx']],
+    [/^\/server\/[^/]+\/schedules\/[^/]+$/, [serverSchedulesSection, 'src/pages/server/schedules/ScheduleDetailPage.tsx']],
+];
 const adminRouteEntries = [
     [/^\/admin\/billing$/, [adminBillingSection, 'src/pages/admin/billing/BillingOverviewPage.tsx']],
     [/^\/admin\/billing\/products$/, [adminBillingSection, 'src/pages/admin/billing/products/ProductsPage.tsx']],
@@ -254,9 +264,11 @@ function documentHtml(pathname, authenticated) {
         .join('');
     const localePreload = `<link rel="modulepreload" as="script" data-locale-preload href="/build/${localeEntry.file}">`;
     const routeEntries = authenticated
-        ? pathname.startsWith('/admin/')
-            ? adminRouteEntries
-            : accountRouteEntries
+        ? pathname.startsWith('/server/')
+            ? serverRouteEntries
+            : pathname.startsWith('/admin/')
+              ? adminRouteEntries
+              : accountRouteEntries
         : authRouteEntries;
     const matchedRouteKeys = routeEntries.find(([pattern]) => pattern.test(pathname))?.[1];
     const routeKeys = matchedRouteKeys ? (Array.isArray(matchedRouteKeys) ? matchedRouteKeys : [matchedRouteKeys]) : [];

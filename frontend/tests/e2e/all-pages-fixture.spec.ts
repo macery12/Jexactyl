@@ -18,5 +18,14 @@ for (const route of routes) {
         if (route.area === 'admin' && /\/(?:billing|infrastructure|nests|ai|email|marketplace)(?:\/|$)/.test(new URL(route.url, 'http://fixture.test').pathname)) {
             expect(await page.locator('link[data-route-preload]').count()).toBeGreaterThanOrEqual(2);
         }
+        if (route.area === 'server') {
+            const pathname = new URL(route.url, 'http://fixture.test').pathname;
+            if (/\/marketplace(?:\/|$)/.test(pathname)) {
+                await expect(page.locator('link[data-route-preload]')).toHaveCount(1);
+            }
+            if (/\/(?:files|schedules)(?:\/|$)/.test(pathname)) {
+                await expect(page.locator('link[data-route-preload]')).toHaveCount(2);
+            }
+        }
     });
 }

@@ -136,11 +136,26 @@
                 request()->is('admin/billing/settings/advanced') => 'src/pages/admin/billing/settings/AdvancedTab.tsx',
                 default => null,
             };
+            $initialServerSectionEntry = match (true) {
+                request()->is('server/*/files', 'server/*/files/*') => 'src/pages/server/files/FilesSection.tsx',
+                request()->is('server/*/marketplace', 'server/*/marketplace/*') => 'src/pages/server/marketplace/MarketplaceSection.tsx',
+                request()->is('server/*/schedules', 'server/*/schedules/*') => 'src/pages/server/schedules/SchedulesSection.tsx',
+                default => null,
+            };
+            $initialServerPageEntry = match (true) {
+                request()->is('server/*/files/new', 'server/*/files/edit/*') => 'src/pages/server/files/components/FileEditor.tsx',
+                request()->is('server/*/files') => 'src/pages/server/files/components/FileBrowser.tsx',
+                request()->is('server/*/schedules/*') => 'src/pages/server/schedules/ScheduleDetailPage.tsx',
+                request()->is('server/*/schedules') => 'src/pages/server/schedules/SchedulesListPage.tsx',
+                default => null,
+            };
             $initialRouteEntries = array_values(array_unique(array_filter([
                 $initialRouteEntry,
                 $initialAdminSectionEntry,
                 $initialAdminPageEntry,
                 $initialAdminTabEntry,
+                $initialServerSectionEntry,
+                $initialServerPageEntry,
             ])));
 
             $initialLayoutEntry = match (true) {
